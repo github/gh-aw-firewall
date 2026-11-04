@@ -16,6 +16,7 @@ import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { createRunner, AwfRunner } from '../fixtures/awf-runner';
 import { cleanup } from '../fixtures/cleanup';
 import * as net from 'net';
+import execa from 'execa';
 
 /**
  * Start a TCP echo server on a given port.
@@ -130,6 +131,41 @@ describe('Host TCP Service Ports', () => {
       expect(result.stdout).toContain('ECHO:PGTEST');
     } finally {
       if (server) await server.close();
+    }
+  }, 120000);
+
+  test('should allow a published service on another bridge without allowing direct container access', async () => {
+    const name = `awf-host-service-${process.pid}`;
+    await execa('docker', ['network', 'create', name]);
+    try {
+      await execa('docker', [
+        'run', '-d', '--name', name, '--network', name,
+        '-p', '16379:6379', '-p', '16380:6379', 'redis:7-alpine',
+        'redis-server', '--protected-mode', 'no',
+      ]);
+      const { stdout: serviceIp } = await execa('docker', [
+        'inspect', '--format', '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}', name,
+      ]);
+      const result = await runner.runWithSudo(
+        `bash -ceu '
+          reply=$(printf "PING\\r\\n" | nc -w 5 host.docker.internal 16379)
+          test "$reply" = "$(printf "+PONG\\r")"
+          if nc -z -w 3 host.docker.internal 16380; then exit 1; fi
+          if nc -z -w 3 ${serviceIp.trim()} 6379; then exit 1; fi
+          echo PUBLISHED_SERVICE_PASS
+        '`,
+        {
+          allowDomains: ['github.com'],
+          allowHostServicePorts: '16379',
+          logLevel: 'debug',
+          timeout: 60000,
+        },
+      );
+      expect(result).toSucceed();
+      expect(result.stdout).toContain('PUBLISHED_SERVICE_PASS');
+    } finally {
+      await execa('docker', ['rm', '-f', name], { reject: false });
+      await execa('docker', ['network', 'rm', name]);
     }
   }, 120000);
 
