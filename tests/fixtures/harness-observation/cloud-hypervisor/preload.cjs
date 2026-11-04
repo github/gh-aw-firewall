@@ -19,10 +19,17 @@ function install() {
   const execute = CloudHypervisorManager.prototype.execute;
   let probeRequest;
   let published = false;
+  let cancellationSignal;
   const directory = process.env.AWF_CH_CASE;
   const expected = JSON.parse(fs.readFileSync(`${directory}/expected.json`, 'utf8'));
+  if (expected.cancel) {
+    process.once('SIGTERM', () => { cancellationSignal = 'SIGTERM'; });
+    process.once('SIGINT', () => { cancellationSignal = 'SIGINT'; });
+  }
   const evidenceFile = `${directory}/evidence.json`;
-  const evidence = { schemaVersion: 1, evidence: 'live-cloud-hypervisor', commandEntered: false };
+  const evidence = {
+    schemaVersion: 1, evidence: 'live-cloud-hypervisor', commandEntered: false, probeTimedOut: false,
+  };
   const save = () => fs.writeFileSync(evidenceFile, `${JSON.stringify(evidence, null, 2)}\n`);
   const context = request => ({
     uid: request.uid, gid: request.gid, cwd: request.cwd, shell: request.argv.slice(0, 2),
@@ -90,9 +97,10 @@ function install() {
     if (expected.cancel) {
       evidence.cancellationReportStatus = report.status;
       save();
-      if (failure) throw failure;
-      return report;
+      const { waitForSignalExit } = require(`${root}/scripts/ci/cloud-hypervisor-harness-observation.cjs`);
+      await waitForSignalExit(cancellationSignal, report, evidence.probeTimedOut);
     }
+    if (failure) throw failure;
     assert.deepEqual(report, {
       ...observations.harnessContext(config),
       ...(expected.reason ? { status: 'unavailable', reason: expected.reason } : {

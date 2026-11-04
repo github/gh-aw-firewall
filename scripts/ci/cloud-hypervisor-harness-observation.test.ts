@@ -13,6 +13,7 @@ const driver = require('./cloud-hypervisor-harness-observation.cjs') as {
   };
   cleanEnvironment(directory: string): Record<string, string>;
   artifactArguments(directory: string): { args: string[]; digests: Record<string, string> };
+  waitForSignalExit(signal: string | undefined, report: { status: string }, probeTimedOut: boolean): Promise<never>;
 };
 const fixtureRoot = path.resolve(__dirname, '../../tests/fixtures/harness-observation/cloud-hypervisor');
 const workflowFile = path.resolve(__dirname, '../../.github/workflows/test-cloud-hypervisor.yml');
@@ -114,6 +115,36 @@ describe('portable Cloud Hypervisor acceptance fixtures (not KVM evidence)', () 
     expect(driver.expected({ harness: 'codex', relative: true, mode: 'valid' }).binary).toBe('./bin/codex');
   });
 
+  it('keeps cancelled workflow continuation pending until signal cleanup exits', () => {
+    const cleanup = `${directory}/cleanup`;
+    const resumed = `${directory}/resumed`;
+    const script = `
+      const fs = require('node:fs');
+      const { waitForSignalExit } = require(${JSON.stringify(driverFile)});
+      let signal;
+      process.once('SIGTERM', () => {
+        signal = 'SIGTERM';
+        fs.writeFileSync(${JSON.stringify(cleanup)}, 'started');
+        setTimeout(() => {
+          fs.writeFileSync(${JSON.stringify(cleanup)}, 'complete');
+          process.exit(143);
+        }, 25);
+      });
+      setInterval(() => {}, 1000);
+      (async () => {
+        process.kill(process.pid, 'SIGTERM');
+        await new Promise(resolve => process.once('SIGTERM', resolve));
+        await waitForSignalExit(signal, { status: 'unavailable' }, false);
+        fs.writeFileSync(${JSON.stringify(resumed)}, 'continued');
+      })();
+    `;
+    const result = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 2000 });
+    expect(result.status).toBe(143);
+    expect(fs.readFileSync(cleanup, 'utf8')).toBe('complete');
+    expect(fs.existsSync(resumed)).toBe(false);
+    expect(() => driver.waitForSignalExit('SIGTERM', { status: 'unavailable' }, true)).toThrow();
+  });
+
   it('does not forward ambient credentials or preload options to the CLI', () => {
     const environment = driver.cleanEnvironment(directory);
     expect(environment.GITHUB_WORKSPACE).toBe(`${directory}/workspace`);
@@ -141,7 +172,7 @@ describe('portable Cloud Hypervisor acceptance fixtures (not KVM evidence)', () 
         ? { ...context, status, version: '1.2.3', resolvedBinary: '/workspace/bin/copilot' }
         : { ...context, status, reason: 'probe_output_invalid' };
       const filename = `${directory}/report.json`;
-      fs.writeFileSync(filename, JSON.stringify(report));
+      fs.writeFileSync(filename, JSON.stringify(report), { mode: 0o644 });
       const proxyRoot = path.resolve(__dirname, '../../containers/api-proxy');
       const script = `
         const Module = require('node:module');

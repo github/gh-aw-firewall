@@ -30,6 +30,12 @@ const versions = {
   claude: ['2.1.3 (Claude Code)', '2.1.3'],
   codex: ['codex-cli 0.89.0', '0.89.0'],
 };
+function waitForSignalExit(signal, report, probeTimedOut) {
+  assert.equal(signal, 'SIGTERM');
+  assert.equal(report.status, 'unavailable');
+  assert.equal(probeTimedOut, false);
+  return new Promise(() => {});
+}
 const reasons = {
   missing: 'binary_missing', malformed: 'probe_output_invalid', failed: 'probe_failed',
   overflow: 'probe_output_limit', 'over-boundary': 'probe_output_limit', timeout: 'probe_timed_out',
@@ -91,10 +97,26 @@ function assertSanitizedTree(directory) {
     if (entry.isDirectory()) assertSanitizedTree(filename);
     else {
       assert(entry.isFile(), 'unexpected diagnostic file type');
-      assert(fs.statSync(filename).size <= 16 * 1024 * 1024, 'diagnostic file exceeds scan bound');
-      const data = fs.readFileSync(filename);
-      assert(!data.includes(secret), 'credential sentinel leaked into audit/proxy logs');
-      assert(!data.includes('discard-this-ch'), 'raw probe output leaked into audit/proxy logs');
+      const descriptor = fs.openSync(filename, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      try {
+        assert(fs.fstatSync(descriptor).isFile(), 'unexpected diagnostic file type');
+        const maximum = 16 * 1024 * 1024;
+        const chunks = [];
+        let total = 0;
+        const buffer = Buffer.alloc(64 * 1024);
+        while (true) {
+          const bytes = fs.readSync(descriptor, buffer, 0, Math.min(buffer.length, maximum + 1 - total), null);
+          if (bytes === 0) break;
+          total += bytes;
+          assert(total <= maximum, 'diagnostic file exceeds scan bound');
+          chunks.push(Buffer.from(buffer.subarray(0, bytes)));
+        }
+        const data = Buffer.concat(chunks, total);
+        assert(!data.includes(secret), 'credential sentinel leaked into audit/proxy logs');
+        assert(!data.includes('discard-this-ch'), 'raw probe output leaked into audit/proxy logs');
+      } finally {
+        fs.closeSync(descriptor);
+      }
     }
   }
 }
@@ -265,6 +287,8 @@ async function suite(artifactDirectory, output) {
           }
         } else {
           assert(evidence.probeRequest, 'cancellation did not reach actual producer');
+          assert.equal(evidence.cancellationReportStatus, 'unavailable');
+          assert.equal(evidence.probeTimedOut, false);
           result.cancelledDuringGuestProbe = true;
         }
         await assertNoResidue();
@@ -317,4 +341,4 @@ if (require.main === module) {
     process.exitCode = 1;
   });
 }
-module.exports = { cases, expected, artifactArguments, cleanEnvironment };
+module.exports = { cases, expected, artifactArguments, cleanEnvironment, waitForSignalExit };
