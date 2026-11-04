@@ -13,7 +13,7 @@ import {
 } from '../../src/nvx';
 import { guardStaleChildPipe } from './nvx-manager-live-evidence-stream';
 
-interface Inputs {
+export interface Inputs {
   artifacts: string;
   layer: string;
   bridge: string;
@@ -159,7 +159,7 @@ interface RunCaseOptions {
   hostInteraction?: () => Promise<void>;
 }
 
-async function runCase(
+export async function runCase(
   inputs: Inputs,
   options: RunCaseOptions,
 ) {
@@ -589,7 +589,7 @@ async function inspectResidue(layout: ReturnType<typeof createNvxRunLayout>): Pr
   return residue;
 }
 
-function parseInputs(args: readonly string[]): Inputs {
+export function parseInputs(args: readonly string[]): Inputs {
   const values = new Map<string, string>();
   for (let index = 0; index < args.length; index += 2) {
     const name = args[index];
@@ -616,7 +616,9 @@ function parseInputs(args: readonly string[]): Inputs {
   };
 }
 
-void main().catch((error) => {
-  console.error(error instanceof Error ? error.stack : String(error));
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  void main().catch((error) => {
+    console.error(error instanceof Error ? error.stack : String(error));
+    process.exitCode = 1;
+  });
+}

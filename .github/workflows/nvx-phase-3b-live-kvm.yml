@@ -11,6 +11,8 @@ on:
       - 'src/container-runtime.test.ts'
       - 'src/microvm/**'
       - 'scripts/ci/nvx-manager-live-evidence.ts'
+      - 'scripts/ci/nvx-harness-execute-evidence*'
+      - 'tests/fixtures/harness-observation/nvx-executable.sh'
       - 'docs/nvx-security-design.md'
 
 permissions:
@@ -646,6 +648,21 @@ jobs:
             "$layer_root/usr/local/bin/run-copilot-proof"
           sudo chown -R 65534:65534 "$layer_root/home/nobody"
 
+          # Dedicated fixture paths do not replace the real Copilot executable.
+          for fixture in valid/copilot valid/claude valid/codex \
+            malformed/copilot failed/copilot overflow/copilot timeout/copilot; do
+            target="$layer_root/usr/local/awf-harness-fixtures/$fixture"
+            mkdir -p "$(dirname "$target")"
+            install -m 0755 tests/fixtures/harness-observation/nvx-executable.sh "$target"
+          done
+          sudo env "AWF_NVX_EVIDENCE_REVISION=$(git rev-parse HEAD)" \
+            "$PWD/node_modules/.bin/tsx" scripts/ci/nvx-harness-execute-evidence.ts \
+            --artifacts "$artifact_dir" \
+            --layer "$layer_root" \
+            --bridge "$bridge" \
+            --signerWorkflow "$SIGNER_WORKFLOW" \
+            --evidence "$EVIDENCE_DIR"
+
           evidence_runner="$RUNNER_TEMP/nvx-manager-live-evidence.cjs"
           ./node_modules/.bin/esbuild \
             scripts/ci/nvx-manager-live-evidence.ts \
@@ -666,6 +683,7 @@ jobs:
           AWF_NVX_PACKAGE_ROOT: ${{ runner.temp }}/nvx-package/nvx-0.1.0-linux-kvm
         run: |
           npm test -- --runTestsByPath \
+            scripts/ci/nvx-harness-execute-evidence.test.ts \
             scripts/ci/nvx-release-contract.test.ts \
             src/nvx/cleanup-record.test.ts \
             src/nvx/artifact-manifest.test.ts \

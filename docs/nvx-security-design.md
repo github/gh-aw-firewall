@@ -425,6 +425,57 @@ does not weaken any Phase 3f invariant above.
   process table, and lets agent commands contain whitespace, which a
   whitespace-free `nvx_arg=` token cannot express.
 
+### Harness execution tests without invocation changes
+
+The provider-free fixture cases in
+`scripts/ci/nvx-harness-execute-evidence.ts` call the existing
+`NvxManager.execute()` interface directly: a fixture executable is the
+entrypoint, with `--version` as its argument. They add no guest wrapper,
+mount, launch flag, control channel, or production lifecycle change.
+Fixtures live under `/usr/local/awf-harness-fixtures` in the test distro;
+they never shadow the real Copilot executable or call a provider.
+
+The opt-in `.github/workflows/nvx-phase-3b-live-kvm.yml` runner installs these
+fixtures and runs the cases before its existing end-to-end checks. The new
+cases recover the three harness version formats, malformed and oversized
+output, a failed version command, command exit `23`, execution timeout, and
+cancellation. Each execution uses a fresh run ID and the existing cleanup
+checks. The fixture prints its numeric UID/GID, cwd and ordinary environment
+defaults; the test expects the existing direct-entrypoint identity
+`65534:65534`, cwd `/`, PATH `/usr/sbin:/usr/bin:/sbin:/bin`, HOME
+`/home/nobody`, and USER/LOGNAME `nobody`. This is not a test of the primary
+agent's generated environment, PATH, login-shell state, or configured cwd.
+The workflow retains its existing `nvx-live-kvm` label /
+manual-dispatch gate; adding these tests does not dispatch it.
+
+`harness-execute.json` records the tested checkout revision, host kernel and
+architecture, artifact-manifest and fixture hashes, individual results,
+bounded recovered console data, confinement evidence, and cleanup residue.
+It is **execute/output characterization, not canonical observation or
+admission acceptance**:
+
+- The existing output sinks and raw tails contain OpenVMM/guest console
+  bytes, including init diagnostics. They do not identify isolated harness
+  stdout and stderr. The final VMM-owned outcome validates exit, network,
+  and teardown, but contains no harness version.
+- The test checks expected fixture output alongside the execution result,
+  never a serial marker alone. Its `120s` execution watchdog (`10s` for the
+  timeout case) and `64 KiB` console tails are not the canonical
+  `10s`/`4096-byte` selected-harness probe bounds.
+- Independent disposable executions are not same-instance evidence or a
+  proof of environment equivalence. They do not gate the primary command,
+  publish `harness-observation.json`, or change proxy eligibility pins.
+  Production NVX observations remain `runtime_probe_unsupported`; applicable
+  unresolved requirements remain unverified, and unconstrained admission
+  does not become verified harness support.
+
+The companion Jest suite tests fixture behavior in a **local shell** and
+the evidence runner with deterministic injected executions. Those checks
+are not live NVX evidence. Live acceptance requires this exact revision to
+run on supported Linux x86_64 KVM infrastructure with the attested artifacts;
+missing KVM, artifacts, permissions, a skipped job, or unrelated NVX runs
+must be reported as a gap, not a successful acceptance run.
+
 ### Troubleshooting
 
 **`nvx` requires an explicit preview acknowledgement**

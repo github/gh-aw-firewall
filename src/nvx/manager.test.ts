@@ -262,6 +262,29 @@ describe('NvxManager', () => {
     expect(value.cleanupHandle.complete).toHaveBeenCalledTimes(1);
   });
 
+  it('returns existing console tails and guest exit status after the disposable execution is cleaned', async () => {
+    const value = harness();
+    const execute = jest.mocked(value.launchExecutor.execute);
+    const launch = execute.getMockImplementation()!;
+    const stdout = Buffer.from('NVX-SANDBOX-READY: pid=1 layers=1\n1.2.3\nNVX-SANDBOX-EXIT: status=7\n');
+    const stderr = Buffer.from('fixture version error\n');
+    execute.mockImplementation(async (options) => ({
+      ...await launch(options),
+      exitCode: 7,
+      category: 'guest-exit',
+      rawStdoutTail: stdout,
+      rawStderrTail: stderr,
+    }));
+
+    const result = await value.manager.execute();
+    expect(result).toMatchObject({
+      exitCode: 7, category: 'guest-exit', rawStdoutTail: stdout, rawStderrTail: stderr,
+    });
+    expect(value.filesystemBuilder.cleanup).toHaveBeenCalledTimes(1);
+    expect(value.cleanupHandle.complete).toHaveBeenCalledTimes(1);
+    expect(result.rawStdoutTail.toString()).not.toBe('1.2.3\n');
+  });
+
   it('rolls back partial setup and retains the record when cleanup fails', async () => {
     const value = harness();
     value.network.setup = jest.fn(async () => {
