@@ -6,7 +6,18 @@ import { load } from 'js-yaml';
 import {
   collectNvxHarnessExecuteEvidence, NVX_HARNESS_FIXTURE_ROOT,
 } from './nvx-harness-execute-evidence';
-import type { Inputs } from './nvx-manager-live-evidence';
+import { runCase, type Inputs } from './nvx-manager-live-evidence';
+import type { NvxManagerConfig, NvxOneShotExecutionResult } from '../../src/nvx';
+
+const mockManagerExecute = jest.fn<Promise<NvxOneShotExecutionResult>, [NvxManagerConfig]>();
+jest.mock('../../src/nvx', () => ({
+  ...jest.requireActual('../../src/nvx'),
+  NvxManager: jest.fn().mockImplementation((config: NvxManagerConfig) => ({
+    execute: () => mockManagerExecute(config),
+    getConfinementEvidence: () => ({ schemaVersion: 1 }),
+  })),
+}));
+jest.mock('execa', () => jest.fn(async () => ({ stdout: '' })));
 
 type Execute = NonNullable<Parameters<typeof collectNvxHarnessExecuteEvidence>[1]>;
 const inputs: Inputs = {
@@ -49,6 +60,106 @@ function fakeExecute(): jest.MockedFunction<Execute> {
     };
   });
 }
+
+describe('NVX cancellation synchronization (mock manager, not live KVM)', () => {
+  const marker = 'NVX-FIXTURE-ENV:';
+  const environment = `${marker} path=/usr/sbin:/usr/bin:/sbin:/bin ` +
+    'home=/home/nobody user=nobody logname=nobody\n';
+  const options = {
+    name: 'execution-cancel',
+    entrypoint: `${NVX_HARNESS_FIXTURE_ROOT}/timeout/copilot`,
+    args: ['--version'],
+    timeoutMs: 120_000,
+    cancelOnOutput: { marker, delayMs: 10_000, startupTimeoutMs: 90_000 },
+  };
+  let config: NvxManagerConfig;
+  const cancelled: NvxOneShotExecutionResult = {
+    exitCode: 130, category: 'cancelled', signal: 'SIGTERM', timedOut: false,
+    rawStdoutTail: Buffer.alloc(0), rawStderrTail: Buffer.alloc(0),
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    jest.spyOn(fs, 'access').mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }));
+    mockManagerExecute.mockImplementation(value => {
+      config = value;
+      return new Promise(resolve => {
+        config.execution.abortSignal!.addEventListener('abort', () => resolve(cancelled), { once: true });
+      });
+    });
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+    mockManagerExecute.mockReset();
+  });
+
+  it.each([
+    ['whole environment line', [environment]],
+    ['marker inside a large chunk', [`${'x'.repeat(70_000)}\n${environment}${'y'.repeat(70_000)}`]],
+    ['marker near the end of a chunk', [`prefix\n${marker} suffix`]],
+    ['marker at the end of a chunk', [`prefix\n${marker}`]],
+    ['marker split across chunks', ['prefix\nNVX-FIX', `TURE-ENV:${environment.slice(marker.length)}`]],
+    ['marker split into single characters', [...marker, environment.slice(marker.length)]],
+  ])('detects %s before discarding the output tail', async (_name, chunks) => {
+    const execution = runCase(inputs, options);
+    for (const chunk of chunks) config.execution.stdout!.write(Buffer.from(chunk));
+    await jest.advanceTimersByTimeAsync(9_999);
+    expect(config.execution.abortSignal!.aborted).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(config.execution.abortSignal!.aborted).toBe(true);
+    const evidence = await execution;
+    expect(evidence.result.category).toBe('cancelled');
+    expect(evidence.output.stdout).toBe(
+      Buffer.from(chunks.join('')).subarray(-64 * 1024).toString('utf8'),
+    );
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('does not reschedule cancellation for repeated markers', async () => {
+    const execution = runCase(inputs, options);
+    config.execution.stdout!.write(Buffer.from(environment));
+    await jest.advanceTimersByTimeAsync(5_000);
+    config.execution.stdout!.write(Buffer.from(environment));
+    await jest.advanceTimersByTimeAsync(5_000);
+    expect(config.execution.abortSignal!.aborted).toBe(true);
+    await execution;
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('keeps the startup watchdog and rejects absent, incomplete or noncontiguous markers', async () => {
+    const execution = runCase(inputs, options);
+    const failure = expect(execution).rejects.toThrow('execution-cancel did not emit its cancellation startup marker');
+    for (const chunk of ['x'.repeat(70_000), 'NVX-FIX', 'x'.repeat(70_000), 'TURE-ENV:', 'NVX-FIXTURE-ENV']) {
+      config.execution.stdout!.write(Buffer.from(chunk));
+    }
+    config.execution.stderr!.write(Buffer.from(environment));
+    await jest.advanceTimersByTimeAsync(89_999);
+    expect(config.execution.abortSignal!.aborted).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    await failure;
+    expect(config.execution.abortSignal!.aborted).toBe(true);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('rejects a missing marker even if execution finishes before the watchdog', async () => {
+    mockManagerExecute.mockResolvedValue(cancelled);
+    await expect(runCase(inputs, options)).rejects.toThrow('did not emit its cancellation startup marker');
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('propagates execution errors even after observing the marker', async () => {
+    const error = new Error('NVX cleanup failed');
+    mockManagerExecute.mockImplementation(async value => {
+      value.execution.stdout!.write(Buffer.from(environment));
+      throw error;
+    });
+    await expect(runCase(inputs, options)).rejects.toThrow(error);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+});
 
 describe('NVX existing execute evidence (deterministic, not live KVM)', () => {
   it('uses direct fixture entrypoints and existing arguments without guest wrappers, mounts or environment injection', async () => {

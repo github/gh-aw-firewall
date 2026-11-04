@@ -478,6 +478,12 @@ admission acceptance**:
   never a serial marker alone. Its `120s` execution watchdog (`10s` for the
   timeout case) and `64 KiB` console tails are not the canonical
   `10s`/`4096-byte` selected-harness probe bounds.
+- Cancellation uses the fixture environment marker only as untrusted test
+  synchronization data. The helper searches each complete incoming chunk plus
+  a bounded overlap from the previous chunk before retaining the next overlap,
+  so a marker followed by environment fields is not discarded before detection.
+  The `90s` startup watchdog and `10s` post-marker cancellation delay remain
+  test-side bounds, not production admission authority.
 - Independent disposable executions are not same-instance evidence or a
   proof of environment equivalence. They do not gate the primary command,
   publish `harness-observation.json`, or change proxy eligibility pins.
@@ -491,6 +497,18 @@ are not live NVX evidence. Live acceptance requires this exact revision to
 run on supported Linux x86_64 KVM infrastructure with the attested artifacts;
 missing KVM, artifacts, permissions, a skipped job, or unrelated NVX runs
 must be reported as a gap, not a successful acceptance run.
+
+The fixture-only [run 41887419570](https://github.com/github/gh-aw-firewall/actions/runs/41887419570)
+tested main `98fdb5f6fa3673c5b4767403324d19a632569705`. Its artifact builder
+succeeded, full provider inference was skipped, and all 120 deterministic
+checks passed. Nine real KVM guests booted; the first eight fixture cases
+passed their checks, but the cancellation helper discarded the emitted marker
+before searching and hit its startup watchdog. No `harness-execute.json`
+artifact was published. This is partial live evidence, not nine-case acceptance
+or a confirmed NVX runtime defect. The helper fix and deterministic regressions
+do not replace a reviewed-candidate, separately authorized fixture-only rerun;
+[issue #11092](https://github.com/github/gh-aw-firewall/issues/11092) remains open
+pending complete actual fixture acceptance.
 
 ### Troubleshooting
 

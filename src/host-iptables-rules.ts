@@ -208,10 +208,19 @@ async function addHostAccessRules(
 
   for (const gwIp of gatewayIps) {
     for (const port of allPorts) {
+      const portSpec = port.replace('-', ':');
       logger.debug(`Allowing host gateway traffic: ${gwIp}:${port}`);
       await execa('iptables', [
         '-t', 'filter', '-A', chain,
-        '-p', 'tcp', '-d', gwIp, '--dport', port,
+        '-p', 'tcp', '-d', gwIp, '--dport', portSpec,
+        '-j', 'ACCEPT',
+      ]);
+      // Docker DNATs published ports before DOCKER-USER; match the host-facing
+      // tuple, not the translated container IP/port, to keep access gateway-only.
+      await execa('iptables', [
+        '-t', 'filter', '-A', chain,
+        '-p', 'tcp', '-m', 'conntrack', '--ctstate', 'DNAT', '--ctdir', 'ORIGINAL',
+        '--ctorigdst', gwIp, '--ctorigdstport', portSpec,
         '-j', 'ACCEPT',
       ]);
     }

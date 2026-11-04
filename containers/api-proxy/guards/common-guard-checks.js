@@ -58,7 +58,7 @@ function buildCommonGuardChecks(deps, model, provider = null) {
     buildModelPolicyError,
   } = deps;
 
-  checkModelPricing(model, provider);
+  const pricingError = checkModelPricing(model, provider);
 
   return [
     {
@@ -110,6 +110,14 @@ function buildCommonGuardChecks(deps, model, provider = null) {
         max_ai_credits: block.maxAiCredits,
         hard_cap: block.hardCap === true,
       }),
+    },
+    {
+      block: pricingError,
+      isBlocked: block => !!block,
+      statusCode: 500,
+      eventName: 'pricing_resolution_error',
+      buildError: block => block,
+      buildLogFields: () => ({ reason: 'accounting_unavailable' }),
     },
     // Model-specific guards — only active when a model was identified in the request.
     ...(model ? [
