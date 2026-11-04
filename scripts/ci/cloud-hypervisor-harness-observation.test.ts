@@ -232,4 +232,94 @@ describe('portable Cloud Hypervisor acceptance fixtures (not KVM evidence)', () 
       execFileSync(process.execPath, ['--check', file]);
     }
   });
+
+  it('keeps the existing KVM label provider-free and distinct from every label-triggered inference gate', () => {
+    const workflows = path.resolve(__dirname, '../../.github/workflows');
+    type LabelWorkflow = {
+      name?: string;
+      on?: {
+        pull_request?: { types?: string[] };
+        workflow_run?: { workflows?: string[] };
+      };
+      jobs?: Record<string, { if?: string; needs?: string | string[] }>;
+    };
+    const normalized = (expression = '') => expression.replace(/\s+/g, ' ').trim();
+    const needs = (job: { needs?: string | string[] }) =>
+      typeof job.needs === 'string' ? [job.needs] : job.needs || [];
+    const label = 'cloud-hypervisor-kvm';
+    const labelOwners = fs.readdirSync(workflows).filter(name => name.endsWith('.yml') &&
+      fs.readFileSync(path.join(workflows, name), 'utf8').includes(`'${label}'`));
+    expect(labelOwners).toEqual(['test-cloud-hypervisor.yml']);
+    const primary = fs.readFileSync(workflowFile, 'utf8');
+    expect(primary).not.toContain('secrets.');
+    const primaryDoc = yaml.load(primary) as LabelWorkflow;
+    expect(normalized(primaryDoc.jobs!['live-kvm'].if)).toBe(
+      "(github.event_name == 'workflow_dispatch' && inputs.run_live_kvm) || " +
+      "(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'cloud-hypervisor-kvm'))",
+    );
+
+    let checked = 0;
+    for (const filename of fs.readdirSync(workflows).filter(name => name.endsWith('.lock.yml'))) {
+      const doc = yaml.load(fs.readFileSync(path.join(workflows, filename), 'utf8')) as LabelWorkflow;
+      if (!doc.on?.pull_request?.types?.includes('labeled') || !doc.jobs?.agent) continue;
+      checked++;
+      const agent = doc.jobs.agent;
+      expect(needs(agent)).toContain('activation');
+      if (filename === 'security-guard.lock.yml') {
+        expect(normalized(agent.if)).toBe(
+          "((needs.check_security_relevance.outputs.security_files_changed != '0') && " +
+          "((github.event_name == 'pull_request') && github.event.label.name == 'ready-for-aw' || " +
+          "!(github.event_name == 'pull_request'))) && " +
+          "(needs.activation.outputs.daily_ai_credits_exceeded != 'true')",
+        );
+        continue;
+      }
+      // Require the complete known event-selector shape, not just absence of
+      // this label's spelling: an unconditional labeled agent must fail too.
+      expect(normalized(agent.if)).toBe("needs.activation.outputs.daily_ai_credits_exceeded != 'true'");
+      const activation = doc.jobs.activation;
+      const labels = [...normalized(activation.if).matchAll(/github\.event\.label\.name == '([^']+)'/g)]
+        .map(match => match[1]);
+      expect(labels.length).toBeGreaterThan(0);
+      expect(labels).not.toContain(label);
+      const alternatives = labels.map(value => `github.event.label.name == '${value}'`).join(' || ');
+      const eventGate = "(github.event_name == 'pull_request') && " +
+        (labels.length > 1 ? `(${alternatives})` : alternatives) +
+        " || !(github.event_name == 'pull_request')";
+      if (needs(activation).includes('pre_activation')) {
+        expect(normalized(activation.if))
+          .toBe(`needs.pre_activation.outputs.activated == 'true' && (${eventGate})`);
+        expect(normalized(doc.jobs.pre_activation.if)).toBe(eventGate);
+      } else {
+        expect(normalized(activation.if)).toBe(eventGate);
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+
+    const enclave = yaml.load(fs.readFileSync(path.join(workflows, 'test-cloud-hypervisor-enclaves.yml'), 'utf8')) as LabelWorkflow;
+    expect(normalized(enclave.jobs!['live-kvm'].if)).toBe(
+      "always() && !cancelled() && github.event_name == 'workflow_dispatch' && " +
+      "inputs.run_live_kvm && needs.deterministic.result == 'success' && " +
+      "((inputs.artifact_mode == 'candidate' && needs.candidate-artifacts.result == 'success') || " +
+      "(inputs.artifact_mode != 'candidate' && needs.candidate-artifacts.result == 'skipped'))",
+    );
+    expect(primaryDoc.name).toBe('Cloud Hypervisor Preview Integration');
+    expect(enclave.name).toBe('Cloud Hypervisor Enclave Conformance');
+    for (const filename of fs.readdirSync(workflows).filter(name => name.endsWith('.yml'))) {
+      const source = fs.readFileSync(path.join(workflows, filename), 'utf8');
+      if (!source.includes('workflow_run:')) continue;
+      const watcher = (yaml.load(source) as LabelWorkflow).on?.workflow_run;
+      if (!watcher) continue;
+      expect(watcher.workflows?.length).toBeGreaterThan(0);
+      expect(watcher.workflows).not.toContain(primaryDoc.name);
+      expect(watcher.workflows).not.toContain(enclave.name);
+      // A new broad completion watcher requires review of its downstream
+      // inference/credential path, even if it never names this PR label.
+      expect(watcher.workflows!.some(name => /[*?[\]]/.test(name))).toBe(false);
+    }
+    const smoke = fs.readFileSync(path.resolve(__dirname, 'cloud-hypervisor-live-smoke.sh'), 'utf8');
+    expect(smoke).toContain('export OPENAI_API_KEY="$SECRET_SENTINEL"');
+    expect(smoke).not.toMatch(/\b(COPILOT_GITHUB_TOKEN|ANTHROPIC_API_KEY|COPILOT_PROVIDER_API_KEY|GEMINI_API_KEY)\b/);
+    expect(smoke).not.toMatch(/\b(copilot|claude|codex)\s+(?:-p|exec|--model)\b/);
+  });
 });

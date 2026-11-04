@@ -1697,6 +1697,30 @@ retains its reviewed label/dispatch and artifact/host gates; adding these tests
 does not authorize an agent to dispatch a live run. Enclaves, NVX, Docker/ARC-DinD
 live acceptance and sbx are outside this test slice.
 
+The `cloud-hypervisor-kvm` label is **not** an inference opt-in: at this revision
+its only workflow reference is the primary integration job above. That job also
+runs the broader provider-free shell/network/security smoke with a fake OpenAI
+credential sentinel; it is not restricted to the new harness fixtures alone.
+The build requires the existing GitHub Actions OIDC/provenance and artifact
+permissions, so "provider-free" does not mean "no CI credentials or network".
+The credential-bearing enclave live job is dispatch-only. Agentic Copilot,
+Claude, Codex, build and Playwright workflows use separate exact event labels
+(`ready-for-aw` or `test-cloud-hypervisor-*`), not this label. Isolation tests
+check the complete activation-gate shapes, not just label-name absence.
+No current `workflow_run` completion watcher includes either primary integration
+or enclave conformance workflow; the isolation regression also rejects a new
+broad completion wildcard that would require downstream inference review.
+
+Before any authorized run, pin and recheck the reviewed head, its current labels
+and workflow gates. Other opt-ins already present on a PR can independently
+activate their own jobs on a label event or subsequent synchronize event;
+`cloud-hypervisor-kvm` grants no authorization for those jobs. Keep unrelated
+inference labels absent. Required execution prerequisites remain a same-commit
+artifact build with the existing signer/digest validation, an eligible
+GitHub-hosted Ubuntu x86_64 runner with accessible KVM and cgroup v2, Docker and
+the production host preflight. Neither label application nor dispatch is
+performed by the portable tests.
+
 ### Enclave conformance evidence and remaining live gate
 
 `.github/workflows/test-cloud-hypervisor-enclaves.yml` separates deterministic
