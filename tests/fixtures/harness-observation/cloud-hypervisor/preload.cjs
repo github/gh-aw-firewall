@@ -139,7 +139,6 @@ function install() {
       save();
       throw failure;
     }
-    if (failure) throw failure;
     published = true;
     save();
     return report;
