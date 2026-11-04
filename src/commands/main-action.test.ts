@@ -315,6 +315,19 @@ describe('createMainAction', () => {
   });
 
   describe('happy path', () => {
+    it.each([
+      ['copilot -p fixture', true],
+      ['bash -c copilot', false],
+    ])('wires the Docker observation producer only for direct selections: %s', async (agentCommand, supported) => {
+      mockedValidateOptions.validateOptions.mockReturnValueOnce({
+        ...MAIN_ACTION_STUB_CONFIG, agentCommand,
+      });
+      await createMainAction(getOptionValueSource)([agentCommand], {});
+      const dependencies = mockedCliWorkflow.runMainWorkflow.mock.calls[0][1];
+      expect(typeof dependencies.probeHarness).toBe(supported ? 'function' : 'undefined');
+      expect(typeof dependencies.releaseHarness).toBe(supported ? 'function' : 'undefined');
+    });
+
     it('calls workflow steps and exits with 0', async () => {
       mockedCliWorkflow.runMainWorkflow.mockResolvedValue(0);
       const action = createMainAction(getOptionValueSource);
