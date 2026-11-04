@@ -1,0 +1,48 @@
+services:
+  daemon:
+    image: docker:28.5.1-dind
+    privileged: true
+    command: ['dockerd', '--host=tcp://0.0.0.0:2375', '--host=unix:///var/run/docker.sock', '--tls=false']
+    environment:
+      DOCKER_TLS_CERTDIR: ''
+    networks: [control]
+    volumes:
+      - runner-root:/runner:ro
+      - runner-tmp:/runner/tmp:rw
+      - daemon-data:/var/lib/docker
+    mem_limit: 4g
+    cpus: 2
+    pids_limit: 1024
+    healthcheck:
+      test: ['CMD', 'docker', 'info']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  runner:
+    image: awf-harness-runner:local
+    depends_on:
+      daemon:
+        condition: service_healthy
+    environment:
+      DOCKER_HOST: tcp://daemon:2375
+      AWF_LIVE_TOPOLOGY: split-dind
+      AWF_LIVE_AGENT_IMAGE: awf-harness-agent:local
+      AWF_LIVE_ARTIFACTS: /artifacts
+      AWF_LIVE_COMMIT: ${AWF_LIVE_COMMIT:?exact tested commit required}
+    networks: [control]
+    volumes:
+      - runner-root:/staged
+      - runner-tmp:/tmp
+      - ${AWF_LIVE_CHECKOUT:?checkout required}:/work:ro
+      - ${AWF_LIVE_OUTPUT:?artifact directory required}:/artifacts:rw
+    mem_limit: 1g
+    cpus: 1
+    pids_limit: 256
+    command: ['node', 'scripts/ci/live-docker-harness.cjs']
+networks:
+  control:
+    internal: true
+volumes:
+  runner-root:
+  runner-tmp:
+  daemon-data:
