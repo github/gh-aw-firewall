@@ -1648,6 +1648,84 @@ The live job runs only when explicitly enabled by workflow dispatch or the
 After each case, the suite checks for leaked `awfvm-*` namespaces,
 `vmh*`/`vmn*`/`vmt*` interfaces, cgroups, and Cloud Hypervisor processes.
 
+### Provider-free selected-harness acceptance
+
+The same explicitly gated KVM job separately runs
+`scripts/ci/cloud-hypervisor-harness-observation.cjs` against its same-run pinned
+guest artifacts. It starts the compiled CLI, real host infrastructure and primary
+guest for each case. Test-owned Copilot, Claude and Codex executables live only in
+that case's workspace; neither a host-installed harness nor provider inference is
+used. The test preload observes (without replacing) the manager execution channel
+and temporarily supplies test-owned requirements to the ready-runtime validator.
+It does not change bundled catalogue constraints, feed admission or production
+configuration.
+
+The cases check canonical sanitized reports and publication before command entry,
+matching UID/GID, environment, PATH, cwd and `/bin/sh -lc` request semantics,
+absolute and relative guest executable selection, matching-floor admission,
+incompatible/unverified rejection before command entry, and explicitly
+**unconstrained**, not verified-compatible, legacy admission. Missing, malformed,
+failed, oversized, exactly-4096-byte, 4097-byte, timed-out and cancelled guest
+probes exercise the existing 10-second/4096-byte producer bounds. Normal and
+blocked runs require residue-free cleanup; cancellation rendezvous requires the
+fixture's actual guest probe marker before sending SIGTERM. The earlier smoke
+step retains its independent partial-start rollback coverage.
+
+A separate test process inside the running API sidecar reads its real report
+mount. It exercises the real eligibility store, request pin and routing controller
+with test-owned requirements, deterministic catalogue/planner/classifier responses
+and no provider calls. Changed run/harness bindings cannot qualify a new consumer;
+existing request/routing pins retain their original decisions. This is consumer
+fixture coverage with a guest-produced report, not live inference or a full
+production routing conversation.
+
+Only sanitized JSON is uploaded as `cloud-hypervisor-harness-observation-live`: exact checkout
+SHA, runner image/kernel, Node/Docker versions, infrastructure image IDs, guest
+artifact digests/source metadata, per-case probe/command evidence and cleanup
+outcomes. Probe metadata, stderr and the credential sentinel must not occur in
+command output or audit/proxy logs. Failures retain bounded phase information,
+not raw exceptions or logs. Portable fixture/parser/consumer and mocked-manager
+results are uploaded separately as `cloud-hypervisor-harness-deterministic`.
+Portable preload lifecycle regressions also run the compiled observation,
+applicable-floor validator and report publication through real proxy consumers.
+They simulate the guest probe, Docker transport and root-owned file metadata:
+expected incompatible/unverified failures must retain consumer and blocked-case
+evidence before rethrowing the original error; unexpected failures still fail.
+These regressions do not establish guest or mounted-sidecar acceptance.
+
+**Acceptance remains open in [#11091](https://github.com/github/gh-aw-firewall/issues/11091)
+until an eligible KVM run of this new step passes and its exact revision/evidence
+is reviewed.** Portable tests, an unrelated earlier Cloud Hypervisor smoke run,
+an artifact build or a skipped live job do not establish this path. macOS/arm64
+without `/dev/kvm` cannot produce guest evidence; the driver refuses unsupported
+hosts rather than substituting a host version or relaxing preflight. The workflow
+retains its reviewed label/dispatch and artifact/host gates; adding these tests
+does not authorize an agent to dispatch a live run. Enclaves, NVX, Docker/ARC-DinD
+live acceptance and sbx are outside this test slice.
+
+The `cloud-hypervisor-kvm` label is **not** an inference opt-in: at this revision
+its only workflow reference is the primary integration job above. That job also
+runs the broader provider-free shell/network/security smoke with a fake OpenAI
+credential sentinel; it is not restricted to the new harness fixtures alone.
+The build requires the existing GitHub Actions OIDC/provenance and artifact
+permissions, so "provider-free" does not mean "no CI credentials or network".
+The credential-bearing enclave live job is dispatch-only. Agentic Copilot,
+Claude, Codex, build and Playwright workflows use separate exact event labels
+(`ready-for-aw` or `test-cloud-hypervisor-*`), not this label. Isolation tests
+check the complete activation-gate shapes, not just label-name absence.
+No current `workflow_run` completion watcher includes either primary integration
+or enclave conformance workflow; the isolation regression also rejects a new
+broad completion wildcard that would require downstream inference review.
+
+Before any authorized run, pin and recheck the reviewed head, its current labels
+and workflow gates. Other opt-ins already present on a PR can independently
+activate their own jobs on a label event or subsequent synchronize event;
+`cloud-hypervisor-kvm` grants no authorization for those jobs. Keep unrelated
+inference labels absent. Required execution prerequisites remain a same-commit
+artifact build with the existing signer/digest validation, an eligible
+GitHub-hosted Ubuntu x86_64 runner with accessible KVM and cgroup v2, Docker and
+the production host preflight. Neither label application nor dispatch is
+performed by the portable tests.
 ### Selected-harness fixture acceptance
 
 The same opt-in live-KVM job also runs
