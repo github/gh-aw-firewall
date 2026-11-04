@@ -12,8 +12,11 @@ export const CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG = compatibility.releaseTag;
 export const CLOUD_HYPERVISOR_ARTIFACT_REPOSITORY = 'github/gh-aw-firewall';
 const signerWorkflow =
   compatibility.signerWorkflow ?? 'github/gh-aw-firewall/.github/workflows/release.yml';
+export const CLOUD_HYPERVISOR_REGRESSION_SIGNER_WORKFLOW =
+  'github/gh-aw-firewall/.github/workflows/daily-agent-runtime-regression.yml';
 if (signerWorkflow !== 'github/gh-aw-firewall/.github/workflows/release.yml'
-    && signerWorkflow !== 'github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml') {
+    && signerWorkflow !== 'github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml'
+    && signerWorkflow !== CLOUD_HYPERVISOR_REGRESSION_SIGNER_WORKFLOW) {
   throw new Error('Unsupported compiled Cloud Hypervisor artifact signer workflow');
 }
 export const CLOUD_HYPERVISOR_ARTIFACT_SIGNER_WORKFLOW = signerWorkflow;
@@ -24,6 +27,14 @@ export const CLOUD_HYPERVISOR_CANDIDATE_COMMIT =
 if (signerWorkflow === 'github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml'
     && CLOUD_HYPERVISOR_CANDIDATE_COMMIT === undefined) {
   throw new Error('Candidate artifact signer requires a full-SHA compiled candidate tag');
+}
+export const CLOUD_HYPERVISOR_REGRESSION_COMMIT =
+  signerWorkflow === CLOUD_HYPERVISOR_REGRESSION_SIGNER_WORKFLOW
+    ? /^v0\.0\.0-regression\.([a-f0-9]{40})$/.exec(compatibility.releaseTag)?.[1]
+    : undefined;
+if (signerWorkflow === CLOUD_HYPERVISOR_REGRESSION_SIGNER_WORKFLOW
+    && CLOUD_HYPERVISOR_REGRESSION_COMMIT === undefined) {
+  throw new Error('Regression artifact signer requires a full-SHA compiled regression tag');
 }
 
 const ARTIFACT_FILES = {
@@ -112,6 +123,10 @@ export function parseCloudHypervisorArtifactManifest(
   requireString(release.sourceCommit, 'manifest.release.sourceCommit');
   if (!/^[a-f0-9]{40}$/.test(release.sourceCommit as string)) {
     throw new Error('manifest.release.sourceCommit must be a lowercase 40-character Git SHA');
+  }
+  if (CLOUD_HYPERVISOR_REGRESSION_COMMIT !== undefined
+    && release.sourceCommit !== CLOUD_HYPERVISOR_REGRESSION_COMMIT) {
+    throw new Error('Regression artifact source must match the compiled main commit');
   }
 
   const artifacts = requireObject(manifest.artifacts, 'manifest.artifacts');

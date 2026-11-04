@@ -30,6 +30,7 @@ import type {
 import type { CloudHypervisorHostToolPaths } from './preflight';
 import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
 import { createEnclaveModelBudgetToken } from '../enclave/model-budget-capability';
+import { resolveEnclaveAgentApiPort } from '../types/enclave-options';
 import {
   enforceGithubTokenIsolation,
   getGithubTokenEnvValues,
@@ -151,6 +152,15 @@ export function agentEnvironment(
   policy: HostExecutorAgentPolicy,
   plan: HostExecutorInvocationPlan,
 ): Readonly<Record<string, string>> {
+  // Shared with the Docker runner so credentials and selected provider stay identical.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { agentProviderEnvironment } = require('../../containers/enclave/agent-executor/agent-provider-environment') as {
+    agentProviderEnvironment: (
+      engine: string, endpoint: string, model: string, directory: string, token?: string,
+    ) => Record<string, string>;
+  };
+  const engine = policy.engine ?? 'copilot';
+  const endpoint = `http://${ENCLAVE_AGENT_API_PROXY_IP}:${resolveEnclaveAgentApiPort(engine, policy.profile)}`;
   const modelBudgetToken = createEnclaveModelBudgetToken(
     policy.modelBudgetSecret,
     plan.invocationId,
@@ -160,24 +170,16 @@ export function agentEnvironment(
   const environment = {
     PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
     HOME: '/agent/home',
-    COPILOT_HOME: '/agent/copilot',
-    COPILOT_CLI_DIST_DIR: '/usr/local/lib/node_modules/@github/copilot/runtime',
-    COPILOT_OFFLINE: 'true',
-    COPILOT_GITHUB_TOKEN: '******',
-    COPILOT_TOKEN: modelBudgetToken || '******',
-    COPILOT_PROVIDER_BEARER_TOKEN: modelBudgetToken?.slice('Bearer '.length) || '******',
-    COPILOT_API_URL: `http://${ENCLAVE_AGENT_API_PROXY_IP}:10002`,
-    COPILOT_PROVIDER_BASE_URL: `http://${ENCLAVE_AGENT_API_PROXY_IP}:10002`,
-    COPILOT_MODEL: policy.model,
+    ...agentProviderEnvironment(engine, endpoint, policy.model, '/agent', modelBudgetToken),
     PYTHONDONTWRITEBYTECODE: '1',
     PYTHONUNBUFFERED: '1',
-    AWF_ENCLAVE_AGENT_ENGINE: 'copilot',
+    AWF_ENCLAVE_AGENT_ENGINE: engine,
     AWF_ENCLAVE_AGENT_PROFILE: policy.profile,
     AWF_ENCLAVE_AGENT_MODEL: policy.model,
     AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES: String(policy.maxOutputBytes),
     AWF_ENCLAVE_AGENT_DEADLINE_SECONDS: String(Math.max(1,
       Math.floor((plan.timeoutMs + HOST_EXECUTOR_TIMEOUT_GRACE_MS) / 1000))),
-    AWF_ENCLAVE_AGENT_API_ENDPOINT: `http://${ENCLAVE_AGENT_API_PROXY_IP}:10002`,
+    AWF_ENCLAVE_AGENT_API_ENDPOINT: endpoint,
     AWF_ENCLAVE_AGENT_GITHUB_ENABLED: String(policy.githubBearer !== undefined),
     ...(policy.githubBearer !== undefined ? {
       AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE: 'scoped-bearer',

@@ -113,7 +113,10 @@ describe('daily agent/runtime regression workflow', () => {
 
   it('builds the Cloud Hypervisor guest from source and shares one pinned NVX guest', () => {
     const build = step('build-cloud-hypervisor', 'Build and verify guest artifacts').run;
-    expect(build).toContain('docker build --tag awf-regression/build-tools:local containers/build-tools');
+    expect(step('build', 'Build and package shared images and CLI').run)
+      .toContain('docker build --tag awf-regression/build-tools:local containers/build-tools');
+    expect(build).toContain('BUILD_TOOLS_IMAGE=awf-regression/build-tools:local');
+    expect(build).not.toContain('docker build --tag awf-regression/build-tools:local');
     expect(build).toContain('bash guest/cloud-hypervisor/build-test-artifacts.sh');
     expect(build).toContain('bash guest/cloud-hypervisor/verify-test-artifacts.sh');
     const builder = fs.readFileSync(path.join(root, 'guest/cloud-hypervisor/build-test-artifacts.sh'), 'utf8');

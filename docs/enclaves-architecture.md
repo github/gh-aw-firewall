@@ -146,7 +146,7 @@ containers, user-space kernels and hardware VMs equivalent isolation boundaries.
 | Dynamic repositories | G: agent only, compiler delegation handoff and supported mcpg required | U | U: preflight rejects |
 | Static GitHub tools | G: compiler-scoped identity, `list_issues` / `issue_read`; legacy `issues-read-v1` retained | U for enclaves | G: requires the scoped executor capability contract below; older compilers fail closed |
 | Dynamic GitHub tools | G: `github-repository-read-v1`, one repository per invocation | U | U |
-| Enclave engines | I: Copilot only; other engine names are parsed but rejected | U | G: Copilot in acceptance fixtures; other engines rejected despite wider profile types |
+| Enclave engines | I: Copilot, Codex (OpenAI profile), Claude (Anthropic profile); Gemini rejected | U | G: the same three native engines in the shared AWF-attested enclave rootfs; public daily regression fixtures |
 | Primary engines/commands | I: arbitrary installed command, provider routes as configured | G: guest-installed commands, approved environment/routes | G: guest-installed commands, approved environment/routes |
 | Trusted custom enclave images | I: script/agent image override retained; does not implement another engine | U | U: requires AWF-attested enclave artifacts |
 | Primary images/tool availability | I: existing local-build, registry/tag and agent-image options | G: explicit distro layer; not OCI image parity | G: attested rootfs/supervisor; not OCI image parity |
@@ -277,7 +277,7 @@ while leaving these restrictions fail closed.
 AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave-mcp-server`, and exposes enabled executors only through `gh-aw-mcpg`.
 
 - **Script executor** — `enclave_run_script` runs a bounded Python script in a no-network, read-only, single-use sandbox.
-- **Agent executor** — `enclave_run_agent` runs the pinned Copilot engine in a bounded single-use enclave. Its mandatory peer is the dedicated API proxy; `agent.tools.github` (or the deprecated legacy `agent.github.cli: issues-read-v1` marker) also permits a direct connection to compiler-owned shared mcpg.
+- **Agent executor** — `enclave_run_agent` runs pinned Copilot, Codex, or Claude in a bounded single-use enclave. Codex requires the `openai` profile and Claude requires `anthropic`. Its mandatory peer is the dedicated API proxy; only the selected provider route is configured and real credentials remain outside the enclave. Copilot's `agent.tools.github` (or the deprecated legacy `agent.github.cli: issues-read-v1` marker) also permits a direct connection to compiler-owned shared mcpg. GitHub MCP and dynamic repository admission remain Copilot-only and fail closed for the other engines.
 - **Shared controls** — the `repos` lists of the `enclaves` entries form the only trusted repository catalog; script and agent calls debit the same per-run repository ledger and share one admission lane.
 
 > **Terminology.** *Executor* and *enclave* are distinct, and this document uses

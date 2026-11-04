@@ -287,7 +287,7 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
       workDir: resolveEnclavePaths(workDir).workDir,
       agentPolicies: {
         agent: {
-          model: 'trusted-model', profile: 'openai', maxOutputBytes: 512,
+          engine: 'copilot', model: 'trusted-model', profile: 'openai', maxOutputBytes: 512,
           maxModelRequests: 4, maxModelTokens: 128,
           modelBudgetSecret: expect.stringMatching(/^[0-9a-f]{64}$/),
         },

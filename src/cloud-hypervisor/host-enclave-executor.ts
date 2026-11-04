@@ -256,7 +256,7 @@ function createWorkloadProfile(
     ...(publicFixtureDebug ? { publicFixtureDebug: true } : {}),
     apiProxy: {
       ip: ENCLAVE_AGENT_API_PROXY_IP,
-      engine: 'copilot',
+      engine: agentPolicy.engine ?? 'copilot',
       profile: agentPolicy.profile,
     },
     ...(agentPolicy.githubBearer !== undefined

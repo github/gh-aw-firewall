@@ -147,7 +147,10 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
     if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(entry.entryId)
       || !['script', 'agent'].includes(entry.executorKind)) throw new Error('Invalid Docker host enclave entry');
     dockerWritableBudget(entry.executorKind, entry.config.tmpfsLimit as string | undefined, entry.hostWritableBytes, entry.aggregateWritableBytes);
-    if (entry.executorKind === 'agent' && entry.config.engine !== 'copilot') throw new Error('Unsupported Docker enclave agent engine');
+    if (entry.executorKind === 'agent'
+      && !['copilot', 'codex', 'claude'].includes(String(entry.config.engine))) {
+      throw new Error('Unsupported Docker enclave agent engine');
+    }
     const uid = entry.config[entry.executorKind === 'script' ? 'queryUid' : 'enclaveUid'];
     const gid = entry.config[entry.executorKind === 'script' ? 'queryGid' : 'enclaveGid'];
     if (![uid, gid].every((value) => typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= 2147483647)) {

@@ -69,7 +69,7 @@ export const DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON =
   + 'release that starts the delegation controller, or remove enclaves[].dynamic.';
 
 /** Engines with a published, audited enclave image and a fixed AWF model loop. */
-const IMPLEMENTED_AGENT_ENGINES = new Set(['copilot']);
+const IMPLEMENTED_AGENT_ENGINES = new Set(['copilot', 'codex', 'claude']);
 
 /**
  * Resolves whether the configured agent profile has a usable API-proxy route.
@@ -258,10 +258,18 @@ export function validateEnclavesStructure(
       errors.push(`enclaves[].agent.engine "${agent.engine}" is not supported`);
     } else if (!IMPLEMENTED_AGENT_ENGINES.has(agent.engine)) {
       errors.push(
-        `enclaves[].agent.engine "${agent.engine}" is not implemented. Only "copilot" has a ` +
+        `enclaves[].agent.engine "${agent.engine}" is not implemented. Only "copilot", "codex" and "claude" have a ` +
         'pinned native enclave image and an AWF-authored model loop; enclaves never fall back to a ' +
         'different engine.',
       );
+    }
+    if ((agent.engine === 'claude' && agent.profile !== 'anthropic')
+      || (agent.engine === 'codex' && agent.profile !== 'openai')) {
+      errors.push(`enclaves[].agent.profile does not match engine "${agent.engine}"`);
+    }
+    if (agent.engine !== 'copilot' && (agent.dynamic !== undefined
+      || agent.tools !== undefined || agent.github !== undefined)) {
+      errors.push('GitHub MCP and dynamic repository admission currently require the Copilot enclave engine');
     }
     if (agent.network !== 'api-proxy-only') {
       errors.push('enclaves[].agent.network must be "api-proxy-only"');

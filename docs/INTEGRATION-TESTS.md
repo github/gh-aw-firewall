@@ -433,10 +433,12 @@ Each document provides per-test-case analysis with plain-language descriptions, 
 
 `daily-agent-runtime-regression.yml` runs daily at 06:37 UTC and supports manual
 dispatch. It exercises Copilot, Codex, and Claude under Docker, Cloud Hypervisor,
-and NVX in nine independent jobs with fail-fast disabled.
+and NVX in nine independent primary-agent jobs, plus all three agents **inside**
+Docker and Cloud Hypervisor agent enclaves in six more jobs. Both matrices have
+fail-fast disabled. Manual dispatch must use the `main` workflow ref.
 
 The shared build checks out `main`, records its exact commit, and builds the AWF
-CLI, Squid, agent, and API proxy images once. Every regression job checks out that
+CLI, Squid, agent, API proxy, and three enclave images once. Every regression job checks out that
 same commit, verifies and restores the run-scoped CLI/image artifacts, and uses
 commit-tagged local images with `--skip-pull`; no job substitutes a released AWF
 binary or GHCR image. Cloud Hypervisor guest artifacts (including source-built
@@ -444,6 +446,29 @@ AWF build-tools and supervisor) and the NVX guest distro are also prepared once
 per run. NVX retains its pinned upstream artifacts and requires a manifest
 attested by this exact workflow, explicitly selected as the expected signer.
 The production default signer remains the release workflow.
+
+The six enclave jobs reuse `agent-runtime-awf-build` and
+`agent-runtime-cloud-hypervisor`, including the same enclave source images used
+to construct the shared guest rootfs. They do not rebuild or pull replacement
+images. The source-built CLI has a build-time-only, full-main-SHA Cloud
+Hypervisor compatibility profile, and this workflow attests both microVM
+manifests and the shared enclave rootfs; unsigned enclave artifacts remain
+forbidden.
+
+Each enclave cell invokes the selected native coding agent through the existing
+public enclave MCP route. A minimal Docker primary keeps that route alive; the
+coding agent itself runs in the selected single-use enclave, not the primary.
+The agent must use its shell tool to read the public repository seed, prove
+read-only mounts, credential isolation, non-root/no-capability execution and
+network confinement, then write the exact finite-schema result to `/awf/out`.
+The host requires one successful audited invocation and the matching unique proof.
+
+Enclave fixtures use `github/gh-aw-firewall` with **`public` sensitivity** and
+`enclaveDebugPublic: true`. AWF still independently verifies unauthenticated
+public visibility. On success or failure, the existing host-only collector
+publishes bounded, secret-redacted enclave/session/proxy diagnostics with
+one-day retention. Private working state, provider credentials, raw AWF host
+logs and gateway capabilities are never uploaded.
 
 Each cell checks allowed and denied HTTPS access, credential isolation, real
 provider inference through the API proxy, and an agent tool writing a unique
@@ -456,7 +481,8 @@ suppress Docker jobs or the other VM runtime's jobs.
 Required credentials follow the existing smoke workflows: Copilot uses
 `COPILOT_GITHUB_TOKEN` or the job token with `copilot-requests: write`; Codex uses
 `CODEX_API_KEY` or `OPENAI_API_KEY`; Claude uses `ANTHROPIC_API_KEY`. Agent CLI
-versions are pinned in the workflow. The existing engine-specific smoke
+versions are pinned in the workflow, except enclave Copilot, which retains the
+sealed `containers/enclave/package-lock.json` pin. The existing engine-specific smoke
 workflows remain available for focused PR/label-triggered checks.
 
 ## Cloud Hypervisor preview integration tests

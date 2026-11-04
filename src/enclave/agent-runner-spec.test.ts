@@ -458,7 +458,7 @@ describe('unified enclave agent server configuration', () => {
 
   it.each([
     ['AWF_ENCLAVE_AGENT_BACKEND', 'sbx'],
-    ['AWF_ENCLAVE_AGENT_ENGINE', 'claude'],
+    ['AWF_ENCLAVE_AGENT_ENGINE', 'gemini'],
     ['AWF_ENCLAVE_AGENT_PROFILE', 'vertex'],
     ['AWF_ENCLAVE_AGENT_API_ENDPOINT', 'https://api.example.com'],
     ['AWF_ENCLAVE_AGENT_NETWORK', 'not a network!'],

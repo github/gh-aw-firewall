@@ -3,6 +3,7 @@
 ARG BUILD_TOOLS_IMAGE=awf-build-tools
 
 FROM python:3.14.10-alpine3.24@sha256:eb2c62658b8d51bff0acc408504b76521d02030de56a8a3c1e830083e89b89d2 AS enclave-script
+LABEL io.github.awf.enclave.role="script"
 
 RUN apk upgrade --no-cache \
     && python3 -c 'import json, pathlib, sys; sys.exit(0)' \
@@ -26,6 +27,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
 ENV NODE_OPTIONS="--require=/opt/awf/trust/node-trust.cjs"
 
 ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
+ARG CODEX_VERSION=0.159.3
+ARG CLAUDE_VERSION=2.1.280
+RUN npm_config_ignore_scripts=false npm install --global --include=optional --install-strategy=nested \
+      "@openai/codex@${CODEX_VERSION}" "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
+    && for engine in codex claude; do \
+         launcher="$(readlink -f "/usr/local/bin/$engine")"; \
+         if head -n 1 "$launcher" | grep -q '^#!/usr/bin/env node'; then \
+           sed -i '1c#!/usr/local/bin/node' "$launcher"; \
+         fi; \
+       done \
+    && codex --version | grep -F "$CODEX_VERSION" \
+    && claude --version | grep -F "$CLAUDE_VERSION" \
+    && chown -R 0:0 /usr/local/lib/node_modules/@openai /usr/local/lib/node_modules/@anthropic-ai \
+    && chmod -R a+rX,a-w /usr/local/lib/node_modules/@openai /usr/local/lib/node_modules/@anthropic-ai
 COPY enclave/package*.json /tmp/copilot-cli/
 RUN npm_config_ignore_scripts=false npm ci --prefix /tmp/copilot-cli --install-strategy=nested \
     && mkdir -p /usr/local/lib/node_modules/@github/copilot \
@@ -53,7 +68,7 @@ ARG BUILD_TOOLS_IMAGE
 LABEL org.opencontainers.image.base.name="${BUILD_TOOLS_IMAGE}"
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libatomic1 python3 ripgrep \
+    && apt-get install -y --no-install-recommends libatomic1 python3 ripgrep libgcc-s1 libstdc++6 \
     && /usr/bin/ip -Version \
     && gcc --version && make --version && cmake --version && gh --version \
     && test -r /etc/ssl/certs/ca-certificates.crt \
@@ -64,14 +79,19 @@ COPY trust/ /opt/awf/trust/
 RUN sh /opt/awf/trust/install-system-trust.sh \
     && sh /opt/awf/trust/install-node-trust.sh
 COPY --from=enclave-agent-build /usr/local/lib/node_modules/@github/copilot/ /usr/local/lib/node_modules/@github/copilot/
+COPY --from=enclave-agent-build /usr/local/lib/node_modules/@openai/ /usr/local/lib/node_modules/@openai/
+COPY --from=enclave-agent-build /usr/local/lib/node_modules/@anthropic-ai/ /usr/local/lib/node_modules/@anthropic-ai/
 # The pinned SEA loader supports this fixed distribution path. Never extract
 # native addons into the invocation's writable, noexec HOME.
 ENV COPILOT_CLI_DIST_DIR=/usr/local/lib/node_modules/@github/copilot/runtime
 # The runtime is sealed in the build stage before it is copied into this image.
 RUN ln -s ../lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
+    && ln -s "../lib/node_modules/@openai/codex/$(node -p 'const p=require("/usr/local/lib/node_modules/@openai/codex/package.json"); typeof p.bin === "string" ? p.bin : p.bin.codex')" /usr/local/bin/codex \
+    && ln -s "../lib/node_modules/@anthropic-ai/claude-code/$(node -p 'const p=require("/usr/local/lib/node_modules/@anthropic-ai/claude-code/package.json"); typeof p.bin === "string" ? p.bin : p.bin.claude')" /usr/local/bin/claude \
     && node --version | grep -qE '^v26\.' \
     && COPILOT_CLI_VERSION="$(node -p 'require("/usr/local/lib/node_modules/@github/copilot/package.json").version')" \
     && copilot --version | grep -q "GitHub Copilot CLI ${COPILOT_CLI_VERSION}" \
+    && codex --version && claude --version \
     && rm -f /usr/bin/pebble \
     && rm -rf /root/.cache/copilot
 COPY enclave/agent-entrypoint.py /usr/local/bin/run-enclave-agent

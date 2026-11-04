@@ -52,6 +52,23 @@ describe('bounded guest session evidence', () => {
     expect(result.lastEvent).toEqual({ event: 'failure', category: 'engine-failed' });
   });
 
+  it.each(['codex', 'claude'])('retains closed %s diagnostic identifiers without guest text', async engine => {
+    await write([
+      { event: 'preflight', path: `${engine}-executable`, type: 'file', executable: true, raw: 'PRIVATE_PATH' },
+      { event: 'operation-error', operation: `runtime-path-creation-${engine}-log-directory`,
+        category: 'permission-denied', errno: 13, filename: 'PRIVATE_PATH' },
+    ]);
+    const owner = await fs.lstat(runtime);
+    const result = await readEnclaveSessionDiagnostics(directory, owner.uid, owner.gid);
+    expect(result.status).toBe('captured');
+    expect(result.rejected).toBe(0);
+    expect(result.events).toHaveLength(2);
+    expect(result.failure).toMatchObject({
+      operation: `runtime-path-creation-${engine}-log-directory`, errno: 13,
+    });
+    expect(JSON.stringify(result)).not.toContain('PRIVATE_');
+  });
+
   it('bounds events while retaining the first failure and last milestone independently', async () => {
     await write([
       ...Array.from({ length: 200 }, () => ({ event: 'progress', stage: 'engine-launch-attempt' })),

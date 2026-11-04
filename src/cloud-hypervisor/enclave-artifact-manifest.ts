@@ -4,6 +4,7 @@ import {
   CLOUD_HYPERVISOR_ARTIFACT_SIGNER_WORKFLOW,
   CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG,
   CLOUD_HYPERVISOR_CANDIDATE_COMMIT,
+  CLOUD_HYPERVISOR_REGRESSION_COMMIT,
 } from './artifact-manifest';
 import { requireObject } from '../json-validation';
 import { CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS, CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
@@ -274,6 +275,10 @@ export function parseCloudHypervisorEnclaveArtifactManifest(
   const sourceCommit = requireString(release.sourceCommit, 'manifest.release.sourceCommit');
   if (!/^[a-f0-9]{40}$/.test(sourceCommit)) {
     throw new Error('manifest.release.sourceCommit must be a lowercase 40-character Git SHA');
+  }
+  if (CLOUD_HYPERVISOR_REGRESSION_COMMIT !== undefined
+    && (schemaVersion !== 2 || sourceCommit !== CLOUD_HYPERVISOR_REGRESSION_COMMIT)) {
+    throw new Error('Regression enclave artifacts require the shared rootfs from the compiled main commit');
   }
   const candidate = CLOUD_HYPERVISOR_CANDIDATE_COMMIT !== undefined;
   if (candidate && (schemaVersion !== 2 || sourceCommit !== CLOUD_HYPERVISOR_CANDIDATE_COMMIT)) {

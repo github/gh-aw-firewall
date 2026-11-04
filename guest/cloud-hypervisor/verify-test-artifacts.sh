@@ -4,7 +4,7 @@ set -euo pipefail
 ARTIFACT_DIR=${1:?usage: verify-test-artifacts.sh ARTIFACT_DIR}
 ARTIFACT_SIGNER_WORKFLOW=${ARTIFACT_SIGNER_WORKFLOW:-github/gh-aw-firewall/.github/workflows/release.yml}
 case "$ARTIFACT_SIGNER_WORKFLOW" in
-  github/gh-aw-firewall/.github/workflows/release.yml|github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml) ;;
+  github/gh-aw-firewall/.github/workflows/release.yml|github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml|github/gh-aw-firewall/.github/workflows/daily-agent-runtime-regression.yml) ;;
   *) echo "unsupported artifact signer workflow" >&2; exit 1 ;;
 esac
 
@@ -168,6 +168,17 @@ verify_enclave_rootfs() {
     debugfs -R "stat /usr/local/bin/$shared_entrypoint" "$image" 2>&1 \
       | grep -F 'Type: regular'
   done
+  for engine in copilot codex claude; do
+    debugfs -R "stat /usr/local/bin/$engine" "$image" 2>&1 | grep -F 'Inode:'
+  done
+  for package in @github/copilot @openai/codex @anthropic-ai/claude-code; do
+    debugfs -R "stat /usr/local/lib/node_modules/$package/package.json" "$image" 2>&1 \
+      | grep -F 'Type: regular'
+  done
+  debugfs -R 'stat /usr/local/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex' "$image" 2>&1 \
+    | grep -F 'Type: regular'
+  debugfs -R 'stat /usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe' "$image" 2>&1 \
+    | grep -F 'Type: regular'
   debugfs -R 'stat /usr/sbin/awf-supervisor' "$image" 2>&1 | grep -F 'Type: regular'
   debugfs -R 'stat /dev/shm' "$image" 2>&1 | grep -F 'Type: directory'
   device_listing=$(debugfs -R 'ls -p /dev' "$image" 2>/dev/null)

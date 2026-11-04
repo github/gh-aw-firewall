@@ -26,6 +26,8 @@ spec.loader.exec_module(module)
 
 root = Path(os.environ["HARNESS_ROOT"])
 scenario = os.environ["SCENARIO"]
+if scenario == "root-engine":
+    module.os.geteuid = lambda: 0
 os.environ["PATH"] = os.environ["TEST_PATH"]
 module.SEED_DIR = root / "seed"
 module.TASK_PATH = root / "task.txt"
@@ -38,6 +40,8 @@ module.TEMP_DIR = root / "tmp"
 module.SHARED_MEMORY_DIR = root / "shm"
 module.STORAGE_PROBE_PATH = root / "probe.jsonl"
 module.COPILOT_BIN = str(root / "copilot")
+module.CODEX_BIN = str(root / "codex")
+module.CLAUDE_BIN = str(root / "claude")
 module.GITHUB_AGENT_ID_PATH = root / "github-agent-id"
 module.GITHUB_BEARER_PATH = root / "github-bearer"
 module.GITHUB_MCP_CONFIG_PATH = module.AGENT_DIR / "github-mcp.json"
@@ -221,7 +225,7 @@ def engine_result(completed):
 module.append_engine_result = engine_result
 
 if scenario != "missing-copilot":
-    copilot = Path(module.COPILOT_BIN)
+    copilot = Path(module.engine_binary(os.environ["AWF_ENCLAVE_AGENT_ENGINE"]))
     if scenario == "timeout":
         copilot.write_text("#!/bin/sh\nsleep 30 &\nwait\n", encoding="utf-8")
     elif scenario == "stdout-only":
@@ -230,9 +234,13 @@ if scenario != "missing-copilot":
         copilot.write_text(
             "#!/bin/sh\n"
             "printf '%s\\n' \"$@\" > '" + str(root / "copilot-args") + "'\n"
+            "env > '" + str(root / "engine-env") + "'\n"
+            "pwd > '" + str(root / "engine-cwd") + "'\n"
             "printf '%s\\n' 'protected conversational output'\n"
             "printf '%s' true > '" + str(module.OUT_PATH) + "'\n"
-            "printf '%s\\n' 'Authorization: Bearer " + os.environ["TEST_API_TOKEN"] + "' >&2\n",
+            "printf '%s\\n' 'Authorization: Bearer " + os.environ["TEST_API_TOKEN"] + "' >&2\n"
+            + ("printf '%s\\n' \"$OPENAI_API_KEY$ANTHROPIC_AUTH_TOKEN\" >&2\n"
+               if scenario == "provider-debug" else ""),
             encoding="utf-8",
         )
     copilot.chmod(0o644 if scenario == "non-executable-copilot" else 0o755)
@@ -276,6 +284,10 @@ print(json.dumps({
         if module.OUT_PATH.is_file() else "",
     "arguments": (root / "copilot-args").read_text(encoding="utf-8")
         if (root / "copilot-args").exists() else "",
+    "environment": (root / "engine-env").read_text(encoding="utf-8")
+        if (root / "engine-env").exists() else "",
+    "cwd": (root / "engine-cwd").read_text(encoding="utf-8").strip()
+        if (root / "engine-cwd").exists() else "",
 }))
 `;
 
@@ -285,6 +297,8 @@ interface HarnessResult {
   transcriptBytes: number;
   output: string;
   arguments: string;
+  environment: string;
+  cwd: string;
 }
 
 function runHarness(scenario: string, extraEnv: Record<string, string> = {}): HarnessResult {
@@ -333,6 +347,132 @@ function events(result: HarnessResult): Array<Record<string, unknown>> {
 }
 
 describe('enclave agent protected entrypoint diagnostics', () => {
+  const providerEnv = (engine: string): Record<string, string> => ({
+    AWF_ENCLAVE_AGENT_ENGINE: engine,
+    AWF_ENCLAVE_AGENT_API_ENDPOINT: `http://172.31.0.30:${engine === 'codex' ? 10000 : 10001}`,
+    ...(engine === 'codex' ? {
+      OPENAI_API_KEY: 'model-budget-capability-sentinel',
+    } : {
+      ANTHROPIC_API_KEY: '******',
+      ANTHROPIC_AUTH_TOKEN: 'model-budget-capability-sentinel',
+    }),
+  });
+
+  it.each(['codex', 'claude'])('runs %s with private writable state and a read-only seed cwd', engine => {
+    const result = runHarness('model-limits', providerEnv(engine));
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe('true');
+    expect(result.cwd).toMatch(/\/seed$/);
+    expect(result.environment).toMatch(/HOME=.*\/agent\/home\n/);
+    expect(result.environment).toContain(engine === 'codex'
+      ? 'OPENAI_BASE_URL=http://172.31.0.30:10000/v1\n'
+      : 'ANTHROPIC_BASE_URL=http://172.31.0.30:10001');
+    expect(result.environment).toMatch(engine === 'codex'
+      ? /CODEX_HOME=.*\/agent\/codex\n/
+      : /CLAUDE_CONFIG_DIR=.*\/agent\/claude\n/);
+    expect(result.environment).toContain(engine === 'codex'
+      ? 'OPENAI_API_KEY=model-budget-capability-sentinel'
+      : 'ANTHROPIC_AUTH_TOKEN=model-budget-capability-sentinel');
+    expect(result.transcript).not.toContain('model-budget-capability-sentinel');
+    expect(result.arguments).toContain(`native ${engine === 'codex' ? 'Codex CLI' : 'Claude Code CLI'}`);
+    expect(result.arguments).toContain('Your conversational response is not the result channel');
+    expect(result.arguments).not.toContain('--max-model-requests');
+    expect(result.arguments).not.toContain('--max-model-tokens');
+    if (engine === 'codex') {
+      expect(result.arguments).toContain('--dangerously-bypass-approvals-and-sandbox');
+      expect(result.arguments).toContain('model_providers.awf.env_key="OPENAI_API_KEY"');
+      expect(result.arguments).toContain('--ephemeral');
+    } else {
+      expect(result.arguments).toContain('--print');
+      expect(result.arguments).toContain('--bare');
+      expect(result.arguments).toContain('--dangerously-skip-permissions');
+      expect(result.arguments).toContain('--strict-mcp-config');
+      expect(result.arguments).toContain('{"mcpServers":{}}');
+      expect(result.arguments).toContain('--no-session-persistence');
+    }
+  });
+
+  it.each(['codex', 'claude'])('rejects stdout-only results from %s', engine => {
+    const result = runHarness('stdout-only', providerEnv(engine));
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toBe('');
+    expect(result.transcript).toContain('result-empty');
+  });
+
+  it.each(['codex', 'claude'])('redacts %s capabilities even in trusted raw diagnostics', engine => {
+    const result = runHarness('provider-debug', {
+      ...providerEnv(engine),
+      AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS: 'true',
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.transcript).toContain('protected conversational output');
+    expect(result.transcript).toContain('[REDACTED]');
+    expect(result.transcript).not.toContain('model-budget-capability-sentinel');
+    expect(result.transcript).not.toContain('test-secret-token-value');
+  });
+
+  it.each(['codex', 'claude'])('enforces the existing deadline for %s', engine => {
+    const result = runHarness('timeout', providerEnv(engine));
+    expect(result.exitCode).toBe(20);
+    expect(result.transcript).toContain('deadline-exceeded');
+  });
+
+  it.each(['codex', 'claude'])('rejects non-proxy endpoints for %s', engine => {
+    for (const endpoint of ['https://api.openai.com', 'http://172.30.0.30:10000', '']) {
+      const result = runHarness('model-limits', {
+        ...providerEnv(engine), AWF_ENCLAVE_AGENT_API_ENDPOINT: endpoint,
+      });
+      expect(result.exitCode).toBe(10);
+      expect(result.arguments).toBe('');
+    }
+  });
+
+  it.each(['codex', 'claude'])('fails closed for all unsupported %s GitHub MCP modes', engine => {
+    const githubModes: Array<Record<string, string>> = [
+      { AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'true' },
+      { AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'true', AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE: 'scoped-bearer' },
+      { AWF_ENCLAVE_AGENT_DYNAMIC_ENABLED: 'true' },
+    ];
+    for (const githubEnv of githubModes) {
+      const result = runHarness('model-limits', { ...providerEnv(engine), ...githubEnv });
+      expect(result.exitCode).toBe(10);
+      expect(result.arguments).toBe('');
+      expect(result.transcript).toContain('configuration-invalid');
+    }
+  });
+
+  it.each(['codex', 'claude'])('rejects root execution for %s instead of weakening permission checks', engine => {
+    const result = runHarness('root-engine', providerEnv(engine));
+    expect(result.exitCode).toBe(10);
+    expect(result.arguments).toBe('');
+  });
+
+  it.each(['codex', 'claude'])('does not fall back to another engine when %s is missing', engine => {
+    const result = runHarness('missing-copilot', providerEnv(engine));
+    expect(result.exitCode).toBe(24);
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      event: 'preflight', path: `${engine}-executable`, exists: false,
+    }));
+    expect(result.arguments).toBe('');
+  });
+
+  it.each(['codex', 'claude'])('requires proxy authentication for %s without inventing credentials', engine => {
+    const result = runHarness('model-limits', {
+      ...providerEnv(engine),
+      ...(engine === 'codex' ? { OPENAI_API_KEY: '' } : { ANTHROPIC_API_KEY: '' }),
+    });
+    expect(result.exitCode).toBe(10);
+    expect(result.arguments).toBe('');
+  });
+
+  it.each(['codex', 'claude'])('retains strict output bounds and UTF-8 readback for %s', engine => {
+    for (const [scenario, exitCode] of [
+      ['output-oversized', 34], ['output-invalid-utf8', 35], ['output-missing', 32],
+    ] as const) {
+      expect(runHarness(scenario, providerEnv(engine)).exitCode).toBe(exitCode);
+    }
+  });
+
   it('does not pass unsupported model-limit flags to Copilot CLI', () => {
     const result = runHarness('model-limits');
 

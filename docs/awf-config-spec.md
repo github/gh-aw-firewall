@@ -2624,7 +2624,7 @@ enclaves:
 ```
 
 - **Script executor** — an entry keyed by `script`; launches a no-network, read-only, single-use Python sandbox. An empty `script: {}` object is valid and selects AWF's pinned defaults.
-- **Agent executor** — an entry keyed by `agent`; launches a bounded single-use Copilot enclave. `agent.model` is REQUIRED. Optional `agent.tools.github` (or the deprecated legacy `agent.github.cli: issues-read-v1` marker; the two are mutually exclusive) adds compiler-owned shared mcpg as the only additional peer.
+- **Agent executor** — an entry keyed by `agent`; launches bounded single-use Copilot, Codex, or Claude. `agent.model` is REQUIRED. Codex requires `agent.profile: openai` and Claude requires `agent.profile: anthropic`; neither receives real provider credentials. GitHub MCP and dynamic repository admission currently require Copilot. Optional Copilot `agent.tools.github` (or the deprecated legacy `agent.github.cli: issues-read-v1` marker; the two are mutually exclusive) adds compiler-owned shared mcpg as the only additional peer.
 - **Entry-level controls** — `runtime`, `image`, `memoryLimit`, `cpuLimit`, `pidsLimit`, `tmpfsLimit`, `maxOutputBytes`, and `maxInvocations` apply to the entry's selected executor. `script.maxScriptBytes` and agent `maxTaskBytes`, `maxModelRequests`, and `maxModelTokens` remain executor-specific. Network and interpreter are AWF-owned invariants, not input fields.
 
 Docker enclaves support an unprivileged AWF host process (`gh-aw --rootless`)

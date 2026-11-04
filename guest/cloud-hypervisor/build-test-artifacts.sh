@@ -45,10 +45,12 @@ GUEST_BASE_IMAGE=${GUEST_BASE_IMAGE:-awf-cloud-hypervisor-guest-base:build}
 PRIMARY_IMAGE=${PRIMARY_IMAGE:-awf-cloud-hypervisor-primary:build}
 ENCLAVE_IMAGE=${ENCLAVE_IMAGE:-awf-cloud-hypervisor-enclave:build}
 ENCLAVE_AGENT_IMAGE=${ENCLAVE_AGENT_IMAGE:-awf-enclave-agent:local}
+CODEX_VERSION=${CODEX_VERSION:-0.159.3}
+CLAUDE_VERSION=${CLAUDE_VERSION:-2.1.280}
 RELEASE_TAG=${VERSION:-v0.0.0-development}
 ARTIFACT_SIGNER_WORKFLOW=${ARTIFACT_SIGNER_WORKFLOW:-github/gh-aw-firewall/.github/workflows/release.yml}
 case "$ARTIFACT_SIGNER_WORKFLOW" in
-  github/gh-aw-firewall/.github/workflows/release.yml|github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml) ;;
+  github/gh-aw-firewall/.github/workflows/release.yml|github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml|github/gh-aw-firewall/.github/workflows/daily-agent-runtime-regression.yml) ;;
   *) echo "unsupported artifact signer workflow" >&2; exit 1 ;;
 esac
 
@@ -261,6 +263,13 @@ if ! docker image inspect "$GUEST_BASE_IMAGE" >/dev/null 2>&1; then
   fi
 fi
 guest_base_image_id=$(docker image inspect --format '{{.Id}}' "$GUEST_BASE_IMAGE")
+# A restored Docker script image supplies the Python entrypoint, not a Linux
+# microVM sysroot. Reuse it and the restored agent image in a CH-only wrapper.
+if docker image inspect "$ENCLAVE_IMAGE" >/dev/null 2>&1 \
+  && [ "$(docker image inspect --format '{{index .Config.Labels "io.github.awf.enclave.role"}}' "$ENCLAVE_IMAGE")" = script ]; then
+  ENCLAVE_SCRIPT_IMAGE=$ENCLAVE_IMAGE
+  ENCLAVE_IMAGE=${CH_ENCLAVE_IMAGE:-awf-cloud-hypervisor-enclave:build}
+fi
 if [[ "$ENCLAVE_IMAGE" != *@sha256:* && "$ENCLAVE_AGENT_IMAGE" == "awf-enclave-agent:local" ]] \
   && ! docker image inspect "$ENCLAVE_AGENT_IMAGE" >/dev/null 2>&1; then
   docker build \
@@ -268,6 +277,8 @@ if [[ "$ENCLAVE_IMAGE" != *@sha256:* && "$ENCLAVE_AGENT_IMAGE" == "awf-enclave-a
     --file "$ROOT/containers/enclave/Dockerfile" \
     --target enclave-agent \
     --build-arg "BUILD_TOOLS_IMAGE=$BUILD_TOOLS_IMAGE" \
+    --build-arg "CODEX_VERSION=$CODEX_VERSION" \
+    --build-arg "CLAUDE_VERSION=$CLAUDE_VERSION" \
     --tag "$ENCLAVE_AGENT_IMAGE" \
     "$ROOT/containers"
 fi
@@ -335,6 +346,41 @@ build_enclave_rootfs() {
   local rootfs="$OUTPUT/enclave-rootfs.ext4"
 
   export_guest_tree "$image" "$tree"
+  # Reuse the Docker enclave's sealed engines, including nested native optional
+  # packages. Copying just the JS entrypoints leaves Codex unable to launch.
+  local engine_container
+  engine_container=$(docker create --platform linux/amd64 "$ENCLAVE_AGENT_IMAGE")
+  sudo mkdir -p "$tree/usr/local/lib/node_modules" "$tree/usr/local/bin"
+  for scope in @openai @anthropic-ai; do
+    if ! docker cp "$engine_container:/usr/local/lib/node_modules/$scope" - \
+      | sudo tar --extract --directory "$tree/usr/local/lib/node_modules" \
+          --numeric-owner --preserve-permissions --same-owner; then
+      docker rm -f "$engine_container" >/dev/null 2>&1 || true
+      return 1
+    fi
+  done
+  for engine in codex claude run-enclave-agent public_debug_capture.py; do
+    if ! docker cp "$engine_container:/usr/local/bin/$engine" - \
+      | sudo tar --extract --directory "$tree/usr/local/bin" \
+          --numeric-owner --preserve-permissions --same-owner; then
+      docker rm -f "$engine_container" >/dev/null 2>&1 || true
+      return 1
+    fi
+  done
+  docker rm -f "$engine_container" >/dev/null
+  if [ -n "${ENCLAVE_SCRIPT_IMAGE:-}" ]; then
+    local script_container
+    script_container=$(docker create --platform linux/amd64 "$ENCLAVE_SCRIPT_IMAGE")
+    for entrypoint in run-enclave-script public_debug_capture.py; do
+      if ! docker cp "$script_container:/usr/local/bin/$entrypoint" - \
+        | sudo tar --extract --directory "$tree/usr/local/bin" \
+            --numeric-owner --preserve-permissions --same-owner; then
+        docker rm -f "$script_container" >/dev/null 2>&1 || true
+        return 1
+      fi
+    done
+    docker rm -f "$script_container" >/dev/null
+  fi
   sudo mkdir -p \
     "$tree/dev/shm" \
     "$tree/run" \
@@ -409,6 +455,12 @@ build_enclave_rootfs() {
   test -x "$tree/usr/local/bin/run-enclave-script"
   test -x "$tree/usr/local/bin/run-enclave-agent"
   sudo chroot "$tree" /usr/bin/python3 -c 'import json, runpy, pathlib'
+  for engine in copilot codex claude; do
+    sudo env \
+      COPILOT_CLI_DIST_DIR=/usr/local/lib/node_modules/@github/copilot/runtime \
+      COPILOT_OFFLINE=true \
+      chroot "$tree" /usr/local/bin/"$engine" --version
+  done
   test -x "$tree/usr/sbin/awf-supervisor"
   test -z "$(sudo find "$tree/awf/seed" -mindepth 1 -print -quit)"
 
