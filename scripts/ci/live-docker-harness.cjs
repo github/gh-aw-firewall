@@ -106,7 +106,7 @@ async function makeRun(binary = 'copilot', mode = 'valid', options = {}) {
   write(`${directory}/etc/group`, 'root:x:0:\nfixture:x:1002:\n');
   write(`${directory}/startup`, [
     'export FIXTURE_ENV="$FIXTURE_ENV:startup"',
-    ...(options.pinned ? [`hash -p "${directory}/pinned/${binary}" ${binary}`] : []),
+    ...(options.pinned ? [fs.readFileSync(`${fixtureRoot}/pinned-startup.sh`, 'utf8')] : []),
     ...(options.function ? [`${binary}() { "${directory}/bin/${binary}" "$@"; }`] : []),
     '',
   ].join('\n'));
@@ -115,6 +115,7 @@ async function makeRun(binary = 'copilot', mode = 'valid', options = {}) {
     fs.chmodSync(`${directory}/bin/${binary}`, 0o755);
     fs.copyFileSync(`${directory}/bin/${binary}`, `${directory}/pinned/${binary}`);
     fs.chmodSync(`${directory}/pinned/${binary}`, 0o755);
+    if (options.pinned) write(`${directory}/bin/${binary}`, '#!/bin/bash\nexit 99\n');
   }
   const config = {
     workDir: `${directory}/control`, allowedDomains: [], logLevel: 'error', keepContainers: false,
@@ -133,6 +134,7 @@ async function makeRun(binary = 'copilot', mode = 'valid', options = {}) {
     FIXTURE_MODE: mode, FIXTURE_VERSION: {
       copilot: 'GitHub Copilot CLI 1.2.3', claude: '2.1.3 (Claude Code)', codex: 'codex-cli 0.89.0',
     }[binary],
+    ...(options.pinned ? { FIXTURE_PINNED_BINARY: `${directory}/pinned/${binary}` } : {}),
   };
   const volumes = [
     ...['/usr', '/bin', '/sbin', '/lib', '/lib64'].filter(item => fs.existsSync(item))

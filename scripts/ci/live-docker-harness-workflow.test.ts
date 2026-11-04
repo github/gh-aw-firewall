@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import execa from 'execa';
 import yaml from 'js-yaml';
+import { withDockerHarnessObservation } from '../../src/docker-harness-observation';
 
 const root = path.resolve(__dirname, '../..');
 const fixtures = path.join(root, 'tests/fixtures/harness-observation');
@@ -169,6 +170,47 @@ describe('provider-free live Docker harness workflow contract (deterministic, no
       const result = await run('copilot', '1.2.3', 'overflow-newline', ['--version']);
       // Execa's default strips one final newline; reconstruct the producer payload.
       expect(Buffer.byteLength(`${directory}/copilot\n${result.stdout}\n`)).toBe(4097);
+    });
+
+    it('retains the explicit shell pin after entrypoint-style PATH reassignment', async () => {
+      const pinned = path.join(directory, 'pinned', 'copilot');
+      fs.mkdirSync(path.dirname(pinned));
+      fs.copyFileSync(path.join(directory, 'copilot'), pinned);
+      fs.chmodSync(pinned, 0o700);
+      fs.writeFileSync(path.join(directory, 'copilot'), '#!/bin/bash\nexit 99\n');
+      const startup = path.join(directory, 'startup');
+      fs.copyFileSync(path.join(fixtures, 'pinned-startup.sh'), startup);
+      const control = path.join(directory, 'control');
+      fs.mkdirSync(path.join(control, 'probe'), { recursive: true });
+      const environment = 'docker:deterministic-pinned-fixture';
+      fs.writeFileSync(path.join(control, 'allow'), `${environment}\n`);
+      const command = withDockerHarnessObservation(
+        {
+          agentCommand: 'copilot --fixture', workDir: directory, allowedDomains: [],
+          logLevel: 'error', keepContainers: false,
+        },
+        { environment, name: 'copilot-cli', binary: 'copilot' }, 'copilot --fixture',
+      ).split('/run/awf-harness').join(control)
+        // This deterministic test covers shell selection, not GNU timeout
+        // (which macOS lacks); real deadline behavior is asserted in live CI.
+        .replace('/usr/bin/timeout --signal=TERM --kill-after=1s 10s ', '');
+      const result = await execa('/bin/bash', ['-c', `source "$BASH_ENV"\nexport PATH="$PATH"\n${command}`], {
+        reject: false, timeout: 5000, cwd: directory, extendEnv: false,
+        env: {
+          PATH: `${directory}:${process.env.PATH}`, HOME: directory, USER: 'fixture', LOGNAME: 'fixture',
+          FIXTURE_DIRECTORY: directory, FIXTURE_ENV: 'controlled', FIXTURE_VERSION: '1.2.3',
+          FIXTURE_MODE: 'valid', FIXTURE_PINNED_BINARY: pinned, BASH_ENV: startup,
+        },
+      });
+      expect({
+        exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr,
+        probe: fs.readFileSync(path.join(control, 'probe/result'), 'utf8'),
+      }).toEqual({
+        exitCode: 23, stdout: 'fixture-command-output', stderr: 'fixture-command-stderr',
+        probe: `${environment}\n0\n${pinned}\n1.2.3\ntoken=discard-this-fixture-metadata\n`,
+      });
+      expect(fs.readFileSync(`${directory}/command-context`, 'utf8'))
+        .toBe(fs.readFileSync(`${directory}/probe-context`, 'utf8'));
     });
   });
 });

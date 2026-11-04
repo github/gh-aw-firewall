@@ -98,6 +98,9 @@ version output and ordinary command stdout/stderr/exit. Checks compare UID/GID,
 cwd, PATH, home/user, controlled exported environment, BASH_ENV startup effects
 and login-shell state between probe and command. The existing final command shell
 is non-login in these fixtures; the test does not enable a new login-shell mode.
+The exact expected PATH includes the entrypoint's npm-global prefix. The pinned
+fixture reapplies its shell hash after PATH setup and makes the competing PATH
+executable exit 99, so successful probing and command exit 23 prove the pin wins.
 Cases cover publication before release, missing/malformed/overflow/failed/timeout
 observations, unchanged unconstrained admission, test-only incompatible and
 unverified evaluator requirements withholding release, shell-pinned resolution,
