@@ -26,6 +26,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
       - name: Configure Docker Hub cache
+        env:
+          AWF_DOCKER_CONTAINERD_SNAPSHOTTER: 'true'
         run: bash scripts/ci/configure-docker-mirror.sh
 
       - name: Setup Node.js
@@ -41,10 +43,10 @@ jobs:
         run: /opt/google/chrome/chrome --version
 
       - name: Build local containers
-        run: |
-          docker build -t ghcr.io/github/gh-aw-firewall/squid:latest containers/squid/
-          docker build -t ghcr.io/github/gh-aw-firewall/agent:latest containers/agent/
-          docker build -t ghcr.io/github/gh-aw-firewall/api-proxy:latest containers/api-proxy/
+        uses: ./.github/actions/build-chroot-images
+        with:
+          browser: 'true'
+          runner-variant: ${{ matrix.os }}
 
       - name: Run real chroot browser launch
         run: npm run test:integration -- --testPathPatterns=chroot-browser --verbose
@@ -63,6 +65,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
       - name: Configure Docker Hub cache
+        env:
+          AWF_DOCKER_CONTAINERD_SNAPSHOTTER: 'true'
         run: bash scripts/ci/configure-docker-mirror.sh
 
       - name: Setup Node.js
@@ -136,10 +140,7 @@ jobs:
         run: npm run build
 
       - name: Build local containers
-        run: |
-          echo "=== Building local containers ==="
-          docker build -t ghcr.io/github/gh-aw-firewall/squid:latest containers/squid/
-          docker build -t ghcr.io/github/gh-aw-firewall/agent:latest containers/agent/
+        uses: ./.github/actions/build-chroot-images
 
       - name: Pre-test cleanup
         run: |
@@ -181,6 +182,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
       - name: Configure Docker Hub cache
+        env:
+          AWF_DOCKER_CONTAINERD_SNAPSHOTTER: 'true'
         run: bash scripts/ci/configure-docker-mirror.sh
 
       - name: Setup Node.js
@@ -283,10 +286,7 @@ jobs:
         run: npm run build
 
       - name: Build local containers
-        run: |
-          echo "=== Building local containers ==="
-          docker build -t ghcr.io/github/gh-aw-firewall/squid:latest containers/squid/
-          docker build -t ghcr.io/github/gh-aw-firewall/agent:latest containers/agent/
+        uses: ./.github/actions/build-chroot-images
 
       - name: Pre-test cleanup
         run: |
@@ -327,6 +327,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
       - name: Configure Docker Hub cache
+        env:
+          AWF_DOCKER_CONTAINERD_SNAPSHOTTER: 'true'
         run: bash scripts/ci/configure-docker-mirror.sh
 
       - name: Setup Node.js
@@ -360,10 +362,7 @@ jobs:
         run: npm run build
 
       - name: Build local containers
-        run: |
-          echo "=== Building local containers ==="
-          docker build -t ghcr.io/github/gh-aw-firewall/squid:latest containers/squid/
-          docker build -t ghcr.io/github/gh-aw-firewall/agent:latest containers/agent/
+        uses: ./.github/actions/build-chroot-images
 
       - name: Pre-test cleanup
         run: |
@@ -404,6 +403,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
       - name: Configure Docker Hub cache
+        env:
+          AWF_DOCKER_CONTAINERD_SNAPSHOTTER: 'true'
         run: bash scripts/ci/configure-docker-mirror.sh
 
       - name: Setup Node.js
@@ -419,10 +420,7 @@ jobs:
         run: npm run build
 
       - name: Build local containers
-        run: |
-          echo "=== Building local containers ==="
-          docker build -t ghcr.io/github/gh-aw-firewall/squid:latest containers/squid/
-          docker build -t ghcr.io/github/gh-aw-firewall/agent:latest containers/agent/
+        uses: ./.github/actions/build-chroot-images
 
       - name: Pre-test cleanup
         run: |
