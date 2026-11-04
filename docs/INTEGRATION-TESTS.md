@@ -140,7 +140,9 @@ Uploaded `harness-live-native` and `harness-live-split-dind` JSON artifacts cont
 the tested commit, actual agent image ID, Docker/Node/platform identification,
 sanitized canonical reports, per-case outcomes and cleanup status. They exclude
 raw version metadata, full environment, credentials, Compose dumps and container
-logs. `harness-deterministic` is a separately named Jest fixture artifact, **not
+logs. On failure, a bounded diagnostic records container state, numeric probe
+exit status, context-file presence and allowlisted entrypoint error classes,
+never raw stderr or environment values. `harness-deterministic` is a separately named Jest fixture artifact, **not
 live proof**. Deterministic workflow/fixture regressions run with:
 
 ```bash

@@ -128,7 +128,7 @@ async function makeRun(binary = 'copilot', mode = 'valid', options = {}) {
     AWF_CHROOT_IDENTITY_HOME: `${directory}/home`, AWF_CHROOT_IDENTITY_USER: 'fixture',
     AWF_HOST_PATH: `${directory}/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
     AWF_WORKDIR: `${directory}/workspace`, AWF_NETWORK_ISOLATION: '1',
-    AWF_CAPTURE_COMMAND_OUTPUT: '1', BASH_ENV: `${directory}/startup`,
+    AWF_COMMAND_STDOUT_ONLY: '1', BASH_ENV: `${directory}/startup`,
     FIXTURE_DIRECTORY: `${directory}/workspace`, FIXTURE_ENV: 'controlled',
     FIXTURE_MODE: mode, FIXTURE_VERSION: {
       copilot: 'GitHub Copilot CLI 1.2.3', claude: '2.1.3 (Claude Code)', codex: 'codex-cli 0.89.0',
@@ -180,7 +180,38 @@ async function startRun(run) {
 async function waitExit(run) {
   const wait = await docker(['wait', 'awf-agent'], { timeout: 20000 });
   const logs = await docker(['logs', 'awf-agent']);
-  return { exitCode: Number(wait.stdout), stdout: logs.stdout.trim(), stderr: logs.stderr.trim() };
+  // This entrypoint mode separates setup diagnostics from command stdout.
+  // Assert the fixture's single stderr record independently of setup messages.
+  return {
+    exitCode: Number(wait.stdout), stdout: logs.stdout.trim(),
+    stderr: logs.stderr.split('\n').filter(line => line === 'fixture-command-stderr').join('\n'),
+  };
+}
+async function failureDiagnostics(run) {
+  const state = await docker(['inspect', '--format',
+    '{{.State.Status}} {{.State.ExitCode}} {{.State.OOMKilled}}', 'awf-agent'], { reject: false });
+  const gate = await docker(['exec', '--user', '0:0', 'awf-agent', '/bin/bash', '-p', '-c', `
+if [ -f /host/run/awf-harness/probe/result ]; then
+  { IFS= read -r binding; IFS= read -r status; } </host/run/awf-harness/probe/result
+  if [[ "$status" =~ ^[0-9]{1,3}$ ]]; then printf '%s' "$status"; fi
+fi`], { reject: false });
+  const logs = await docker(['logs', 'awf-agent'], { reject: false });
+  const errorClasses = [
+    ['identity', /Invalid AWF_USER_/],
+    ['procfs', /Failed to mount procfs/],
+    ['chroot-prerequisite', /requires a glibc|capsh not found|bash not found/],
+    ['preload', /Could not copy one-shot-token|Could not create \/run\/awf-lib/],
+    ['permission', /Permission denied/],
+    ['missing-path', /No such file or directory/],
+    ['readonly-mount', /Read-only file system/],
+  ].filter(([, pattern]) => pattern.test(logs.stderr)).map(([name]) => name);
+  write(`${artifacts}/failure-diagnostics.json`, JSON.stringify({
+    state: /^[a-z]+ \d+ (true|false)$/.test(state.stdout) ? state.stdout : 'unavailable',
+    probeExitCode: /^\d{1,3}$/.test(gate.stdout) ? Number(gate.stdout) : null,
+    probeContextExists: fs.existsSync(`${run.directory}/workspace/probe-context`),
+    commandContextExists: fs.existsSync(run.commandFile),
+    entrypointErrorClasses: errorClasses,
+  }, null, 2));
 }
 async function finishRun() {
   await ownedRemove('awf-agent');
@@ -235,6 +266,7 @@ async function test(name, execute) {
     console.log(`PASS ${name}`);
   } catch (error) {
     results.push({ name, status: 'failed', durationMs: Date.now() - start });
+    if (active) await failureDiagnostics(active);
     throw error;
   } finally {
     if (active) await finishRun();
