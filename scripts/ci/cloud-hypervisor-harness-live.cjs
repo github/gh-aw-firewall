@@ -373,6 +373,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
       if (!fs.existsSync(fixture)) {
         fs.copyFileSync(path.join(fixtureRoot, 'cloud-hypervisor-proxy-check.cjs'), fixture);
         fs.mkdirSync(path.join(directory, 'exchange'), { mode: 0o777 });
+        fs.chmodSync(path.join(directory, 'exchange'), 0o777);
       }
       const name = `awf-harness-reader-${randomUUID()}`;
       const execa = require('execa');
