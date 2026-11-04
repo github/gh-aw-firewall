@@ -86,7 +86,7 @@ the same filesystem is not a substitute for this evidence.
 
 Both jobs build the production agent image and TypeScript from the tested
 checkout. `scripts/ci/live-docker-harness.cjs` uses the real agent-service builder,
-image entrypoint, chroot, capability/identity setup, container-local tmpfs,
+image entrypoint, chroot, capability/identity/trust setup, container-local tmpfs,
 Docker-exec observation transport, atomic report publisher and release gate.
 It supplies narrowly scoped fixture mounts and uses `network_mode: none` in place
 of Squid/provider services. This is a focused producer/lifecycle integration,

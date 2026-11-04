@@ -97,6 +97,31 @@ describe('provider-free live Docker harness workflow contract (deterministic, no
     expect(launch).not.toMatch(/prune|cleanup\.sh|docker rm/);
   });
 
+  it('supplies the mandatory host CA store without bypassing the production trust preflight', async () => {
+    const harness = fs.readFileSync(path.join(root, 'scripts/ci/live-docker-harness.cjs'), 'utf8');
+    expect(harness).toContain("'/etc/ssl/certs:/host/etc/ssl/certs:ro'");
+    expect(fs.readFileSync(path.join(fixtures, 'Dockerfile.runner'), 'utf8'))
+      .toContain('libcap2-bin ca-certificates');
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-live-ca-unit-'));
+    try {
+      const source = fs.readFileSync(path.join(root, 'containers/agent/entrypoint.sh'), 'utf8');
+      const start = source.indexOf('copy_system_ca_bundle() {');
+      const end = source.indexOf('\ncheck_chroot_prereqs()', start);
+      expect(start).toBeGreaterThan(0);
+      expect(end).toBeGreaterThan(start);
+      // Reproduce the original missing-store refusal without touching /host or
+      // requiring Docker/root. Positive mount/trust behavior belongs to live CI.
+      const definition = source.slice(start, end).split('/host').join(directory);
+      const result = await execa('/bin/bash', ['-c', `${definition}\ncopy_system_ca_bundle`], {
+        reject: false, timeout: 5000, env: { PATH: process.env.PATH }, extendEnv: false,
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toBe('[entrypoint][ERROR] No CA store available for AWF trust policy');
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   describe('executable fixtures (local shells only)', () => {
     let directory: string;
     beforeEach(() => {

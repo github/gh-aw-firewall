@@ -138,6 +138,7 @@ async function makeRun(binary = 'copilot', mode = 'valid', options = {}) {
     ...['/usr', '/bin', '/sbin', '/lib', '/lib64'].filter(item => fs.existsSync(item))
       .map(item => `${item}:/host${item}:ro`),
     '/dev:/host/dev:ro', '/sys:/host/sys:ro',
+    '/etc/ssl/certs:/host/etc/ssl/certs:ro',
     `${directory}/etc/passwd:/host/etc/passwd:ro`, `${directory}/etc/group:/host/etc/group:ro`,
     `${directory}/workspace:/host${directory}/workspace:rw`,
     `${directory}/home:/host${directory}/home:rw`,
@@ -200,6 +201,7 @@ fi`], { reject: false });
     ['identity', /Invalid AWF_USER_/],
     ['procfs', /Failed to mount procfs/],
     ['chroot-prerequisite', /requires a glibc|capsh not found|bash not found/],
+    ['ca-store', /No CA store available for AWF trust policy/],
     ['preload', /Could not copy one-shot-token|Could not create \/run\/awf-lib/],
     ['permission', /Permission denied/],
     ['missing-path', /No such file or directory/],
