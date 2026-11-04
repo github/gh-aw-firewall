@@ -50,7 +50,7 @@ safe-outputs:
     title-prefix: "[Coverage Report] "
     category: "general"
 
-timeout-minutes: 20
+timeout-minutes: 30
 
 steps:
   - name: Cache npm dependencies
