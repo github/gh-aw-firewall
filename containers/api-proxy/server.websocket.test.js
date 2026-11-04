@@ -485,7 +485,7 @@ describe('proxyWebSocket security guards', () => {
   it.each(['/v1/responses', '/v1/responses?model=bogus'])(
     'blocks with 403 when ai-credits limit is exceeded for %s', url => {
       process.env.AWF_MAX_AI_CREDITS = '0.000001'; // tiny cap — any real usage will exceed it
-      applyAiCreditsUsage({ input_tokens: 1_000_000, output_tokens: 1_000_000 }, 'gpt-4o');
+      applyAiCreditsUsage({ input_tokens: 1_000_000, output_tokens: 1_000_000 }, 'gpt-5-mini', 'openai');
 
       const socket = makeMockSocket();
       wsProxy(makeUpgradeReq({ url }), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');

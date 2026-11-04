@@ -21,7 +21,7 @@ if (sourceArgument && !process.argv.includes('--check')) {
 const sources = sourceArgument
   ? path.resolve(sourceArgument.slice('--source-dir='.length))
   : path.join(root, 'shared/model-information/sources');
-const compilerVersion = 4;
+const compilerVersion = 5;
 const read = file => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
 const json = value => `${JSON.stringify(value, null, 2)}\n`;
@@ -321,6 +321,23 @@ function compile() {
     if (model.identity.provider !== 'copilot') return [];
     const tariffs = model.tariffs || [];
     if (!tariffs.length) return [];
+    if (tariffs.some(tariff => tariff.scope.provider !== 'copilot' ||
+        tariff.scope.channel !== 'copilot-api' || tariff.scope.deployment !== undefined ||
+        tariff.currency !== 'USD' || tariff.unit !== 'USD_PER_1M_TOKENS' ||
+        !['default', 'long_context'].includes(tariff.tier) ||
+        tariff.effectiveFrom || tariff.effectiveUntil ||
+        (tariff.tier === 'long_context'
+          ? !Number.isSafeInteger(tariff.promptTokensAbove) || tariff.promptTokensAbove <= 0
+          : tariff.promptTokensAbove !== undefined) ||
+        ['input', 'cachedInput', 'cacheWrite', 'output'].some(field => !tariff.components[field]) ||
+        Object.entries(tariff.components).some(([field, item]) =>
+          typeof item.price === 'object' ? field !== 'cacheWrite' :
+            !Number.isFinite(Number(item.price)) ||
+              (Number(item.price) === 0 && /[1-9]/.test(item.price)))) ||
+        tariffs.filter(tariff => tariff.tier === 'default').length !== 1 ||
+        tariffs.filter(tariff => tariff.tier === 'long_context').length > 1) {
+      throw new Error(`Unsupported maintained fallback tariff: ${model.identity.key}`);
+    }
     const name = model.identity.rawId.startsWith('claude-')
       ? model.identity.lookupId : model.identity.rawId;
     const convert = tariff => ({
@@ -377,6 +394,38 @@ function compile() {
       identity: model.identity, harnesses: model.harnesses,
     })),
   });
+  // OpenRouter namespaces identify the model publisher, not a native billing
+  // backend. Only OpenRouter's full wire ID is associated with these imports.
+  const nativeCompatibility = reference.nativeCompatibility;
+  if (nativeCompatibility?.policy !== 'legacy_native_compatibility' ||
+      nativeCompatibility.channel !== 'native-api' ||
+      !nativeCompatibility.note || !nativeCompatibility.evidence ||
+      !nativeCompatibility.additionalModels) {
+    throw new Error('pricing-reference.json: expected explicit legacy native compatibility policy');
+  }
+  const compatibilityProviders = Object.fromEntries(Object.entries(referenceProviders).map(([provider, data]) =>
+    [provider, { ...data.models }]));
+  for (const [provider, names] of Object.entries(nativeCompatibility.additionalModels)) {
+    if (!compatibilityProviders[provider] || !Array.isArray(names) ||
+        new Set(names).size !== names.length ||
+        names.some(name => !Object.hasOwn(pricing, name) ||
+          Object.hasOwn(compatibilityProviders[provider], name))) {
+      throw new Error(`pricing-reference.json: invalid native compatibility associations for ${provider}`);
+    }
+    for (const name of names) compatibilityProviders[provider][name] = pricing[name];
+  }
+  const fallbackPricing = {
+    catalogRevision: revision,
+    compatibility: {
+      policy: nativeCompatibility.policy, channel: nativeCompatibility.channel,
+      authority: 'policy', confidence: 'policy_fallback',
+      sourceProvenance: reference.provenance, providers: compatibilityProviders,
+    },
+    imported: {
+      openrouter: Object.fromEntries(imported.models.map(model =>
+        [model.identity.key, model.importedPricing])),
+    },
+  };
   const output = {
     [importedFile]: json(imported),
     'shared/model-information/naming.generated.json': naming,
@@ -386,6 +435,7 @@ function compile() {
     'src/model-information.eligibility.generated.json': eligibility,
     'containers/api-proxy/model-information.eligibility.generated.json': eligibility,
     'containers/api-proxy/model-information.pricing.generated.json': json(pricing),
+    'containers/api-proxy/model-information.fallback-pricing.generated.json': json(fallbackPricing),
     'containers/api-proxy/model-information.retired.generated.json': json(retired),
     'containers/api-proxy/ai-credits-pricing-reference.json': json({
       schemaVersion: 1, unit: 'USD_PER_1M_TOKENS',

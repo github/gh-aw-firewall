@@ -247,14 +247,14 @@ describe('Copilot SDK model extraction gap', () => {
     };
 
     // With a known model, credits are calculated
-    const resultKnown = applyAiCreditsUsage(normalizedUsage, 'claude-sonnet-4-20250514');
+    const resultKnown = applyAiCreditsUsage(normalizedUsage, 'claude-sonnet-4-20250514', 'copilot');
     expect(resultKnown).not.toBeNull();
     expect(resultKnown.aiCreditsThisResponse).toBeGreaterThan(0);
 
     // With 'unknown' model, credits should STILL be computed (not silently dropped).
     // Today this returns null — 1500 input + 800 output tokens go completely untracked.
     resetAiCreditsGuardForTests();
-    const resultUnknown = applyAiCreditsUsage(normalizedUsage, 'unknown');
+    const resultUnknown = applyAiCreditsUsage(normalizedUsage, 'unknown', 'copilot');
     expect(resultUnknown).not.toBeNull();
     expect(resultUnknown.aiCreditsThisResponse).toBeGreaterThan(0);
 

@@ -30,6 +30,8 @@ const { buildCommonGuardChecks } = load('guards/common-guard-checks');
 const { enforceWebSocketGuards } = load('websocket-guards');
 const { replaceRuntimeModels, clearRuntimeModels, captureRuntimePricing } = load('runtime-model-catalog');
 const { trackTokenUsage, trackWebSocketTokenUsage, closeLogStream } = load('token-tracker');
+const bundledPricing = load('model-information.fallback-pricing.generated.json');
+const maintainedPricing = load('model-information.pricing.generated.json');
 const [first, next] = JSON.parse(process.env.AWF_PRICING_SMOKE_SNAPSHOTS);
 const rates = { input: 2, output: 4, cachedInput: 0, cacheWrite: null, reasoning: 0 };
 const log = () => {};
@@ -49,7 +51,160 @@ const reset = () => {
   }
 };
 
+function chargeHttpAndWebSocket(provider, model, expectedCredits, tokens = 1000000, tier = 'default') {
+  const observed = [];
+  const tiers = [];
+  const options = {
+    requestId: 'smoke-source', provider, path: '/chat/completions',
+    startTime: Date.now(), metrics: { increment: log, observe: log, gauge: log },
+    requestModel: model,
+    onUsage: (usage, reportedModel) => {
+      const result = computeTokenBudgetUsage({ ...context, provider }, usage, reportedModel);
+      observed.push(result.ai_credits_this_response);
+      tiers.push(result.ai_credits_pricing_tier);
+      return result;
+    },
+  };
+  const payload = Buffer.from(JSON.stringify({
+    model, usage: { prompt_tokens: tokens, completion_tokens: 0, total_tokens: tokens },
+  }));
+  const upstream = new EventEmitter();
+  upstream.headers = { 'content-type': 'application/json' };
+  upstream.statusCode = 200;
+  trackTokenUsage(upstream, options);
+  upstream.emit('data', payload);
+  upstream.emit('end');
+  const socket = new EventEmitter();
+  trackWebSocketTokenUsage(socket, { ...options, path: '/responses' });
+  const header = Buffer.alloc(4);
+  header[0] = 0x81;
+  header[1] = 126;
+  header.writeUInt16BE(payload.length, 2);
+  socket.emit('data', Buffer.concat([
+    Buffer.from('HTTP/1.1 101 Switching Protocols\r\n\r\n'), header, payload,
+  ]));
+  socket.emit('end');
+  socket.emit('close');
+  assert.deepEqual(observed, [expectedCredits, expectedCredits]);
+  assert.deepEqual(tiers, [tier, tier]);
+  assert.equal(guard.getAiCreditsReflectState().total, expectedCredits * 2);
+}
+
 async function main() {
+  reset();
+  const fixtureSources = process.env.AWF_PRICING_SMOKE_IMPORT_FIXTURES === 'true';
+  assert.equal(Object.keys(maintainedPricing).length, 42);
+  assert.equal(Object.values(bundledPricing.compatibility.providers)
+    .reduce((count, models) => count + Object.keys(models).length, 0), 16);
+  assert.equal(bundledPricing.compatibility.policy, 'legacy_native_compatibility');
+  for (const [provider, model, credits] of [
+    ['copilot', 'gpt-5.4', 250],
+    ['copilot', 'gpt-5-mini', fixtureSources ? 75 : 25],
+    ['openai', 'gpt-5-mini', fixtureSources ? 75 : 25],
+    ['openai', 'gpt-5.4', 250],
+    ['openrouter', 'openai/gpt-5.4', 250],
+    ['openrouter', 'perceptron/perceptron-mk1', 15],
+    ['openrouter', 'openai/gpt-4o-2024-05-13', 500],
+    ['openrouter', 'google/gemma-4-31b-it:free', 0],
+    ['copilot', 'text-embedding-3-small', 2],
+  ]) {
+    reset();
+    chargeHttpAndWebSocket(provider, model, credits);
+  }
+  reset();
+  process.env.AWF_MAX_AI_CREDITS = '500';
+  chargeHttpAndWebSocket('copilot', 'gpt-5.4', 250);
+  assert.equal(guard.getAiCreditsBlockState().maxExceeded, true);
+  reset();
+  for (const provider of ['copilot', 'openai', 'perceptron', 'custom-backend', undefined]) {
+    assert.equal(charge('perceptron/perceptron-mk1', { provider }), undefined);
+    assert.equal(charge('perceptron-mk1', { provider }), undefined);
+  }
+  assert.equal(charge('gpt-5.4', { provider: 'unassociated-backend' }), undefined);
+  assert.equal(charge('openai/gpt-5.4', { provider: 'copilot' }), undefined);
+  assert.equal(guard.checkModelPricing('perceptron-mk1', 'custom-backend'), null);
+  assert.equal(guard.getAiCreditsReflectState().total, 0);
+  assert.equal(guard.applyAiCreditsUsage({
+    input_tokens: 1000000, output_tokens: 1000000,
+  }, 'openai/gpt-4o-2024-05-13', 'openrouter').aiCreditsThisResponse, 2000);
+  for (const [model, credits] of [
+    ['google/gemini-2.5-pro', 37.5], ['google/gemini-3.5-flash', 8.333333],
+  ]) {
+    assert.equal(guard.applyAiCreditsUsage({
+      input_tokens: 1000000, cache_write_tokens: 1000000,
+    }, model, 'openrouter').aiCreditsThisResponse, credits);
+  }
+  assert.equal(charge('openai/gpt-4-turbo', { provider: 'openrouter' }), undefined);
+  assert.equal(charge('openai/gpt-4-turbo:batch', { provider: 'openrouter' })
+    .ai_credits_this_response, 500);
+  for (const [model, tokens, credits, tier] of [
+    ['gpt-6.1-sol', 271999, 54.3998, 'default'],
+    ['gpt-6.1-sol', 272000, 54.4, 'default'],
+    ['gpt-6.1-sol', 272001, 108.8004, 'long_context'],
+    ['claude-haiku-5-5', 99999, 0.99999, 'default'],
+    ['claude-haiku-5-5', 100000, 1, 'default'],
+    ['claude-haiku-5-5', 100001, 5.00005, 'long_context'],
+  ]) {
+    reset();
+    chargeHttpAndWebSocket('copilot', model, credits, tokens, tier);
+    const usage = charge(model, {}, tokens);
+    assert.equal(usage.ai_credits_this_response, credits);
+    assert.equal(usage.ai_credits_pricing_tier, tier);
+    assert.equal(usage.ai_credits_pricing_source, 'curated');
+    assert.equal(usage.ai_credits_pricing_catalog_version, bundledPricing.catalogRevision);
+  }
+  for (const [model, tokens, credits] of [
+    ['openai/gpt-6.1-sol', 272001, 54.4002],
+    ['anthropic/claude-haiku-5.5', 100001, 1.00001],
+  ]) {
+    reset();
+    chargeHttpAndWebSocket('openrouter', model, credits, tokens);
+    const usage = charge(model, { provider: 'openrouter' }, tokens);
+    assert.equal(usage.ai_credits_this_response, credits);
+    assert.equal(usage.ai_credits_pricing_tier, 'default');
+  }
+
+  reset();
+  for (const [provider, model] of [['copilot', 'gpt-5.4'], ['openrouter', 'openai/gpt-5.4']]) {
+    const usage = charge(model, { provider, runtimeCatalog: {
+      [provider]: [{
+        id: model, provider, observedAt: '2026-10-23T00:00:00Z',
+        pricing: { default: { input: 3, output: 5 } },
+      }],
+    } });
+    assert.equal(usage.ai_credits_pricing_source, 'provider');
+    assert.equal(usage.ai_credits_this_response, 300);
+  }
+
+  if (fixtureSources) {
+    for (const [model, credits] of [
+      ['smoke-a/shared-slug', 200], ['smoke-b/shared-slug', 700],
+      ['smoke-a/exact-model', 200], ['smoke-a/exact-model-20260101', 900],
+      ['smoke-a/zero-model', 0],
+    ]) {
+      reset();
+      chargeHttpAndWebSocket('openrouter', model, credits);
+      assert.equal(charge(model, { provider: 'copilot' }), undefined);
+      assert.equal(charge('shared-slug', { provider: 'smoke-a' }), undefined);
+    }
+    reset();
+    for (const [model, expected] of [
+      ['smoke-a/shared-slug', 0], ['smoke-b/shared-slug', 70], ['smoke-a/null-cache', 20],
+    ]) {
+      const usage = guard.applyAiCreditsUsage({
+        input_tokens: 1000000, cache_read_tokens: 1000000,
+      }, model, 'openrouter');
+      assert.equal(usage.aiCreditsThisResponse, expected);
+    }
+    for (const model of ['smoke-a/null-model', 'smoke-a/missing-model', 'smoke_a/shared-slug']) {
+      assert.equal(charge(model, { provider: 'openrouter' }), undefined);
+    }
+    assert.throws(() => charge('smoke-a/exact_model-20261212', { provider: 'openrouter' }),
+      { code: 'pricing_resolution_error' });
+    assert.throws(() => charge('smoke-a/underflow-model', { provider: 'openrouter' }),
+      { code: 'pricing_resolution_error' });
+  }
+
   reset();
   // Neither override may initialize a lower-priority source.
   const unavailable = {};
@@ -59,7 +214,9 @@ async function main() {
       input: 0.000002, output: 0.000004, cache_read: 0,
       long_context: { input: 0.000007, output: 0.000008, cache_read: 0, cache_write: 0, max_prompt_tokens: 100 },
     } },
+    'gpt-5.4': { cost: { input: 0.000007, output: 0.000008 } },
   } } });
+  assert.equal(charge('gpt-5.4').ai_credits_this_response, 700);
   // Invoke guard directly so the context spread does not evaluate the tripwire.
   for (const tokens of [99, 100, 101]) {
     const usage = guard.applyAiCreditsUsage({ input_tokens: tokens }, 'smoke-model', 'copilot', unavailable);
@@ -70,10 +227,11 @@ async function main() {
   delete process.env.AWF_API_PROXY_PROVIDERS;
   process.env.AWF_MODEL_PRICING_CATALOG = JSON.stringify({
     schemaVersion: 1, unit: 'USD_PER_1M_TOKENS', catalogId: 'smoke-config', version: 'v1',
-    providers: { copilot: { models: {
+    providers: { openrouter: { models: { 'openai/gpt-5.4': rates } }, copilot: { models: {
       'smoke-model': { ...rates, longContext: { ...rates, input: 7, threshold: 100 } },
     } } },
   });
+  assert.equal(charge('openai/gpt-5.4', { provider: 'openrouter' }).ai_credits_this_response, 200);
   for (const tokens of [100, 101]) {
     const usage = guard.applyAiCreditsUsage({ input_tokens: tokens }, 'smoke-model', 'copilot', unavailable);
     assert.equal(usage.pricingSource, 'shared_catalog');
@@ -127,6 +285,12 @@ async function main() {
     assert.notEqual(charge(model, { catalogue: pinned })?.ai_credits_pricing_source, 'central_feed');
     delete process.env.COPILOT_PROVIDER_API_KEY;
     assert.equal(reads, beforeUsageReads);
+    assert.equal(charge('perceptron/perceptron-mk1', {
+      provider: 'openrouter', catalogue: pinned,
+    }).ai_credits_this_response, 15);
+    assert.equal(charge('perceptron/perceptron-mk1', {
+      provider: 'openrouter', catalogue: loader.capture(),
+    }).ai_credits_this_response, 15);
 
     reset();
     const metrics = { increment: log, observe: log, gauge: log };

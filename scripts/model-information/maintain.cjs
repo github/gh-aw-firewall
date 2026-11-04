@@ -19,6 +19,7 @@ const projections = [
   'shared/model-information/baseline-to-target.generated.json',
   'src/model-information.compat.generated.json',
   'containers/api-proxy/model-information.pricing.generated.json',
+  'containers/api-proxy/model-information.fallback-pricing.generated.json',
   'containers/api-proxy/model-information.retired.generated.json',
   'containers/api-proxy/ai-credits-pricing-reference.json',
   'docs/model-api-mapping.json', 'containers/api-proxy/model-api-mapping.json',

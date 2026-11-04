@@ -68,7 +68,7 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
     });
 
     function createCreditWarning() {
-      applyAiCreditsUsage({ input_tokens: 32 }, 'gpt-5-mini');
+      applyAiCreditsUsage({ input_tokens: 32 }, 'gpt-5-mini', 'copilot');
     }
 
     test.each([
@@ -254,7 +254,7 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
       ]);
 
       for (const [threshold, inputTokens] of creditUsageByThreshold) {
-        applyAiCreditsUsage({ input_tokens: inputTokens }, 'gpt-5-mini');
+        applyAiCreditsUsage({ input_tokens: inputTokens }, 'gpt-5-mini', 'copilot');
         const result = await transformRequestBody(
           Buffer.from(JSON.stringify({ messages: [{ role: 'user', content: 'Continue.' }] })),
           'openai',

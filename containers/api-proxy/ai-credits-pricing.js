@@ -1,8 +1,9 @@
 'use strict';
 
-// Curated per-model pricing in dollars per 1M tokens.
-// These provider-agnostic aliases take precedence over the bundled models.dev
-// catalog fallback.
+// Historical per-model pricing capture in dollars per 1M tokens, retained for
+// compatibility consumers. Active accounting reads the canonical generated
+// projections through catalogue-pricing.js; author active rates in
+// shared/model-information/sources/, not this provider-agnostic table.
 //
 // SYNC NOTE: When adding a new Copilot CLI completion model here, also add it
 // to SUPPORTED_COPILOT_MODELS in src/copilot-model.ts (the host-side validator).
