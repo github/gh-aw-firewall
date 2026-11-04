@@ -6,7 +6,8 @@
 //   node scripts/ci/cloud-hypervisor-harness-live.cjs ARTIFACT_DIR
 // ARTIFACT_DIR contains the five artifacts, manifest.json and SHA256SUMS produced by
 // build-test-artifacts.sh. Their root ownership/trust and host eligibility are
-// still checked by the real backend. Infrastructure builds from this checkout.
+// still checked by the real backend. Squid/API-proxy images must be prepared
+// before invocation; cases neither pull nor rebuild infrastructure images.
 // The manifest's release.sourceCommit is attribution, not an attestation; it
 // may differ from the tested driver/backend revision and is recorded separately.
 // AWF_LIVE_CONSUMER_IMAGE defaults to the locally built
@@ -42,6 +43,10 @@ function failPrerequisite(condition, code) {
 function command(file, args) {
   return execFileSync(file, args, { cwd: root, encoding: 'utf8', timeout: 30000,
     maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+}
+function requireImage(reference, unavailableCode, inspect = command) {
+  try { return inspect('docker', ['image', 'inspect', '--format', '{{.Id}}', reference]); }
+  catch { throw new Blocked(unavailableCode); }
 }
 function parsePins(text) {
   const pins = {};
@@ -151,6 +156,23 @@ function replaceReport(filename, report) {
   fs.writeFileSync(temporary, JSON.stringify(report), { mode: 0o644 });
   fs.renameSync(temporary, filename);
 }
+function guestContextEvidence(probe, commandContext, { uid, gid, hostBootId }) {
+  assert.equal(probe, commandContext);
+  const lines = probe.trim().split('\n');
+  assert.equal(lines.length, 9);
+  assert.deepEqual(lines.slice(0, 3), [uid, gid, '/workspace']);
+  assert(lines[3].split(':').includes('/workspace'));
+  assert.deepEqual(lines.slice(4, 8),
+    ['/workspace/.awf-home', 'cloud-hypervisor', 'controlled', 'profile-loaded']);
+  assert.match(lines[8], /^[a-f0-9-]{36}$/);
+  assert.match(hostBootId, /^[a-f0-9-]{36}$/);
+  assert.notEqual(lines[8], hostBootId);
+  return Object.freeze({
+    uid: Number(lines[0]), gid: Number(lines[1]), cwd: lines[2], path: lines[3], home: lines[4],
+    runtime: lines[5], fixtureEnvironment: lines[6], loginProfile: lines[7],
+    guestBootId: lines[8], hostBootId, commandProbeContextMatched: true,
+  });
+}
 async function main(argv = process.argv.slice(2), env = process.env) {
   const evidence = path.resolve(env.AWF_LIVE_ARTIFACTS || path.join(root, 'artifacts/harness-cloud-hypervisor'));
   fs.mkdirSync(evidence, { recursive: true, mode: 0o755 });
@@ -219,10 +241,22 @@ async function main(argv = process.argv.slice(2), env = process.env) {
     checkHost(env);
     failPrerequisite(fs.existsSync(path.join(root, 'dist/cloud-hypervisor/runtime-backend.js')), 'build-missing');
     const image = env.AWF_LIVE_CONSUMER_IMAGE || 'ghcr.io/github/gh-aw-firewall/api-proxy:latest';
-    const imageId = command('docker', ['image', 'inspect', '--format', '{{.Id}}', image]);
+    const imageId = requireImage(image, 'consumer-image-missing');
     failPrerequisite(command('docker', ['image', 'inspect', '--format',
       '{{index .Config.Labels "org.opencontainers.image.revision"}}', image]) === env.AWF_LIVE_COMMIT,
     'consumer-image-sha-mismatch');
+    const squidImage = 'ghcr.io/github/gh-aw-firewall/squid:latest';
+    const squidImageId = requireImage(squidImage, 'squid-image-unavailable');
+    const squidSourceDigests = JSON.parse(command('docker', ['image', 'inspect', '--format',
+      '{{json .RepoDigests}}', squidImage]) || '[]') || [];
+    failPrerequisite(Array.isArray(squidSourceDigests) && squidSourceDigests.every(value =>
+      typeof value === 'string' && /^ghcr\.io\/github\/gh-aw-firewall\/squid@sha256:[a-f0-9]{64}$/.test(value)),
+    'squid-image-digest-invalid');
+    const apiProxyImage = 'ghcr.io/github/gh-aw-firewall/api-proxy:latest';
+    const apiProxyImageId = requireImage(apiProxyImage, 'api-proxy-image-unavailable');
+    failPrerequisite(command('docker', ['image', 'inspect', '--format',
+      '{{index .Config.Labels "org.opencontainers.image.revision"}}', apiProxyImage]) === env.AWF_LIVE_COMMIT,
+    'api-proxy-image-sha-mismatch');
     failPrerequisite(command('docker', ['ps', '-aq', '--filter', 'name=^/awf-']) === '',
       'existing-awf-containers');
     before = resourceSnapshot();
@@ -239,6 +273,10 @@ async function main(argv = process.argv.slice(2), env = process.env) {
       schemaVersion: 1, evidence: 'live-cloud-hypervisor', commit: env.AWF_LIVE_COMMIT,
       artifactSourceCommit: artifacts.artifactSourceCommit, artifactManifestSha256: artifacts.manifestSha256,
       artifacts: artifacts.pins, consumerImage: imageId, platform: process.platform, arch: process.arch,
+      infrastructureImages: {
+        squid: { id: squidImageId, sourceDigests: squidSourceDigests },
+        apiProxy: { id: apiProxyImageId, revision: env.AWF_LIVE_COMMIT },
+      },
       node: process.version, kernel: os.release(), runner: 'github-hosted-ubuntu',
       imageOS: /^ubuntu\d+$/.test(env.ImageOS || '') ? env.ImageOS : 'ubuntu',
       uid: Number(env.SUDO_UID), gid: Number(env.SUDO_GID), developmentUnattestedArtifacts: true,
@@ -246,7 +284,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
     status = 'failed'; code = 'live-suite-incomplete'; summary();
     watchdog = setTimeout(() => {
       code = 'suite-timeout'; interrupted();
-    }, 25 * 60 * 1000);
+    }, 17 * 60 * 1000);
     function makeRun(binary = 'copilot', mode = 'valid') {
       const directory = fs.mkdtempSync(path.join(scratch, 'case-'));
       fs.chmodSync(directory, 0o755);
@@ -265,7 +303,8 @@ async function main(argv = process.argv.slice(2), env = process.env) {
       process.env.GITHUB_WORKSPACE = workspace;
       const config = {
         workDir: path.join(directory, 'control'), allowedDomains: [], logLevel: 'error',
-        keepContainers: false, enableApiProxy: true, networkIsolation: true, buildLocal: true,
+        keepContainers: false, enableApiProxy: true, networkIsolation: true, buildLocal: false,
+        skipPull: true, imageRegistry: 'ghcr.io/github/gh-aw-firewall', imageTag: 'latest',
         containerRuntime: 'cloud-hypervisor', agentCommand: `/workspace/${binary} --fixture`,
         cloudHypervisor: {
           previewEnabled: true, mountPolicy: 'workspace-only',
@@ -296,15 +335,18 @@ async function main(argv = process.argv.slice(2), env = process.env) {
       };
     }
     function report(run) { return JSON.parse(fs.readFileSync(run.reportFile, 'utf8')); }
-    function assertContext(run) {
+    function assertContext(run, evidenceName = `${path.basename(run.context.binary)}-${run.config.additionalEnv.FIXTURE_MODE}`) {
       const probe = fs.readFileSync(path.join(run.workspace, 'probe-context'), 'utf8');
-      assert.equal(probe, fs.readFileSync(path.join(run.workspace, 'command-context'), 'utf8'));
-      const lines = probe.trim().split('\n');
-      assert.deepEqual(lines.slice(0, 3), [env.SUDO_UID, env.SUDO_GID, '/workspace']);
-      assert(lines[3].split(':').includes('/workspace'));
-      assert.deepEqual(lines.slice(4, 8), ['/workspace/.awf-home', 'cloud-hypervisor', 'controlled', 'profile-loaded']);
-      assert.match(lines[8], /^[a-f0-9-]{36}$/);
-      assert.notEqual(lines[8], fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim());
+      const context = guestContextEvidence(probe,
+        fs.readFileSync(path.join(run.workspace, 'command-context'), 'utf8'), {
+          uid: env.SUDO_UID, gid: env.SUDO_GID,
+          hostBootId: fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim(),
+        });
+      save(`${evidenceName}-context.json`, {
+        schemaVersion: 1, evidence: 'live-cloud-hypervisor',
+        observationEnvironment: run.context.environment, selectedHarness: run.context.name,
+        selectedBinary: run.context.binary, ...context,
+      });
     }
     async function test(name, execute) {
       assert(!aborted, 'suite interrupted');
@@ -353,9 +395,18 @@ async function main(argv = process.argv.slice(2), env = process.env) {
         const checked = JSON.parse((await child).stdout);
         assert.equal(checked.pinned, true);
         assert.equal(checked.request, true);
+        assert.equal(checked.legacyAdmitted, true);
+        assert.equal(checked.legacyHarness, 'unconstrained');
         if (options.pinAcrossReplacement) {
           assert.equal(checked.routing, true);
           assert.equal(checked.classifierAttempts, 2);
+        }
+        if (Object.keys(binding).length === 0) {
+          save(`${path.basename(run.context.binary)}-${run.config.additionalEnv.FIXTURE_MODE}-consumer.json`, {
+            schemaVersion: 1, evidence: 'live-cloud-hypervisor', observationEnvironment: run.context.environment,
+            legacyAdmitted: true, legacyHarness: 'unconstrained', requestPinned: true,
+            routingPinned: checked.routing === true, classifierAttempts: checked.routing ? 2 : null,
+          });
         }
       } finally {
         // Unique name created solely by this driver; never remove a shared name.
@@ -386,6 +437,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
         assert(!JSON.stringify(observed).includes('discard-this-fixture'));
         if (mode === 'timeout') assert(Date.now() - started >= 9900 && Date.now() - started < 20000);
         save(`${binary}-${mode}-observation.json`, observed);
+        if (mode !== 'valid') await proxyCheck(run, { status: 'unavailable', reason: expected });
         if (binary === 'copilot' && mode === 'valid') {
           await proxyCheck(run, { status: 'observed', pinAcrossReplacement: true });
           replaceReport(run.reportFile, observed);
@@ -443,7 +495,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
           else assert.equal(await execution, 23);
           assert.equal(commandEntered, !rejection);
           assert.equal(fs.existsSync(path.join(run.workspace, 'command-context')), !rejection);
-          if (!rejection) assertContext(run);
+          if (!rejection) assertContext(run, `workflow-${mode}-${minimum}`);
         } finally { models.validateCopilotModel = original; }
       });
     }
@@ -474,6 +526,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
     status = 'passed'; code = 'completed';
   } catch (error) {
     if (error instanceof Blocked) { status = 'blocked'; code = error.message; }
+    else if (status === 'blocked') code = 'prerequisite-unavailable';
     else { status = 'failed'; code = 'live-assertion-or-infrastructure-failed'; }
   } finally {
     clearTimeout(watchdog);
@@ -499,6 +552,8 @@ async function main(argv = process.argv.slice(2), env = process.env) {
 }
 module.exports = {
   main, parsePins, loadArtifacts, checkCheckout, checkArtifactSourceCommit, checkHost, runResources, CASES, ARTIFACTS,
+  guestContextEvidence,
+  requireImage,
 };
 if (require.main === module) {
   main().then(code => { process.exitCode = code; }).catch(() => {

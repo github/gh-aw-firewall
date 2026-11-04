@@ -35,6 +35,14 @@ async function replacementBarrier() {
   assert(fs.existsSync('/exchange/replaced'), 'report replacement rendezvous expired');
 }
 async function main(options) {
+  proxyEligibilityStore.replaceTrustedEvidence({});
+  const legacyRequest = request();
+  const legacyPin = pinRequestEligibility(legacyRequest);
+  const legacy = evaluate(legacyRequest);
+  assert.equal(legacy.admitted, true);
+  assert.equal(legacy.harness, 'unconstrained');
+  assert.notEqual(legacy.harness, 'compatible');
+  const legacyEvidence = { legacyAdmitted: true, legacyHarness: 'unconstrained' };
   proxyEligibilityStore.replaceTrustedEvidence({
     models: ids.map(id => ({
       identity: resolveModelIdentity(id, 'copilot').identity,
@@ -45,11 +53,13 @@ async function main(options) {
     })),
   });
   try {
+    assert.equal(pinRequestEligibility(legacyRequest), legacyPin);
+    assert.deepEqual(evaluate(legacyRequest), legacy);
     const observed = readHarnessObservation();
     if (options.absent) {
       assert.equal(observed, undefined);
       assert.equal(evaluate(request()).harness, 'unverified');
-      return { pinned: true, request: true, enclaveEvidenceAbsent: true };
+      return { pinned: true, request: true, enclaveEvidenceAbsent: true, ...legacyEvidence };
     }
     assert.equal(observed.status, options.status);
     if (options.reason) assert.equal(observed.reason, options.reason);
@@ -61,7 +71,7 @@ async function main(options) {
     assert(Object.isFrozen(req.awfEligibilityScope));
     assert.equal(first.harness, observed.status === 'observed' ? 'compatible' : 'unverified');
     assert.equal(first.admitted, observed.status === 'observed');
-    if (!options.pinAcrossReplacement) return { pinned: true, request: true };
+    if (!options.pinAcrossReplacement) return { pinned: true, request: true, ...legacyEvidence };
 
     // createRoutingController pins production eligibility before awaiting
     // discovery. Replace the report while that real asynchronous boundary is
@@ -134,7 +144,7 @@ async function main(options) {
     assert.equal(pinRequestEligibility(req), pin);
     assert.equal(readHarnessObservation().reason, 'observation_environment_mismatch');
     assert.equal(evaluate(request()).harness, 'unverified');
-    return { pinned: true, request: true, routing: true, classifierAttempts: executions.length };
+    return { pinned: true, request: true, routing: true, classifierAttempts: executions.length, ...legacyEvidence };
   } finally { proxyEligibilityStore.replaceTrustedEvidence({}); }
 }
 module.exports = { main };

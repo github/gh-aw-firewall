@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { createHash } from 'crypto';
 import vm from 'vm';
@@ -10,7 +11,7 @@ const driverPath = path.join(__dirname, 'cloud-hypervisor-harness-live.cjs');
 const driver = require('./cloud-hypervisor-harness-live.cjs');
 const source = fs.readFileSync(driverPath, 'utf8');
 const fixture = path.join(root, 'tests/fixtures/harness-observation/cloud-hypervisor-executable.sh');
-const scratch = fs.mkdtempSync(path.join(root, '.harness-driver-test-'));
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-harness-driver-test-'));
 const sha = 'a'.repeat(40);
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 let sequence = 0;
@@ -128,6 +129,27 @@ describe('Cloud Hypervisor harness acceptance driver (deterministic, not live pr
     ]);
   });
 
+  it('emits only validated guest context evidence and rejects host execution or context drift', () => {
+    const guestBootId = '12345678-1234-1234-1234-123456789abc';
+    const hostBootId = '87654321-4321-4321-4321-cba987654321';
+    const probe = [
+      '1001', '1002', '/workspace', '/workspace:/usr/bin:/bin', '/workspace/.awf-home',
+      'cloud-hypervisor', 'controlled', 'profile-loaded', guestBootId, '',
+    ].join('\n');
+    const expected = { uid: '1001', gid: '1002', hostBootId };
+    const evidence = driver.guestContextEvidence(probe, probe, expected);
+    expect(evidence).toEqual({
+      uid: 1001, gid: 1002, cwd: '/workspace', path: '/workspace:/usr/bin:/bin',
+      home: '/workspace/.awf-home', runtime: 'cloud-hypervisor', fixtureEnvironment: 'controlled',
+      loginProfile: 'profile-loaded', guestBootId, hostBootId, commandProbeContextMatched: true,
+    });
+    expect(Object.isFrozen(evidence)).toBe(true);
+    expect(() => driver.guestContextEvidence(probe, probe, { ...expected, hostBootId: guestBootId })).toThrow();
+    expect(() => driver.guestContextEvidence(probe, probe, { ...expected, uid: '0' })).toThrow();
+    expect(() => driver.guestContextEvidence(probe, probe.replace('profile-loaded', 'missing'), expected)).toThrow();
+    expect(() => driver.guestContextEvidence(`${probe}raw-metadata\n`, `${probe}raw-metadata\n`, expected)).toThrow();
+  });
+
   it('does not silently invent GitHub-hosted identity or original sudo identity', () => {
     expect(() => driver.checkHost({}, 0)).toThrow('original-user-required');
     expect(() => driver.checkHost({ SUDO_UID: '0', SUDO_GID: '1000' }, 0)).toThrow('original-user-required');
@@ -136,6 +158,19 @@ describe('Cloud Hypervisor harness acceptance driver (deterministic, not live pr
       SUDO_UID: '1000', SUDO_GID: '1000', GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'self-hosted',
       ImageOS: 'ubuntu24',
     }, 0)).toThrow('github-hosted-ubuntu-required');
+  });
+
+  it('classifies unavailable prepared images as sanitized prerequisite blocks', () => {
+    for (const code of ['consumer-image-missing', 'squid-image-unavailable', 'api-proxy-image-unavailable']) {
+      expect(() => driver.requireImage('fixture-image', code, () => {
+        throw new Error('raw Docker/build error with secret metadata');
+      })).toThrow(new Error(code));
+    }
+    const inspect = jest.fn(() => 'sha256:fixture');
+    expect(driver.requireImage('fixture-image', 'consumer-image-missing', inspect)).toBe('sha256:fixture');
+    expect(inspect).toHaveBeenCalledWith('docker',
+      ['image', 'inspect', '--format', '{{.Id}}', 'fixture-image']);
+    expect(source).toContain("'consumer-image-sha-mismatch'");
   });
 
   it.each([undefined, 'absent'])('writes non-passing sanitized evidence for missing artifacts (%s)', async argument => {
@@ -163,6 +198,9 @@ describe('Cloud Hypervisor harness acceptance driver (deterministic, not live pr
     expect(source).toContain('await docker.writeConfigs(run.config)');
     expect(source).toContain('await active.docker.stopContainers(active.config.workDir, false)');
     expect(source).toContain('runMainWorkflow(run.config');
+    expect(source).toContain('buildLocal: false');
+    expect(source).toContain("skipPull: true, imageRegistry: 'ghcr.io/github/gh-aw-firewall', imageTag: 'latest'");
+    expect(source).toContain('squid: { id: squidImageId, sourceDigests: squidSourceDigests }');
     expect(source).toContain("process.env.GITHUB_WORKSPACE = workspace");
     expect(source).toContain("process.chdir(workspace)");
     expect(source).not.toMatch(/dependencies\.(createManager|identity|preflight|resolveExports|resolveInfrastructure)\s*=/);
@@ -186,7 +224,8 @@ describe('Cloud Hypervisor harness acceptance driver (deterministic, not live pr
     expect(source).toContain("await test('cancel-active-probe'");
     expect(source).toContain("await test('startup-rejects-corrupt-artifact'");
     expect(source).toContain("'/proc/sys/kernel/random/boot_id'");
-    expect(source).toContain("assert.notEqual(lines[8]");
+    expect(source).toContain('assert.notEqual(lines[8], hostBootId)');
+    expect(source).toContain('save(`${evidenceName}-context.json`');
   });
 
   it('uses the real networkless fixed-path proxy consumer and immutable request pins', () => {
@@ -210,13 +249,15 @@ describe('Cloud Hypervisor harness acceptance driver (deterministic, not live pr
     expect(source).toContain("AWF_HARNESS_ENVIRONMENT: 'cloud-hypervisor:enclave-subject'");
   });
 
-  it('executes the consumer fixture through real request/routing modules (simulated trusted mount, not live proof)', async () => {
+  it.each(['observed', 'unavailable'])('executes the consumer fixture for %s through real request/routing modules (simulated trusted mount, not live proof)', async status => {
     const work = directory();
     const filename = path.join(work, 'report.json');
     const environment = 'cloud-hypervisor:deterministic';
     const report = {
       environment, name: 'copilot-cli', binary: '/workspace/copilot',
-      resolvedBinary: '/workspace/copilot', version: '1.2.3', status: 'observed',
+      ...(status === 'observed' ? {
+        resolvedBinary: '/workspace/copilot', version: '1.2.3', status,
+      } : { status, reason: 'probe_output_invalid' }),
     };
     fs.writeFileSync(filename, JSON.stringify(report), { mode: 0o644 });
     const previous = {
@@ -261,8 +302,13 @@ describe('Cloud Hypervisor harness acceptance driver (deterministic, not live pr
         require: (name: string) => name === 'node:fs' ? fixtureFs
           : require(name.startsWith('/app/') ? path.join(root, 'containers/api-proxy', name.slice(5)) : name),
       });
-      await expect(fixtureModule.exports.main!({ status: 'observed', pinAcrossReplacement: true }))
-        .resolves.toEqual({ pinned: true, request: true, routing: true, classifierAttempts: 2 });
+      await expect(fixtureModule.exports.main!({
+        status, ...(status === 'observed'
+          ? { pinAcrossReplacement: true } : { reason: 'probe_output_invalid' }),
+      })).resolves.toEqual({
+        pinned: true, request: true, legacyAdmitted: true, legacyHarness: 'unconstrained',
+        ...(status === 'observed' ? { routing: true, classifierAttempts: 2 } : {}),
+      });
     } finally {
       open.mockRestore(); stat.mockRestore();
       for (const [key, value] of Object.entries({
