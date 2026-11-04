@@ -108,9 +108,9 @@ describe('maintained model compilation', () => {
       expect(execFileSync(process.execPath, ['-e', `
         const assert = require('node:assert/strict');
         const host = require('./host');
-        const env = host.harnessProxyEnvironment({agentCommand:'copilot --model x', containerRuntime:'sbx'});
+        const env = host.harnessProxyEnvironment({agentCommand:'copilot --model x', containerRuntime:'cloud-hypervisor'});
         assert.equal(env.AWF_SELECTED_HARNESS, 'copilot-cli');
-        assert.match(env.AWF_HARNESS_ENVIRONMENT, /^sbx:/);
+        assert.match(env.AWF_HARNESS_ENVIRONMENT, /^cloud-hypervisor:/);
         const contract = require('./catalogue-contract/harness-observation');
         const context = {environment:env.AWF_HARNESS_ENVIRONMENT,name:'copilot-cli',binary:'copilot'};
         const report = contract.parseProbe(context,{exitCode:0,stdout:'/bin/copilot\\n1.2.3\\n'});

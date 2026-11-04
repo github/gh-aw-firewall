@@ -189,7 +189,7 @@ export function validateCopilotModelOption(
   const deferredToReadyRuntime = (result: ReturnType<typeof validateCopilotModel>): boolean =>
     !result.valid && result.eligibility?.harness === 'unverified' &&
     result.eligibility.status === 'unknown' && selectedHarness === 'copilot-cli' &&
-    ['sbx', 'cloud-hypervisor'].includes(config.containerRuntime || '');
+    config.containerRuntime === 'cloud-hypervisor';
   if (
     copilotModel &&
     !hasCustomCopilotProvider(config) &&

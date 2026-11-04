@@ -51,7 +51,7 @@ describe('API proxy sidecar: service configuration', () => {
         const env = generated.services['api-proxy'].environment;
         if (!env) throw new Error('Missing primary proxy environment');
         expect(env).toMatchObject({ AWF_SELECTED_HARNESS: 'copilot-cli', AWF_HARNESS_BINARY: 'copilot' });
-        expect(env.AWF_HARNESS_ENVIRONMENT).toMatch(/^runc:/);
+        expect(env.AWF_HARNESS_ENVIRONMENT).toMatch(/^docker:/);
         expect(generateDockerCompose(config, mockNetworkConfigWithProxy).services['api-proxy'].environment)
           .toMatchObject({ AWF_HARNESS_ENVIRONMENT: env.AWF_HARNESS_ENVIRONMENT });
         expect(generateDockerCompose({ ...config }, mockNetworkConfigWithProxy).services['api-proxy'].environment

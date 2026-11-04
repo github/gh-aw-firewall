@@ -19,7 +19,7 @@ export function harnessContext(config: WrapperConfig): HarnessContext {
   let context = contexts.get(config);
   if (!context) {
     context = Object.freeze({
-      environment: `${config.containerRuntime || 'runc'}:${randomUUID()}`,
+      environment: `${config.containerRuntime || 'docker'}:${randomUUID()}`,
       ...selectHarness(config.agentCommand),
     });
     contexts.set(config, context);
@@ -55,7 +55,7 @@ function publish(config: WrapperConfig, report: HarnessObservationReport): void 
 export function prepareHarnessObservation(config: WrapperConfig): void {
   const context = harnessContext(config);
   publish(config, unavailable(context, !context.name ? 'selection_unavailable' :
-    ['sbx', 'cloud-hypervisor'].includes(config.containerRuntime || '')
+    config.containerRuntime === 'cloud-hypervisor'
       ? 'probe_pending' : 'runtime_probe_unsupported'));
 }
 

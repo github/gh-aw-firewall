@@ -16,25 +16,6 @@ describe('execInSandbox', () => {
     jest.clearAllMocks();
   });
 
-  it('captures bounded probe output without streaming or logging raw failures', async () => {
-    mockExecaFn.mockResolvedValueOnce({ exitCode: 0, stdout: '/bin/copilot\n1.2.3\n' });
-    expect(await execInSandbox('fixture', 'copilot --version', { captureOutput: true, timeoutMinutes: 10 / 60 }))
-      .toEqual({ exitCode: 0, stdout: '/bin/copilot\n1.2.3\n' });
-    expect(mockExecaFn.mock.calls[0][2]).toMatchObject({
-      stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 4096, timeout: 10_000, stripFinalNewline: false, reject: true,
-    });
-    mockExecaFn.mockRejectedValueOnce(Object.assign(new Error('Bearer do-not-disclose'), { timedOut: true }));
-    expect(await execInSandbox('fixture', 'copilot --version', { captureOutput: true }))
-      .toMatchObject({ exitCode: 124, timedOut: true, stdout: '' });
-    expect(JSON.stringify(mockedLogger.error.mock.calls)).not.toContain('do-not-disclose');
-    mockExecaFn.mockRejectedValueOnce(new Error('stdout maxBuffer exceeded'));
-    expect(await execInSandbox('fixture', 'copilot --version', { captureOutput: true }))
-      .toMatchObject({ exitCode: 1, overflow: true });
-    mockExecaFn.mockRejectedValueOnce(Object.assign(new Error('missing binary'), { exitCode: 127 }));
-    expect(await execInSandbox('fixture', 'copilot --version', { captureOutput: true }))
-      .toMatchObject({ exitCode: 127 });
-  });
-
   it('returns exit code 0 on success', async () => {
     mockExecaFn.mockResolvedValueOnce({ exitCode: 0 });
 

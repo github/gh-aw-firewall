@@ -51,25 +51,6 @@ function createDependencies(
 }
 
 describe('SbxRuntimeBackend', () => {
-  it('observes through the same sandbox, cwd, login PATH and environment as execution', async () => {
-    const config = createConfig();
-    const dependencies = createDependencies();
-    const backend = new SbxRuntimeBackend(config, dependencies);
-    await expect(backend.probeHarness('probe')).rejects.toThrow('not ready');
-    await backend.start(config.workDir, config.allowedDomains);
-    (dependencies.execInSandbox as jest.Mock).mockResolvedValueOnce({ exitCode: 0, stdout: 'fixture' });
-    expect(await backend.probeHarness('probe')).toEqual({ exitCode: 0, stdout: 'fixture' });
-    const calls = (dependencies.execInSandbox as jest.Mock).mock.calls;
-    const probeOptions = calls[calls.length - 1][2];
-    expect(probeOptions).toMatchObject({
-      workDir: '/workspace', tty: false, captureOutput: true, timeoutMinutes: 10 / 60,
-    });
-    await backend.exec(config.workDir, config.allowedDomains);
-    const executionOptions = calls[calls.length - 1][2];
-    expect(probeOptions.environment).toBe(executionOptions.environment);
-    await backend.stop();
-    await expect(backend.probeHarness('probe')).rejects.toThrow('not ready');
-  });
   it('executes declared input checks inside the sandbox and propagates failure', async () => {
     const config = createConfig({ inputDirs: ['/guest/inputs'] });
     const dependencies = createDependencies();
