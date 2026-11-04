@@ -1708,8 +1708,14 @@ and its primary checksum set verified.
 **Live acceptance is blocked:** building the checkout's API-proxy image failed
 in the existing `install-system-trust.sh` because the sandbox's mounted
 `/etc/ssl/certs/ca-certificates.crt` could not be deleted (`Resource busy`).
-No guest observation-to-command case has passed in this session. Deterministic
-tests and packaging checks do not replace the missing guest evidence; use the
+The clean-revision attempt at
+`450b755facef7b6826928249be797a7a62769156` exited 1 with `status: blocked`,
+`code: consumer-image-missing`, `passed: false` and an empty case list. Its
+separate `environment.json` records that revision, environment and artifact
+hashes. No guest observation-to-command case has passed in this session.
+
+Targeted deterministic tests, consumer tests and bundle checks passed; these
+do not replace the missing guest evidence. Use the
 opt-in KVM job above on an ordinary supported runner without bypassing trust
 checks or relabelling an unrelated image.
 
