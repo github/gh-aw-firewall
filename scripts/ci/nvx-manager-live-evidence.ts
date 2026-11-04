@@ -200,9 +200,10 @@ export async function runCase(
     let pendingOutput = '';
     stdout.on('data', (chunk: Buffer) => {
       if (cancellationMarkerSeen || startupTimedOut) return;
-      pendingOutput = `${pendingOutput}${chunk.toString('utf8')}`
-        .slice(-cancelOnOutput.marker.length);
-      if (!pendingOutput.includes(cancelOnOutput.marker)) return;
+      const output = `${pendingOutput}${chunk.toString('utf8')}`;
+      const markerSeen = output.includes(cancelOnOutput.marker);
+      pendingOutput = output.slice(-cancelOnOutput.marker.length);
+      if (!markerSeen) return;
       cancellationMarkerSeen = true;
       if (startupTimer) clearTimeout(startupTimer);
       cancelTimer = setTimeout(
