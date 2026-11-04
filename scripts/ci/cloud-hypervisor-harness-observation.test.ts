@@ -19,6 +19,32 @@ const fixtureRoot = path.resolve(__dirname, '../../tests/fixtures/harness-observ
 const workflowFile = path.resolve(__dirname, '../../.github/workflows/test-cloud-hypervisor.yml');
 const driverFile = path.resolve(__dirname, 'cloud-hypervisor-harness-observation.cjs');
 
+function portableProxySetup(filename: string): string {
+  const proxyRoot = path.resolve(__dirname, '../../containers/api-proxy');
+  return `
+    const Module = require('node:module');
+    const originalResolve = Module._resolveFilename;
+    Module._resolveFilename = function(name, ...args) {
+      return originalResolve.call(this,
+        name.startsWith('/app/') ? ${JSON.stringify(proxyRoot)} + name.slice(4) : name, ...args);
+    };
+    const fs = require('node:fs');
+    const open = fs.openSync;
+    const stat = fs.fstatSync;
+    let reportFd;
+    fs.openSync = function(name, ...args) {
+      if (name !== '/var/log/api-proxy/harness-observation.json') return open(name, ...args);
+      reportFd = open(${JSON.stringify(filename)}, ...args);
+      return reportFd;
+    };
+    fs.fstatSync = function(fd) {
+      const result = stat(fd);
+      if (fd === reportFd) result.uid = 0;
+      return result;
+    };
+  `;
+}
+
 describe('portable Cloud Hypervisor acceptance fixtures (not KVM evidence)', () => {
   let directory: string;
   beforeEach(() => {
@@ -160,6 +186,121 @@ describe('portable Cloud Hypervisor acceptance fixtures (not KVM evidence)', () 
     expect(install).toThrow('test preload requires explicit opt-in');
   });
 
+  it.each([
+    ['incompatible', true, false],
+    ['unverified', true, false],
+    ['unexpected-blocked', true, true],
+    ['unexpected-unblocked', false, true],
+  ])('preserves %s failure through the real compiled observation/preload lifecycle', (mode, blocked, unexpected) => {
+    const test = {
+      harness: 'copilot', mode: mode === 'unverified' ? 'malformed' : 'valid',
+      floor: '99.0.0', blocked,
+    };
+    const expected = driver.expected(test);
+    fs.writeFileSync(`${directory}/expected.json`, JSON.stringify(expected));
+    const filename = `${directory}/api-proxy-logs/harness-observation.json`;
+    const root = path.resolve(__dirname, '../..');
+    // Only the guest probe, docker exec transport and root-owned file metadata
+    // are simulated; observation, validation, publication and proxy consumers run.
+    const script = `
+      const assert = require('node:assert/strict');
+      const fs = require('node:fs');
+      const Module = require('node:module');
+      const { execFileSync } = require('node:child_process');
+      const observations = require(${JSON.stringify(`${root}/dist/harness-observation`)});
+      const models = require(${JSON.stringify(`${root}/dist/copilot-model`)});
+      const validate = models.validateCopilotModel;
+      let validations = 0;
+      models.validateCopilotModel = (...args) => {
+        validations++;
+        if (${unexpected}) throw new Error('unexpected fixture validation failure');
+        return validate(...args);
+      };
+      const instrumentedValidate = models.validateCopilotModel;
+      const observe = observations.observeHarness;
+      let originalFailure;
+      observations.observeHarness = async (...args) => {
+        try { return await observe(...args); }
+        catch (error) { originalFailure = error; throw error; }
+      };
+      let consumers = 0;
+      const load = Module._load;
+      Module._load = function(name, parent, ...args) {
+        if (name === 'execa' && parent.filename === ${JSON.stringify(`${fixtureRoot}/preload.cjs`)}) {
+          return async (command, args) => {
+            consumers++;
+            assert.equal(command, 'docker');
+            assert.deepEqual(args.slice(0, 4), ['exec', 'awf-api-proxy', 'node', '-e']);
+            return { stdout: execFileSync(process.execPath, ['-e',
+              ${JSON.stringify(portableProxySetup(filename))} + args[4]],
+              { encoding: 'utf8', env: process.env, timeout: 10000 }) };
+          };
+        }
+        return load.call(this, name, parent, ...args);
+      };
+      const stat = fs.statSync;
+      fs.statSync = function(name, ...args) {
+        const result = stat(name, ...args);
+        if (name === ${JSON.stringify(filename)}) result.uid = 0;
+        return result;
+      };
+      fs.mkdirSync(${JSON.stringify(`${directory}/api-proxy-logs`)});
+      const config = {
+        containerRuntime: 'cloud-hypervisor', enableApiProxy: true,
+        workDir: ${JSON.stringify(directory)}, agentCommand: '/workspace/bin/copilot --fixture',
+      };
+      const context = observations.harnessContext(config);
+      Object.assign(process.env, {
+        AWF_HARNESS_ENVIRONMENT: context.environment,
+        AWF_SELECTED_HARNESS: context.name, AWF_HARNESS_BINARY: context.binary,
+      });
+      observations.prepareHarnessObservation(config);
+      require(${JSON.stringify(`${fixtureRoot}/preload.cjs`)});
+      (async () => {
+        await assert.rejects(observations.observeHarness(config, async () => ({
+          stdout: ${mode === 'unverified'
+    ? JSON.stringify('not a version')
+    : JSON.stringify('/workspace/bin/copilot\nGitHub Copilot CLI 1.2.3\n')},
+          exitCode: 0, timedOut: false, overflow: false,
+        })), error => {
+          assert.equal(error, originalFailure, 'preload must rethrow the original validation failure');
+          assert.match(error.message, ${unexpected
+    ? '/unexpected fixture validation failure/'
+    : mode === 'unverified' ? '/harness_unverified/' : '/harness_incompatible/'});
+          return true;
+        });
+        assert.equal(validations, 1);
+        assert.equal(models.validateCopilotModel, instrumentedValidate);
+        assert.equal(config.copilotGithubToken, undefined);
+        assert.equal(config.additionalEnv, undefined);
+        assert.equal(consumers, ${unexpected ? 0 : 1});
+        process.stdout.write(JSON.stringify({
+          evidence: JSON.parse(fs.readFileSync(${JSON.stringify(`${directory}/evidence.json`)}, 'utf8')),
+          report: JSON.parse(fs.readFileSync(${JSON.stringify(filename)}, 'utf8')),
+        }));
+      })().catch(error => { console.error(error); process.exitCode = 1; });
+    `;
+    const output = execFileSync(process.execPath, ['-e', script], {
+      encoding: 'utf8', timeout: 15000,
+      env: { ...process.env, AWF_CH_HARNESS_TEST: '1', AWF_CH_CASE: directory },
+    });
+    const { evidence, report } = JSON.parse(output);
+    expect(evidence.commandEntered).toBe(false);
+    expect(report.status).toBe(mode === 'unverified' ? 'unavailable' : 'observed');
+    if (unexpected) {
+      expect(evidence.blocked).toBeUndefined();
+      expect(evidence.proxy).toBeUndefined();
+    } else {
+      expect(evidence.blocked).toBe(mode === 'unverified' ? 'harness_unverified' : 'harness_incompatible');
+      expect(evidence.report).toEqual(report);
+      expect(evidence.proxy).toMatchObject({
+        mountedReport: true, requestPin: true, runIsolation: true, harnessIsolation: true,
+        routingPin: mode !== 'unverified',
+      });
+    }
+    expect(fs.existsSync(`${directory}/workspace/command-context`)).toBe(false);
+  });
+
   it.each(['observed', 'unavailable'])(
     'exercises real request/routing consumers with %s portable report fixtures, not a mounted sidecar',
     status => {
@@ -173,28 +314,8 @@ describe('portable Cloud Hypervisor acceptance fixtures (not KVM evidence)', () 
         : { ...context, status, reason: 'probe_output_invalid' };
       const filename = `${directory}/report.json`;
       fs.writeFileSync(filename, JSON.stringify(report), { mode: 0o644 });
-      const proxyRoot = path.resolve(__dirname, '../../containers/api-proxy');
       const script = `
-        const Module = require('node:module');
-        const originalResolve = Module._resolveFilename;
-        Module._resolveFilename = function(name, ...args) {
-          return originalResolve.call(this,
-            name.startsWith('/app/') ? ${JSON.stringify(proxyRoot)} + name.slice(4) : name, ...args);
-        };
-        const fs = require('node:fs');
-        const open = fs.openSync;
-        const stat = fs.fstatSync;
-        let reportFd;
-        fs.openSync = function(name, ...args) {
-          if (name !== '/var/log/api-proxy/harness-observation.json') return open(name, ...args);
-          reportFd = open(${JSON.stringify(filename)}, ...args);
-          return reportFd;
-        };
-        fs.fstatSync = function(fd) {
-          const result = stat(fd);
-          if (fd === reportFd) result.uid = 0;
-          return result;
-        };
+        ${portableProxySetup(filename)}
         (${checkProxy.toString()})(${JSON.stringify(report)}).then(value => {
           process.stdout.write(JSON.stringify(value));
         }).catch(error => { console.error(error); process.exitCode = 1; });
