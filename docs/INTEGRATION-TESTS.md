@@ -71,6 +71,31 @@ digests. Scan targets, vulnerability database updates, and the blocking
 High/Critical PR-image gate are unchanged. The setup script validates the merged
 daemon configuration before restart and refuses local or self-hosted runners.
 
+For PR-image scans only, the runner opts into Docker's containerd image store
+before pulling images, then uses Buildx's `docker` driver with `--load`. Each
+image imports/exports a separate GitHub Actions v2 build cache (`mode=max`),
+scoped by image and UTC date. Only the current day's scope is imported: the first
+build each UTC day reruns package installation and security upgrades, rather than
+indefinitely reusing stale apt/apk layers. Within that day, fresh hosted runners
+can reuse the layers subject to normal Actions cache visibility/eviction.
+Cache export failures remain build failures, not silently ignored warnings.
+
+The shared build-tools image remains in the local daemon until enclave-agent
+finishes; that dependent build does not pull a replacement base. Intermediate
+builder cache is pruned after each export, and scanned image archives/images are
+removed sequentially to bound disk use. Build-tools retains Ubuntu's default
+archive/security mirrors instead of selecting Azure based on DNS alone. Apt
+retries transient fetch failures, treats incomplete index updates as errors, and
+still upgrades every installed package.
+
+After Grype's DB warm-up, the job restores ownership and owner read/write/traverse
+permissions to the runner user before `actions/cache/save` archives the DB.
+Warm-up and permission-repair failures stop the job. The
+`scripts/ci/docker-registry-ci.test.ts` and
+`scripts/ci/apt-mirror-dockerfiles.test.ts` fixtures cover these cache, freshness,
+mirror, scan-failure, base-image lifetime, and cleanup contracts; they do not
+replace a Linux Docker/hosted-runner build.
+
 ### NVX harness-observation limitation
 
 NVX currently launches the configured command through one atomic

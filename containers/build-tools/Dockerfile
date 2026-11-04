@@ -56,61 +56,14 @@ FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a
 LABEL org.opencontainers.image.source="https://github.com/github/gh-aw-firewall"
 LABEL org.opencontainers.image.description="Build-tools sysroot for ARC/DinD agent containers"
 
-# Reuse Azure mirror optimization for legacy and deb822 Ubuntu sources.
-RUN if getent hosts azure.archive.ubuntu.com >/dev/null 2>&1; then \
-      echo "Using Azure apt mirror (DNS resolved successfully)"; \
-      if [ -f /etc/apt/sources.list ]; then \
-        sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list; \
-        sed -i 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list; \
-      fi; \
-      if [ -d /etc/apt/sources.list.d ]; then \
-        find /etc/apt/sources.list.d -name '*.sources' -exec \
-          sed -i -e 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' \
-                 -e 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' {} +; \
-      fi; \
-    else \
-      echo "Azure apt mirror not reachable, using default archive.ubuntu.com"; \
-    fi
-
 # Install build essentials and system libraries.
 # This mirrors the packages available on GitHub-hosted runner VMs
 # (see actions/runner-images toolset-2204.json) minus language runtimes.
+# Keep Ubuntu's standard archive/security mirrors: DNS reachability alone does
+# not establish Azure mirror throughput, and apt timeouts do not bound slow transfers.
 RUN set -eux; \
-    force_archive_mirror() { \
-      echo "Falling back to archive.ubuntu.com mirror..." >&2; \
-      if [ -f /etc/apt/sources.list ]; then \
-        sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list; \
-        sed -i 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true; \
-      fi; \
-      if [ -d /etc/apt/sources.list.d ]; then \
-        find /etc/apt/sources.list.d -name '*.sources' -exec \
-          sed -i -e 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
-                 -e 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
-      fi; \
-      rm -rf /var/lib/apt/lists/* && apt-get update; \
-    }; \
-    apt_update_retry() { \
-      local i; for i in 1 2 3; do \
-        rm -rf /var/lib/apt/lists/*; \
-        if apt-get update > /tmp/apt-update.log 2>&1; then \
-          cat /tmp/apt-update.log; \
-          if ! grep -q "Failed to fetch" /tmp/apt-update.log; then return 0; fi; \
-        else \
-          cat /tmp/apt-update.log; \
-        fi; \
-        echo "apt-get update attempt $i/3 failed, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
-      done; \
-      echo "All apt-get update retries failed, falling back to archive.ubuntu.com..." >&2; \
-      force_archive_mirror; \
-    }; \
-    apt_install_retry() { \
-      apt-get install -y --no-install-recommends "$@" && return 0; \
-      echo "apt-get install failed, forcing archive.ubuntu.com and retrying..." >&2; \
-      force_archive_mirror; \
-      apt-get install -y --no-install-recommends "$@"; \
-    }; \
-    apt_update_retry && \
-    apt_install_retry \
+    apt-get -o Acquire::Retries=3 -o APT::Update::Error-Mode=any update && \
+    apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
       # Build toolchain
       build-essential gcc g++ make cmake autoconf automake libtool \
       pkg-config binutils bison flex m4 \
@@ -131,7 +84,7 @@ RUN set -eux; \
       libcap2-bin gosu gnupg \
     && \
     # Upgrade all packages for security patches
-    apt-get upgrade -y && \
+    apt-get -o Acquire::Retries=3 upgrade -y && \
     # Match the agent image: the inherited Pebble service manager is not used.
     rm -f /usr/bin/pebble && \
     rm -rf /var/lib/apt/lists/* /tmp/*

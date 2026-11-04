@@ -4,7 +4,6 @@ import * as path from 'path';
 import { spawnSync } from 'child_process';
 
 const targets = [
-  { image: 'build-tools', stage: 'main', index: 0 },
   { image: 'agent', stage: 'one-shot-token-build', index: 0 },
   { image: 'agent', stage: 'main', index: 1 },
 ];
@@ -156,4 +155,60 @@ ${shell}
       expectSources('archive');
     });
   });
+});
+
+describe('build-tools standard Ubuntu mirrors', () => {
+  const dockerfile = fs.readFileSync(
+    path.resolve(__dirname, '../../containers/build-tools/Dockerfile'), 'utf8',
+  );
+  const installBlock = dockerfile.match(/^RUN set -eux;[\s\S]*?(?=\n\nCOPY)/m)![0]
+    .replace(/^RUN /, '')
+    .split('\n')
+    .filter(line => !line.trim().startsWith('#'))
+    .join('\n')
+    .replace(/\\\r?\n/g, ' ');
+
+  it('does not replace archive/security sources based on Azure DNS reachability', () => {
+    expect(dockerfile).not.toContain('azure.archive.ubuntu.com');
+    expect(dockerfile).not.toContain('getent hosts');
+    expect(dockerfile).not.toMatch(/sed .*sources|force_archive_mirror/);
+  });
+
+  it.each(['success', 'update', 'install', 'upgrade'])(
+    'keeps required packages, security upgrades, and hard failure on %s',
+    failure => {
+      const result = spawnSync('bash', ['-eu', '-c', `
+apt-get() {
+  printf 'apt-get %s\\n' "$*"
+  case " $* " in
+    *" $FAILURE "*) return 100 ;;
+  esac
+}
+rm() { printf 'rm %s\\n' "$*"; }
+${installBlock}
+`], {
+        encoding: 'utf8',
+        timeout: 5000,
+        env: { PATH: process.env.PATH, FAILURE: failure },
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(failure === 'success' ? 0 : 100);
+      expect(result.stdout).toContain('APT::Update::Error-Mode=any update');
+      expect(result.stdout).toContain('Acquire::Retries=3');
+      if (failure === 'update') {
+        expect(result.stdout).not.toContain(' install ');
+      } else {
+        expect(result.stdout).toContain('install -y --no-install-recommends');
+        expect(result.stdout).toContain('build-essential gcc g++ make cmake');
+        expect(result.stdout).toContain('ca-certificates curl wget git jq');
+        expect(result.stdout).toContain('libcap2-bin gosu gnupg');
+      }
+      if (failure === 'success') {
+        expect(result.stdout).toContain('upgrade -y');
+        expect(result.stdout).toContain('rm -f /usr/bin/pebble');
+      } else {
+        expect(result.stdout).not.toContain('rm -f /usr/bin/pebble');
+      }
+    },
+  );
 });
