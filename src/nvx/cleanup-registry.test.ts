@@ -279,6 +279,9 @@ describe('DurableNvxCleanupRegistry', () => {
       await expect(
         handle.captureNetworkPlan({ runId: 'f'.repeat(32), namespaceName: 'other' } as never),
       ).rejects.toThrow(/not bound to the run/);
+      await expect(
+        handle.captureNetworkPlan({ runId: RUN_ID, namespaceName: 'other' } as never),
+      ).rejects.toThrow(/not bound to the run/);
     });
 
     it('rejects capturing a network resource before a plan exists', async () => {
