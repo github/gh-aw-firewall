@@ -50,6 +50,7 @@ function resolveCentralPricing(provider, model, inputTokens, capture, context = 
   });
   // Feed identities are authoritative keys, not additional naming inputs.
   const record = records.length === 1 ? records[0] : null;
+  context.observe?.({ record, source: capture.source, revision: capture.revision });
   if (!record || !fresh(record.provenance, capture.time, capture.maxAge)) return null;
   const scoped = (record.tariffs || []).filter(tariff =>
     tariff.scope.provider === provider && tariff.scope.channel === channel &&

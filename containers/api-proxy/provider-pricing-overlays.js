@@ -85,7 +85,7 @@ function getProviders() {
   return cachedProviders;
 }
 
-function resolveProviderPricingOverlay(provider, model, inputTokens = 0) {
+function resolveProviderPricingOverlay(provider, model, inputTokens = 0, observe) {
   const providers = getProviders();
   if (!providers || !provider || !model) return null;
   let models = null;
@@ -111,6 +111,9 @@ function resolveProviderPricingOverlay(provider, model, inputTokens = 0) {
   }
   const normalized = normalizeCost(match?.entry?.cost);
   if (!normalized) return null;
+  observe?.({
+    source: 'operator', ...normalized, threshold: normalized.longContext?.threshold,
+  });
   const useLongContext = !!normalized.longContext &&
     inputTokens > normalized.longContext.threshold;
   const pricing = useLongContext ? normalized.longContext : normalized.default;

@@ -5,11 +5,15 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { EventEmitter } = require('node:events');
+const http = require('node:http');
 const { createCatalogueLoader } = require('./catalogue-loader');
 const { buildSnapshot } = require('./catalogue-contract/publication.cjs');
 const { createProviderServer } = require('./server-factory');
 const { setupTokenTracking } = require('./upstream-token');
 const { bootPrimary } = require('./startup');
+const { createWebSocketTunnel } = require('./websocket-tunnel');
+const { collectLogOutput } = require('./test-helpers/log-test-helpers');
+const { resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard');
 const baseline = require('../../shared/model-information/catalog.generated.json');
 
 function snapshot(price = '2') {
@@ -78,6 +82,65 @@ test('actual upstream usage callback retains request revision across refresh and
   }
 });
 
+test('real WebSocket usage callback retains captured feed revision without shadow egress or duplicate billing', async () => {
+  resetAiCreditsGuardForTests();
+  let current = snapshot();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-catalogue-websocket-'));
+  const getBytes = jest.fn(async () => JSON.stringify(current));
+  const loader = createCatalogueLoader({
+    source: 'https://mirror.invalid/feed', trustSource: true, cacheDirectory: directory,
+  }, { now: () => Date.parse('2026-10-23T12:00:00Z'), getBytes, report: jest.fn() });
+  const connectRequest = new EventEmitter();
+  connectRequest.end = jest.fn();
+  const request = jest.spyOn(http, 'request').mockReturnValue(connectRequest);
+  const logs = collectLogOutput();
+  try {
+    await loader.start();
+    const pinned = loader.capture();
+    const req = {
+      url: '/responses?model=opaque', headers: {},
+      awfCatalogue: pinned, awfRuntimePricing: {},
+    };
+    const socket = () => Object.assign(new EventEmitter(), {
+      write: jest.fn(), pipe: jest.fn(), destroy: jest.fn(), writable: true,
+    });
+    const trackWebSocketTokenUsage = jest.fn();
+    createWebSocketTunnel({
+      HTTPS_PROXY: 'http://squid:3128',
+      metrics: { gaugeDec: jest.fn(), increment: jest.fn(), observe: jest.fn() },
+      logRequest: jest.fn(), sanitizeForLog: String, shouldStripHeader: () => false,
+      trackWebSocketTokenUsage,
+    })({
+      req, socket: socket(), head: Buffer.alloc(0), targetHost: 'api.githubcopilot.com',
+      targetScheme: 'http', injectHeaders: {}, provider: 'copilot',
+      requestId: 'ws-pin', startTime: 0, upstreamPath: req.url,
+    });
+    connectRequest.emit('connect', { statusCode: 200 }, socket());
+    expect(trackWebSocketTokenUsage).toHaveBeenCalledTimes(1);
+    current = snapshot('9');
+    await loader.refresh();
+    const beforeUsageRequests = getBytes.mock.calls.length;
+    const usage = trackWebSocketTokenUsage.mock.calls[0][1].onUsage(
+      { input_tokens: 1000000 }, pinned.snapshot.models[0].identity.rawId,
+    );
+    expect(usage).toMatchObject({
+      ai_credits_this_response: 200, ai_credits_total: 200,
+      ai_credits_pricing_source: 'central_feed',
+      ai_credits_pricing_catalog_version: pinned.revision,
+    });
+    expect(loader.capture().revision).not.toBe(pinned.revision);
+    expect(getBytes).toHaveBeenCalledTimes(beforeUsageRequests);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(logs.lines.filter(line => line.event.startsWith('pricing_shadow_'))).toEqual([]);
+  } finally {
+    request.mockRestore();
+    logs.spy.mockRestore();
+    resetAiCreditsGuardForTests();
+    await loader.stop();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('startup shares readiness with every adapter and drains the loader before exit', async () => {
   const handlers = {};
   const on = jest.spyOn(process, 'on').mockImplementation((event, handler) => {
@@ -141,6 +204,7 @@ test('Docker app/package context includes validators and runs without repository
       AWF_MODEL_CATALOGUE: JSON.stringify({ trustSource: true, localSnapshot: snapshot() }),
     } });
     expect(result.stderr).toBe('');
+    expect(result.stdout).not.toContain('pricing_shadow_');
     expect(result.status).toBe(0);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });

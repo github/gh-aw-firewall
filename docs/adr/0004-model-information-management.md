@@ -1607,6 +1607,62 @@ legacy provider-component fallback remain unchanged. This is not full Gate 5:
 exact arithmetic, general provider-qualified governed imports, execution-version
 eligibility, full resolver migration and compiler handoff remain outstanding.
 
+**First legacy-authoritative resolution/parity slice (#11111):**
+`shared/model-information/pricing-resolution.js` is a pure candidate, generated
+with declarations into both host and proxy contract assets. The real AI-credit
+resolver captures normalized source facts as its existing adapters are reached;
+the candidate independently selects whole tariffs, strict long-context tiers,
+central freshness/effective intervals/exact provider-channel-deployment scope,
+source precedence and the existing four-component provider/fallback merge.
+The capture carries canonical provider-qualified request identity (when a provider
+is supplied), explicit scope, input-token count, the already pinned feed time,
+revision and selected-tier provider provenance. An absent/not-reached feed has
+null time; it does not cause the candidate to initialize the loader. Omitted
+source observations mean not reached, distinct from an observed absent source.
+No new pricing table, loader, network request, model admission or accounting
+authority is introduced.
+
+Matching, parsing, legacy normalization and policy-rate construction remain
+source-adapter-owned, not independently reimplemented or claimed as full matching
+parity. Operator/configured selection still short-circuits lower-priority source
+initialization. The candidate uses the same synchronous observations and request
+pins, without mutating them, re-reading a refreshed catalogue, invoking warnings
+or recording usage. It preserves missing/null/zero distinctions, selected source,
+tier, catalogue/version and provider observation metadata. Mixed-source component
+provenance is returned by the candidate, but the authoritative merge still returns
+the legacy provider source and four components, including its stale-complete
+provider fallback behavior. It does not activate a new freshness correction.
+
+Accounting, budget guards, concrete-unpriced warnings/undercount, unknown sentinel,
+selector ceilings, configured defaults, recovery, opt-outs and opaque WebSocket
+behavior remain legacy-authoritative. Quiet priceability probes do not run the
+comparison or emit diagnostics. Non-quiet resolution emits
+`pricing_shadow_difference` for tariff availability, source, tier, components or
+selected provenance differences, or `pricing_shadow_error` for candidate failures.
+Diagnostics contain only fixed difference paths and reason/mode labels, never
+model names, source URLs, catalogue IDs, prices or exception text. They are
+deduplicated by diagnostic category/path set and capped at 32 per proxy process;
+successful comparisons are silent.
+
+Deterministic fixtures cover real accounting and guard effects, source priority,
+complete/partial/stale provider tariffs, exact threshold/freshness boundaries,
+central scope/BYOK exclusions, legacy import/case/prefix behavior, zero/null,
+reasoning, selector/default/sentinel/unpriced policies, HTTP/WebSocket request
+pins, refresh, no extra source egress and injected candidate errors/differences.
+Legacy cross-provider import slug collisions are named nonactivated fixtures;
+they are not fixed or evidence of provider-qualified governed-import coverage.
+Generated host/container equality, build/types and off-tree Docker application
+context execution cover distribution without requiring a live container or VM.
+
+This is not completion of #10295 or #10290. Remaining gates include exact-decimal
+accounting, fully compatible assembled tariffs (units/currency/token ranges/
+effective dates and per-component revisions), general promotion/successor and
+non-token charge handling, independent source-matching/import-scope migration,
+all-consumer parity and a separately reviewed cutover/release window. Staged
+target pricing corrections remain inactive. Harness constraints remain empty/
+disabled; this slice neither establishes execution support nor changes runtime
+invocation or compiler/workflow overlays.
+
 ### Gate 6: Reasoning and compatibility
 
 Unify routing, validation, and reflection on resolved reasoning data. Add the

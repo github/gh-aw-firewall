@@ -69,7 +69,7 @@ function getCatalog() {
   return cachedCatalog;
 }
 
-function resolveModelPricingCatalog(provider, model, inputTokens = 0) {
+function resolveModelPricingCatalog(provider, model, inputTokens = 0, observe) {
   const catalog = getCatalog();
   if (!catalog || !provider || !model) return null;
 
@@ -84,6 +84,10 @@ function resolveModelPricingCatalog(provider, model, inputTokens = 0) {
       if (canonicalizeModel(catalogModel) !== canonical) continue;
       const normalized = normalizePricing(entry);
       if (!normalized) return null;
+      observe?.({
+        source: 'shared_catalog', ...normalized, threshold: normalized.longContext?.threshold,
+        metadata: { pricingCatalogId: catalog.catalogId, pricingCatalogVersion: catalog.version },
+      });
       const useLongContext = !!normalized.longContext &&
         inputTokens > normalized.longContext.threshold;
       return {

@@ -221,11 +221,16 @@ function findRuntimeModel(provider, model, catalog = runtimeCatalog) {
   return records.find(record => canonicalizeModel(record.id) === canonical) || null;
 }
 
-function resolveRuntimePricing(provider, model, inputTokens = 0, catalog = runtimeCatalog) {
+function resolveRuntimePricing(provider, model, inputTokens = 0, catalog = runtimeCatalog, observe) {
   const record = findRuntimeModel(provider, model, catalog);
   if (!record?.pricing?.default) return null;
   const longContext = record.pricing.longContext;
   const threshold = record.pricing.default.threshold;
+  observe?.({
+    source: 'provider', ...record.pricing, threshold: threshold || undefined,
+    defaultMetadata: getTierProvenance(record, 'default'),
+    longMetadata: longContext ? getTierProvenance(record, 'longContext') : undefined,
+  });
   const useLongContext = !!longContext && !!threshold && inputTokens > threshold;
   const tier = useLongContext ? longContext : record.pricing.default;
   const tierName = useLongContext ? 'longContext' : 'default';
