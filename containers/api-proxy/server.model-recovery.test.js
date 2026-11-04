@@ -8,7 +8,7 @@ const {
 const envKeys = [
   'HTTPS_PROXY', 'AWF_FALLBACK_MODELS', 'AWF_MODEL_FALLBACK', 'AWF_ALLOWED_MODELS',
   'AWF_DISALLOWED_MODELS', 'AWF_MAX_MODEL_MULTIPLIER', 'AWF_MAX_AI_CREDITS',
-  'AWF_MODEL_ALIASES', 'AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET', 'AWF_MAX_RUNS',
+  'AWF_MODEL_ALIASES', 'AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET', 'AWF_ENCLAVE_AGENT_PROXY', 'AWF_MAX_RUNS',
 ];
 const savedEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
 let proxyRequest, catalog, logs, requests, responses;

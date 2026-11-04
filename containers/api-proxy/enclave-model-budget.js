@@ -57,16 +57,18 @@ function decodeCapability(authorization, secret, onRejected = () => {}) {
 }
 
 function inferenceEndpoint(method, requestPath) {
-  if (method !== 'POST') return null;
   let pathname;
   try {
     pathname = new URL(requestPath, 'http://localhost').pathname.replace(/\/+$/, '');
   } catch {
-    return null;
+    return 'unsupported';
   }
-  if (/\/(?:health|status)$/.test(pathname)) return null;
+  if (['/health', '/status', '/models', '/v1/models'].includes(pathname)
+      && (method === 'GET' || method === 'HEAD')) return null;
+  if (method !== 'POST') return 'unsupported';
   if (/\/chat\/completions$/.test(pathname)) return 'chat';
   if (/\/responses$/.test(pathname)) return 'responses';
+  if (/\/messages$/.test(pathname)) return 'messages';
   return 'unsupported';
 }
 
@@ -132,9 +134,19 @@ function usageTokenCount(usage) {
   return Number.isSafeInteger(count) ? count : null;
 }
 
-function createInvocationModelBudget(secret, { maxStates = MAX_INVOCATION_STATES } = {}) {
+function createInvocationModelBudget(
+  secret,
+  { maxStates = MAX_INVOCATION_STATES, enforceInferenceEndpoints = false } = {},
+) {
   if (secret === undefined || secret === '') {
-    return { beginAttempt: () => ({ allowed: true, body: null, settle: () => {}, settleMissing: () => {} }) };
+    return {
+      beginAttempt: ({ method, path: requestPath } = {}) => {
+        if (enforceInferenceEndpoints && inferenceEndpoint(method, requestPath) === 'unsupported') {
+          return { allowed: false, reason: 'unsupported_endpoint' };
+        }
+        return { allowed: true, body: null, settle: () => {}, settleMissing: () => {} };
+      },
+    };
   }
   if (typeof secret !== 'string' || !/^[0-9a-f]{64}$/.test(secret)) {
     throw new Error('AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET must be 32-byte lowercase hex');
@@ -149,7 +161,10 @@ function createInvocationModelBudget(secret, { maxStates = MAX_INVOCATION_STATES
     let capabilityFailure;
     const claims = decodeCapability(authorization, secret, reason => { capabilityFailure = reason; });
     if (!claims) return { allowed: false, reason: 'invalid_capability', capabilityFailure };
-    if (endpoint === 'unsupported' && claims.maxTokens !== null) {
+    if (endpoint === 'unsupported') {
+      return { allowed: false, reason: 'unsupported_endpoint' };
+    }
+    if (endpoint === 'messages' && claims.maxTokens !== null) {
       return { allowed: false, reason: 'unsupported_token_accounting' };
     }
 

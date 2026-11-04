@@ -444,6 +444,16 @@ describe('validateEnclavesConfig', () => {
     }
   });
 
+  it('rejects Claude token limits until Messages accounting is supported', () => {
+    const enclaves = normalizeEnclavesConfig([{
+      agent: { engine: 'claude', profile: 'anthropic', model: 'trusted', maxModelTokens: 128 },
+      repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+    }]);
+    expect(validateEnclavesConfig(config({
+      enclaves, enableApiProxy: true, anthropicApiKey: 'key',
+    })).join('\n')).toMatch(/maxModelTokens is not supported with the Claude engine/);
+  });
+
   it.each([
     ['codex', 'anthropic'], ['claude', 'openai'],
   ] as const)('rejects mismatched %s provider profile %s', (engine, profile) => {

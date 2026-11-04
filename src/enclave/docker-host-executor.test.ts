@@ -328,12 +328,18 @@ describeLinux('host-owned Docker enclave executor', () => {
   });
 
   test('redaction secrets exclude numeric token budgets and bearer paths', async () => {
-    agent.config = { ...agent.config, maxModelTokens: 128, syntheticToken: 'fixture-credential' };
+    agent.config = {
+      ...agent.config, maxModelTokens: 128, syntheticToken: 'fixture-credential',
+      openaiApiKey: 'fixture-openai-capability',
+      modelBudgetSecret: 'fixture-budget-capability',
+    };
     await backend([agent], { publicDebug: true }).execute({
       ...plan, entryId: 'agent', executorKind: 'agent',
     }, new AbortController().signal);
     const { secrets } = jest.mocked(preservePublicEnclaveArtifacts).mock.calls[0][0];
     expect(secrets).toContain('fixture-credential');
+    expect(secrets).toContain('fixture-openai-capability');
+    expect(secrets).toContain('fixture-budget-capability');
     expect(secrets).not.toContain('128');
     expect(secrets).not.toContain(agent.config.enclaveGithubBearerPath);
   });

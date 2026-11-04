@@ -270,17 +270,20 @@ if docker image inspect "$ENCLAVE_IMAGE" >/dev/null 2>&1 \
   ENCLAVE_SCRIPT_IMAGE=$ENCLAVE_IMAGE
   ENCLAVE_IMAGE=${CH_ENCLAVE_IMAGE:-awf-cloud-hypervisor-enclave:build}
 fi
-if [[ "$ENCLAVE_IMAGE" != *@sha256:* && "$ENCLAVE_AGENT_IMAGE" == "awf-enclave-agent:local" ]] \
-  && ! docker image inspect "$ENCLAVE_AGENT_IMAGE" >/dev/null 2>&1; then
-  docker build \
-    --platform linux/amd64 \
-    --file "$ROOT/containers/enclave/Dockerfile" \
-    --target enclave-agent \
-    --build-arg "BUILD_TOOLS_IMAGE=$BUILD_TOOLS_IMAGE" \
-    --build-arg "CODEX_VERSION=$CODEX_VERSION" \
-    --build-arg "CLAUDE_VERSION=$CLAUDE_VERSION" \
-    --tag "$ENCLAVE_AGENT_IMAGE" \
-    "$ROOT/containers"
+if ! docker image inspect "$ENCLAVE_AGENT_IMAGE" >/dev/null 2>&1; then
+  if [[ "$ENCLAVE_AGENT_IMAGE" == *@sha256:* ]]; then
+    docker pull --platform linux/amd64 "$ENCLAVE_AGENT_IMAGE"
+  elif [[ "$ENCLAVE_IMAGE" != *@sha256:* && "$ENCLAVE_AGENT_IMAGE" == "awf-enclave-agent:local" ]]; then
+    docker build \
+      --platform linux/amd64 \
+      --file "$ROOT/containers/enclave/Dockerfile" \
+      --target enclave-agent \
+      --build-arg "BUILD_TOOLS_IMAGE=$BUILD_TOOLS_IMAGE" \
+      --build-arg "CODEX_VERSION=$CODEX_VERSION" \
+      --build-arg "CLAUDE_VERSION=$CLAUDE_VERSION" \
+      --tag "$ENCLAVE_AGENT_IMAGE" \
+      "$ROOT/containers"
+  fi
 fi
 primary_runtime_image=$(resolve_guest_image "$PRIMARY_IMAGE" primary)
 enclave_runtime_image=$(resolve_guest_image "$ENCLAVE_IMAGE" enclave)

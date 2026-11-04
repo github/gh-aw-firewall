@@ -433,10 +433,14 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
     }
     args.splice(1, 0, '--log-driver', 'none');
     const credential = (key: string, value: unknown): value is string => typeof value === 'string'
-      && /secret|token|bearer|authorization/i.test(key) && !/tokens|path|directory|file|budget|limit/i.test(key);
+      && /secret|token|bearer|authorization|api.?key/i.test(key)
+      && !/tokens|path|directory|file|budget|limit/i.test(key);
     const debugSecrets = Object.entries(config).filter(([key, value]) => credential(key, value))
       .map(([, value]) => value as string);
-    debugSecrets.push(authority.githubAgentId || '', authority.githubBearer || '', '******');
+    debugSecrets.push(
+      authority.githubAgentId || '', authority.githubBearer || '',
+      config.modelBudgetSecret || '', '******',
+    );
     for (let i = 0; i < args.length; i++) {
       if (args[i] === '--env') {
         const value = args[i + 1] || '';

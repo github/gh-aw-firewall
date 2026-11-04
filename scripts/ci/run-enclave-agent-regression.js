@@ -70,7 +70,9 @@ function probe(agent, runtime, marker) {
     'seed_readable = len(open(seed, "rb").read(1)) == 1',
     'try:',
     '    fd = os.open(seed, os.O_WRONLY | os.O_APPEND)',
-    'except OSError as error: seed_read_only = error.errno == errno.EROFS',
+    'except OSError as error:',
+    '    read_only_mount = bool(os.statvfs(seed).f_flag & os.ST_RDONLY)',
+    '    seed_read_only = error.errno in (errno.EROFS, errno.EACCES) and read_only_mount',
     'else:',
     '    os.close(fd)',
     '    seed_read_only = False',
@@ -124,10 +126,9 @@ async function main(environment = process.env) {
   const directory = fs.mkdtempSync(path.join(environment.RUNNER_TEMP, 'awf-enclave-regression-'));
   fs.chmodSync(directory, 0o700);
   const workDir = path.join(directory, 'work');
-  const results = path.join(workspace, '.awf-regression/results');
   const stop = path.join(workspace, '.awf-regression/enclave-stop');
   fs.mkdirSync(workDir, { mode: 0o700 });
-  fs.mkdirSync(results, { recursive: true });
+  fs.mkdirSync(path.dirname(stop), { recursive: true, mode: 0o700 });
   fs.rmSync(stop, { force: true });
   const identity = `gh-aw-${environment.GITHUB_RUN_ID}-${environment.GITHUB_RUN_ATTEMPT}-enclave-regression`;
   const capability = randomBytes(32).toString('hex');
@@ -138,6 +139,7 @@ async function main(environment = process.env) {
   let gatewayStarted = false;
   let awf;
   let failure;
+  let resultValidated = false;
   const errors = [];
   try {
     const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: workspace, encoding: 'utf8' }).trim();
@@ -161,7 +163,7 @@ async function main(environment = process.env) {
       path.join(workspace, 'dist/cli.js'), '--config', configPath,
       '--image-tag', source, '--skip-pull', '--work-dir', workDir, '--log-level', 'error',
       '--agent-timeout', '15', '--max-num-tool-calls', '1', '--',
-      `printf '%s\\n' ${quote(ready)}; while [ ! -f ${quote(stop)} ]; do sleep 1; done`,
+      `python3 -c 'import http.server; http.server.HTTPServer(("0.0.0.0", 80), http.server.BaseHTTPRequestHandler).serve_forever()' >/dev/null 2>&1 & listener=$!; listening=0; for attempt in $(seq 1 50); do if python3 -c 'import socket; socket.create_connection(("127.0.0.1", 80), timeout=0.2).close()' 2>/dev/null; then listening=1; break; fi; sleep 0.1; done; test "$listening" = 1; printf '%s\\n' ${quote(ready)}; while [ ! -f ${quote(stop)} ]; do sleep 1; done; kill "$listener"; wait "$listener" 2>/dev/null || true`,
     ], {
       ...environment, ...artifactEnvironment,
       AWF_ENCLAVE_MCP_CAPABILITY: capability,
@@ -194,9 +196,7 @@ async function main(environment = process.env) {
     if (parsed.status !== 'ok') throw new Error('Enclave agent did not produce an approved result');
     const result = parsed.result;
     require('node:assert/strict').deepEqual(result, task.expected);
-    assertAudit(path.join(workDir, 'audit/enclave.jsonl'));
-    fs.writeFileSync(path.join(results, 'enclave-result.json'),
-      `${JSON.stringify({ source, agent, runtime, result }, null, 2)}\n`);
+    resultValidated = true;
   } catch (error) {
     failure = error;
     live.emitStartupDiagnostic(awf, 'enclave-regression-failed', 'enclave-regression', stderr);
@@ -206,6 +206,9 @@ async function main(environment = process.env) {
         fs.writeFileSync(stop, '');
         await live.stopAwf(awf);
         if (awf.exitCode !== 0) errors.push(new Error('Enclave regression AWF cleanup did not exit successfully'));
+        else if (resultValidated) {
+          assertAudit(path.join(workDir, 'audit/enclave.jsonl'));
+        }
       } catch (error) { errors.push(error); }
     }
     if (gatewayStarted && !live.removeGatewayFixture(identity)) {

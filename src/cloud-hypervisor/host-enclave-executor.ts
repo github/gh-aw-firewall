@@ -64,6 +64,7 @@ import {
   resolveTrustedAttestationTool,
 } from './enclave-artifact-preflight';
 import {
+  agentEnvironmentSecrets,
   agentEnvironment,
   prepareInvocationFilesystem,
   stageInvocationInputs,
@@ -645,7 +646,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
               enclaveDebugArtifactProtectedRoot: this.options.publicDebugArtifactProtectedRoot,
               enclaveDebugSecrets: policy ? [
                 policy.githubBearer ?? '', policy.githubAgentId ?? '', policy.modelBudgetSecret ?? '',
-                agentEnvironment(policy, plan).COPILOT_TOKEN,
+                ...agentEnvironmentSecrets(policy, plan),
               ] : [],
             }
           : managerDependencies,
@@ -787,7 +788,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
                   contents,
                   policy ? [
                     policy.githubBearer ?? '', policy.githubAgentId ?? '', policy.modelBudgetSecret ?? '',
-                    agentEnvironment(policy, plan).COPILOT_TOKEN,
+                    ...agentEnvironmentSecrets(policy, plan),
                   ] : [],
                   resolveCloudHypervisorManagerDependencies(
                     invocationStorage?.managerDependencies ?? this.options.managerDependencies,
@@ -824,7 +825,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
             stdout, stderr, session,
             secrets: policy ? [
               policy.githubBearer ?? '', policy.githubAgentId ?? '', policy.modelBudgetSecret ?? '',
-              agentEnvironment(policy, plan).COPILOT_TOKEN,
+              ...agentEnvironmentSecrets(policy, plan),
             ] : [],
             envelope: {
               version: 1, runId: plan.runId, invocationId: plan.invocationId, entryId: plan.entryId,

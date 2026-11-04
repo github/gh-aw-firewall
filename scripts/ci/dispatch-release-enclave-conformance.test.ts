@@ -241,6 +241,10 @@ describe('release publication DAG and permissions', () => {
     for (const name of REQUIRED_ASSETS) expect(publish.with?.files).toContain(`release/${name}\n`);
     expect(workflow.jobs['build-cloud-hypervisor-test-artifacts'].steps.some(step =>
       step.uses?.startsWith('actions/attest-build-provenance@'))).toBe(true);
+    const artifactBuilder = workflow.jobs['build-cloud-hypervisor-test-artifacts'];
+    expect(artifactBuilder.needs).toContain('build-enclaves');
+    const build = artifactBuilder.steps.find(step => step.name === 'Build and verify pinned test artifacts')!;
+    expect(build.run).toContain('ENCLAVE_AGENT_IMAGE="ghcr.io/${{ github.repository }}/enclave-agent@${{ needs.build-enclaves.outputs.enclave_agent_digest }}"');
   });
 
   it('uses only a job-local dispatch token and pinned original source, with serialized launchers', () => {

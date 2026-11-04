@@ -34,6 +34,8 @@ it('fans out six real enclave agents from exactly the broader matrix shared buil
   expect(job.needs).toEqual(['build', 'build-cloud-hypervisor']);
   expect(job.if).toBe("${{ !cancelled() && needs.build.result == 'success' }}");
   expect(find('Checkout main').with?.ref).toBe('main');
+  expect(find('Pin build source commit').run).toContain('git fetch --no-tags origin "$SOURCE_SHA"');
+  expect(find('Pin build source commit').run).toContain('git checkout --detach FETCH_HEAD');
   for (const name of ['Download shared AWF build', 'Download Cloud Hypervisor artifacts']) {
     const original = workflow.jobs['regression-copilot'].steps.find(step => step.name === name);
     expect(find(name).with?.name).toBe(original?.with?.name);
@@ -47,6 +49,13 @@ it('fans out six real enclave agents from exactly the broader matrix shared buil
   expect(run.env?.OPENAI_API_KEY).toContain("matrix.agent == 'codex'");
   expect(run.env?.ANTHROPIC_API_KEY).toContain("matrix.agent == 'claude'");
   expect(run.env?.COPILOT_GITHUB_TOKEN).toContain("matrix.agent == 'copilot'");
+});
+
+it('waits for a real primary HTTP listener before signaling readiness and probes port 80', () => {
+  const source = fs.readFileSync(path.join(root, 'scripts/ci/run-enclave-agent-regression.js'), 'utf8');
+  expect(source).toContain('http.server.HTTPServer(("0.0.0.0", 80)');
+  const python = probe('copilot', 'docker', 'b'.repeat(48)).prompt;
+  expect(python).toContain('"primaryPeerBlocked": not reachable("172.30.0.20", 80)');
 });
 
 it('builds enclave images once and attests the same shared guest before fan-out', () => {
@@ -78,6 +87,8 @@ it('always collects protected public-only diagnostics with short retention, neve
   expect(find('Upload enclave regression evidence').with?.['retention-days']).toBe(1);
   const artifacts = find('Upload enclave regression evidence').with?.path;
   expect(artifacts).toContain('/upload/');
+  expect(artifacts).not.toContain('.awf-regression/results');
+  expect(find('Collect protected public enclave diagnostics').run).not.toContain('chown -R');
   expect(artifacts).not.toMatch(/awf\.(stdout|stderr)|work\/|gateway\.env/);
 });
 
@@ -102,7 +113,8 @@ describe.each(agents)('%s enclave regression', agent => {
     expect(task.expected.credentialsIsolated).toBe(true);
     expect(task.expected.proof).toBe('b'.repeat(48));
     expect(python).toContain('open("/awf/out"');
-    expect(python).toContain('seed_read_only = error.errno == errno.EROFS');
+    expect(python).toContain('error.errno in (errno.EROFS, errno.EACCES) and read_only_mount');
+    expect(python).toContain('os.statvfs(seed).f_flag & os.ST_RDONLY');
     const parsed = spawnSync('python3', ['-c', 'import ast,sys; ast.parse(sys.stdin.read())'], {
       input: python, encoding: 'utf8',
     });
@@ -113,6 +125,15 @@ describe.each(agents)('%s enclave regression', agent => {
       jsonrpc: '2.0', id: 3,
       result: { structuredContent: structured, content: [{ type: 'text', text: JSON.stringify(structured) }] },
     }, 3)).toEqual(structured);
+  });
+
+  it('waits for a real primary HTTP listener before signaling readiness and probes port 80', () => {
+    const source = fs.readFileSync(path.join(root, 'scripts/ci/run-enclave-agent-regression.js'), 'utf8');
+    expect(source).toMatch(/test "\$listening" = 1; printf/);
+    expect(source).toContain('http.server.HTTPServer(("0.0.0.0", 80)');
+    expect(source).toContain('fs.mkdirSync(path.dirname(stop)');
+    expect(probe('copilot', 'docker', 'b'.repeat(48)).prompt)
+      .toContain('"primaryPeerBlocked": not reachable("172.30.0.20", 80)');
   });
 });
 

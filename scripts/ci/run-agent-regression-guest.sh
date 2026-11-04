@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export PATH="$PWD/.awf-regression/tools/node_modules/.bin:$PATH"
 agent=${1:?agent required}
 marker=${2:?marker required}
 results="$PWD/.awf-regression/results"

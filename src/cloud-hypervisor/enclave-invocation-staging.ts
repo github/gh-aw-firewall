@@ -200,3 +200,16 @@ export function agentEnvironment(
   );
   return Object.freeze(environment);
 }
+
+export function agentEnvironmentSecrets(
+  policy: HostExecutorAgentPolicy,
+  plan: HostExecutorInvocationPlan,
+): string[] {
+  const environment = agentEnvironment(policy, plan);
+  return [...new Set([
+    environment.COPILOT_TOKEN,
+    environment.COPILOT_PROVIDER_BEARER_TOKEN,
+    environment.OPENAI_API_KEY,
+    environment.ANTHROPIC_AUTH_TOKEN,
+  ].filter((value): value is string => Boolean(value) && value !== '******'))];
+}

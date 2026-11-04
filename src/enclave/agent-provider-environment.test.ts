@@ -1,4 +1,4 @@
-import { agentEnvironment } from '../cloud-hypervisor/enclave-invocation-staging';
+import { agentEnvironment, agentEnvironmentSecrets } from '../cloud-hypervisor/enclave-invocation-staging';
 import type { HostExecutorInvocationPlan } from './host-executor-server';
 import { normalizeAgentPolicy } from './execution-policy';
 import type { EnclaveAgentEngine, EnclaveAgentProfile } from '../types/enclave-options';
@@ -64,6 +64,19 @@ describe.each(['docker', 'cloud-hypervisor'])('%s enclave provider environment',
     for (const [other, , , otherAuth] of cases) {
       if (other !== engine) expect(environment[otherAuth]).toBeUndefined();
     }
+  });
+
+  it.each(cases)('returns the bare %s capability for public-log redaction', (engine, profile) => {
+    const policy = {
+      engine, profile, model: 'trusted', maxOutputBytes: 8192,
+      maxModelRequests: 2, modelBudgetSecret: 'a'.repeat(64),
+    };
+    const environment = agentEnvironment(policy, plan);
+    const capabilityValue = engine === 'copilot'
+      ? environment.COPILOT_PROVIDER_BEARER_TOKEN
+      : environment[engine === 'codex' ? 'OPENAI_API_KEY' : 'ANTHROPIC_AUTH_TOKEN'];
+    expect(agentEnvironmentSecrets(policy, plan)).toContain(capabilityValue);
+    expect(capabilityValue).not.toContain('Bearer ');
   });
 });
 

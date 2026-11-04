@@ -104,6 +104,15 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+      - name: Pin build source commit
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -147,6 +156,11 @@ jobs:
             bash guest/cloud-hypervisor/build-test-artifacts.sh
           bash guest/cloud-hypervisor/verify-test-artifacts.sh \
             release/cloud-hypervisor-test-x86_64
+      - name: Name shared manifests for runtime validation
+        run: |
+          output=release/cloud-hypervisor-test-x86_64
+          cp "$output/manifest.json" "$output/cloud-hypervisor-test-x86_64.manifest.json"
+          cp "$output/enclave-manifest.json" "$output/cloud-hypervisor-enclave-rootfs-x86_64.manifest.json"
       - name: Attest shared microVM manifests and enclave rootfs
         id: attest
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -202,6 +216,15 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+      - name: Pin build source commit
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
       - name: Fetch and verify pinned NVX artifacts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -261,6 +284,15 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+      - name: Pin build source commit
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -332,7 +364,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-runtime-${{ matrix.agent }}-${{ matrix.runtime }}
-          path: .awf-regression/results/
+          path: ${{ runner.temp }}/agent-runtime-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.agent }}-${{ matrix.runtime }}/
           if-no-files-found: warn
           retention-days: 7
 
@@ -355,6 +387,15 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+      - name: Pin build source commit
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -426,7 +467,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-runtime-${{ matrix.agent }}-${{ matrix.runtime }}
-          path: .awf-regression/results/
+          path: ${{ runner.temp }}/agent-runtime-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.agent }}-${{ matrix.runtime }}/
           if-no-files-found: warn
           retention-days: 7
 
@@ -450,6 +491,15 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+      - name: Pin build source commit
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -521,15 +571,12 @@ jobs:
           RUNTIME: ${{ matrix.runtime }}
         run: |
           sudo node /var/lib/awf-enclave-smoke-export/collector.cjs collect "$RUNTIME" "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "$(id -u)" "$(id -g)"
-          sudo chown -R "$(id -u):$(id -g)" .awf-regression/results
       - name: Upload enclave regression evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-enclave-${{ matrix.agent }}-${{ matrix.runtime }}
-          path: |
-            .awf-regression/results/
-            /var/lib/awf-enclave-smoke-export/${{ github.run_id }}-${{ github.run_attempt }}/upload/
+          path: /var/lib/awf-enclave-smoke-export/${{ github.run_id }}-${{ github.run_attempt }}/upload/
           if-no-files-found: warn
           retention-days: 1
 

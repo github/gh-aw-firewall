@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 case "${AGENT:?}" in
   copilot) test -n "${COPILOT_GITHUB_TOKEN:-}" || { echo "::error::Missing Copilot credential"; exit 1; } ;;
@@ -12,14 +13,17 @@ root="${GITHUB_WORKSPACE:?}"
 results="$root/.awf-regression/results"
 mkdir -p "$results"
 marker="AWF-REGRESSION-$AGENT-${RUNTIME:?}-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}"
-printf '%s\n' "${SOURCE_SHA:?}" > "$results/source-sha.txt"
+host_logs="${RUNNER_TEMP:?}/agent-runtime-logs-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${AGENT}-${RUNTIME}"
+staged="${RUNNER_TEMP}/agent-runtime-evidence-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${AGENT}-${RUNTIME}"
+mkdir -m 700 "$host_logs"
+collector=$(<"$root/scripts/ci/collect-agent-regression-evidence.cjs")
 args=(
   --image-registry awf-regression --image-tag "$SOURCE_SHA" --skip-pull
   --network-isolation --enable-api-proxy --agent-timeout 10
   --allow-domains 'github.com,githubusercontent.com,githubcopilot.com,api.openai.com,api.anthropic.com'
   --env "PATH=$root/.awf-regression/tools/node_modules/.bin:$PATH"
-  --proxy-logs-dir "$results/proxy-logs"
-  --audit-dir "$results/audit"
+  --proxy-logs-dir "$host_logs/proxy-logs"
+  --audit-dir "$host_logs/audit"
   --log-level info
 )
 guest_root=/workspace
@@ -78,19 +82,20 @@ status=0
 sudo --preserve-env=COPILOT_GITHUB_TOKEN,OPENAI_API_KEY,ANTHROPIC_API_KEY,AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TOOL_CACHE,AGENT_TOOLSDIRECTORY,RUNNER_TEMP,GITHUB_WORKSPACE \
   "$(command -v node)" "$root/dist/cli.js" "${args[@]}" \
   -- bash "$guest_root/scripts/ci/run-agent-regression-guest.sh" "$AGENT" "$marker" \
-  2>&1 | tee "$results/awf.log" || status=$?
-sudo chown -R "$(id -u):$(id -g)" "$results"
+  2>&1 | tee "$host_logs/awf.log" || status=$?
+AWF_COLLECT_AGENT_REGRESSION_EVIDENCE=1 node -e "$collector" "$results" "$staged"
+printf '%s\n' "$SOURCE_SHA" > "$staged/source-sha.txt"
 if [ "$status" -ne 0 ]; then
   echo "::error::$AGENT / $RUNTIME failed with exit code $status; see regression evidence"
   exit "$status"
 fi
 # Neither a model's claimed PASS nor a noop can satisfy these checks.
-if [ ! -f "$results/agent-proof.txt" ] || [ "$(cat "$results/agent-proof.txt")" != "$marker" ]; then
+if [ ! -f "$staged/agent-proof.txt" ] || [ "$(cat "$staged/agent-proof.txt")" != "$marker" ]; then
   echo "::error::Missing or incorrect agent-written workspace proof"
   exit 1
 fi
-if ! grep -Fxq "$marker" "$results/response.txt" ||
-   ! grep -Fxq 'AWF-REGRESSION-COMPLETE' "$results/awf.log"; then
+if ! grep -Fxq "$marker" "$staged/response.txt" ||
+   ! grep -Fxq 'AWF-REGRESSION-COMPLETE' "$host_logs/awf.log"; then
   echo "::error::Missing exact inference response or guest completion marker"
   exit 1
 fi

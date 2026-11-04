@@ -84,6 +84,8 @@ describe('daily agent/runtime regression workflow', () => {
         ref: 'main',
         'persist-credentials': false,
       });
+      expect(step(job, 'Pin build source commit').run).toContain('git fetch --no-tags origin "$SOURCE_SHA"');
+      expect(step(job, 'Pin build source commit').run).toContain('git checkout --detach FETCH_HEAD');
     }
     for (const job of ['regression-copilot', 'regression-non-copilot']) {
       const restore = step(job, 'Load the shared CLI and images').run;
@@ -119,6 +121,8 @@ describe('daily agent/runtime regression workflow', () => {
     expect(build).not.toContain('docker build --tag awf-regression/build-tools:local');
     expect(build).toContain('bash guest/cloud-hypervisor/build-test-artifacts.sh');
     expect(build).toContain('bash guest/cloud-hypervisor/verify-test-artifacts.sh');
+    expect(step('build-cloud-hypervisor', 'Name shared manifests for runtime validation').run)
+      .toContain('cp "$output/enclave-manifest.json"');
     const builder = fs.readFileSync(path.join(root, 'guest/cloud-hypervisor/build-test-artifacts.sh'), 'utf8');
     const checksumBlock = builder.match(/\n  sha256sum \\\n([\s\S]*?)\s+> SHA256SUMS/);
     if (!checksumBlock) throw new Error('Missing Cloud Hypervisor checksum list');
@@ -161,10 +165,12 @@ describe('daily agent/runtime regression workflow', () => {
       expect(run.env?.OPENAI_API_KEY).toContain("matrix.agent == 'codex'");
       expect(run.env?.ANTHROPIC_API_KEY).toContain("matrix.agent == 'claude'");
       expect(run.run).toContain('host_script=$(<scripts/ci/run-agent-runtime-regression.sh)');
+      expect(fs.readFileSync(guestScript, 'utf8'))
+        .toContain('export PATH="$PWD/.awf-regression/tools/node_modules/.bin:$PATH"');
       expect(run.run).toContain('bash -c "$host_script"');
       expect(step(job, 'Upload regression evidence').if).toBe('always()');
       expect(step(job, 'Upload regression evidence').with?.path)
-        .toBe('.awf-regression/results/');
+        .toBe('${{ runner.temp }}/agent-runtime-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.agent }}-${{ matrix.runtime }}/');
       expect(step(job, 'Upload regression evidence').with?.['retention-days']).toBe(7);
     }
     expect(fs.readFileSync(hostScript, 'utf8')).not.toContain('--env-all');
@@ -186,14 +192,17 @@ describe('agent regression harness', () => {
     directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-agent-regression-'));
     tools = path.join(directory, 'tools');
     fs.mkdirSync(tools);
+    fs.mkdirSync(path.join(directory, 'runner-temp'));
     fs.mkdirSync(path.join(directory, 'scripts/ci'), { recursive: true });
     fs.copyFileSync(guestScript, path.join(directory, 'scripts/ci/run-agent-regression-guest.sh'));
+    fs.copyFileSync(path.join(__dirname, 'collect-agent-regression-evidence.cjs'),
+      path.join(directory, 'scripts/ci/collect-agent-regression-evidence.cjs'));
     fs.writeFileSync(path.join(directory, 'package.json'), '{}');
     environment = {
       ...process.env,
       PATH: `${tools}:${process.env.PATH}`,
       GITHUB_WORKSPACE: directory,
-      RUNNER_TEMP: directory,
+      RUNNER_TEMP: path.join(directory, 'runner-temp'),
       GITHUB_RUN_ID: '123',
       GITHUB_RUN_ATTEMPT: '1',
       GITHUB_STEP_SUMMARY: path.join(directory, 'summary.md'),
@@ -247,6 +256,10 @@ describe('agent regression harness', () => {
       const fs = require('fs');
       const { spawnSync } = require('child_process');
       const args = process.argv.slice(2);
+      if (args[0] === '-e') {
+        const result = spawnSync(process.execPath, args, { env: process.env, stdio: 'inherit' });
+        process.exit(result.status ?? 1);
+      }
       fs.writeFileSync(process.env.TEST_ROOT + '/awf-args.json', JSON.stringify(args));
       const delimiter = args.indexOf('--');
       const command = args[delimiter + 1];
@@ -309,7 +322,7 @@ describe('agent regression harness', () => {
   it.each(agents.flatMap(agent => runtimes.map(runtime => [agent, runtime])))(
     'wires the shared AWF build to the %s / %s runtime',
     (agent, runtime) => {
-      const artifacts = path.join(directory, `agent-runtime-${runtime}`);
+      const artifacts = path.join(environment.RUNNER_TEMP!, `agent-runtime-${runtime}`);
       fs.mkdirSync(artifacts);
       if (runtime === 'cloud-hypervisor') {
         const files = ['cloud-hypervisor', 'virtiofsd', 'vmlinux.bin', 'kernel.config', 'rootfs.ext4', 'awf-supervisor'];
@@ -347,6 +360,13 @@ describe('agent regression harness', () => {
       }
       expect(fs.readFileSync(path.join(directory, 'summary.md'), 'utf8'))
         .toContain(`${agent} / ${runtime}: PASS`);
+      const staged = path.join(environment.RUNNER_TEMP!, `agent-runtime-evidence-123-1-${agent}-${runtime}`);
+      expect(fs.readdirSync(staged).sort()).toEqual([
+        'agent-proof.txt', 'agent-version.txt', 'response.txt', 'source-sha.txt',
+      ]);
+      expect(fs.readFileSync(path.join(staged, 'agent-proof.txt'), 'utf8'))
+        .toBe(`AWF-REGRESSION-${agent}-${runtime}-123-1\n`);
+      expect(fs.readFileSync(path.join(staged, 'source-sha.txt'), 'utf8')).toBe(`${environment.SOURCE_SHA}\n`);
     },
   );
 

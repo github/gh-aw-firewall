@@ -267,6 +267,9 @@ export function validateEnclavesStructure(
       || (agent.engine === 'codex' && agent.profile !== 'openai')) {
       errors.push(`enclaves[].agent.profile does not match engine "${agent.engine}"`);
     }
+    if (agent.engine === 'claude' && agent.maxModelTokens !== undefined) {
+      errors.push('enclaves[].agent.maxModelTokens is not supported with the Claude engine');
+    }
     if (agent.engine !== 'copilot' && (agent.dynamic !== undefined
       || agent.tools !== undefined || agent.github !== undefined)) {
       errors.push('GitHub MCP and dynamic repository admission currently require the Copilot enclave engine');

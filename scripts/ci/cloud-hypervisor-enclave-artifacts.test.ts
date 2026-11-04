@@ -34,6 +34,7 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     const build = fs.readFileSync(buildPath, 'utf8');
     const verify = fs.readFileSync(verifyPath, 'utf8');
     expect(build).toContain('engine_container=$(docker create --platform linux/amd64 "$ENCLAVE_AGENT_IMAGE")');
+    expect(build).toContain('docker pull --platform linux/amd64 "$ENCLAVE_AGENT_IMAGE"');
     expect(build).toContain('for scope in @openai @anthropic-ai; do');
     expect(build).toContain('docker cp "$engine_container:/usr/local/lib/node_modules/$scope" -');
     expect(build).toContain('for engine in codex claude run-enclave-agent public_debug_capture.py; do');

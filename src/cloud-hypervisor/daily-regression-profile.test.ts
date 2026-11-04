@@ -44,3 +44,37 @@ it('binds both common and enclave manifests to the same compiled main commit', (
     }), tag)).toThrow(/shared rootfs from the compiled main commit/);
   });
 });
+
+it('accepts a complete generated-style regression enclave manifest with local image identities', () => {
+  withProfile({ releaseTag: tag, signerWorkflow: workflow }, () => {
+    const enclave: typeof import('./enclave-artifact-manifest') = jest.requireActual('./enclave-artifact-manifest');
+    const digest = 'a'.repeat(64);
+    const imageId = `sha256:${digest}`;
+    const manifest = {
+      schemaVersion: 2,
+      artifactType: 'awf-cloud-hypervisor-enclave-rootfs-set',
+      architecture: 'x86_64',
+      release: { repository: 'github/gh-aw-firewall', workflow, tag, sourceCommit: commit },
+      compatibility: {
+        cloudHypervisorVersion: '53.0', kernelVersion: '6.1.141', supervisorVersion: tag,
+      },
+      guestBase: { image: 'awf-cloud-hypervisor-guest-base:build', imageId },
+      rootfs: {
+        file: 'enclave-rootfs.ext4', version: tag, sha256: digest, sizeBytes: 4096,
+        uid: 65534, gid: 65534, sourceImage: 'awf-cloud-hypervisor-enclave:build',
+        sourceImageDigest: digest, sourceImageId: imageId,
+        sbom: { file: 'enclave-rootfs.sbom.spdx.json', sha256: digest },
+      },
+      entrypoints: {
+        script: '/usr/local/bin/run-enclave-script', agent: '/usr/local/bin/run-enclave-agent',
+      },
+    };
+    expect(() => enclave.parseCloudHypervisorEnclaveArtifactManifest(JSON.stringify(manifest), tag)).not.toThrow();
+    expect(() => enclave.parseCloudHypervisorEnclaveArtifactManifest(JSON.stringify({
+      ...manifest, rootfs: { ...manifest.rootfs, sourceImageId: `sha256:${'b'.repeat(64)}` },
+    }), tag)).toThrow(/local Docker config ID must match/);
+    expect(() => enclave.parseCloudHypervisorEnclaveArtifactManifest(JSON.stringify({
+      ...manifest, guestBase: { ...manifest.guestBase, image: 'awf-cloud-hypervisor-guest-base:other' },
+    }), tag)).toThrow(/local build identity/);
+  });
+});
