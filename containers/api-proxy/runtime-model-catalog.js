@@ -1,5 +1,6 @@
 'use strict';
 
+const { selectPricingFact } = require('./catalogue-contract/pricing-resolution');
 const TOKENS_PER_MILLION = 1_000_000;
 const DOLLARS_PER_AIU = 0.01;
 const NANO_AIU_PER_AIU = 1_000_000_000;
@@ -221,27 +222,20 @@ function findRuntimeModel(provider, model, catalog = runtimeCatalog) {
   return records.find(record => canonicalizeModel(record.id) === canonical) || null;
 }
 
-function resolveRuntimePricing(provider, model, inputTokens = 0, catalog = runtimeCatalog, observe) {
+function getRuntimePricingFact(provider, model, catalog = runtimeCatalog) {
   const record = findRuntimeModel(provider, model, catalog);
   if (!record?.pricing?.default) return null;
   const longContext = record.pricing.longContext;
   const threshold = record.pricing.default.threshold;
-  observe?.({
+  return {
     source: 'provider', ...record.pricing, threshold: threshold || undefined,
     defaultMetadata: getTierProvenance(record, 'default'),
     longMetadata: longContext ? getTierProvenance(record, 'longContext') : undefined,
-  });
-  const useLongContext = !!longContext && !!threshold && inputTokens > threshold;
-  const tier = useLongContext ? longContext : record.pricing.default;
-  const tierName = useLongContext ? 'longContext' : 'default';
-  const provenance = getTierProvenance(record, tierName);
-  return {
-    pricing: tier,
-    source: 'provider',
-    tier: useLongContext ? 'long_context' : 'default',
-    observedAt: provenance.observedAt,
-    apiVersion: provenance.apiVersion,
   };
+}
+
+function resolveRuntimePricing(provider, model, inputTokens = 0, catalog = runtimeCatalog) {
+  return selectPricingFact(getRuntimePricingFact(provider, model, catalog), inputTokens);
 }
 
 function getRuntimeCatalogSnapshot() {
@@ -272,6 +266,7 @@ function getRuntimeCatalogSnapshot() {
 }
 
 module.exports = {
+  getRuntimePricingFact,
   canonicalizeModel,
   parseProviderModelMetadata,
   replaceRuntimeModels,

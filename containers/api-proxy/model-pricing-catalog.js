@@ -1,6 +1,7 @@
 'use strict';
 
 const { getProviderAliases } = require('./provider-pricing-overlays');
+const { selectPricingFact } = require('./catalogue-contract/pricing-resolution');
 
 let cachedRaw;
 let cachedCatalog = null;
@@ -69,7 +70,7 @@ function getCatalog() {
   return cachedCatalog;
 }
 
-function resolveModelPricingCatalog(provider, model, inputTokens = 0, observe) {
+function getConfiguredPricingFact(provider, model) {
   const catalog = getCatalog();
   if (!catalog || !provider || !model) return null;
 
@@ -84,24 +85,17 @@ function resolveModelPricingCatalog(provider, model, inputTokens = 0, observe) {
       if (canonicalizeModel(catalogModel) !== canonical) continue;
       const normalized = normalizePricing(entry);
       if (!normalized) return null;
-      observe?.({
+      return {
         source: 'shared_catalog', ...normalized, threshold: normalized.longContext?.threshold,
         metadata: { pricingCatalogId: catalog.catalogId, pricingCatalogVersion: catalog.version },
-      });
-      const useLongContext = !!normalized.longContext &&
-        inputTokens > normalized.longContext.threshold;
-      return {
-        pricing: useLongContext
-          ? normalized.longContext
-          : normalized.default,
-        source: 'shared_catalog',
-        tier: useLongContext ? 'long_context' : 'default',
-        pricingCatalogId: catalog.catalogId,
-        pricingCatalogVersion: catalog.version,
       };
     }
   }
   return null;
+}
+
+function resolveModelPricingCatalog(provider, model, inputTokens = 0) {
+  return selectPricingFact(getConfiguredPricingFact(provider, model), inputTokens);
 }
 
 function resetModelPricingCatalogForTests() {
@@ -110,6 +104,7 @@ function resetModelPricingCatalogForTests() {
 }
 
 module.exports = {
+  getConfiguredPricingFact,
   resolveModelPricingCatalog,
   resetModelPricingCatalogForTests,
 };

@@ -2,17 +2,17 @@
 
 jest.mock('../catalogue-contract/pricing-resolution', () => {
   const actual = jest.requireActual('../catalogue-contract/pricing-resolution');
-  return { ...actual, resolvePricingCandidate: jest.fn(actual.resolvePricingCandidate) };
+  return { ...actual, resolvePricing: jest.fn(actual.resolvePricing) };
 });
 jest.mock('../catalogue-loader', () => ({
   getCatalogueLoader: jest.fn(() => ({ capture: mockCaptureLoader })),
 }));
 const mockCaptureLoader = jest.fn(() => null);
-const { resolvePricingCandidate } = require('../catalogue-contract/pricing-resolution');
-const actualCandidate = jest.requireActual('../catalogue-contract/pricing-resolution').resolvePricingCandidate;
+const { resolvePricing } = require('../catalogue-contract/pricing-resolution');
+const actualResolver = jest.requireActual('../catalogue-contract/pricing-resolution').resolvePricing;
 const { applyAiCreditsUsage, resetAiCreditsGuardForTests, getAiCreditsReflectState,
-  getAiCreditsBlockState, isModelPriceable } = require('./ai-credits-guard');
-const { resetPricingShadowForTests } = require('./pricing-shadow');
+  getAiCreditsBlockState, isModelPriceable, checkModelPricing } = require('./ai-credits-guard');
+const { buildCommonGuardChecks } = require('./common-guard-checks');
 const { collectLogOutput } = require('../test-helpers/log-test-helpers');
 const { clearRuntimeModels, replaceRuntimeModels, captureRuntimePricing } = require('../runtime-model-catalog');
 const { buildCatalogIndex, resolveCatalogModel } = require('../models-dev-catalog');
@@ -55,30 +55,22 @@ beforeEach(() => {
     'AWF_DEFAULT_AI_CREDITS_PRICING', 'AWF_MAX_AI_CREDITS', 'COPILOT_PROVIDER_API_KEY',
     'COPILOT_API_TARGET', 'GITHUB_SERVER_URL']) delete process.env[key];
   resetAiCreditsGuardForTests();
-  resetPricingShadowForTests();
   clearRuntimeModels();
   mockCaptureLoader.mockClear();
-  resolvePricingCandidate.mockReset().mockImplementation(capture => {
-    const before = structuredClone(capture);
-    const result = actualCandidate(capture);
-    expect(capture).toEqual(before);
-    return result;
-  });
+  resolvePricing.mockReset().mockImplementation(actualResolver);
   logs = collectLogOutput();
 });
 
 afterEach(() => {
-  // Every ordinary fixture must exercise the independent candidate successfully.
   if (!expect.getState().currentTestName.includes('injected')) {
-    expect(logs.lines.filter(line => line.event.startsWith('pricing_shadow_'))).toEqual([]);
-    if (resolvePricingCandidate.mock.calls.length) {
-      expect(resolvePricingCandidate.mock.results.every(result => result.type === 'return')).toBe(true);
+    expect(logs.lines.filter(line => line.event === 'pricing_resolution_error')).toEqual([]);
+    if (resolvePricing.mock.calls.length) {
+      expect(resolvePricing.mock.results.every(result => result.type === 'return')).toBe(true);
     }
   }
   jest.restoreAllMocks();
   process.env = originalEnv;
   clearRuntimeModels();
-  resetPricingShadowForTests();
 });
 
 test.each([199999, 200000, 200001])('operator tier %s short-circuits catalogue/provider initialization', tokens => {
@@ -96,8 +88,8 @@ test.each([199999, 200000, 200001])('operator tier %s short-circuits catalogue/p
   expect(usage.pricingTier).toBe(tokens > 200000 ? 'long_context' : 'default');
   expect(usage.aiCreditsThisResponse).toBeCloseTo(tokens * (tokens > 200000 ? 9 : 2) / 10000, 6);
   expect(mockCaptureLoader).not.toHaveBeenCalled();
-  expect(resolvePricingCandidate).toHaveBeenCalledTimes(1);
-  expect(Object.keys(resolvePricingCandidate.mock.calls[0][0].sources)).toEqual(['operator']);
+  expect(resolvePricing).toHaveBeenCalledTimes(1);
+  expect(resolvePricing.mock.results[0].value.result.source).toBe('operator');
 });
 
 test.each([199999, 200000, 200001])('configured catalogue tier %s outranks runtime and central', tokens => {
@@ -115,7 +107,7 @@ test.each([199999, 200000, 200001])('configured catalogue tier %s outranks runti
   expect(usage.pricingSource).toBe('shared_catalog');
   expect(usage.pricingTier).toBe(tokens > 200000 ? 'long_context' : 'default');
   expect(usage.pricingCatalogVersion).toBe('v1');
-  expect(Object.keys(resolvePricingCandidate.mock.calls[0][0].sources)).toEqual(['operator', 'configured']);
+  expect(resolvePricing.mock.results[0].value.result.source).toBe('shared_catalog');
 });
 
 test.each([199999, 200000, 200001])('provider whole/partial tiers %s retain component merge semantics', tokens => {
@@ -126,16 +118,16 @@ test.each([199999, 200000, 200001])('provider whole/partial tiers %s retain comp
   const usage = charge('fixture', options, 'copilot', tokens);
   // No fallback exists for fixture, so the missing cache component stays unpriced.
   expect(usage).toBeNull();
-  expect(actualCandidate(resolvePricingCandidate.mock.calls[0][0]).result).toBeNull();
+  expect(resolvePricing.mock.results[0].value.result).toBeNull();
   resetAiCreditsGuardForTests();
   process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify(rates);
   const priced = charge('fixture', options, 'copilot', tokens);
   expect(priced.pricingSource).toBe('provider');
   expect(priced.pricingTier).toBe(tokens > 200000 ? 'long_context' : 'default');
   expect(priced.aiCreditsThisResponse).toBeCloseTo(tokens * (tokens > 200000 ? 6 : 1) / 10000, 6);
-  const candidate = actualCandidate(resolvePricingCandidate.mock.calls[1][0]);
-  expect(candidate.componentSources.cachedInput.source).toBe('configured_default');
-  expect(candidate.result.pricing.cacheWrite).toBe(tokens > 200000 ? 0 : null);
+  const resolution = resolvePricing.mock.results[1].value;
+  expect(resolution.componentSources.cachedInput.source).toBe('configured_default');
+  expect(resolution.result.pricing.cacheWrite).toBe(tokens > 200000 ? 0 : null);
 });
 
 test('complete fresh runtime beats central, partial runtime yields to central, stale-complete quirk stays', () => {
@@ -175,9 +167,9 @@ test('partial provider merge uses its selected tier, preserves zero/null, and dr
   catalog.copilot[0].id = 'gpt-6.1-sol';
   const usage = charge('gpt-6.1-sol', { runtimeCatalog: catalog }, 'copilot', 11);
   expect(usage.pricingTier).toBe('long_context');
-  const candidate = actualCandidate(resolvePricingCandidate.mock.calls[0][0]);
-  expect(candidate.result.pricing).toEqual({ input: 6, output: 8, cacheWrite: 0, cachedInput: 0.2 });
-  expect(candidate.componentSources.cachedInput).toEqual({ source: 'curated', tier: 'long_context' });
+  const resolution = resolvePricing.mock.results[0].value;
+  expect(resolution.result.pricing).toEqual({ input: 6, output: 8, cacheWrite: 0, cachedInput: 0.2 });
+  expect(resolution.componentSources.cachedInput).toEqual({ source: 'curated', tier: 'long_context' });
 });
 
 test('complete provider discounts stay informational and never reduce AI-credit budget charges', () => {
@@ -214,15 +206,15 @@ test('curated/import matching and cross-provider slug collisions remain named no
     entry.pricing && entry.id.includes('/') && !require('../ai-credits-pricing')[entry.id.split('/').slice(1).join('/')]);
   expect(entry).toBeDefined();
   expect(charge(entry.id, {}, 'custom-provider').pricingSource).toBe('models.dev');
-  const last = resolvePricingCandidate.mock.calls.at(-1)[0];
+  const last = resolvePricing.mock.calls.at(-1)[0];
   expect(last.identity.provider).toBe('custom-provider');
-  expect(last.sources.imported.source).toBe('models.dev');
+  expect(resolvePricing.mock.results.at(-1).value.result.source).toBe('models.dev');
   const index = buildCatalogIndex([
     { id: 'alpha/collision', pricing: { prompt: '0.000001', completion: '0.000002' } },
     { id: 'beta/collision', pricing: { prompt: '0.000009', completion: '0.00001' } },
   ]);
   // Governed imports would keep these identities distinct. The compatibility
-  // candidate deliberately preserves legacy first-slug matching, not that target.
+  // resolver deliberately preserves legacy first-slug matching, not that target.
   expect(resolveCatalogModel('beta/collision', index).pricing.input).toBe(1);
 });
 
@@ -250,56 +242,52 @@ test('capture is reused once and immutable request runtime pricing survives repl
   const options = { runtimeCatalog: pinned };
   expect(applyAiCreditsUsage({ input_tokens: 1000000 }, 'fixture', 'copilot', options).aiCreditsThisResponse).toBe(200);
   expect(mockCaptureLoader).toHaveBeenCalledTimes(1);
-  expect(resolvePricingCandidate).toHaveBeenCalledTimes(1);
+  expect(resolvePricing).toHaveBeenCalledTimes(1);
   expect(pinned).toEqual(before);
 });
 
-test('injected candidate differences cannot change charges, budgets, or leak source values', () => {
-  resolvePricingCandidate.mockImplementation(capture => {
-    const candidate = actualCandidate(capture);
-    return { ...candidate, scope: { provider: 'foreign', channel: 'private' },
-      result: { ...candidate.result, source: 'operator',
-      pricingCatalogId: 'https://secret.invalid/token', pricing: { ...rates, input: 999 } } };
+test('injected shared resolver tariff is authoritative for real charges and budgets', () => {
+  resolvePricing.mockImplementation(capture => {
+    const resolution = actualResolver(capture);
+    return { ...resolution, result: { ...resolution.result, pricing: { ...rates, input: 9 } } };
   });
-  process.env.AWF_MAX_AI_CREDITS = '1';
-  expect(charge('gpt-5-mini').aiCreditsThisResponse).toBe(25);
-  expect(charge('gpt-5-mini').aiCreditsThisResponse).toBe(25);
-  expect(getAiCreditsReflectState().total).toBe(50);
+  process.env.AWF_MAX_AI_CREDITS = '1000';
+  expect(charge('gpt-5-mini').aiCreditsThisResponse).toBe(900);
+  expect(getAiCreditsBlockState().maxExceeded).toBe(false);
+  expect(charge('gpt-5-mini').aiCreditsThisResponse).toBe(900);
+  expect(getAiCreditsReflectState().total).toBe(1800);
   expect(getAiCreditsBlockState().maxExceeded).toBe(true);
-  const events = logs.lines.filter(line => line.event === 'pricing_shadow_difference');
-  expect(events).toHaveLength(1);
-  expect(events[0].differences).toEqual(expect.arrayContaining([
-    'source', 'components.input', 'pricingCatalogId', 'scope',
-  ]));
-  expect(JSON.stringify(events)).not.toContain('secret');
 });
 
-test('injected candidate errors are explicit, bounded, and do not duplicate warnings/accounting', () => {
-  resolvePricingCandidate.mockImplementation(() => { throw new Error('https://credential.invalid/secret'); });
-  for (let count = 0; count < 40; count++) expect(charge('concrete-unpriced')).toBeNull();
-  expect(logs.lines.filter(line => line.event === 'pricing_shadow_error')).toHaveLength(1);
-  expect(logs.lines.filter(line => line.event === 'unknown_model_ai_credits_pricing')).toHaveLength(1);
+test('injected resolver failures log sanitized errors, never fall back, and block subsequent dispatch', () => {
+  resolvePricing.mockImplementation(() => { throw new Error('https://credential.invalid/secret'); });
+  expect(() => charge('gpt-5-mini')).toThrow(expect.objectContaining({
+    code: 'pricing_resolution_error', statusCode: 500,
+  }));
+  expect(logs.lines.filter(line => line.event === 'pricing_resolution_error')).toHaveLength(1);
+  expect(logs.lines.filter(line => line.event === 'unknown_model_ai_credits_pricing')).toHaveLength(0);
   expect(getAiCreditsReflectState().total).toBe(0);
+  expect(getAiCreditsReflectState().pricing_error).toBe('pricing_resolution_error');
   expect(JSON.stringify(logs.lines)).not.toContain('credential');
   expect(mockCaptureLoader).not.toHaveBeenCalled();
-  const comparisons = resolvePricingCandidate.mock.calls.length;
-  expect(isModelPriceable('gpt-5-mini', 'copilot', { catalogue: null })).toBe(true);
-  expect(resolvePricingCandidate).toHaveBeenCalledTimes(comparisons);
+  resolvePricing.mockImplementation(actualResolver);
+  const deps = Object.fromEntries([
+    'getMaxRunsBlockState', 'getMaxCacheMissesBlockState', 'getPermissionDeniedBlockState',
+    'getAiCreditsBlockState', 'getModelMultiplierCapBlockState', 'getRetiredModelBlockState',
+    'getModelPolicyBlockState',
+  ].map(name => [name, () => null]));
+  const guard = buildCommonGuardChecks({ ...deps, checkModelPricing }, 'gpt-5-mini', 'copilot')
+    .find(check => check.eventName === 'pricing_resolution_error');
+  expect(guard.isBlocked(guard.block)).toBe(true);
+  expect(guard.statusCode).toBe(500);
+  expect(guard.buildError(guard.block).error.type).toBe('pricing_resolution_error');
 });
 
-test('injected distinct diagnostic categories stop at the per-process cap', () => {
-  let mask = 1;
-  const fields = ['source', 'tier', 'observedAt', 'apiVersion', 'pricingCatalogId', 'pricingCatalogVersion'];
-  resolvePricingCandidate.mockImplementation(capture => {
-    const candidate = actualCandidate(capture);
-    const result = { ...candidate.result };
-    fields.forEach((field, bit) => {
-      if (mask & (1 << bit)) result[field] = 'injected-difference';
-    });
-    mask++;
-    return { ...candidate, result };
+test('injected preflight failures return a structured error without consuming or inventing credits', () => {
+  resolvePricing.mockImplementation(() => { throw new Error('private configuration'); });
+  expect(checkModelPricing('gpt-5-mini', 'copilot', { catalogue: null })).toMatchObject({
+    error: { type: 'pricing_resolution_error' },
   });
-  for (let count = 0; count < 63; count++) charge('gpt-5-mini');
-  expect(logs.lines.filter(line => line.event === 'pricing_shadow_difference')).toHaveLength(32);
-  expect(getAiCreditsReflectState().total).toBe(63 * 25);
+  expect(getAiCreditsReflectState().total).toBe(0);
+  expect(JSON.stringify(logs.lines)).not.toContain('private configuration');
 });

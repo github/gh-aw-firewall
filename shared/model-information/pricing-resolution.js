@@ -1,19 +1,16 @@
 'use strict';
 
-const { isDeepStrictEqual } = require('node:util');
-
 const components = ['input', 'cachedInput', 'cacheWrite', 'output'];
-const resultFields = [
-  'source', 'tier', 'observedAt', 'apiVersion', 'pricingCatalogId', 'pricingCatalogVersion',
-  'accountingPolicy', 'dynamicSelector', 'usedFallbackPricing',
-];
 
 function reached(sources, name) {
-  if (!Object.hasOwn(sources, name)) throw new Error('pricing_shadow_incomplete_capture');
-  return sources[name];
+  if (!Object.hasOwn(sources, name)) throw new Error('pricing_resolution_incomplete_sources');
+  const source = sources[name];
+  const fact = typeof source === 'function' ? source() : source;
+  if (fact === undefined) throw new Error('pricing_resolution_invalid_source');
+  return fact;
 }
 
-function select(fact, tokens, preferredTier) {
+function selectPricingFact(fact, tokens, preferredTier) {
   if (!fact) return null;
   const long = !!fact.longContext && (preferredTier
     ? preferredTier === 'long_context' : tokens > fact.threshold);
@@ -33,7 +30,7 @@ function fresh(provenance, time, maxAge) {
     (!provenance.freshUntil || Date.parse(provenance.freshUntil) > time);
 }
 
-function centralPricing(capture, fact) {
+function resolveCentralTariff(capture, fact) {
   if (!fact || !capture.scope || capture.scope.provider !== 'copilot' ||
       capture.scope.channel !== 'copilot-api') return null;
   const { record, source, revision } = fact;
@@ -74,30 +71,32 @@ function centralPricing(capture, fact) {
 }
 
 /**
- * Pure compatibility candidate over reached, source-normalized facts. Matching
- * remains adapter-owned; this deliberately does not activate governed imports.
+ * Authoritative tariff selection over normalized facts or lazy source readers.
+ * Each reached source is read once. Matching remains adapter-owned.
  */
-function resolvePricingCandidate(capture) {
+function resolvePricing(capture) {
   const { sources, inputTokens } = capture;
-  let result = select(reached(sources, 'operator'), inputTokens);
-  if (!result) result = select(reached(sources, 'configured'), inputTokens);
+  let result = selectPricingFact(reached(sources, 'operator'), inputTokens);
+  if (!result) result = selectPricingFact(reached(sources, 'configured'), inputTokens);
   let componentSources;
+  let missingModelPricing = false;
   if (!result) {
-    const runtime = select(reached(sources, 'runtime'), inputTokens);
+    const runtime = selectPricingFact(reached(sources, 'runtime'), inputTokens);
     const completeFreshRuntime = runtime && components.every(field =>
       Object.hasOwn(runtime.pricing, field)) &&
       (capture.time === null || fresh({ at: runtime.observedAt }, capture.time, capture.maxAge));
     if (completeFreshRuntime) {
       result = runtime;
     } else {
-      const central = centralPricing(capture, reached(sources, 'central'));
+      const central = resolveCentralTariff(capture, reached(sources, 'central'));
       result = central?.result || null;
       componentSources = central?.componentSources;
       if (!result) {
         const tokens = runtime ? 0 : inputTokens;
         const preferredTier = runtime?.tier;
         for (const name of ['curated', 'imported', 'selector', 'configuredDefault', 'sentinel']) {
-          result = select(reached(sources, name), tokens, preferredTier);
+          if (name === 'configuredDefault') missingModelPricing = true;
+          result = selectPricingFact(reached(sources, name), tokens, preferredTier);
           if (result) break;
         }
         if (runtime) {
@@ -106,7 +105,9 @@ function resolvePricingCandidate(capture) {
           for (const field of components) {
             const fromRuntime = Object.hasOwn(runtime.pricing, field);
             const selected = fromRuntime ? runtime : result;
-            if (!selected || !Object.hasOwn(selected.pricing, field)) return outcome(capture, null);
+            if (!selected || !Object.hasOwn(selected.pricing, field)) {
+              return outcome(capture, null, undefined, missingModelPricing);
+            }
             pricing[field] = selected.pricing[field];
             componentSources[field] = componentProvenance(selected);
           }
@@ -117,7 +118,7 @@ function resolvePricingCandidate(capture) {
       }
     }
   }
-  return outcome(capture, result, componentSources);
+  return outcome(capture, result, componentSources, missingModelPricing);
 }
 
 function componentProvenance(result) {
@@ -128,12 +129,23 @@ function componentProvenance(result) {
   return provenance;
 }
 
-function outcome(capture, result, componentSources) {
+function outcome(capture, result, componentSources, missingModelPricing) {
+  if (result) {
+    for (const field of [...components, 'reasoning']) {
+      if (field === 'reasoning' && !Object.hasOwn(result.pricing, field)) continue;
+      const value = result.pricing[field];
+      if (field === 'cacheWrite' && value === null) continue;
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+        throw new Error('pricing_resolution_invalid_tariff');
+      }
+    }
+  }
   return {
     identity: capture.identity,
     scope: capture.scope,
     capturedAt: capture.time,
     result,
+    missingModelPricing,
     componentSources: componentSources || Object.fromEntries(
       Object.keys(result?.pricing || {}).filter(field => field !== 'threshold').map(field => [
         field, componentProvenance(result),
@@ -142,18 +154,4 @@ function outcome(capture, result, componentSources) {
   };
 }
 
-// Only fixed field names escape to diagnostics; never raw prices, IDs, URLs,
-// exceptions, config, or source metadata. Missing, null and zero stay distinct.
-function comparePricingResults(legacy, candidate) {
-  if (!legacy || !candidate) return legacy === candidate ? [] : ['availability'];
-  const differences = resultFields.filter(field => !isDeepStrictEqual(legacy[field], candidate[field]));
-  for (const field of [...components, 'reasoning', 'threshold']) {
-    if (Object.hasOwn(legacy.pricing, field) !== Object.hasOwn(candidate.pricing, field) ||
-        !isDeepStrictEqual(legacy.pricing[field], candidate.pricing[field])) {
-      differences.push(`components.${field}`);
-    }
-  }
-  return differences;
-}
-
-module.exports = { resolvePricingCandidate, comparePricingResults };
+module.exports = { resolvePricing, selectPricingFact, resolveCentralTariff, fresh };

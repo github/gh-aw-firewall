@@ -1,5 +1,6 @@
 'use strict';
 
+const { selectPricingFact } = require('./catalogue-contract/pricing-resolution');
 const DOLLARS_PER_TOKEN_TO_DOLLARS_PER_MILLION = 1_000_000;
 
 let cachedRaw;
@@ -85,7 +86,7 @@ function getProviders() {
   return cachedProviders;
 }
 
-function resolveProviderPricingOverlay(provider, model, inputTokens = 0, observe) {
+function getProviderPricingFact(provider, model) {
   const providers = getProviders();
   if (!providers || !provider || !model) return null;
   let models = null;
@@ -111,17 +112,13 @@ function resolveProviderPricingOverlay(provider, model, inputTokens = 0, observe
   }
   const normalized = normalizeCost(match?.entry?.cost);
   if (!normalized) return null;
-  observe?.({
-    source: 'operator', ...normalized, threshold: normalized.longContext?.threshold,
-  });
-  const useLongContext = !!normalized.longContext &&
-    inputTokens > normalized.longContext.threshold;
-  const pricing = useLongContext ? normalized.longContext : normalized.default;
   return {
-    pricing,
-    source: 'operator',
-    tier: useLongContext ? 'long_context' : 'default',
+    source: 'operator', ...normalized, threshold: normalized.longContext?.threshold,
   };
+}
+
+function resolveProviderPricingOverlay(provider, model, inputTokens = 0) {
+  return selectPricingFact(getProviderPricingFact(provider, model), inputTokens);
 }
 
 function resetProviderPricingOverlaysForTests() {
@@ -131,6 +128,7 @@ function resetProviderPricingOverlaysForTests() {
 
 module.exports = {
   getProviderAliases,
+  getProviderPricingFact,
   resolveProviderPricingOverlay,
   resetProviderPricingOverlaysForTests,
 };

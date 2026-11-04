@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { identity } from '../shared/model-information/identity';
 import {
-  resolvePricingCandidate, comparePricingResults, PricingCapture, PricingFact,
+  resolvePricing, PricingCapture, PricingFact,
 } from '../shared/model-information/pricing-resolution';
 
 const prices = { input: 2, output: 4, cachedInput: 0, cacheWrite: null };
@@ -18,18 +18,18 @@ const absent = { operator: null, configured: null, runtime: null, central: null,
   curated: null, imported: null, selector: null, configuredDefault: null, sentinel: null };
 
 it('short-circuits on reached facts without requiring or inventing lower observations', () => {
-  const selected = resolvePricingCandidate(capture({ operator: fact('operator') }));
+  const selected = resolvePricing(capture({ operator: fact('operator') }));
   expect(selected).toMatchObject({
     identity: identity('copilot', 'fixture'), scope,
     result: { source: 'operator', pricing: prices, tier: 'default' },
     componentSources: { cacheWrite: { source: 'operator', tier: 'default' } },
   });
-  expect(() => resolvePricingCandidate(capture({ operator: null })))
-    .toThrow('pricing_shadow_incomplete_capture');
+  expect(() => resolvePricing(capture({ operator: null })))
+    .toThrow('pricing_resolution_incomplete_sources');
 });
 
 it.each([199999, 200000, 200001])('independently selects strict long-context boundary %s', tokens => {
-  const result = resolvePricingCandidate(capture({
+  const result = resolvePricing(capture({
     operator: { ...fact('operator'), threshold: 200000, longContext: { ...prices, input: 9 } },
   }, tokens)).result;
   expect(result?.tier).toBe(tokens > 200000 ? 'long_context' : 'default');
@@ -49,7 +49,7 @@ it('assembles only missing provider components with same-tier provenance without
     },
   }, 11);
   const before = structuredClone(input);
-  const result = resolvePricingCandidate(input);
+  const result = resolvePricing(input);
   expect(result).toMatchObject({
     result: { source: 'provider', tier: 'long_context',
       pricing: { input: 5, output: 8, cachedInput: 7, cacheWrite: 0 } },
@@ -62,7 +62,7 @@ it('assembles only missing provider components with same-tier provenance without
 });
 
 it('retains the legacy stale-complete-provider fallback quirk, not a freshness correction', () => {
-  const result = resolvePricingCandidate(capture({
+  const result = resolvePricing(capture({
     ...absent, runtime: {
       ...fact('provider', 9), defaultMetadata: { observedAt: '2026-10-01T00:00:00Z' },
     },
@@ -90,7 +90,7 @@ it('retains component-specific central evidence, scoped selection, units and rev
   const input = capture({
     ...absent, central: { record, source: 'fixture-feed', revision: 'r1' },
   });
-  const selected = resolvePricingCandidate(input);
+  const selected = resolvePricing(input);
   expect(selected.result).toMatchObject({
     source: 'central_feed', pricing: { input: 2, output: 0, cachedInput: 0, cacheWrite: null },
     pricingCatalogVersion: 'r1', observedAt: provenance.at,
@@ -99,22 +99,40 @@ it('retains component-specific central evidence, scoped selection, units and rev
     observedAt: componentEvidence.at, pricingCatalogVersion: 'r1',
   });
   expect(selected.componentSources.output.observedAt).toBe(provenance.at);
-  expect(resolvePricingCandidate({ ...input, scope: { ...scope, deployment: 'different' } }).result).toBeNull();
+  expect(resolvePricing({ ...input, scope: { ...scope, deployment: 'different' } }).result).toBeNull();
   record.tariffs[0].components.input.provenance = { at: '2026-10-01T00:00:00Z' };
-  expect(resolvePricingCandidate(input).result).toBeNull();
+  expect(resolvePricing(input).result).toBeNull();
 });
 
-it('preserves missing, explicit null, zero, reasoning and provenance differences', () => {
-  const base = { source: 'provider' as const, tier: 'default', pricing: prices };
-  expect(comparePricingResults(base, { ...base, pricing: { ...prices, cacheWrite: 0 } }))
-    .toEqual(['components.cacheWrite']);
-  const missing = { input: prices.input, output: prices.output, cachedInput: prices.cachedInput };
-  expect(comparePricingResults(base, { ...base, pricing: missing }))
-    .toEqual(['components.cacheWrite']);
-  expect(comparePricingResults(base, { ...base, observedAt: 'changed',
-    pricing: { ...prices, reasoning: 0 } })).toEqual(['observedAt', 'components.reasoning']);
-  expect(comparePricingResults(null, base)).toEqual(['availability']);
-  expect(comparePricingResults(null, null)).toEqual([]);
+it.each([null, 0])('preserves explicit cache-write %s and genuine zero reasoning prices', cacheWrite => {
+  const result = resolvePricing(capture({
+    operator: { ...fact('operator'), default: { ...prices, cacheWrite, reasoning: 0 } },
+  })).result;
+  expect(result?.pricing).toEqual({ ...prices, cacheWrite, reasoning: 0 });
+});
+
+it('missing runtime components remain unpriced rather than zero without a fallback', () => {
+  const resolution = resolvePricing(capture({
+    ...absent, runtime: { source: 'provider', default: { input: 1, output: 2 } },
+  }));
+  expect(resolution.result).toBeNull();
+  expect(resolution.missingModelPricing).toBe(true);
+});
+
+it.each([NaN, Infinity, -1, undefined])('invalid selected prices %s fail explicitly, not as free usage', input => {
+  expect(() => resolvePricing(capture({
+    operator: { ...fact('operator'), default: { ...prices, input } },
+  }))).toThrow('pricing_resolution_invalid_tariff');
+});
+
+it('reads each source only once and never reads a lower source after selection', () => {
+  const operator = jest.fn(() => null);
+  const configured = jest.fn(() => fact('shared_catalog', 9));
+  const runtime = jest.fn(() => { throw new Error('must not initialize'); });
+  expect(resolvePricing(capture({ operator, configured, runtime })).result?.pricing.input).toBe(9);
+  expect(operator).toHaveBeenCalledTimes(1);
+  expect(configured).toHaveBeenCalledTimes(1);
+  expect(runtime).not.toHaveBeenCalled();
 });
 
 it('generates identical host, shared and container implementations and declarations', () => {

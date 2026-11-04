@@ -1607,61 +1607,73 @@ legacy provider-component fallback remain unchanged. This is not full Gate 5:
 exact arithmetic, general provider-qualified governed imports, execution-version
 eligibility, full resolver migration and compiler handoff remain outstanding.
 
-**First legacy-authoritative resolution/parity slice (#11111):**
-`shared/model-information/pricing-resolution.js` is a pure candidate, generated
-with declarations into both host and proxy contract assets. The real AI-credit
-resolver captures normalized source facts as its existing adapters are reached;
-the candidate independently selects whole tariffs, strict long-context tiers,
+**Authoritative shared pricing cutover (#11111):** the user-directed rollout
+replaces the initial shadow-only proposal in the same PR.
+`shared/model-information/pricing-resolution.js::resolvePricing`, generated with
+declarations into host/proxy contract assets, now drives real AI-credit
+accounting and priceability checks. There is no legacy-authoritative selection,
+shadow comparison or silent fallback to the removed resolver.
+
+The shared engine lazily reads normalized facts from existing source adapters:
+operator overlay, configured catalogue v1, provider snapshot, scoped central
+snapshot, curated fallback, legacy import, selector policy, configured default
+and unknown-sentinel policy. It owns priority, strict long-context tier selection,
 central freshness/effective intervals/exact provider-channel-deployment scope,
-source precedence and the existing four-component provider/fallback merge.
-The capture carries canonical provider-qualified request identity (when a provider
-is supplied), explicit scope, input-token count, the already pinned feed time,
-revision and selected-tier provider provenance. An absent/not-reached feed has
-null time; it does not cause the candidate to initialize the loader. Omitted
-source observations mean not reached, distinct from an observed absent source.
-No new pricing table, loader, network request, model admission or accounting
-authority is introduced.
+and four-component provider/fallback merging. Direct operator/configured/runtime/
+central resolver APIs also use the shared tariff-selection functions.
+Matching/parsing and policy-rate construction remain adapter-owned; this is not
+a full adapter rewrite or governed-import migration.
 
-Matching, parsing, legacy normalization and policy-rate construction remain
-source-adapter-owned, not independently reimplemented or claimed as full matching
-parity. Operator/configured selection still short-circuits lower-priority source
-initialization. The candidate uses the same synchronous observations and request
-pins, without mutating them, re-reading a refreshed catalogue, invoking warnings
-or recording usage. It preserves missing/null/zero distinctions, selected source,
-tier, catalogue/version and provider observation metadata. Mixed-source component
-provenance is returned by the candidate, but the authoritative merge still returns
-the legacy provider source and four components, including its stale-complete
-provider fallback behavior. It does not activate a new freshness correction.
+The input carries provider-qualified identity (when a provider is supplied),
+explicit scope, input-token count and the request's captured feed time/revision
+and provider observations. Each reached source is read once. Operator/configured
+selection does not initialize lower-priority providers or the loader. Tariff
+selection does not fetch again, mutate request pins, observe a later refresh,
+warn or account usage itself. An absent/not-reached feed has null time.
+The host adapter emits the existing warning only when the shared outcome calls
+for it. Quiet priceability probes use the same authoritative resolver without
+missing-price warnings or accounting side effects.
 
-Accounting, budget guards, concrete-unpriced warnings/undercount, unknown sentinel,
-selector ceilings, configured defaults, recovery, opt-outs and opaque WebSocket
-behavior remain legacy-authoritative. Quiet priceability probes do not run the
-comparison or emit diagnostics. Non-quiet resolution emits
-`pricing_shadow_difference` for tariff availability, source, tier, components or
-selected provenance differences, or `pricing_shadow_error` for candidate failures.
-Diagnostics contain only fixed difference paths and reason/mode labels, never
-model names, source URLs, catalogue IDs, prices or exception text. They are
-deduplicated by diagnostic category/path set and capped at 32 per proxy process;
-successful comparisons are silent.
+Existing valid prices/charges, budget caps, unpriced warnings/undercount, selector
+ceilings, configured defaults, unknown sentinel, recovery, opt-outs, channel/BYOK
+boundaries and opaque WebSocket behavior are retained. The merge retains selected
+runtime-tier compatibility and the existing stale-complete-provider fallback
+behavior; this cutover is not a new freshness correction. Component provenance is
+available in the shared outcome; accounting keeps its existing source/tier fields
+and four-component merge shape. No staged target-price changes are activated.
 
-Deterministic fixtures cover real accounting and guard effects, source priority,
+**Intentional failure behavior:** missing prices are still unpriced, never free.
+A selected tariff containing invalid/nonfinite/negative numeric components is a
+resolution failure, not a priceable tariff. Genuine zero and explicit null
+cache-write remain distinct from missing fields. Resolver/source failures log
+`pricing_resolution_error` with a fixed sanitized reason/message and produce an
+explicit error, never a legacy fallback or fabricated price. Pre-dispatch
+failures return a structured HTTP/WebSocket 500. If usage-time accounting fails
+after a response is already in flight, it is logged, reflection adds
+`pricing_error: "pricing_resolution_error"`, and subsequent dispatch is blocked
+until proxy restart/configuration repair. Recorded credits are not invented or
+retroactively adjusted; already-running responses cannot be recalled.
+
+Deterministic regressions and provider-free smoke tests cover source priority,
 complete/partial/stale provider tariffs, exact threshold/freshness boundaries,
-central scope/BYOK exclusions, legacy import/case/prefix behavior, zero/null,
-reasoning, selector/default/sentinel/unpriced policies, HTTP/WebSocket request
-pins, refresh, no extra source egress and injected candidate errors/differences.
-Legacy cross-provider import slug collisions are named nonactivated fixtures;
-they are not fixed or evidence of provider-qualified governed-import coverage.
-Generated host/container equality, build/types and off-tree Docker application
-context execution cover distribution without requiring a live container or VM.
+central scope/BYOK, legacy import/case/prefix policy, zero/null/missing components,
+reasoning, selectors/defaults/sentinel/unpriced policy, HTTP/WebSocket usage
+tracking, source refresh/pins, budget charges and explicit error blocking.
+Injected shared tariffs demonstrably change real charges and budget decisions.
+The smoke script executes actual proxy/accounting modules from both the off-tree
+Docker application context and an extracted npm package, prohibits network
+access, uses fixture feed refreshes, and requires zero network calls. It does
+not invoke a provider, dispatch a workflow or run a live container/VM.
+Legacy cross-provider import slug collisions remain explicit fixtures, not a
+provider-qualified import correction.
 
-This is not completion of #10295 or #10290. Remaining gates include exact-decimal
-accounting, fully compatible assembled tariffs (units/currency/token ranges/
-effective dates and per-component revisions), general promotion/successor and
-non-token charge handling, independent source-matching/import-scope migration,
-all-consumer parity and a separately reviewed cutover/release window. Staged
-target pricing corrections remain inactive. Harness constraints remain empty/
-disabled; this slice neither establishes execution support nor changes runtime
-invocation or compiler/workflow overlays.
+This is not completion of #10295 or #10290. Concrete remaining gates include
+exact-decimal accounting; fully compatible assembled tariffs across units/
+currency/token ranges/effective dates; general promotion/successor and non-token
+charges; governed provider-qualified import activation; broader consumer
+migration and release/live-environment evidence. These are not prerequisites
+for this cutover. Harness constraints remain empty/disabled; pricing does not
+establish executability or change runtime invocation/compiler overlays.
 
 ### Gate 6: Reasoning and compatibility
 

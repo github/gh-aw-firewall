@@ -8,6 +8,7 @@ const HTTP_STATUS_LINES = {
   400: '400 Bad Request',
   403: '403 Forbidden',
   429: '429 Too Many Requests',
+  500: '500 Internal Server Error',
 };
 
 /**
