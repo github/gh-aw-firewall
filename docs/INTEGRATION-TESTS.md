@@ -96,6 +96,26 @@ Warm-up and permission-repair failures stop the job. The
 mirror, scan-failure, base-image lifetime, and cleanup contracts; they do not
 replace a Linux Docker/hosted-runner build.
 
+All five chroot job definitions (including both browser runner variants) use
+`.github/actions/build-chroot-images` to build the checkout's Squid and agent,
+plus API proxy for browser tests, with the exact existing `:latest` local tags.
+The composite action uses the same Docker-driver/containerd-store and daily
+GitHub Actions v2 cache policy. Its scopes are separate by image, job, runner
+variant, and architecture to avoid concurrent matrix writers colliding; no
+previous-day scopes are imported. It verifies loaded images and prunes only
+intermediate build cache after export, keeping the images needed by tests.
+Build, cache export, inspection, and pruning errors fail preparation rather than
+running tests against incomplete images. Existing suites, runner matrix, cleanup,
+network isolation, and job/test timeout limits are unchanged.
+
+The agent's token-compiler and runtime stages now retain their base image's apt
+mirrors rather than selecting Azure via DNS; all Ubuntu stages reject partial
+index updates, retain fetch retries, and preserve required packages and runtime
+security upgrades. The oldest-runner browser payload and native t64 dependency
+resolution are unchanged. `scripts/ci/chroot-image-cache.test.ts` exercises the
+shared builder with Docker test doubles; actual Linux chroot execution remains
+the responsibility of the integration jobs. Grype is not used by these jobs.
+
 ### NVX harness-observation limitation
 
 NVX currently launches the configured command through one atomic

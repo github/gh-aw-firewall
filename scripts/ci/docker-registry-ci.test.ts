@@ -316,7 +316,8 @@ echo "$*" >> "$TRACE"
   it.each(affected)('configures the runner mirror before Docker use in %s / %s', (file, job) => {
     const steps = jobs(file)[job].steps;
     const setup = steps.findIndex((step) => step.run === 'bash scripts/ci/configure-docker-mirror.sh');
-    const docker = steps.findIndex((step) => step.run?.includes('docker '));
+    const docker = steps.findIndex((step) => step.run?.includes('docker ')
+      || step.uses === './.github/actions/build-chroot-images');
     expect(setup).toBeGreaterThanOrEqual(0);
     expect(setup).toBeLessThan(docker);
     expect(steps[setup].if).toBeUndefined();

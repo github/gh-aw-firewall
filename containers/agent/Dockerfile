@@ -41,7 +41,7 @@ FROM ubuntu:22.04@sha256:0a9887931b0e38af2e3487ed39e29436b0535c4f3f52e57745baaf7
 
 RUN set -eux; \
     BROWSER_PKGS="libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2 libdbus-1-3 libdrm2 libexpat1 libgbm1 libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libpangocairo-1.0-0 libudev1 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 libxrender1 libxshmfence1 fonts-liberation"; \
-    apt-get -o Acquire::Retries=3 update && \
+    apt-get -o Acquire::Retries=3 -o APT::Update::Error-Mode=any update && \
     apt-get -o Acquire::Retries=3 install -y --no-install-recommends $BROWSER_PKGS && \
     apt-get -o Acquire::Retries=3 upgrade -y --no-install-recommends && \
     # Include dependencies already in the base image (e.g. libpcre3), not just
@@ -65,42 +65,12 @@ RUN set -eux; \
 FROM ${BASE_IMAGE} AS one-shot-token-build
 
 COPY one-shot-token/one-shot-token.c /tmp/one-shot-token.c
+# Use the base image's standard archive/security mirrors, not DNS-only Azure selection.
 RUN set -eux; \
-    force_archive_mirror() { \
-      echo "Falling back to archive.ubuntu.com mirror..." >&2; \
-      if [ -f /etc/apt/sources.list ]; then \
-        sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list; \
-        sed -i 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true; \
-      fi; \
-      if [ -d /etc/apt/sources.list.d ]; then \
-        find /etc/apt/sources.list.d -name '*.sources' -exec \
-          sed -i -e 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
-                 -e 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
-      fi; \
-      rm -rf /var/lib/apt/lists/* && \
-        apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update; \
-    }; \
-    apt_install_retry() { \
-      apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
-        install -y --no-install-recommends "$@" && return 0; \
-      echo "apt-get install failed (likely mirror fetch timeout), forcing archive.ubuntu.com and retrying..." >&2; \
-      force_archive_mirror; \
-      apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
-        install -y --no-install-recommends "$@"; \
-    }; \
-    if getent hosts azure.archive.ubuntu.com >/dev/null 2>&1; then \
-      if [ -f /etc/apt/sources.list ]; then \
-        sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list; \
-        sed -i 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list; \
-      fi; \
-      if [ -d /etc/apt/sources.list.d ]; then \
-        find /etc/apt/sources.list.d -name '*.sources' -exec \
-          sed -i -e 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' \
-                 -e 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' {} +; \
-      fi; \
-    fi && \
-    apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update && \
-    apt_install_retry gcc libc6-dev binutils && \
+    apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+      -o APT::Update::Error-Mode=any update && \
+    apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+      install -y --no-install-recommends gcc libc6-dev binutils && \
     gcc -shared -fPIC -fvisibility=hidden -O2 -Wall -s \
         -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
         -o /tmp/one-shot-token.so /tmp/one-shot-token.c -ldl -lpthread && \
@@ -110,85 +80,34 @@ FROM ${BASE_IMAGE}
 
 COPY --from=browser-libs /usr/local/share/awf/ /usr/local/share/awf/
 
-# Optionally switch to Azure apt mirror for faster package fetches in CI
-# Only rewrite if azure.archive.ubuntu.com is resolvable (BuildKit DNS can fail)
-# Falls back to default archive.ubuntu.com which is universally reachable
-RUN if getent hosts azure.archive.ubuntu.com >/dev/null 2>&1; then \
-      echo "Using Azure apt mirror (DNS resolved successfully)"; \
-      if [ -f /etc/apt/sources.list ]; then \
-        sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list; \
-        sed -i 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list; \
-      fi; \
-      if [ -d /etc/apt/sources.list.d ]; then \
-        find /etc/apt/sources.list.d -name '*.sources' -exec \
-          sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' {} + 2>/dev/null || true; \
-        find /etc/apt/sources.list.d -name '*.sources' -exec \
-          sed -i 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' {} + 2>/dev/null || true; \
-      fi; \
-    else \
-      echo "Azure apt mirror not reachable, using default archive.ubuntu.com"; \
-    fi
-
 # Install required and runner-parity packages, apply security upgrades, then install
 # Node.js 22.23.2 and npm 12.2.1. Keeping apt work in one layer avoids repeatedly
 # downloading package indexes during cold CI builds.
 # Note: Some packages may already exist in runner-like base images, apt handles this gracefully
-# apt_update_retry: retries up to 3 times with backoff; if all fail, reverts to archive.ubuntu.com
+# Retain the base image's mirrors; apt retries fetch failures and rejects partial indexes.
 RUN set -eux; \
-    force_archive_mirror() { \
-      echo "Falling back to archive.ubuntu.com mirror..." >&2; \
-      if [ -f /etc/apt/sources.list ]; then \
-        sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list; \
-        sed -i 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true; \
-      fi; \
-      if [ -d /etc/apt/sources.list.d ]; then \
-        find /etc/apt/sources.list.d -name '*.sources' -exec \
-          sed -i -e 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
-                 -e 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
-      fi; \
-      rm -rf /var/lib/apt/lists/* && \
-        apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update; \
-    }; \
     apt_update_retry() { \
-      local i; for i in 1 2 3; do \
-        rm -rf /var/lib/apt/lists/*; \
-        if apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
-            update > /tmp/apt-update.log 2>&1; then \
-          cat /tmp/apt-update.log; \
-          if ! grep -q "Failed to fetch" /tmp/apt-update.log; then return 0; fi; \
-        else \
-          cat /tmp/apt-update.log; \
-        fi; \
-        echo "apt-get update attempt $i/3 failed or had fetch failures, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
-      done; \
-      echo "All apt-get update retries failed, falling back to archive.ubuntu.com..." >&2; \
-      force_archive_mirror; \
+      apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+        -o APT::Update::Error-Mode=any update; \
     }; \
     apt_install_retry() { \
-      apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
-        install -y --no-install-recommends "$@" && return 0; \
-      echo "apt-get install failed (likely mirror fetch timeout), forcing archive.ubuntu.com and retrying..." >&2; \
-      force_archive_mirror; \
       apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
         install -y --no-install-recommends "$@"; \
     }; \
     apt_upgrade_retry() { \
       apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
-        upgrade -y && return 0; \
-      echo "apt-get upgrade failed (likely mirror fetch timeout), forcing archive.ubuntu.com and retrying..." >&2; \
-      force_archive_mirror && \
-        apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 upgrade -y; \
+        upgrade -y; \
     }; \
     PKGS="iptables curl ca-certificates git gnupg dnsutils net-tools netcat-openbsd libcap2-bin libgdiplus libev-dev libssl-dev php-intl php-gd python3"; \
     apt_update_retry && \
     apt_install_retry $PKGS && \
     # Native packages serve non-chroot execution. Chroot execution uses the
     # independent Ubuntu 22.04 payload above, never these newer image libraries.
-    BROWSER_PKGS="$(cat /usr/local/share/awf/browser-packages.txt)"; \
+    BROWSER_PKGS="$(cat /usr/local/share/awf/browser-packages.txt)" && \
     # Ubuntu 24.04 renamed several of these to time_t-64 variants (e.g. libasound2t64),
     # and the old names became ambiguous virtual packages. Prefer the t64 package when
     # the base image provides one, otherwise keep the 22.04 name.
-    BROWSER_ACTUAL_PKGS=""; \
+    BROWSER_ACTUAL_PKGS="" && \
     for pkg in $BROWSER_PKGS; do \
       if apt-cache show "${pkg}t64" >/dev/null 2>&1; then \
         BROWSER_ACTUAL_PKGS="$BROWSER_ACTUAL_PKGS ${pkg}t64"; \

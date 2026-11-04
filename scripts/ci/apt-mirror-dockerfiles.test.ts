@@ -1,182 +1,73 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 
-const targets = [
-  { image: 'agent', stage: 'one-shot-token-build', index: 0 },
-  { image: 'agent', stage: 'main', index: 1 },
-];
+const read = (image: string) => fs.readFileSync(
+  path.resolve(__dirname, `../../containers/${image}/Dockerfile`), 'utf8',
+);
+const instructions = (source: string) => source
+  .replace(/^[ \t]*#.*\r?\n/gm, '')
+  .replace(/\\\r?\n/g, ' ')
+  .split('\n');
 
-const legacySources = [
-  'deb http://archive.ubuntu.com/ubuntu resolute main universe',
-  'deb http://security.ubuntu.com/ubuntu resolute-security main universe',
-  'deb https://download.docker.com/linux/ubuntu resolute stable',
-  '',
-].join('\n');
+describe.each(['build-tools', 'agent'])('%s standard Ubuntu mirrors', image => {
+  const dockerfile = read(image);
 
-const deb822Sources = [
-  'Types: deb',
-  'URIs: http://archive.ubuntu.com/ubuntu/',
-  'Suites: resolute resolute-updates resolute-backports',
-  'Components: main universe',
-  'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg',
-  '',
-  'Types: deb',
-  'URIs: http://security.ubuntu.com/ubuntu/',
-  'Suites: resolute-security',
-  'Components: main universe',
-  'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg',
-  '',
-].join('\n');
-
-const thirdPartySources = 'Types: deb\nURIs: https://example.com/packages\nSuites: stable\n';
-
-describe.each(targets)('$image Dockerfile ($stage) apt mirrors', ({ image, index }) => {
-  const dockerfile = fs.readFileSync(
-    path.resolve(__dirname, `../../containers/${image}/Dockerfile`), 'utf8',
-  );
-  const selectionBlocks = dockerfile.match(
-    /if getent hosts azure\.archive\.ubuntu\.com[\s\S]*?^    fi/gm,
-  ) ?? [];
-  const fallbackBlocks = dockerfile.match(
-    /force_archive_mirror\(\) \{[\s\S]*?^    \};/gm,
-  ) ?? [];
-
-  it('covers every mirror selection and fallback block', () => {
-    const expected = targets.filter(target => target.image === image).length;
-    expect(selectionBlocks).toHaveLength(expected);
-    expect(fallbackBlocks).toHaveLength(expected);
-  });
-
-  describe.each(['legacy', 'deb822', 'mixed', 'missing'])('%s sources', layout => {
-    let directory: string;
-    let originals: Map<string, string>;
-
-    beforeEach(() => {
-      directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-apt-mirror-'));
-      originals = new Map();
-      if (layout === 'legacy' || layout === 'mixed') {
-        originals.set('sources.list', legacySources);
-      }
-      if (layout === 'deb822' || layout === 'mixed') {
-        originals.set('sources.list.d/ubuntu.sources', deb822Sources);
-        originals.set('sources.list.d/third-party.sources', thirdPartySources);
-      }
-      for (const [file, contents] of originals) {
-        const destination = path.join(directory, 'apt', file);
-        fs.mkdirSync(path.dirname(destination), { recursive: true });
-        fs.writeFileSync(destination, contents);
-      }
-    });
-
-    afterEach(() => {
-      fs.rmSync(directory, { recursive: true, force: true });
-    });
-
-    const run = (script: string, dnsStatus = 0, updateStatus = 0) => {
-      let shell = script
-        .replace(/\\\r?\n/g, ' ')
-        .replace(/\/etc\/apt/g, '"$FIXTURE_APT"')
-        .replace(/\/var\/lib\/apt\/lists/g, '"$FIXTURE_APT/lists"');
-      // Docker uses GNU sed; adapt only its in-place flag for local macOS runs.
-      if (process.platform === 'darwin') {
-        shell = shell.replace(/sed -i /g, "sed -i '' ");
-      }
-      return spawnSync('bash', ['-eu', '-c', `
-getent() { return "$DNS_STATUS"; }
-rm() { printf 'rm %s\\n' "$*"; }
-apt-get() { printf 'apt-get %s\\n' "$*"; return "$UPDATE_STATUS"; }
-${shell}
-`], {
-        encoding: 'utf8',
-        timeout: 5000,
-        env: {
-          PATH: process.env.PATH,
-          FIXTURE_APT: path.join(directory, 'apt'),
-          DNS_STATUS: String(dnsStatus),
-          UPDATE_STATUS: String(updateStatus),
-        },
-      });
-    };
-
-    const expectSources = (mirror?: 'azure' | 'archive') => {
-      for (const [file, original] of originals) {
-        const expected = mirror
-          ? original.replace(
-            /http:\/\/(?:archive|security)\.ubuntu\.com/g,
-            `http://${mirror === 'azure' ? 'azure.archive' : 'archive'}.ubuntu.com`,
-          )
-          : original;
-        expect(fs.readFileSync(path.join(directory, 'apt', file), 'utf8')).toBe(expected);
-      }
-    };
-
-    it('selects Azure for archive and security sources when DNS resolves', () => {
-      const result = run(selectionBlocks[index]);
-      expect(result.error).toBeUndefined();
-      expect(result.status).toBe(0);
-      expectSources('azure');
-    });
-
-    it('leaves sources unchanged when Azure DNS fails', () => {
-      const result = run(selectionBlocks[index], 1);
-      expect(result.error).toBeUndefined();
-      expect(result.status).toBe(0);
-      expectSources();
-    });
-
-    it('falls back from Azure to archive and refreshes package indexes', () => {
-      const selected = run(selectionBlocks[index]);
-      expect(selected.status).toBe(0);
-      expectSources('azure');
-      const result = run(`${fallbackBlocks[index]}\nforce_archive_mirror`);
-      expect(result.error).toBeUndefined();
-      expect(result.status).toBe(0);
-      expect(result.stderr).toContain('Falling back to archive.ubuntu.com mirror');
-      expect(result.stdout).toContain(`rm -rf ${path.join(directory, 'apt/lists')}/*`);
-      expect(result.stdout).toMatch(/apt-get .*update/);
-      expectSources('archive');
-    });
-
-    it('normalizes default security sources during fallback', () => {
-      const result = run(`${fallbackBlocks[index]}\nforce_archive_mirror`);
-      expect(result.error).toBeUndefined();
-      expect(result.status).toBe(0);
-      expectSources('archive');
-    });
-
-    it('propagates apt update failures after switching back to archive', () => {
-      const selected = run(selectionBlocks[index]);
-      expect(selected.status).toBe(0);
-      const result = run(`${fallbackBlocks[index]}\nforce_archive_mirror`, 0, 100);
-      expect(result.error).toBeUndefined();
-      expect(result.status).toBe(100);
-      expectSources('archive');
-    });
-  });
-});
-
-describe('build-tools standard Ubuntu mirrors', () => {
-  const dockerfile = fs.readFileSync(
-    path.resolve(__dirname, '../../containers/build-tools/Dockerfile'), 'utf8',
-  );
-  const installBlock = dockerfile.match(/^RUN set -eux;[\s\S]*?(?=\n\nCOPY)/m)![0]
-    .replace(/^RUN /, '')
-    .split('\n')
-    .filter(line => !line.trim().startsWith('#'))
-    .join('\n')
-    .replace(/\\\r?\n/g, ' ');
-
-  it('does not replace archive/security sources based on Azure DNS reachability', () => {
+  it('retains the base image archive/security sources instead of DNS-only Azure selection', () => {
     expect(dockerfile).not.toContain('azure.archive.ubuntu.com');
     expect(dockerfile).not.toContain('getent hosts');
     expect(dockerfile).not.toMatch(/sed .*sources|force_archive_mirror/);
   });
 
-  it.each(['success', 'update', 'install', 'upgrade'])(
-    'keeps required packages, security upgrades, and hard failure on %s',
+  it('retries fetches and rejects incomplete package indexes in every Ubuntu stage', () => {
+    const updates = dockerfile.match(/apt-get [^;]*?\bupdate/g) ?? [];
+    expect(updates).toHaveLength(image === 'agent' ? 3 : 1);
+    for (const command of updates) {
+      expect(command).toContain('Acquire::Retries=3');
+      expect(command).toContain('APT::Update::Error-Mode=any');
+    }
+  });
+});
+
+const agentInstructions = instructions(read('agent'));
+const cases = [
+  {
+    stage: 'build-tools',
+    instruction: instructions(read('build-tools')).find(line => line.includes('libcap2-bin gosu gnupg'))!,
+    stop: 'rm -f /usr/bin/pebble',
+    packages: ['build-essential gcc g++ make cmake', 'ca-certificates curl wget git jq', 'libcap2-bin gosu gnupg'],
+    upgrade: true,
+  },
+  {
+    stage: 'agent token compiler',
+    instruction: agentInstructions.find(line => line.includes('gcc -shared'))!,
+    stop: 'gcc -shared',
+    packages: ['gcc libc6-dev binutils'],
+    upgrade: false,
+  },
+  {
+    stage: 'agent browser libraries',
+    instruction: agentInstructions.find(line => line.startsWith('RUN ') && line.includes('BROWSER_PKGS="'))!,
+    stop: 'apt-cache depends',
+    packages: ['libasound2', 'libudev1', 'fonts-liberation'],
+    upgrade: true,
+  },
+  {
+    stage: 'agent runtime',
+    instruction: agentInstructions.find(line => line.includes('NPM_TGZ_URL='))!,
+    stop: 'rm -f /usr/bin/pebble',
+    packages: ['iptables curl ca-certificates git gnupg', 'libcap2-bin libgdiplus libev-dev libssl-dev php-intl php-gd python3'],
+    upgrade: true,
+  },
+];
+
+describe.each(cases)('$stage apt failure handling', ({ instruction, stop, packages, upgrade }) => {
+  it.each(['success', 'update', 'install', ...(upgrade ? ['upgrade'] : [])])(
+    'preserves required packages and stops on %s failure',
     failure => {
+      expect(instruction).toBeDefined();
+      expect(instruction.indexOf(stop)).toBeGreaterThan(0);
+      const script = instruction.slice('RUN '.length, instruction.indexOf(stop));
       const result = spawnSync('bash', ['-eu', '-c', `
 apt-get() {
   printf 'apt-get %s\\n' "$*"
@@ -184,8 +75,9 @@ apt-get() {
     *" $FAILURE "*) return 100 ;;
   esac
 }
-rm() { printf 'rm %s\\n' "$*"; }
-${installBlock}
+cat() { printf 'libasound2 libudev1\\n'; }
+apt-cache() { return 100; }
+${script} printf 'apt-complete\\n'
 `], {
         encoding: 'utf8',
         timeout: 5000,
@@ -194,20 +86,11 @@ ${installBlock}
       expect(result.error).toBeUndefined();
       expect(result.status).toBe(failure === 'success' ? 0 : 100);
       expect(result.stdout).toContain('APT::Update::Error-Mode=any update');
-      expect(result.stdout).toContain('Acquire::Retries=3');
-      if (failure === 'update') {
-        expect(result.stdout).not.toContain(' install ');
-      } else {
-        expect(result.stdout).toContain('install -y --no-install-recommends');
-        expect(result.stdout).toContain('build-essential gcc g++ make cmake');
-        expect(result.stdout).toContain('ca-certificates curl wget git jq');
-        expect(result.stdout).toContain('libcap2-bin gosu gnupg');
-      }
+      expect(result.stdout.includes('apt-complete')).toBe(failure === 'success');
       if (failure === 'success') {
-        expect(result.stdout).toContain('upgrade -y');
-        expect(result.stdout).toContain('rm -f /usr/bin/pebble');
-      } else {
-        expect(result.stdout).not.toContain('rm -f /usr/bin/pebble');
+        expect(result.stdout).toContain('install -y --no-install-recommends');
+        for (const required of packages) expect(result.stdout).toContain(required);
+        expect(result.stdout.includes('upgrade -y')).toBe(upgrade);
       }
     },
   );
