@@ -13,7 +13,7 @@ import {
 } from '../../src/nvx';
 import { guardStaleChildPipe } from './nvx-manager-live-evidence-stream';
 
-interface Inputs {
+export interface Inputs {
   artifacts: string;
   layer: string;
   bridge: string;
@@ -149,6 +149,11 @@ interface RunCaseOptions {
   args?: readonly string[];
   timeoutMs: number;
   abortAfterMs?: number;
+  cancelOnOutput?: {
+    marker: string;
+    delayMs: number;
+    startupTimeoutMs: number;
+  };
   enableApiProxy?: boolean;
   memoryMib?: number;
   memoryMaxBytes?: number;
@@ -159,7 +164,7 @@ interface RunCaseOptions {
   hostInteraction?: () => Promise<void>;
 }
 
-async function runCase(
+export async function runCase(
   inputs: Inputs,
   options: RunCaseOptions,
 ) {
@@ -179,12 +184,33 @@ async function runCase(
     stderrBytes = appendBoundedOutput(stderrChunks, stderrBytes, chunk);
     process.stderr.write(chunk);
   });
-  const abortController = options.abortAfterMs === undefined && !options.hostInteraction
+  const abortController = options.abortAfterMs === undefined &&
+      options.cancelOnOutput === undefined && !options.hostInteraction
     ? undefined
     : new AbortController();
+  const cancelOnOutput = options.cancelOnOutput;
   const abortTimer = options.abortAfterMs === undefined
     ? undefined
     : setTimeout(() => abortController!.abort(), options.abortAfterMs);
+  let cancelTimer: ReturnType<typeof setTimeout> | undefined;
+  let startupTimer: ReturnType<typeof setTimeout> | undefined;
+  let startupTimedOut = false;
+  let cancellationMarkerSeen = false;
+  if (cancelOnOutput) {
+    let pendingOutput = '';
+    stdout.on('data', (chunk: Buffer) => {
+      if (cancellationMarkerSeen || startupTimedOut) return;
+      pendingOutput = `${pendingOutput}${chunk.toString('utf8')}`
+        .slice(-cancelOnOutput.marker.length);
+      if (!pendingOutput.includes(cancelOnOutput.marker)) return;
+      cancellationMarkerSeen = true;
+      if (startupTimer) clearTimeout(startupTimer);
+      cancelTimer = setTimeout(
+        () => abortController!.abort(),
+        cancelOnOutput.delayMs,
+      );
+    });
+  }
   const manager = new NvxManager({
     runId,
     preflight: {
@@ -240,6 +266,12 @@ async function runCase(
 
   let result;
   try {
+    if (options.cancelOnOutput) {
+      startupTimer = setTimeout(() => {
+        startupTimedOut = true;
+        abortController!.abort();
+      }, options.cancelOnOutput.startupTimeoutMs);
+    }
     const execution = manager.execute();
     try {
       await options.hostInteraction?.();
@@ -251,6 +283,8 @@ async function runCase(
     result = await execution;
   } finally {
     if (abortTimer) clearTimeout(abortTimer);
+    if (cancelTimer) clearTimeout(cancelTimer);
+    if (startupTimer) clearTimeout(startupTimer);
     stdout.end();
     stderr.end();
   }
@@ -259,6 +293,9 @@ async function runCase(
   const residue = await inspectResidue(layout);
   if (residue.length > 0) {
     throw new Error(`${options.name} left NVX residue: ${residue.join(', ')}`);
+  }
+  if (options.cancelOnOutput && (startupTimedOut || !cancellationMarkerSeen)) {
+    throw new Error(`${options.name} did not emit its cancellation startup marker`);
   }
   return {
     runId,
@@ -589,7 +626,7 @@ async function inspectResidue(layout: ReturnType<typeof createNvxRunLayout>): Pr
   return residue;
 }
 
-function parseInputs(args: readonly string[]): Inputs {
+export function parseInputs(args: readonly string[]): Inputs {
   const values = new Map<string, string>();
   for (let index = 0; index < args.length; index += 2) {
     const name = args[index];
@@ -616,7 +653,9 @@ function parseInputs(args: readonly string[]): Inputs {
   };
 }
 
-void main().catch((error) => {
-  console.error(error instanceof Error ? error.stack : String(error));
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  void main().catch((error) => {
+    console.error(error instanceof Error ? error.stack : String(error));
+    process.exitCode = 1;
+  });
+}

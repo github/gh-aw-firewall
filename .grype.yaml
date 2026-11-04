@@ -206,6 +206,15 @@ ignore:
       version: "3.14.7"
       type: binary
 
+  # CVE-2026-119586 affects the SQLite CLI's `.recover` output, not sqlite-libs.
+  # The enclave-script image uses sqlite-libs only for Python's optional sqlite3
+  # module and asserts that the sqlite3 CLI is absent. Revisit if that CLI is added.
+  - vulnerability: CVE-2026-119586
+    package:
+      name: sqlite-libs
+      version: "3.54.1-r0"
+      type: apk
+
   # ── stdlib@go1.26.3 embedded in Alpine docker-cli ───────────────────────────
   #
   # GO-2026-5037 (crypto/x509 VerifyHostname quadratic processing, HIGH):
