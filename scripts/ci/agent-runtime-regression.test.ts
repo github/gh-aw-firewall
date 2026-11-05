@@ -354,7 +354,19 @@ describe('agent regression harness', () => {
     fs.rmSync(path.join(directory, 'dist/constants/placeholders.js'));
     const result = runGuest('copilot', { COPILOT_GITHUB_TOKEN: COPILOT_PLACEHOLDER_TOKEN });
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('Copilot credential is not isolated');
+    expect(result.stderr).toBe('Copilot placeholder contract is unavailable\n');
+    expect(result.stdout).not.toContain('AWF-REGRESSION-COMPLETE');
+    expect(fs.existsSync(path.join(directory, 'agent-args.json'))).toBe(false);
+  });
+
+  it('fails closed when the canonical placeholder value is unavailable', () => {
+    fs.writeFileSync(
+      path.join(directory, 'dist/constants/placeholders.js'),
+      "module.exports = { COPILOT_PLACEHOLDER_TOKEN: '' };\n",
+    );
+    const result = runGuest('copilot', { COPILOT_GITHUB_TOKEN: COPILOT_PLACEHOLDER_TOKEN });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe('Copilot placeholder contract is unavailable\n');
     expect(result.stdout).not.toContain('AWF-REGRESSION-COMPLETE');
     expect(fs.existsSync(path.join(directory, 'agent-args.json'))).toBe(false);
   });

@@ -13,14 +13,30 @@ fail() {
 test -r package.json || fail 'Workspace export is unavailable'
 test -n "${HTTPS_PROXY:?}"
 test -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}${ANTHROPIC_API_KEY:-}" || fail 'A host credential variable reached the guest'
-node <<'NODE' || fail 'Copilot credential is not isolated'
-const { COPILOT_PLACEHOLDER_TOKEN } = require('./dist/constants/placeholders');
+if node <<'NODE'
+let placeholder;
+try {
+  placeholder = require('./dist/constants/placeholders')?.COPILOT_PLACEHOLDER_TOKEN;
+} catch {
+  process.exit(2);
+}
+if (typeof placeholder !== 'string' || placeholder.length === 0) {
+  process.exit(2);
+}
 const names = ['COPILOT_GITHUB_TOKEN', 'COPILOT_TOKEN', 'COPILOT_PROVIDER_API_KEY'];
-if (!COPILOT_PLACEHOLDER_TOKEN || names.some(name =>
-  process.env[name] && process.env[name] !== COPILOT_PLACEHOLDER_TOKEN)) {
+if (names.some(name => process.env[name] && process.env[name] !== placeholder)) {
   process.exit(1);
 }
 NODE
+then
+  :
+else
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    fail 'Copilot credential is not isolated'
+  fi
+  fail 'Copilot placeholder contract is unavailable'
+fi
 test -z "${OPENAI_API_KEY:-}" || test "$OPENAI_API_KEY" = sk-placeholder-for-api-proxy || fail 'OpenAI credential is not isolated'
 test -z "${CODEX_API_KEY:-}" || test "$CODEX_API_KEY" = sk-placeholder-for-api-proxy || fail 'Codex credential is not isolated'
 test -z "${ANTHROPIC_AUTH_TOKEN:-}" || test "$ANTHROPIC_AUTH_TOKEN" = sk-ant-placeholder-key-for-credential-isolation || fail 'Anthropic credential is not isolated'
