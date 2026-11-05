@@ -6,6 +6,17 @@ const sourcePath = path.join(workflowsDir, 'test-coverage-reporter.md');
 const lockPath = path.join(workflowsDir, 'test-coverage-reporter.lock.yml');
 
 describe('test coverage reporter workflow token optimization config', () => {
+  it('allows 30 minutes for reporting in the source and compiled agent settings', () => {
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const lock = fs.readFileSync(lockPath, 'utf-8');
+
+    expect(source).toMatch(/^timeout-minutes: 30$/m);
+    expect(lock).toMatch(/^        timeout-minutes: 30$/m);
+    expect(lock).toMatch(/^          GH_AW_TIMEOUT_MINUTES: 30$/m);
+    expect(lock).toMatch(/^          GH_AW_ENGINE_STEP_TIMEOUT_MINUTES: 30$/m);
+    expect(lock).toMatch(/^          GH_AW_TIMEOUT_MINUTES: "30"$/m);
+  });
+
   it('hands off the full precomputed report template through an allowed file read', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
     const prompt = source.split(/^---$/m)[2];
