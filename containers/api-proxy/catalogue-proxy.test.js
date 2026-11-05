@@ -26,7 +26,7 @@ function canonicalPricingFixture(directory) {
   const maintainedPath = path.join(source, 'shared/model-information/sources/copilot-main.json');
   const maintained = JSON.parse(fs.readFileSync(maintainedPath, 'utf8'));
   maintained.models.find(model => model.identity.rawId === 'gpt-5-mini')
-    .tariffs[0].components.input.price = '0.75';
+    .tariffs[0].components.input.price = '0.749999999999999999999999999999';
   fs.writeFileSync(maintainedPath, JSON.stringify(maintained));
   fs.symlinkSync(path.join(root, 'node_modules'), path.join(source, 'node_modules'), 'dir');
   const catalog = structuredClone(require('./models.dev.catalog.json'));
@@ -36,7 +36,7 @@ function canonicalPricingFixture(directory) {
   catalog.data.push(
     entry('smoke-a/shared-slug', '0.000002', '0.000004', { input_cache_read: '0' }),
     entry('smoke-b/shared-slug', '0.000007', '0.000008'),
-    entry('smoke-a/exact-model', '0.000002', '0.000004'),
+    entry('smoke-a/exact-model', '0.000001999999999999999999999999999999', '0.000004'),
     entry('smoke-a/exact-model-20260101', '0.000009', '0.000004'),
     entry('smoke-a/zero-model', '0', '0', { input_cache_read: '0', input_cache_write: '0' }),
     entry('smoke-a/null-model', null, '0.000004'),
@@ -252,7 +252,7 @@ test.each(['docker', 'npm'])('provider-free pricing smoke runs in the %s package
         AWF_VERSION: '0.0.0-smoke', AWF_TOKEN_LOG_DIR: directory,
         AWF_PRICING_SMOKE_IMPORT_FIXTURES: String(fixtures),
         AWF_PRICING_SMOKE_SNAPSHOTS: JSON.stringify([snapshot(), snapshot('4')]),
-      } });
+      }, maxBuffer: 8 * 1024 * 1024 });
       expect(result.stderr).toBe('');
       expect(result.stdout).toContain('"event":"pricing_resolution_smoke_passed"');
       expect(result.status).toBe(0);

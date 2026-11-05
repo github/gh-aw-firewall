@@ -231,18 +231,28 @@ test('provider/channel/deployment scopes and unsupported harness/tariff activati
   expect(resolveCentralPricing('openai', 'loader-test', 0, instance.capture())).toBeNull();
   expect(resolveCentralPricing('copilot', 'loader-test', 0, instance.capture(), { channel: 'native-api' })).toBeNull();
   expect(resolveCentralPricing('copilot', 'loader-test', 0, instance.capture(), { deployment: 'enterprise' })).toBeNull();
-  for (const variant of ['harness', 'tariff']) {
+  for (const variant of ['harness', 'tariff', 'unrepresentable']) {
     const catalog = catalogue();
     if (variant === 'harness') catalog.models[0].harnesses = [{
       scope: { provider: 'copilot', channel: 'copilot-cli' }, name: 'copilot',
       minimum: '100.0.0', scheme: 'semver', reason: 'future requirement',
       provenance: catalog.models[0].provenance,
     }];
-    else catalog.models[0].tariffs[0].unit = 'USD_PER_IMAGE';
+    else if (variant === 'tariff') catalog.models[0].tariffs[0].unit = 'USD_PER_IMAGE';
+    else {
+      catalog.models[0].tariffs[0].unit = 'USD_PER_TOKEN';
+      for (const component of Object.values(catalog.models[0].tariffs[0].components)) {
+        component.price = '9'.repeat(310);
+      }
+    }
     const snapshot = JSON.parse(buildSnapshot(catalog, FIRST, '2026-10-22T00:00:00Z'));
     const rejected = loader({ localSnapshot: snapshot, trustSource: true });
     await rejected.start();
     expect(rejected.capture()).toBeNull();
+    expect(rejected.reflect()).toMatchObject({
+      state: 'fallback_bundled',
+      failure: variant === 'harness' ? 'catalogue_harness_unsupported' : 'catalogue_tariff_unsupported',
+    });
   }
 });
 

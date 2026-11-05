@@ -4,6 +4,7 @@ const { resolveModelIdentity } = require('./model-identity');
 const { resolveCentralTariff, fresh } = require('./catalogue-contract/pricing-resolution');
 const { resolveIdentity } = require('./catalogue-contract/resolution');
 const { identity } = require('./catalogue-contract/identity');
+const exact = require('./catalogue-contract/exact-pricing');
 const maintainedPricing = require('./model-information.pricing.generated.json');
 const fallbackPricing = require('./model-information.fallback-pricing.generated.json');
 
@@ -47,7 +48,7 @@ function getMaintainedPricingFact(provider, model) {
   if (!pricing) return null;
   const { longContext, ...defaultPricing } = pricing;
   const { threshold, ...longPrices } = longContext || {};
-  return { source: 'curated', default: defaultPricing,
+  return { source: 'curated', default: exact.rates(defaultPricing),
     metadata: { pricingCatalogVersion: fallbackPricing.catalogRevision,
       ...(compatibility ? { pricingCatalogId: fallbackPricing.compatibility.policy } : {}) },
     ...(longContext ? { longContext: longPrices, threshold } : {}) };
@@ -66,18 +67,14 @@ function getImportedPricingFact(provider, model) {
       imported.sourceNamespace !== namespace) throw new Error('catalogue_tariff_unsupported');
   const pricing = Object.fromEntries(Object.entries(imported.components).map(([field, item]) => {
     if (typeof item.price === 'object') return [field, null];
-    const price = Number(item.price);
-    if (typeof item.price !== 'string' || !Number.isFinite(price) ||
-        (price === 0 && /[1-9]/.test(item.price))) throw new Error('catalogue_tariff_unsupported');
-    return [field, price];
+    return [field, exact.decimal(item.price)];
   }));
   // Retain the explicit legacy missing-cache policy; zero is a supplied price.
   if (!Object.hasOwn(pricing, 'cachedInput')) {
-    pricing.cachedInput = pricing.input * 0.1;
-    if (pricing.input > 0 && pricing.cachedInput === 0) throw new Error('catalogue_tariff_unsupported');
+    pricing.cachedInput = exact.multiply(pricing.input, exact.decimal('0.1'));
   }
   if (!Object.hasOwn(pricing, 'cacheWrite')) pricing.cacheWrite = null;
-  return { source: 'models.dev', default: pricing, metadata: {
+  return { source: 'models.dev', default: exact.fromExact(pricing), metadata: {
     pricingCatalogId: imported.provenance.source,
     pricingCatalogVersion: imported.provenance.revision,
     observedAt: imported.provenance.at,
@@ -85,6 +82,17 @@ function getImportedPricingFact(provider, model) {
 }
 
 const fields = ['input', 'output', 'cachedInput', 'cacheWrite', 'reasoning'];
+
+function validateConvertedTariffPrice(price, unit) {
+  try {
+    const parsed = exact.decimal(price);
+    const converted = unit === 'USD_PER_TOKEN'
+      ? exact.multiply(parsed, exact.decimal(1_000_000)) : parsed;
+    exact.fromExact({ input: converted });
+  } catch {
+    throw new Error('catalogue_tariff_unsupported');
+  }
+}
 
 function validateTariffs(snapshot) {
   for (const model of snapshot.models) {
@@ -95,10 +103,11 @@ function validateTariffs(snapshot) {
           ['input', 'output', 'cachedInput', 'cacheWrite'].some(field => !Object.hasOwn(tariff.components, field)) ||
           (tariff.tier === 'long_context' && tariff.promptTokensAbove === undefined) ||
           (tariff.tier !== 'long_context' && tariff.promptTokensAbove !== undefined) ||
-          Object.entries(tariff.components).some(([field, item]) =>
-            typeof item.price === 'object' ? field !== 'cacheWrite'
-              : !Number.isFinite(Number(item.price) * (tariff.unit === 'USD_PER_TOKEN' ? 1e6 : 1)) ||
-                (Number(item.price) === 0 && /[1-9]/.test(item.price)))) {
+          Object.entries(tariff.components).some(([field, item]) => {
+            if (typeof item.price === 'object') return field !== 'cacheWrite';
+            validateConvertedTariffPrice(item.price, tariff.unit);
+            return false;
+          })) {
         throw new Error('catalogue_tariff_unsupported');
       }
     }

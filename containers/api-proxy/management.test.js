@@ -20,6 +20,34 @@ describe('model-budget health capability', () => {
   });
 });
 
+describe('pricing errors in /reflect', () => {
+  it('returns a sanitized error response instead of leaving the response unfinished', () => {
+    const handlers = createManagementHandlers({
+      getAdapters: () => [],
+      getCachedModels: () => ({}),
+      isModelFetchComplete: () => true,
+      getModelAliases: () => null,
+      getModelFallback: () => null,
+      getEffectiveModelFallback: () => ({}),
+      getAiCreditsUsage: () => {
+        throw Object.assign(new Error('private configuration details'), {
+          code: 'pricing_resolution_error',
+        });
+      },
+    });
+    const req = { method: 'GET', url: '/reflect' };
+    const res = { writeHead: jest.fn(), end: jest.fn() };
+
+    expect(handlers.handleManagementEndpoint(req, res)).toBe(true);
+
+    expect(res.writeHead).toHaveBeenCalledWith(500, { 'Content-Type': 'application/json' });
+    expect(JSON.parse(res.end.mock.calls[0][0])).toEqual({ error: {
+      type: 'pricing_resolution_error',
+      message: 'AI-credit pricing resolution failed; accounting could not be completed.',
+    } });
+  });
+});
+
 describe('routing metadata in /reflect', () => {
   it('combines discovered IDs with maintained provider metadata and marks incomplete models', () => {
     expect(buildRoutingModelMetadata('openai', ['gpt-5.4', 'o3'], [])).toEqual([

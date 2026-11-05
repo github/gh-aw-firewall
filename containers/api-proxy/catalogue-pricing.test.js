@@ -14,7 +14,7 @@ jest.mock('./model-information.naming.generated.json', () => ({
   rules: [],
 }), { virtual: true });
 
-const { resolveCentralPricing } = require('./catalogue-pricing');
+const { resolveCentralPricing, validateTariffs } = require('./catalogue-pricing');
 const { computeTokenBudgetUsage } = require('./token-budget-log');
 
 const provenance = { at: '2026-10-23T00:00:00Z' };
@@ -129,4 +129,13 @@ test('pricing preserves provider, channel, deployment, freshness and ambiguity b
   const ambiguous = capture();
   ambiguous.snapshot.models.push(capture().snapshot.models[0]);
   expect(resolveCentralPricing('copilot', 'friendly-model', 0, ambiguous)).toBeNull();
+});
+
+test('rejects tariffs whose unit-converted numeric rate is unrepresentable', () => {
+  const snapshot = capture();
+  const tariff = snapshot.snapshot.models[0].tariffs[0];
+  tariff.unit = 'USD_PER_TOKEN';
+  for (const component of Object.values(tariff.components)) component.price = '9'.repeat(310);
+
+  expect(() => validateTariffs(snapshot.snapshot)).toThrow('catalogue_tariff_unsupported');
 });

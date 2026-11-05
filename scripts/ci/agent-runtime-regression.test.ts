@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
+import { COPILOT_PLACEHOLDER_TOKEN } from '../../src/constants/placeholders';
 import {
   NVX_AGENT_REGRESSION_SIGNER_WORKFLOW,
   NVX_COMMIT,
@@ -17,6 +18,7 @@ const hostScript = path.join(__dirname, 'run-agent-runtime-regression.sh');
 const guestScript = path.join(__dirname, 'run-agent-regression-guest.sh');
 const agents = ['copilot', 'codex', 'claude'];
 const runtimes = ['docker', 'cloud-hypervisor', 'nvx'];
+const copilotCredentialNames = ['COPILOT_GITHUB_TOKEN', 'COPILOT_TOKEN', 'COPILOT_PROVIDER_API_KEY'];
 
 interface Step {
   name: string;
@@ -197,6 +199,9 @@ describe('agent regression harness', () => {
     fs.copyFileSync(guestScript, path.join(directory, 'scripts/ci/run-agent-regression-guest.sh'));
     fs.copyFileSync(path.join(__dirname, 'collect-agent-regression-evidence.cjs'),
       path.join(directory, 'scripts/ci/collect-agent-regression-evidence.cjs'));
+    fs.mkdirSync(path.join(directory, 'dist/constants'), { recursive: true });
+    fs.copyFileSync(path.join(root, 'dist/constants/placeholders.js'),
+      path.join(directory, 'dist/constants/placeholders.js'));
     fs.writeFileSync(path.join(directory, 'package.json'), '{}');
     environment = {
       ...process.env,
@@ -210,6 +215,8 @@ describe('agent regression harness', () => {
       GH_TOKEN: '',
       GITHUB_TOKEN: '',
       COPILOT_GITHUB_TOKEN: '',
+      COPILOT_TOKEN: '',
+      COPILOT_PROVIDER_API_KEY: '',
       OPENAI_API_KEY: '',
       CODEX_API_KEY: '',
       OPENAI_BASE_URL: 'http://172.30.0.30:10000',
@@ -247,6 +254,7 @@ describe('agent regression harness', () => {
         } else {
           console.log(response);
         }
+        process.stderr.write(process.env.AGENT_TERMINAL_OUTPUT || '');
       `);
     }
     writeTool('sudo', `
@@ -261,7 +269,7 @@ describe('agent regression harness', () => {
       const fs = require('fs');
       const { spawnSync } = require('child_process');
       const args = process.argv.slice(2);
-      if (args[0] === '-e') {
+      if (args.length === 0 || args[0] === '-e') {
         const result = spawnSync(process.execPath, args, { env: process.env, stdio: 'inherit' });
         process.exit(result.status ?? 1);
       }
@@ -273,7 +281,14 @@ describe('agent regression harness', () => {
       );
       const env = {
         ...process.env,
-        COPILOT_GITHUB_TOKEN: process.env.COPILOT_GITHUB_TOKEN ? '******' : '',
+        COPILOT_GITHUB_TOKEN: '',
+        COPILOT_TOKEN: '',
+        COPILOT_PROVIDER_API_KEY: '',
+        ...require(${JSON.stringify(path.join(root, 'dist/services/credentials/copilot-credential-env.js'))})
+          .buildCopilotCredentialEnv({
+            config: { copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN },
+            proxyIp: '172.30.0.30',
+          }),
         OPENAI_API_KEY: process.env.OPENAI_API_KEY ? 'sk-placeholder-for-api-proxy' : '',
         CODEX_API_KEY: process.env.OPENAI_API_KEY ? 'sk-placeholder-for-api-proxy' : '',
         ANTHROPIC_API_KEY: '',
@@ -286,8 +301,20 @@ describe('agent regression harness', () => {
           event: 'token_usage', provider: 'openai', path: '/v1/responses', status: 200,
         }) + '\\n');
       }
-      const result = spawnSync(command, guestArgs, { cwd: process.env.TEST_ROOT, env, stdio: 'inherit' });
-      process.exit(result.status ?? 1);
+      const result = spawnSync(command, guestArgs, {
+        cwd: process.env.TEST_ROOT, env, stdio: ['ignore', 'pipe', 'inherit'],
+      });
+      let output = result.stdout.toString();
+      if (process.env.COMPLETION_OUTPUT !== undefined) {
+        output = output.replace('AWF-REGRESSION-COMPLETE', process.env.COMPLETION_OUTPUT);
+      }
+      process.stdout.write(output);
+      for (const [variable, file] of [['HOST_PROOF', 'agent-proof.txt'], ['HOST_RESPONSE', 'response.txt']]) {
+        if (process.env[variable] !== undefined) {
+          fs.writeFileSync(process.env.TEST_ROOT + '/.awf-regression/results/' + file, process.env[variable]);
+        }
+      }
+      process.exit(Number(process.env.AWF_EXIT_CODE ?? result.status ?? 1));
     `);
   });
 
@@ -361,6 +388,58 @@ describe('agent regression harness', () => {
     expect(runGuest(agent, { AGENT_MODE: mode }).status).not.toBe(0);
   });
 
+  it.each(copilotCredentialNames.flatMap(name => [
+    { name, kind: 'unset', value: undefined },
+    { name, kind: 'empty', value: '' },
+    { name, kind: 'canonical placeholder', value: COPILOT_PLACEHOLDER_TOKEN },
+  ]))('accepts $kind for $name', ({ name, value }) => {
+    const result = runGuest('copilot', { [name]: value });
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toBe('\nAWF-REGRESSION-COMPLETE\n');
+    expect(fs.readFileSync(path.join(directory, '.awf-regression/results/agent-version.txt'), 'utf8'))
+      .toBe('pinned-test-version\n');
+    expect(fs.existsSync(path.join(directory, 'agent-args.json'))).toBe(true);
+  });
+
+  it.each(copilotCredentialNames.flatMap(name => [
+    { name, kind: 'log-redacted text', value: '*'.repeat(6) },
+    { name, kind: 'arbitrary text', value: 'unexpected-token' },
+    { name, kind: 'token-shaped text', value: `ghu_${'X'.repeat(36)}` },
+    { name, kind: 'placeholder prefix', value: `${COPILOT_PLACEHOLDER_TOKEN}x` },
+    { name, kind: 'leading whitespace', value: ` ${COPILOT_PLACEHOLDER_TOKEN}` },
+    { name, kind: 'trailing newline', value: `${COPILOT_PLACEHOLDER_TOKEN}\n` },
+  ]))('rejects $kind for $name without logging it', ({ name, value }) => {
+    const result = runGuest('copilot', { [name]: value });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe('Copilot credential is not isolated\n');
+    expect(result.stdout).toBe('');
+    expect(result.stdout + result.stderr).not.toContain(value);
+    expect(fs.existsSync(path.join(directory, 'agent-args.json'))).toBe(false);
+    expect(fs.existsSync(path.join(directory, '.awf-regression/results/agent-version.txt'))).toBe(false);
+  });
+
+  it('fails closed when the canonical placeholder module is unavailable', () => {
+    fs.rmSync(path.join(directory, 'dist/constants/placeholders.js'));
+    const result = runGuest('copilot', { COPILOT_GITHUB_TOKEN: COPILOT_PLACEHOLDER_TOKEN });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe('Copilot placeholder contract is unavailable\n');
+    expect(result.stdout).not.toContain('AWF-REGRESSION-COMPLETE');
+    expect(fs.existsSync(path.join(directory, 'agent-args.json'))).toBe(false);
+  });
+
+  it('fails closed when the canonical placeholder value is unavailable', () => {
+    fs.writeFileSync(
+      path.join(directory, 'dist/constants/placeholders.js'),
+      "module.exports = { COPILOT_PLACEHOLDER_TOKEN: '' };\n",
+    );
+    const result = runGuest('copilot', { COPILOT_GITHUB_TOKEN: COPILOT_PLACEHOLDER_TOKEN });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe('Copilot placeholder contract is unavailable\n');
+    expect(result.stdout).not.toContain('AWF-REGRESSION-COMPLETE');
+    expect(fs.existsSync(path.join(directory, 'agent-args.json'))).toBe(false);
+  });
+
   it.each([
     { ALLOWED_CODE: '500' },
     { BLOCKED_CODE: '200' },
@@ -375,26 +454,40 @@ describe('agent regression harness', () => {
     expect(fs.existsSync(path.join(directory, 'agent-args.json'))).toBe(false);
   });
 
+  function runHost(
+    agentOrOverrides: string | NodeJS.ProcessEnv = {},
+    runtime = 'nvx',
+    overrides: NodeJS.ProcessEnv = {},
+  ) {
+    const agent = typeof agentOrOverrides === 'string' ? agentOrOverrides : 'claude';
+    const selectedRuntime = typeof agentOrOverrides === 'string' ? runtime : agentOrOverrides.RUNTIME ?? 'nvx';
+    const selectedOverrides = typeof agentOrOverrides === 'string' ? overrides : agentOrOverrides;
+    const artifacts = path.join(environment.RUNNER_TEMP!, `agent-runtime-${selectedRuntime}`);
+    fs.mkdirSync(artifacts, { recursive: true });
+    if (selectedRuntime === 'cloud-hypervisor') {
+      const files = ['cloud-hypervisor', 'virtiofsd', 'vmlinux.bin', 'kernel.config', 'rootfs.ext4', 'awf-supervisor'];
+      const sums = files.map(file => {
+       fs.writeFileSync(path.join(artifacts, file), 'test-artifact');
+       return `${createHash('sha256').update('test-artifact').digest('hex')}  ${file}`;
+      });
+      fs.writeFileSync(path.join(artifacts, 'SHA256SUMS'), `${sums.join('\n')}\n`);
+    }
+    const credential = agent === 'copilot' ? 'COPILOT_GITHUB_TOKEN' :
+      agent === 'codex' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY';
+    return spawnSync('bash', [hostScript], {
+      cwd: directory,
+      env: {
+       ...environment, AGENT: agent, RUNTIME: selectedRuntime,
+       [credential]: 'test-only-credential', ...selectedOverrides,
+      },
+      encoding: 'utf8',
+    });
+  }
+
   it.each(agents.flatMap(agent => runtimes.map(runtime => [agent, runtime])))(
     'wires the shared AWF build to the %s / %s runtime',
     (agent, runtime) => {
-      const artifacts = path.join(environment.RUNNER_TEMP!, `agent-runtime-${runtime}`);
-      fs.mkdirSync(artifacts);
-      if (runtime === 'cloud-hypervisor') {
-        const files = ['cloud-hypervisor', 'virtiofsd', 'vmlinux.bin', 'kernel.config', 'rootfs.ext4', 'awf-supervisor'];
-        const sums = files.map(file => {
-          fs.writeFileSync(path.join(artifacts, file), 'test-artifact');
-          return `${createHash('sha256').update('test-artifact').digest('hex')}  ${file}`;
-        });
-        fs.writeFileSync(path.join(artifacts, 'SHA256SUMS'), `${sums.join('\n')}\n`);
-      }
-      const credential = agent === 'copilot' ? 'COPILOT_GITHUB_TOKEN' :
-        agent === 'codex' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY';
-      const result = spawnSync('bash', [hostScript], {
-        cwd: directory,
-        env: { ...environment, AGENT: agent, RUNTIME: runtime, [credential]: 'test-only-credential' },
-        encoding: 'utf8',
-      });
+      const result = runHost(agent, runtime);
       expect(result.stderr).toBe('');
       expect(result.status).toBe(0);
       const args = JSON.parse(fs.readFileSync(path.join(directory, 'awf-args.json'), 'utf8')) as string[];
@@ -423,9 +516,65 @@ describe('agent regression harness', () => {
       ].sort());
       expect(fs.readFileSync(path.join(staged, 'agent-proof.txt'), 'utf8'))
         .toBe(`AWF-REGRESSION-${agent}-${runtime}-123-1\n`);
+      expect(fs.readFileSync(path.join(staged, 'agent-version.txt'), 'utf8'))
+        .toBe('pinned-test-version\n');
+      expect(fs.readFileSync(path.join(staged, 'response.txt'), 'utf8'))
+        .toBe(`AWF-REGRESSION-${agent}-${runtime}-123-1\n`);
       expect(fs.readFileSync(path.join(staged, 'source-sha.txt'), 'utf8')).toBe(`${environment.SOURCE_SHA}\n`);
     },
   );
+
+  it.each(['docker', 'nvx'])('keeps completion on its own line after cursor-show output in claude / %s', runtime => {
+    const result = runHost({ RUNTIME: runtime, AGENT_TERMINAL_OUTPUT: '\u001b[?25h' });
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('\u001b[?25h\nAWF-REGRESSION-COMPLETE\n');
+    const staged = path.join(environment.RUNNER_TEMP!, `agent-runtime-evidence-123-1-claude-${runtime}`);
+    for (const file of ['agent-proof.txt', 'response.txt']) {
+      expect(fs.readFileSync(path.join(staged, file), 'utf8'))
+        .toBe(`AWF-REGRESSION-claude-${runtime}-123-1\n`);
+    }
+    expect(fs.readFileSync(path.join(directory, 'summary.md'), 'utf8'))
+      .toContain(`claude / ${runtime}: PASS`);
+  });
+
+  it.each([
+    '',
+    'AWF-REGRESSION-COMPLET',
+    'AWF-REGRESSION-\nCOMPLETE',
+    '"AWF-REGRESSION-COMPLETE"',
+    'claimed AWF-REGRESSION-COMPLETE',
+    'AWF-REGRESSION-COMPLETE extra',
+    ' AWF-REGRESSION-COMPLETE',
+    'AWF-REGRESSION-COMPLETE ',
+    '\u001b[?25hquoted AWF-REGRESSION-COMPLETE',
+  ])('rejects invalid host completion output %j even with valid proof and response', output => {
+    const result = runHost({ COMPLETION_OUTPUT: output });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('Missing exact inference response or guest completion marker');
+    expect(fs.existsSync(path.join(directory, 'summary.md'))).toBe(false);
+  });
+
+  it.each(['HOST_PROOF', 'HOST_RESPONSE'].flatMap(variable =>
+    ['', 'AWF-REGRESSION-claude-nvx-123', 'quoted AWF-REGRESSION-claude-nvx-123-1',
+      'AWF-REGRESSION-claude-nvx-123-1 extra', '\u001b[?25hAWF-REGRESSION-claude-nvx-123-1']
+      .map(value => [variable, value]),
+  ))('retains exact host evidence requirements for %s: %j', (variable, value) => {
+    const result = runHost({ [variable]: value, AGENT_TERMINAL_OUTPUT: '\u001b[?25h' });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain(variable === 'HOST_PROOF' ?
+      'Missing or incorrect agent-written workspace proof' :
+      'Missing exact inference response or guest completion marker');
+    expect(fs.existsSync(path.join(directory, 'summary.md'))).toBe(false);
+  });
+
+  it('rejects a nonzero command exit even with exact evidence and a genuine completion marker', () => {
+    const result = runHost({ AWF_EXIT_CODE: '42', AGENT_TERMINAL_OUTPUT: '\u001b[?25h' });
+    expect(result.status).toBe(42);
+    expect(result.stdout).toContain('\u001b[?25h\nAWF-REGRESSION-COMPLETE\n');
+    expect(result.stdout).toContain('failed with exit code 42');
+    expect(fs.existsSync(path.join(directory, 'summary.md'))).toBe(false);
+  });
 
   it('fails rather than skipping a cell with a missing credential', () => {
     const result = spawnSync('bash', [hostScript], {
@@ -450,17 +599,16 @@ describe('agent regression harness', () => {
     expect(fs.existsSync(path.join(directory, 'summary.md'))).toBe(false);
   });
 
-  it('propagates an inference failure through AWF and the logging pipeline', () => {
-    const result = spawnSync('bash', [hostScript], {
-      cwd: directory,
-      env: {
-        ...environment, AGENT: 'copilot', RUNTIME: 'docker',
-        COPILOT_GITHUB_TOKEN: 'test-only-credential', AGENT_MODE: 'exit',
-      },
-      encoding: 'utf8',
-    });
-    expect(result.status).toBe(42);
-    expect(result.stdout).toContain('failed with exit code 42');
+  it.each(runtimes.flatMap(runtime => ['exit', 'no-proof', 'wrong-proof', 'wrong-response']
+    .map(mode => [runtime, mode])))('propagates %s inference failure %s through AWF and logging', (runtime, mode) => {
+    const result = runHost('copilot', runtime, { AGENT_MODE: mode });
+    const status = mode === 'exit' ? 42 : 1;
+    expect(result.status).toBe(status);
+    expect(result.stdout).toContain(`failed with exit code ${status}`);
+    expect(result.stdout).not.toContain('AWF-REGRESSION-COMPLETE');
+    expect(fs.readFileSync(path.join(directory, '.awf-regression/results/agent-version.txt'), 'utf8'))
+      .toBe('pinned-test-version\n');
+    expect(fs.existsSync(path.join(directory, 'agent-args.json'))).toBe(true);
     expect(fs.existsSync(path.join(directory, 'summary.md'))).toBe(false);
   });
 });
