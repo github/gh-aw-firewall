@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -212,6 +212,7 @@ describe('agent regression harness', () => {
       COPILOT_GITHUB_TOKEN: '',
       OPENAI_API_KEY: '',
       CODEX_API_KEY: '',
+      OPENAI_BASE_URL: 'http://172.30.0.30:10000',
       ANTHROPIC_API_KEY: '',
       ANTHROPIC_AUTH_TOKEN: '',
       HTTPS_PROXY: 'http://proxy.invalid:3128',
@@ -227,6 +228,9 @@ describe('agent regression harness', () => {
         const fs = require('fs');
         const args = process.argv.slice(2);
         if (args.includes('--version')) { console.log('pinned-test-version'); process.exit(0); }
+        if (process.env.CHECK_STDIN === '1') {
+          if (fs.readFileSync(0, 'utf8') !== '') throw new Error('Expected closed stdin');
+        }
         fs.writeFileSync(process.env.TEST_ROOT + '/agent-args.json', JSON.stringify(args));
         if (process.env.AGENT_MODE === 'exit') process.exit(42);
         const prompt = args.find(arg => arg.startsWith('Use your shell tool'));
@@ -236,7 +240,8 @@ describe('agent regression harness', () => {
         if (process.env.AGENT_MODE !== 'no-proof') {
           fs.writeFileSync(proof, process.env.AGENT_MODE === 'wrong-proof' ? 'wrong' : marker + '\\n');
         }
-        const response = process.env.AGENT_MODE === 'wrong-response' ? 'PASS' : marker;
+        const response = process.env.AGENT_MODE === 'wrong-response' ? 'PASS' :
+          process.env.AGENT_MODE === 'extra-response' ? 'extra\\n' + marker : marker;
         if (args.includes('--output-last-message')) {
           fs.writeFileSync(args[args.indexOf('--output-last-message') + 1], response + '\\n');
         } else {
@@ -270,9 +275,17 @@ describe('agent regression harness', () => {
         ...process.env,
         COPILOT_GITHUB_TOKEN: process.env.COPILOT_GITHUB_TOKEN ? '******' : '',
         OPENAI_API_KEY: process.env.OPENAI_API_KEY ? 'sk-placeholder-for-api-proxy' : '',
+        CODEX_API_KEY: process.env.OPENAI_API_KEY ? 'sk-placeholder-for-api-proxy' : '',
         ANTHROPIC_API_KEY: '',
         ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_API_KEY ? 'sk-ant-placeholder-key-for-credential-isolation' : '',
       };
+      if (process.env.AGENT === 'codex' && process.env.AGENT_MODE !== 'no-routing') {
+        const logs = args[args.indexOf('--proxy-logs-dir') + 1] + '/api-proxy-logs';
+        fs.mkdirSync(logs, { recursive: true });
+        fs.writeFileSync(logs + '/token-usage.jsonl', JSON.stringify({
+          event: 'token_usage', provider: 'openai', path: '/v1/responses', status: 200,
+        }) + '\\n');
+      }
       const result = spawnSync(command, guestArgs, { cwd: process.env.TEST_ROOT, env, stdio: 'inherit' });
       process.exit(result.status ?? 1);
     `);
@@ -300,7 +313,50 @@ describe('agent regression harness', () => {
       .toBe(`AWF-REGRESSION-${agent}-test-123-1\n`);
   });
 
-  it.each(agents.flatMap(agent => ['no-proof', 'wrong-proof', 'wrong-response', 'exit']
+  it('closes Codex stdin even when the caller keeps its input pipe open', async () => {
+    const child = spawn('bash', [guestScript, 'codex', 'AWF-REGRESSION-codex-test-123-1'], {
+      cwd: directory, env: { ...environment, CHECK_STDIN: '1' }, stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stderr = '';
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    const timer = setTimeout(() => {
+      child.stdin.end();
+      child.kill('SIGKILL');
+    }, 3000);
+    try {
+      const code = await new Promise(resolve => child.once('close', resolve));
+      expect(stderr).toBe('');
+      expect(code).toBe(0);
+      expect(child.stdin.writableEnded).toBe(false);
+    } finally {
+      clearTimeout(timer);
+      child.stdin.destroy();
+    }
+  });
+
+  it.each([
+    'http://172.30.0.30:10000',
+    'http://192.168.127.1:10000',
+    'http://192.168.127.1:10000/v1/',
+  ])('explicitly routes Codex Responses through the supplied sidecar %s', baseUrl => {
+    const result = runGuest('codex', { OPENAI_BASE_URL: baseUrl });
+    expect(result.status).toBe(0);
+    const args = JSON.parse(fs.readFileSync(path.join(directory, 'agent-args.json'), 'utf8')) as string[];
+    expect(args).toContain('model_provider="awf"');
+    const setting = args.find(arg => arg.startsWith('model_providers.awf='));
+    expect(setting).toContain(`base_url="${baseUrl.replace(/\/v1\/?$/, '').replace(/\/$/, '')}/v1"`);
+    expect(setting).toContain('wire_api="responses"');
+    expect(setting).toContain('env_key="CODEX_API_KEY"');
+    expect(setting).toContain('requires_openai_auth=false');
+    expect(setting).toContain('supports_websockets=true');
+  });
+
+  it('fails before Codex inference if the sidecar URL is missing', () => {
+    expect(runGuest('codex', { OPENAI_BASE_URL: '' }).status).not.toBe(0);
+    expect(fs.existsSync(path.join(directory, 'agent-args.json'))).toBe(false);
+  });
+
+  it.each(agents.flatMap(agent => ['no-proof', 'wrong-proof', 'wrong-response', 'extra-response', 'exit']
     .map(mode => [agent, mode])))('fails closed for %s with %s', (agent, mode) => {
     expect(runGuest(agent, { AGENT_MODE: mode }).status).not.toBe(0);
   });
@@ -363,7 +419,8 @@ describe('agent regression harness', () => {
       const staged = path.join(environment.RUNNER_TEMP!, `agent-runtime-evidence-123-1-${agent}-${runtime}`);
       expect(fs.readdirSync(staged).sort()).toEqual([
         'agent-proof.txt', 'agent-version.txt', 'response.txt', 'source-sha.txt',
-      ]);
+        ...(agent === 'codex' ? ['codex-routing.json'] : []),
+      ].sort());
       expect(fs.readFileSync(path.join(staged, 'agent-proof.txt'), 'utf8'))
         .toBe(`AWF-REGRESSION-${agent}-${runtime}-123-1\n`);
       expect(fs.readFileSync(path.join(staged, 'source-sha.txt'), 'utf8')).toBe(`${environment.SOURCE_SHA}\n`);
@@ -377,6 +434,20 @@ describe('agent regression harness', () => {
     expect(result.status).not.toBe(0);
     expect(result.stdout).toContain('Missing Codex credential');
     expect(fs.existsSync(path.join(directory, 'awf-args.json'))).toBe(false);
+  });
+
+  it('does not accept a Codex proof without successful sidecar inference evidence', () => {
+    const result = spawnSync('bash', [hostScript], {
+      cwd: directory,
+      env: {
+        ...environment, AGENT: 'codex', RUNTIME: 'docker',
+        OPENAI_API_KEY: 'test-only-credential', AGENT_MODE: 'no-routing',
+      },
+      encoding: 'utf8',
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('Missing successful Codex inference through api-proxy');
+    expect(fs.existsSync(path.join(directory, 'summary.md'))).toBe(false);
   });
 
   it('propagates an inference failure through AWF and the logging pipeline', () => {

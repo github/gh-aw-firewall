@@ -47,8 +47,15 @@ case "$agent" in
       > "$results/response.txt"
     ;;
   codex)
-    codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox \
-      --model gpt-5.4 --output-last-message "$results/response.txt" "$prompt"
+    codex_base_url="${OPENAI_BASE_URL:?Missing OpenAI sidecar URL}"
+    codex_base_url="${codex_base_url%/}"
+    codex_base_url="${codex_base_url%/v1}/v1"
+    # Pin both transports to the sidecar; placeholders are replaced only there.
+    CODEX_API_KEY=sk-placeholder-for-api-proxy \
+      codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox \
+      -c 'model_provider="awf"' \
+      -c "model_providers.awf={name=\"AWF\",base_url=\"$codex_base_url\",wire_api=\"responses\",env_key=\"CODEX_API_KEY\",requires_openai_auth=false,supports_websockets=true}" \
+      --model gpt-5.4 --output-last-message "$results/response.txt" "$prompt" < /dev/null
     ;;
   claude)
     claude --print --dangerously-skip-permissions --model claude-haiku-4-5 \
@@ -58,5 +65,5 @@ case "$agent" in
 esac
 test -f "$results/agent-proof.txt" || fail 'Agent did not write the workspace proof'
 test "$(cat "$results/agent-proof.txt")" = "$marker" || fail 'Agent wrote an incorrect workspace proof'
-grep -Fxq "$marker" "$results/response.txt" || fail 'Inference response did not contain the exact marker'
+test "$(cat "$results/response.txt")" = "$marker" || fail 'Inference response did not contain the exact marker'
 echo AWF-REGRESSION-COMPLETE

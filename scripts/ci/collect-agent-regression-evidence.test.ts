@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { collectAgentRegressionEvidence } = require('./collect-agent-regression-evidence.cjs');
+const { collectAgentRegressionEvidence, collectCodexRoutingEvidence } = require('./collect-agent-regression-evidence.cjs');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 describe('agent regression evidence collector', () => {
@@ -79,5 +79,52 @@ describe('agent regression evidence collector', () => {
     fs.writeFileSync(path.join(source, 'response.txt'), randomBytes(64 * 1024 + 1));
     expect(collectAgentRegressionEvidence(source, destination)).toEqual([]);
     expect(fs.readdirSync(destination)).toEqual([]);
+  });
+
+  it('projects only fixed routing fields for both Codex transports', () => {
+    const usage = path.join(directory, 'token-usage.jsonl');
+    const record = {
+      event: 'token_usage', provider: 'openai', path: '/v1/responses', status: 101,
+      authorization: 'secret', model: 'secret', request_id: 'secret', input: 'private prompt',
+    };
+    fs.writeFileSync(usage, [
+      'not json', 'null', JSON.stringify({ ...record, provider: 'anthropic' }),
+      JSON.stringify({ ...record, path: '/responses?secret=hidden' }),
+      JSON.stringify({ ...record, status: 'secret' }),
+      JSON.stringify(record), JSON.stringify({ ...record, status: 200 }),
+    ].join('\n'));
+    fs.mkdirSync(destination);
+    collectCodexRoutingEvidence(usage, destination);
+    expect(JSON.parse(fs.readFileSync(path.join(destination, 'codex-routing.json'), 'utf8'))).toEqual({
+      source: 'api-proxy-token-usage', status: 'available', requests: [
+        { transport: 'websocket', path: '/v1/responses', status: 101 },
+        { transport: 'http', path: '/v1/responses', status: 200 },
+      ],
+    });
+    expect(fs.statSync(path.join(destination, 'codex-routing.json')).mode & 0o777).toBe(0o600);
+  });
+
+  it.each(['missing', 'symlink', 'oversized', 'directory'])('does not trust %s proxy evidence', kind => {
+    const usage = path.join(directory, 'token-usage.jsonl');
+    if (kind === 'symlink') fs.symlinkSync(path.join(source, 'response.txt'), usage);
+    if (kind === 'oversized') fs.writeFileSync(usage, Buffer.alloc(1024 * 1024 + 1));
+    if (kind === 'directory') fs.mkdirSync(usage);
+    fs.mkdirSync(destination);
+    collectCodexRoutingEvidence(usage, destination);
+    const report = JSON.parse(fs.readFileSync(path.join(destination, 'codex-routing.json'), 'utf8'));
+    expect(report.requests).toEqual([]);
+    expect(report.status).not.toBe('available');
+  });
+
+  it('bounds the number of routing records', () => {
+    const usage = path.join(directory, 'token-usage.jsonl');
+    fs.writeFileSync(usage, (JSON.stringify({
+      event: 'token_usage', provider: 'openai', path: '/responses', status: 200,
+    }) + '\n').repeat(101));
+    fs.mkdirSync(destination);
+    collectCodexRoutingEvidence(usage, destination);
+    const contents = fs.readFileSync(path.join(destination, 'codex-routing.json'), 'utf8');
+    expect(JSON.parse(contents).requests).toHaveLength(100);
+    expect(Buffer.byteLength(contents)).toBeLessThan(64 * 1024);
   });
 });
