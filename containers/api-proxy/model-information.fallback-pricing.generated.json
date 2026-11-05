@@ -1,5 +1,5 @@
 {
-  "catalogRevision": "b50272501bad3e9a6d687bfdf3940b0d0e72996084240a82bab525f0627f023c",
+  "catalogRevision": "0dd92eadfa4ff99777c84a1f35d5f573c980d27a8f01755fa4e9debe8a7320b7",
   "compatibility": {
     "policy": "legacy_native_compatibility",
     "channel": "native-api",
@@ -15,130 +15,130 @@
     "providers": {
       "openai": {
         "gpt-5.6-luna": {
-          "input": 0.2,
-          "cachedInput": 0.02,
-          "cacheWrite": 0.25,
-          "output": 1.2,
-          "reasoning": 1.2
+          "input": "0.2",
+          "cachedInput": "0.02",
+          "cacheWrite": "0.25",
+          "output": "1.2",
+          "reasoning": "1.2"
         },
         "gpt-5.6-sol": {
-          "input": 4,
-          "cachedInput": 0.4,
-          "cacheWrite": 5,
-          "output": 20,
-          "reasoning": 20
+          "input": "4",
+          "cachedInput": "0.4",
+          "cacheWrite": "5",
+          "output": "20",
+          "reasoning": "20"
         },
         "gpt-5.6-terra": {
-          "input": 2,
-          "cachedInput": 0.2,
-          "cacheWrite": 2.5,
-          "output": 12,
-          "reasoning": 12
+          "input": "2",
+          "cachedInput": "0.2",
+          "cacheWrite": "2.5",
+          "output": "12",
+          "reasoning": "12"
         },
         "gpt-6-astra": {
-          "input": 10,
-          "cachedInput": 1,
-          "cacheWrite": 12.5,
-          "output": 50,
-          "reasoning": 50
+          "input": "10",
+          "cachedInput": "1",
+          "cacheWrite": "12.5",
+          "output": "50",
+          "reasoning": "50"
         },
         "gpt-6-luna": {
-          "input": 0.1,
-          "cachedInput": 0.01,
-          "cacheWrite": 0.125,
-          "output": 0.5,
-          "reasoning": 0.5
+          "input": "0.1",
+          "cachedInput": "0.01",
+          "cacheWrite": "0.125",
+          "output": "0.5",
+          "reasoning": "0.5"
         },
         "gpt-6-sol": {
-          "input": 2,
-          "cachedInput": 0.2,
-          "cacheWrite": 2.5,
-          "output": 10,
-          "reasoning": 10
+          "input": "2",
+          "cachedInput": "0.2",
+          "cacheWrite": "2.5",
+          "output": "10",
+          "reasoning": "10"
         },
         "gpt-6.1-sol": {
-          "input": 2,
-          "cachedInput": 0.1,
-          "cacheWrite": 2.5,
-          "output": 10,
-          "reasoning": 10,
+          "input": "2",
+          "cachedInput": "0.1",
+          "cacheWrite": "2.5",
+          "output": "10",
+          "reasoning": "10",
           "longContext": {
-            "threshold": 272000,
-            "input": 4,
-            "cachedInput": 0.2,
-            "cacheWrite": 5,
-            "output": 15,
-            "reasoning": 15
+            "input": "4",
+            "cachedInput": "0.2",
+            "cacheWrite": "5",
+            "output": "15",
+            "reasoning": "15",
+            "threshold": 272000
           }
         },
         "gpt-5-mini": {
-          "input": 0.25,
-          "cachedInput": 0.025,
+          "input": "0.25",
+          "cachedInput": "0.025",
           "cacheWrite": null,
-          "output": 2
+          "output": "2"
         },
         "gpt-5.4": {
-          "input": 2.5,
-          "cachedInput": 0.25,
+          "input": "2.5",
+          "cachedInput": "0.25",
           "cacheWrite": null,
-          "output": 15
+          "output": "15"
         }
       },
       "anthropic": {
         "claude-haiku-5-5": {
-          "input": 0.1,
-          "cachedInput": 0.01,
-          "cacheWrite": 0.125,
-          "output": 0.5,
-          "reasoning": 0.5,
+          "input": "0.1",
+          "cachedInput": "0.01",
+          "cacheWrite": "0.125",
+          "output": "0.5",
+          "reasoning": "0.5",
           "longContext": {
-            "threshold": 100000,
-            "input": 0.5,
-            "cachedInput": 0.05,
-            "cacheWrite": 0.625,
-            "output": 2.5,
-            "reasoning": 2.5
+            "input": "0.5",
+            "cachedInput": "0.05",
+            "cacheWrite": "0.625",
+            "output": "2.5",
+            "reasoning": "2.5",
+            "threshold": 100000
           }
         },
         "claude-sonnet-5": {
-          "input": 2,
-          "cachedInput": 0.2,
-          "cacheWrite": 2.5,
-          "output": 10,
-          "reasoning": 10
+          "input": "2",
+          "cachedInput": "0.2",
+          "cacheWrite": "2.5",
+          "output": "10",
+          "reasoning": "10"
         },
         "claude-sonnet-5-5": {
-          "input": 2,
-          "cachedInput": 0.1,
-          "cacheWrite": 2.5,
-          "output": 10,
-          "reasoning": 10
+          "input": "2",
+          "cachedInput": "0.1",
+          "cacheWrite": "2.5",
+          "output": "10",
+          "reasoning": "10"
         },
         "claude-opus-5-5": {
-          "input": 4,
-          "cachedInput": 0.2,
-          "cacheWrite": 5,
-          "output": 20,
-          "reasoning": 20
+          "input": "4",
+          "cachedInput": "0.2",
+          "cacheWrite": "5",
+          "output": "20",
+          "reasoning": "20"
         },
         "claude-fable-5-1": {
-          "input": 10,
-          "cachedInput": 0.25,
-          "cacheWrite": 12.5,
-          "output": 50,
-          "reasoning": 50
+          "input": "10",
+          "cachedInput": "0.25",
+          "cacheWrite": "12.5",
+          "output": "50",
+          "reasoning": "50"
         },
         "claude-sonnet-4-6": {
-          "input": 3,
-          "cachedInput": 0.3,
-          "cacheWrite": 3.75,
-          "output": 15
+          "input": "3",
+          "cachedInput": "0.3",
+          "cacheWrite": "3.75",
+          "output": "15"
         },
         "claude-opus-4-7": {
-          "input": 5,
-          "cachedInput": 0.5,
-          "cacheWrite": 6.25,
-          "output": 25
+          "input": "5",
+          "cachedInput": "0.5",
+          "cacheWrite": "6.25",
+          "output": "25"
         }
       }
     }

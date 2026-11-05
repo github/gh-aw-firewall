@@ -504,7 +504,8 @@ describe('curated prices for default-model traffic', () => {
         });
         resetProviderPricingOverlaysForTests();
 
-        expect(resolveProviderPricingOverlay('anthropic', 'claude-haiku-5-5')).toBeNull();
+        expect(() => resolveProviderPricingOverlay('anthropic', 'claude-haiku-5-5'))
+          .toThrow('pricing_decimal_invalid');
       }
     },
   );

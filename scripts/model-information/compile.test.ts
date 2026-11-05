@@ -128,7 +128,7 @@ describe('maintained model compilation', () => {
     const manifest = require('../../shared/model-information/manifest.generated.json');
     const catalogue = require('../../shared/model-information/catalog.generated.json');
     expect(manifest.catalogRevision).toBe(catalogue.catalogRevision);
-    expect(manifest.compilerVersion).toBe(5);
+    expect(manifest.compilerVersion).toBe(6);
     expect(manifest.schemaHash).toMatch(/^[0-9a-f]{64}$/);
     expect(catalogue.generatedAt).toBe(manifest.generatedAt);
     expect(manifest.sourceFiles).toEqual(expect.arrayContaining([
@@ -153,14 +153,14 @@ describe('maintained model compilation', () => {
       const source = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
       const model = source.models.find((entry: { identity: { rawId: string } }) =>
         entry.identity.rawId === 'gpt-5-codex-mini');
-      model.tariffs[0].components.input.price = '9';
+      model.tariffs[0].components.input.price = '9.0000000000000000000000000001';
       fs.writeFileSync(sourcePath, JSON.stringify(source));
       const tempCompiler = path.join(temp, 'scripts/model-information/compile.cjs');
       execFileSync(process.execPath, [tempCompiler], { cwd: temp });
       const staged = JSON.parse(fs.readFileSync(
         path.join(temp, 'containers/api-proxy/model-information.pricing.generated.json'), 'utf8',
       ));
-      expect(staged['gpt-5-codex-mini'].input).toBe(9);
+      expect(staged['gpt-5-codex-mini'].input).toBe('9.0000000000000000000000000001');
       const active = JSON.parse(fs.readFileSync(
         path.join(temp, 'containers/api-proxy/model-information.fallback-pricing.generated.json'), 'utf8',
       ));
