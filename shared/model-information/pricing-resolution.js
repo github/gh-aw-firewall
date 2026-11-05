@@ -89,10 +89,22 @@ function resolvePricing(capture) {
   let componentSources;
   let missingModelPricing = false;
   if (!result) {
-    const runtime = selectPricingFact(reached(sources, 'runtime'), inputTokens);
-    const completeFreshRuntime = runtime && components.every(field =>
+    let runtime = selectPricingFact(reached(sources, 'runtime'), inputTokens);
+    const allowMissingCacheWrite = capture.allowMissingCacheWrite === true;
+    if (allowMissingCacheWrite && runtime && !Object.hasOwn(runtime.pricing, 'cacheWrite')) {
+      runtime = { ...runtime, pricing: exact.fromExact({
+        ...Object.fromEntries(Object.keys(runtime.pricing).map(field => [
+          field, field === 'threshold' ? runtime.pricing[field] : exact.rate(runtime.pricing, field),
+        ])),
+        cacheWrite: null,
+      }) };
+    }
+    const runtimeTime = capture.runtimeTime ?? capture.time;
+    const requiredRuntimeFields = allowMissingCacheWrite
+      ? ['input', 'cachedInput', 'output'] : components;
+    const completeFreshRuntime = runtime && requiredRuntimeFields.every(field =>
       Object.hasOwn(runtime.pricing, field)) &&
-      (capture.time === null || fresh({ at: runtime.observedAt }, capture.time, capture.maxAge));
+      (runtimeTime === null || fresh({ at: runtime.observedAt }, runtimeTime, capture.maxAge));
     if (completeFreshRuntime) {
       result = runtime;
     } else {
@@ -121,8 +133,11 @@ function resolvePricing(capture) {
             componentSources[field] = componentProvenance(selected);
           }
           if (result?.estimate) {
-            const selected = Object.hasOwn(runtime.pricing, 'reasoning') ? runtime : result;
-            pricing.reasoning = exact.rate(selected.pricing, 'reasoning');
+            const hasRuntimeReasoning = Object.hasOwn(runtime.pricing, 'reasoning') ||
+              Object.hasOwn(runtime.pricing, 'output');
+            const selected = hasRuntimeReasoning ? runtime : result;
+            const field = Object.hasOwn(runtime.pricing, 'reasoning') ? 'reasoning' : 'output';
+            pricing.reasoning = exact.rate(selected.pricing, hasRuntimeReasoning ? field : 'reasoning');
             componentSources.reasoning = componentProvenance(selected);
           }
           // Keep the historical four-component merge for non-estimate fallbacks.

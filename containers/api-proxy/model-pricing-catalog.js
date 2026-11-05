@@ -7,9 +7,9 @@ const exact = require('./catalogue-contract/exact-pricing');
 let cachedRaw;
 let cachedCatalog = null;
 
-function canonicalizeModel(model) {
+function canonicalizeModel(model, preserveNamespace = false) {
   if (!model || typeof model !== 'string') return '';
-  const bare = model.includes('/') ? model.slice(model.indexOf('/') + 1) : model;
+  const bare = !preserveNamespace && model.includes('/') ? model.slice(model.indexOf('/') + 1) : model;
   const withoutDateSuffix = bare.replace(/(-alpha)?-(\d{4}-\d{2}-\d{2}|\d{8})$/, '');
   return withoutDateSuffix.replace(/[._]/g, '-').toLowerCase();
 }
@@ -69,11 +69,11 @@ function getCatalog() {
   return cachedCatalog;
 }
 
-function getConfiguredPricingFact(provider, model) {
+function getConfiguredPricingFact(provider, model, options = {}) {
   const catalog = getCatalog();
   if (!catalog || !provider || !model) return null;
 
-  const canonical = canonicalizeModel(model);
+  const canonical = canonicalizeModel(model, options.preserveNamespace === true);
   if (!canonical) return null;
 
   for (const alias of getProviderAliases(provider)) {
@@ -81,7 +81,7 @@ function getConfiguredPricingFact(provider, model) {
     const models = providerEntry?.models;
     if (!models || typeof models !== 'object' || Array.isArray(models)) continue;
     for (const [catalogModel, entry] of Object.entries(models)) {
-      if (canonicalizeModel(catalogModel) !== canonical) continue;
+      if (canonicalizeModel(catalogModel, options.preserveNamespace === true) !== canonical) continue;
       const normalized = normalizePricing(entry);
       if (!normalized) return null;
       return {

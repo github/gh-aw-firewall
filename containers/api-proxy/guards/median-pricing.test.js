@@ -131,12 +131,39 @@ test('each canonical ID is counted once across sources and alias observations', 
   });
 });
 
+test('alias-only source tariffs are retained while equivalent IDs share one donor vote', () => {
+  configure({ 'family-alias': rates(2), 'family-b': rates(6) });
+  const fact = getMedianPricingFact('median-test', 'family-new', 0);
+  expect(fact.default.input).toBe(4);
+  expect(fact.metadata.estimate.donorCount).toBe(2);
+});
+
 test('publisher-qualified donor identities remain distinct without leaking into native backends', () => {
   const fact = getMedianPricingFact('collision-backend', 'missing', 0);
   expect(fact.default.input).toBe(5);
   expect(fact.metadata.estimate).toMatchObject({ donorCount: 2, sources: ['models.dev'] });
   expect(getMedianPricingFact('publisher-a', 'missing', 0)).toBeNull();
   expect(getMedianPricingFact('unassociated-backend', 'publisher-a/shared', 0)).toBeNull();
+});
+
+test('operator and configured donor lookups preserve publisher namespaces', () => {
+  configure({ 'publisher-a/shared': rates(2), 'publisher-b/shared': rates(8) }, 'collision-backend');
+  const configured = getMedianPricingFact('collision-backend', 'missing', 0);
+  expect(configured.default.input).toBe(5);
+  expect(configured.metadata.estimate).toMatchObject({
+    donorCount: 2, sources: ['shared_catalog'],
+  });
+  expect(require('../model-pricing-catalog').getConfiguredPricingFact(
+    'collision-backend', 'publisher-b/shared',
+  ).default.input).toBe(2);
+
+  process.env.AWF_API_PROXY_PROVIDERS = JSON.stringify({ 'collision-backend': { models: {
+    'publisher-a/shared': { cost: { input: '0.000002', output: '0.000002' } },
+    'publisher-b/shared': { cost: { input: '0.000008', output: '0.000008' } },
+  } } });
+  const operator = getMedianPricingFact('collision-backend', 'missing', 0);
+  expect(operator.default.input).toBe(5);
+  expect(operator.metadata.estimate).toMatchObject({ donorCount: 2, sources: ['operator'] });
 });
 
 test('configured defaults and exact overrides outrank estimates; selector and sentinel outputs are never donors', () => {
@@ -219,6 +246,19 @@ test('donor tiers use the requested prompt threshold and partial runtime prices 
   });
 });
 
+test('runtime donors may omit cache-write without losing their other rates', () => {
+  const fact = getMedianPricingFact('median-test', 'family-new', 0, {
+    catalogue: null, runtimeCatalog: { 'median-test': [{
+      id: 'family-a', observedAt: new Date().toISOString(),
+      pricing: { default: { input: 7, cachedInput: 2, output: 9 } },
+    }] },
+  });
+  expect(fact.default).toMatchObject({ input: 7, cachedInput: 2, output: 9, cacheWrite: null });
+  expect(fact.metadata.estimate).toMatchObject({
+    donorCount: 1, componentDonors: { input: 1, cachedInput: 1, output: 1, cacheWrite: 0 },
+  });
+});
+
 test.each([undefined, '0.5'])('estimated partial-provider fill retains reasoning semantics for %s', reasoning => {
   configure({
     'family-a': { ...rates(2, 6), reasoning: 10 },
@@ -229,7 +269,7 @@ test.each([undefined, '0.5'])('estimated partial-provider fill retains reasoning
       id: 'family-new', observedAt: new Date().toISOString(),
       pricing: { default: { input: '1', output: '2', ...(reasoning ? { reasoning } : {}) } },
     }] } });
-  expect(usage.outputCreditsThisResponse).toBe(reasoning ? 0.5 : 12);
+  expect(usage.outputCreditsThisResponse).toBe(reasoning ? 0.5 : 2);
 });
 
 test('no-donor usage warns once and remains excluded rather than borrowing a backend', () => {

@@ -7,9 +7,9 @@ const DOLLARS_PER_TOKEN_TO_DOLLARS_PER_MILLION = 1_000_000;
 let cachedRaw;
 let cachedProviders = null;
 
-function canonicalizeModel(model) {
+function canonicalizeModel(model, preserveNamespace = false) {
   if (!model || typeof model !== 'string') return '';
-  const bare = model.includes('/') ? model.slice(model.indexOf('/') + 1) : model;
+  const bare = !preserveNamespace && model.includes('/') ? model.slice(model.indexOf('/') + 1) : model;
   return bare.replace(/[._]/g, '-').toLowerCase();
 }
 
@@ -85,7 +85,7 @@ function getProviders() {
   return cachedProviders;
 }
 
-function getProviderPricingFact(provider, model) {
+function getProviderPricingFact(provider, model, options = {}) {
   const providers = getProviders();
   if (!providers || !provider || !model) return null;
   let models = null;
@@ -98,10 +98,10 @@ function getProviderPricingFact(provider, model) {
   }
   if (!models) return null;
 
-  const canonical = canonicalizeModel(model);
+  const canonical = canonicalizeModel(model, options.preserveNamespace === true);
   let match = null;
   for (const [configuredModel, entry] of Object.entries(models)) {
-    const configuredCanonical = canonicalizeModel(configuredModel);
+    const configuredCanonical = canonicalizeModel(configuredModel, options.preserveNamespace === true);
     if (configuredCanonical === canonical ||
         (canonical.startsWith(`${configuredCanonical}-`) &&
           (!match || configuredCanonical.length > match.canonical.length))) {

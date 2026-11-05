@@ -162,14 +162,17 @@ function getMedianPricingFact(provider, model, inputTokens, options = {}) {
   };
   const catalogue = options.centralAllowed ? options.catalogue : null;
   const runtime = options.runtimeCatalog || captureRuntimePricing();
-  const time = options.catalogue?.time ?? getRuntimePricingCaptureTime(runtime, provider);
+  const runtimeTime = getRuntimePricingCaptureTime(runtime, provider);
+  const time = options.catalogue?.time ?? runtimeTime;
   const maxAge = options.catalogue?.maxAge ?? 30 * 24 * 3600 * 1000;
   const declared = new Map(naming.models.map(record => [record.identity.key, record]));
   const models = new Map(declared);
   for (const record of catalogue?.snapshot.models || []) {
     // Feed family evidence may enrich pricing, but feed aliases cannot extend naming policy.
+    const bundled = declared.get(record.identity.key);
     models.set(record.identity.key, { ...record, identity: {
-      ...record.identity, aliases: declared.get(record.identity.key)?.identity.aliases || [],
+      ...record.identity, family: record.identity.family ?? bundled?.identity.family,
+      aliases: bundled?.identity.aliases || [],
     } });
   }
   const view = { models: [...models.values()], rules: naming.rules };
@@ -189,33 +192,49 @@ function getMedianPricingFact(provider, model, inputTokens, options = {}) {
       compatibilityPrices.get(provider)?.records || {}),
     ...Object.keys(fallbackPricing.imported[provider] || {}),
   ]);
-  const donors = [];
-  const seen = new Set();
+  const identities = new Map();
   for (const id of [...ids].sort()) {
     if (id === 'unknown' || id.toLowerCase() === 'auto') continue;
     const resolved = resolve(id);
-    if (!resolved.identity || seen.has(resolved.identity.key)) continue;
-    seen.add(resolved.identity.key);
+    if (!resolved.identity) continue;
+    let group = identities.get(resolved.identity.key);
+    if (!group) {
+      group = { resolved, ids: [] };
+      identities.set(resolved.identity.key, group);
+    }
+    group.ids.push(id);
+  }
+  const donors = [];
+  for (const { resolved, ids: sourceIds } of identities.values()) {
     const canonical = resolved.identity.rawId;
+    sourceIds.sort((a, b) => (a === canonical ? -1 : b === canonical ? 1 : a.localeCompare(b)));
     const records = (catalogue?.snapshot.models || []).filter(record =>
       record.identity.key === resolved.identity.key);
     if ((provider === 'copilot' && Object.hasOwn(retired, canonical)) ||
         records.some(record => ['retired', 'removed'].includes(record.lifecycle?.status))) continue;
+    const firstSource = getter => {
+      for (const id of sourceIds) {
+        const fact = getter(id);
+        if (fact) return fact;
+      }
+      return null;
+    };
     const resolution = resolvePricing({
-      identity: resolved.identity, scope, inputTokens, time, maxAge, sources: {
-        operator: () => getProviderPricingFact(provider, canonical),
-        configured: () => getConfiguredPricingFact(provider, canonical),
+      identity: resolved.identity, scope, inputTokens, time, runtimeTime, maxAge,
+      allowMissingCacheWrite: true, sources: {
+        operator: () => firstSource(id => getProviderPricingFact(provider, id, { preserveNamespace: true })),
+        configured: () => firstSource(id => getConfiguredPricingFact(provider, id, { preserveNamespace: true })),
         runtime: () => {
-          const fact = getRuntimePricingFact(provider, canonical, runtime);
+          const fact = firstSource(id => getRuntimePricingFact(provider, id, runtime));
           const selected = selectPricingFact(fact, inputTokens);
           // Donors cannot reuse the historical stale-provider merge behavior.
-          return selected && fresh({ at: selected.observedAt }, time, maxAge) ? fact : null;
+          return selected && fresh({ at: selected.observedAt }, runtimeTime, maxAge) ? fact : null;
         },
-        central: () => getCentralPricingFact(provider, canonical, catalogue, {
+        central: () => firstSource(id => getCentralPricingFact(provider, id, catalogue, {
           ...scope, nativeInput: true,
-        }),
-        curated: () => getMaintainedPricingFact(provider, canonical),
-        imported: () => getImportedPricingFact(provider, canonical),
+        })),
+        curated: () => firstSource(id => getMaintainedPricingFact(provider, id)),
+        imported: () => firstSource(id => getImportedPricingFact(provider, id)),
         selector: null, configuredDefault: null, median: null, sentinel: null,
       },
     });

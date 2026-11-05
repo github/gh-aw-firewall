@@ -4,11 +4,16 @@ jest.mock('./model-information.naming.generated.json', () => ({
   models: [{
     identity: {
       key: 'copilot/canonical-model', provider: 'copilot', rawId: 'canonical-model',
-      lookupId: 'canonical-model',
+      lookupId: 'canonical-model', family: 'bundled-family',
       aliases: [{
         id: 'friendly-model', match: 'exact',
         scope: { provider: 'copilot', channel: 'copilot-api' },
       }],
+    },
+  }, {
+    identity: {
+      key: 'copilot/median-missing', provider: 'copilot', rawId: 'median-missing',
+      lookupId: 'median-missing', family: 'bundled-family',
     },
   }],
   rules: [],
@@ -187,4 +192,36 @@ test('new captures change family medians and fingerprints without changing pinne
   expect(second.default.input).toBe(8);
   expect(second.metadata.pricingCatalogVersion).not.toBe(first.metadata.pricingCatalogVersion);
   expect(getMedianPricingFact('copilot', 'median-missing', 0, options)).toEqual(first);
+});
+
+test('family-free feed captures retain bundled family evidence', () => {
+  const pinned = capture();
+  const missing = structuredClone(capture('median-missing').snapshot.models[0]);
+  missing.tariffs = [];
+  pinned.snapshot.models.push(missing);
+
+  const fact = getMedianPricingFact('copilot', 'median-missing', 0, {
+    catalogue: pinned, centralAllowed: true, runtimeCatalog: {},
+  });
+  expect(fact.metadata.estimate).toMatchObject({ basis: 'family', family: 'bundled-family' });
+});
+
+test('runtime provider freshness uses the pinned runtime capture time, not the feed time', () => {
+  const { replaceRuntimeModels, captureRuntimePricing, clearRuntimeModels } =
+    require('./runtime-model-catalog');
+  jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-23T12:00:00Z'));
+  replaceRuntimeModels('copilot', [{
+    id: 'canonical-model', observedAt: '2026-10-23T06:00:00Z',
+    pricing: { default: { input: 5, cachedInput: 1, output: 5, cacheWrite: null } },
+  }]);
+  const runtimeCatalog = captureRuntimePricing();
+  const pinned = capture();
+  pinned.snapshot.models.push(capture('median-missing').snapshot.models[0]);
+
+  const fact = getMedianPricingFact('copilot', 'median-missing', 0, {
+    catalogue: pinned, centralAllowed: true, runtimeCatalog,
+  });
+  expect(fact.default.input).toBe(3.5);
+  expect(fact.metadata.estimate.sources).toContain('provider');
+  clearRuntimeModels('copilot');
 });
