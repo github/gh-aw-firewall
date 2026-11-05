@@ -1,5 +1,6 @@
 ---
 description: Weekly documentation review with a 7-day change gate and 48-hour agent context
+runs-on: ubuntu-24.04
 on:
   schedule: weekly
   workflow_dispatch:

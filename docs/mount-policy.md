@@ -15,8 +15,10 @@ The Docker/runc compose agent, the gVisor/runsc compose agent, and the sbx
 microVM all read from this one source of truth, so they can no longer diverge.
 The Cloud Hypervisor microVM does not currently consult this policy: its
 production export path (`src/cloud-hypervisor/exports.ts`) only resolves the
-workspace, runner tool cache, and `RUNNER_TEMP`/`tmp/gh-aw` directories — it
-does not export `$HOME` at all, so the home allow/deny lists have no
+workspace (`rw`), the runner tool cache (`ro`, only under the non-default
+`workspace-and-tool-cache` policy, using `RUNNER_TOOL_CACHE` or its fallback
+`AGENT_TOOLSDIRECTORY`), `$RUNNER_TEMP/gh-aw` (`ro`, when `RUNNER_TEMP` is set
+and the directory exists), and `/tmp/gh-aw` (`rw`, when the directory exists) — it does not export `$HOME` at all, so the home allow/deny lists have no
 production call site for this runtime. `MicrovmWorkspaceImage`
 (`src/microvm/workspace.ts`) does read `home.toolSubdirs` and
 `credentials.entries`, but it has no production call site today; it is
@@ -92,8 +94,9 @@ mechanisms, but from the **same list**:
 
 **Cloud Hypervisor microVM** does not go through this list today. Its
 production export path (`src/cloud-hypervisor/exports.ts`) never exports
-`$HOME` — only the workspace, runner tool cache, and `RUNNER_TEMP`/`tmp/gh-aw`
-directories are exposed to the guest — so host credential dotfiles are simply
+`$HOME` — only the workspace, the runner tool cache (non-default
+`workspace-and-tool-cache` policy only), `$RUNNER_TEMP/gh-aw`, and `/tmp/gh-aw`
+are exposed to the guest — so host credential dotfiles are simply
 never part of the guest export, independent of `credentials.entries`.
 `MicrovmWorkspaceImage` (`src/microvm/workspace.ts`) does read
 `home.toolSubdirs` and exclude `credentials.entries` when staging a workspace
