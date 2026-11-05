@@ -1,11 +1,27 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 
 const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const sourcePath = path.join(workflowsDir, 'doc-maintainer.md');
 const lockPath = path.join(workflowsDir, 'doc-maintainer.lock.yml');
 
 describe('doc maintainer workflow optimization config', () => {
+  it('pins the agent to Ubuntu 24.04 for released AWF host-tool compatibility', () => {
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const frontmatter = yaml.load(source.split('---')[1]) as {
+      'runs-on': string;
+      sandbox: { agent: { runtime: string } };
+    };
+    const lock = yaml.load(fs.readFileSync(lockPath, 'utf-8')) as {
+      jobs: { agent: { 'runs-on': string } };
+    };
+
+    expect(frontmatter['runs-on']).toBe('ubuntu-24.04');
+    expect(frontmatter.sandbox.agent.runtime).toBe('cloud-hypervisor');
+    expect(lock.jobs.agent['runs-on']).toBe('ubuntu-24.04');
+  });
+
   it('disables unused tools and keeps condensed prompt sections in source workflow', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
