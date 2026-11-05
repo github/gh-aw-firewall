@@ -15,7 +15,6 @@ const { applyAiCreditsUsage, resetAiCreditsGuardForTests, getAiCreditsReflectSta
 const { buildCommonGuardChecks } = require('./common-guard-checks');
 const { collectLogOutput } = require('../test-helpers/log-test-helpers');
 const { clearRuntimeModels, replaceRuntimeModels, captureRuntimePricing } = require('../runtime-model-catalog');
-const { buildCatalogIndex, resolveCatalogModel } = require('../models-dev-catalog');
 
 const at = '2026-11-01T00:00:00Z';
 const rates = { input: 2, cachedInput: 0, cacheWrite: null, output: 4 };
@@ -169,7 +168,10 @@ test('partial provider merge uses its selected tier, preserves zero/null, and dr
   expect(usage.pricingTier).toBe('long_context');
   const resolution = resolvePricing.mock.results[0].value;
   expect(resolution.result.pricing).toEqual({ input: 6, output: 8, cacheWrite: 0, cachedInput: 0.2 });
-  expect(resolution.componentSources.cachedInput).toEqual({ source: 'curated', tier: 'long_context' });
+  expect(resolution.componentSources.cachedInput).toEqual({
+    source: 'curated', tier: 'long_context',
+    pricingCatalogVersion: require('../model-information.fallback-pricing.generated.json').catalogRevision,
+  });
 });
 
 test('complete provider discounts stay informational and never reduce AI-credit budget charges', () => {
@@ -195,27 +197,25 @@ test.each([199999, 200000, 200001])('central long-context strict boundary %s and
 
 test.each([271999, 272000, 272001])('curated long-context strict boundary %s is independently selected', tokens => {
   const usage = charge('gpt-6.1-sol', {}, 'copilot', tokens);
-  const pricing = require('../ai-credits-pricing')['gpt-6.1-sol'];
+  const pricing = require('../model-information.pricing.generated.json')['gpt-6.1-sol'];
   expect(usage.pricingTier).toBe(tokens > pricing.longContext.threshold ? 'long_context' : 'default');
 });
 
-test('curated/import matching and cross-provider slug collisions remain named nonactivated fixtures', () => {
-  expect(charge('anthropic/claude_sonnet_4-20260101').pricingSource).toBe('curated');
+test('maintained/import matching preserves source normalization without cross-backend price borrowing', () => {
+  expect(charge('claude_sonnet_4-20260101').pricingSource).toBe('curated');
+  expect(charge('anthropic/claude_sonnet_4-20260101')).toBeNull();
   expect(charge('ANTHROPIC/CLAUDE_SONNET_4-20260101')).toBeNull();
-  const entry = require('../models.dev.catalog.json').data.find(entry =>
-    entry.pricing && entry.id.includes('/') && !require('../ai-credits-pricing')[entry.id.split('/').slice(1).join('/')]);
-  expect(entry).toBeDefined();
-  expect(charge(entry.id, {}, 'custom-provider').pricingSource).toBe('models.dev');
+  const model = 'perceptron/perceptron-mk1';
+  expect(charge(model, {}, 'custom-provider')).toBeNull();
+  expect(charge(model, {}, 'copilot')).toBeNull();
+  expect(charge(model, {}, 'openrouter')).toMatchObject({
+    pricingSource: 'models.dev', aiCreditsThisResponse: 15,
+    pricingCatalogVersion: require('../model-information.fallback-pricing.generated.json')
+      .imported.openrouter[model].provenance.revision,
+  });
   const last = resolvePricing.mock.calls.at(-1)[0];
-  expect(last.identity.provider).toBe('custom-provider');
+  expect(last.identity.provider).toBe('openrouter');
   expect(resolvePricing.mock.results.at(-1).value.result.source).toBe('models.dev');
-  const index = buildCatalogIndex([
-    { id: 'alpha/collision', pricing: { prompt: '0.000001', completion: '0.000002' } },
-    { id: 'beta/collision', pricing: { prompt: '0.000009', completion: '0.00001' } },
-  ]);
-  // Governed imports would keep these identities distinct. The compatibility
-  // resolver deliberately preserves legacy first-slug matching, not that target.
-  expect(resolveCatalogModel('beta/collision', index).pricing.input).toBe(1);
 });
 
 test('selector/default/sentinel and concrete-unpriced accounting retain warnings and budget behavior', () => {

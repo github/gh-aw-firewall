@@ -237,6 +237,7 @@ safe-outputs:
       - containers/api-proxy/model-api-mapping.json
       - containers/api-proxy/ai-credits-pricing-reference.json
       - containers/api-proxy/model-information.pricing.generated.json
+      - containers/api-proxy/model-information.fallback-pricing.generated.json
       - containers/api-proxy/model-information.retired.generated.json
       - docs/model-api-mapping.json
       - src/model-information.compat.generated.json
@@ -248,7 +249,7 @@ safe-outputs:
     github-token-for-extra-empty-commit: none
     max-patch-size: 10240
     patch-format: bundle
-    allowed-files: ["shared/model-information/sources/*.json", "shared/model-information/imported/legacy-models-dev.metadata.json", "shared/model-information/imported/legacy-models-dev.snapshot.v1.json", "shared/model-information/*.generated.json", "shared/model-information/maintenance-report.json", "containers/api-proxy/models.dev.catalog.json", "containers/api-proxy/model-api-mapping.json", "containers/api-proxy/ai-credits-pricing-reference.json", "containers/api-proxy/model-information.pricing.generated.json", "containers/api-proxy/model-information.retired.generated.json", "docs/model-api-mapping.json", "src/model-information.compat.generated.json"]
+    allowed-files: ["shared/model-information/sources/*.json", "shared/model-information/imported/legacy-models-dev.metadata.json", "shared/model-information/imported/legacy-models-dev.snapshot.v1.json", "shared/model-information/*.generated.json", "shared/model-information/maintenance-report.json", "containers/api-proxy/models.dev.catalog.json", "containers/api-proxy/model-api-mapping.json", "containers/api-proxy/ai-credits-pricing-reference.json", "containers/api-proxy/model-information.pricing.generated.json", "containers/api-proxy/model-information.fallback-pricing.generated.json", "containers/api-proxy/model-information.retired.generated.json", "docs/model-api-mapping.json", "src/model-information.compat.generated.json"]
   report-failed-jobs: false
   report-failure-as-issue: false
   report-incomplete:

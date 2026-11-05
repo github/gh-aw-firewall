@@ -1,5 +1,7 @@
 'use strict';
 
+// Historical bare-slug compatibility adapter. Active credit accounting uses
+// the generated, backend-scoped import through catalogue-pricing.js instead.
 const bundledCatalog = require('./models.dev.catalog.json');
 
 const DOLLARS_PER_TOKEN_TO_DOLLARS_PER_MILLION = 1_000_000;

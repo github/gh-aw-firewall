@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { createHash } = require('node:crypto');
 const { EventEmitter } = require('node:events');
 const http = require('node:http');
 const { createCatalogueLoader } = require('./catalogue-loader');
@@ -15,6 +16,49 @@ const { createWebSocketTunnel } = require('./websocket-tunnel');
 const { collectLogOutput } = require('./test-helpers/log-test-helpers');
 const { resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard');
 const baseline = require('../../shared/model-information/catalog.generated.json');
+
+function canonicalPricingFixture(directory) {
+  const root = path.join(__dirname, '../..');
+  const source = path.join(directory, 'fixture-source');
+  for (const folder of ['scripts/model-information', 'shared/model-information']) {
+    fs.cpSync(path.join(root, folder), path.join(source, folder), { recursive: true });
+  }
+  const maintainedPath = path.join(source, 'shared/model-information/sources/copilot-main.json');
+  const maintained = JSON.parse(fs.readFileSync(maintainedPath, 'utf8'));
+  maintained.models.find(model => model.identity.rawId === 'gpt-5-mini')
+    .tariffs[0].components.input.price = '0.75';
+  fs.writeFileSync(maintainedPath, JSON.stringify(maintained));
+  fs.symlinkSync(path.join(root, 'node_modules'), path.join(source, 'node_modules'), 'dir');
+  const catalog = structuredClone(require('./models.dev.catalog.json'));
+  const entry = (id, prompt, completion, extra = {}) => ({
+    id, pricing: { prompt, completion, ...extra },
+  });
+  catalog.data.push(
+    entry('smoke-a/shared-slug', '0.000002', '0.000004', { input_cache_read: '0' }),
+    entry('smoke-b/shared-slug', '0.000007', '0.000008'),
+    entry('smoke-a/exact-model', '0.000002', '0.000004'),
+    entry('smoke-a/exact-model-20260101', '0.000009', '0.000004'),
+    entry('smoke-a/zero-model', '0', '0', { input_cache_read: '0', input_cache_write: '0' }),
+    entry('smoke-a/null-model', null, '0.000004'),
+    entry('smoke-a/missing-model', undefined, '0.000004'),
+    entry('smoke-a/null-cache', '0.000002', '0.000004', { input_cache_read: null }),
+    entry('smoke-a/underflow-model', `0.${'0'.repeat(330)}1`, '0.000004'),
+  );
+  if (catalog.total_count !== undefined) catalog.total_count = catalog.data.length;
+  const bytes = JSON.stringify(catalog);
+  const hash = createHash('sha256').update(bytes).digest('hex');
+  const catalogPath = path.join(source, 'containers/api-proxy/models.dev.catalog.json');
+  fs.mkdirSync(path.dirname(catalogPath), { recursive: true });
+  fs.writeFileSync(catalogPath, bytes);
+  const metadataPath = path.join(source, 'shared/model-information/imported/legacy-models-dev.metadata.json');
+  const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+  fs.writeFileSync(metadataPath, JSON.stringify({ ...metadata, revision: hash, sha256: hash }));
+  const compiled = spawnSync(process.execPath, [path.join(source, 'scripts/model-information/compile.cjs')], {
+    cwd: source, encoding: 'utf8',
+  });
+  if (compiled.status !== 0) throw new Error(compiled.stderr);
+  return path.join(source, 'containers/api-proxy');
+}
 
 function snapshot(price = '2') {
   const data = structuredClone(baseline);
@@ -193,16 +237,26 @@ test.each(['docker', 'npm'])('provider-free pricing smoke runs in the %s package
       proxyDirectory = path.join(directory, 'package/containers/api-proxy');
     }
     fs.symlinkSync(path.join(__dirname, 'node_modules'), path.join(proxyDirectory, 'node_modules'), 'dir');
-    const result = spawnSync(process.execPath, [
-      path.join(__dirname, '../../scripts/ci/smoke-pricing-resolution.cjs'), proxyDirectory,
-    ], { cwd: proxyDirectory, encoding: 'utf8', env: {
-      PATH: process.env.PATH,
-      AWF_VERSION: '0.0.0-smoke', AWF_TOKEN_LOG_DIR: directory,
-      AWF_PRICING_SMOKE_SNAPSHOTS: JSON.stringify([snapshot(), snapshot('4')]),
-    } });
-    expect(result.stderr).toBe('');
-    expect(result.stdout).toContain('"event":"pricing_resolution_smoke_passed"');
-    expect(result.status).toBe(0);
+    for (const fixtures of [false, true]) {
+      if (fixtures) {
+        const generated = canonicalPricingFixture(directory);
+        for (const file of ['model-information.pricing.generated.json',
+          'model-information.fallback-pricing.generated.json']) {
+          fs.copyFileSync(path.join(generated, file), path.join(proxyDirectory, file));
+        }
+      }
+      const result = spawnSync(process.execPath, [
+        path.join(__dirname, '../../scripts/ci/smoke-pricing-resolution.cjs'), proxyDirectory,
+      ], { cwd: proxyDirectory, encoding: 'utf8', env: {
+        PATH: process.env.PATH,
+        AWF_VERSION: '0.0.0-smoke', AWF_TOKEN_LOG_DIR: directory,
+        AWF_PRICING_SMOKE_IMPORT_FIXTURES: String(fixtures),
+        AWF_PRICING_SMOKE_SNAPSHOTS: JSON.stringify([snapshot(), snapshot('4')]),
+      } });
+      expect(result.stderr).toBe('');
+      expect(result.stdout).toContain('"event":"pricing_resolution_smoke_passed"');
+      expect(result.status).toBe(0);
+    }
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

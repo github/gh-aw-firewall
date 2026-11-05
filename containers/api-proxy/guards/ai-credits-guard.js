@@ -1,11 +1,10 @@
 'use strict';
 
 const { logRequest, sanitizeForLog } = require('../logging');
-const pricingByModel = require('../ai-credits-pricing');
-const { resolveCatalogModel } = require('../models-dev-catalog');
+const pricingByModel = require('../model-information.pricing.generated.json');
 const { getRuntimePricingFact } = require('../runtime-model-catalog');
 const { getCatalogueLoader } = require('../catalogue-loader');
-const { getCentralPricingFact } = require('../catalogue-pricing');
+const { getCentralPricingFact, getMaintainedPricingFact, getImportedPricingFact } = require('../catalogue-pricing');
 const { resolveApiKey, deriveCopilotApiTarget, isGithubCopilotCatalogTarget } = require('../providers/copilot-auth');
 const { getProviderPricingFact } = require('../provider-pricing-overlays');
 const { getConfiguredPricingFact } = require('../model-pricing-catalog');
@@ -36,7 +35,7 @@ const BUILTIN_FALLBACK_PRICING = Object.freeze({
 
 // Static ceiling for recognized dynamic selectors whose concrete runtime model
 // is unknown at accounting time. These rates bound every priced Copilot model
-// in the curated catalog; retain the ceiling if the catalog is unavailable.
+// in the maintained catalog; retain the ceiling if the catalog is unavailable.
 const DYNAMIC_SELECTOR_PRICING_CEILING = Object.freeze({
   input: 10.00,
   cachedInput: 1.00,
@@ -154,6 +153,7 @@ function getAiCreditsConfig() {
 }
 
 /**
+ * Historical compatibility helper; active pricing uses scoped source adapters.
  * Canonicalize a model name by stripping provider prefix and normalizing
  * common deployment suffixes and separators (dash, dot, underscore are all
  * treated as equivalent).
@@ -187,11 +187,8 @@ function resolveModelPricing(model, state = aiCreditsState, provider = undefined
     central: () => provider && !resolveApiKey(process.env) &&
       isGithubCopilotCatalogTarget(deriveCopilotApiTarget(process.env))
       ? getCentralPricingFact(provider, pricingModel, catalogue, { nativeInput: true }) : null,
-    curated: () => getCuratedPricingFact(pricingModel),
-    imported: () => {
-      const { pricing } = resolveCatalogModel(pricingModel);
-      return pricing ? { source: 'models.dev', default: pricing } : null;
-    },
+    curated: () => getMaintainedPricingFact(provider, pricingModel),
+    imported: () => getImportedPricingFact(provider, pricingModel),
     selector: () => {
       const selector = getDynamicSelectorDescriptor(pricingModel, provider);
       return selector ? {
@@ -225,31 +222,6 @@ function resolveModelPricing(model, state = aiCreditsState, provider = undefined
   }
   if (resolution.missingModelPricing && !options.quiet) warnMissingModelPricing(model, state);
   return resolution.result;
-}
-
-function curatedPricingFact(pricing) {
-  const { longContext, ...defaultPricing } = pricing;
-  const { threshold, ...longPrices } = longContext || {};
-  return { source: 'curated', default: defaultPricing,
-    ...(longContext ? { longContext: longPrices, threshold } : {}) };
-}
-
-function getCuratedPricingFact(model) {
-  if (Object.hasOwn(pricingByModel, model)) {
-    return curatedPricingFact(pricingByModel[model]);
-  }
-
-  const canonical = canonicalizeModel(model);
-
-  // Try canonical form against canonicalized pricing keys
-  for (const [configuredModel, pricing] of Object.entries(pricingByModel)) {
-    const canonicalKey = canonicalizeModel(configuredModel);
-    if (canonical === canonicalKey) {
-      return curatedPricingFact(pricing);
-    }
-  }
-
-  return null;
 }
 
 /**

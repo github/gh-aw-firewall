@@ -44,6 +44,102 @@ execution-environment detection, and the remaining Phase 4 and broader
 pricing/eligibility work remain under #10294 and #10290 (including the companion
 compiler integration in github/gh-aw#70728).
 
+## Active canonical fallback pricing
+
+The shared pricing resolver now receives maintained fallback rates from
+`model-information.pricing.generated.json`, not `ai-credits-pricing.js`.
+`scripts/model-information/compile.cjs` derives that projection from the active
+`shared/model-information/sources/copilot-*.json` records. It also generates
+`model-information.fallback-pricing.generated.json` from the governed import and
+the explicit native compatibility associations in `sources/pricing-reference.json`.
+The existing `catalogue-pricing.js` adapter consumes both assets in Docker and npm
+distributions. There is no new runtime loader or independently authored price
+table. Historical adapters remain for unrelated consumers.
+
+The authority order remains operator override, configured catalogue v1, complete
+fresh provider observation, applicable fresh central snapshot, maintained
+fallback, governed scoped import, then explicit selector/default/sentinel policy.
+Partial-provider component merging, central BYOK/channel/deployment exclusions,
+strict context thresholds, request/connection captures and revision pinning are
+unchanged. Remote refresh cannot change bundled names, source associations,
+availability or the executing backend.
+
+The maintained projection retains **all 42 Copilot rates and both long-context
+tiers unchanged**. Native API compatibility preserves nine OpenAI and seven
+Anthropic model associations: the original 12-model reference plus the four
+explicit historical guard fixtures (`gpt-5-mini`, `gpt-5.4`,
+`claude-sonnet-4-6`, `claude-opus-4-7`). These are labeled
+`legacy_native_compatibility`, `authority: policy`, `confidence: policy_fallback`,
+not independently verified current native tariffs. The original source
+provenance is retained; test dates do not refresh billing evidence. Source labels
+`curated` and `models.dev` remain compatible, with catalogue revisions attached;
+native compatibility usage also records the policy as its catalogue ID.
+
+The pinned raw import has 455 rows, of which 429 are accepted and 26 rejected by
+the governed importer. They apply only to pricing-provider identity `openrouter`
+with full native wire IDs such as `anthropic/claude-sonnet-5.5`.
+`anthropic` is the publisher namespace here, **not** the serving backend.
+An OpenRouter price cannot price a native Anthropic/OpenAI call, a Copilot call,
+an arbitrary compatible/custom backend or an omitted provider. A pricing-provider
+identity does not require a runtime adapter or establish execution support.
+
+Within an applicable namespace, raw exact IDs win before the import's historical
+separator/date normalization. Namespaces themselves match exactly; ambiguous
+normalized matches produce the existing sanitized resolution error. This
+normalization is local to pricing, not a global naming/routing policy. Unreviewed
+`canonical_slug` aliases are not imported as identities: 39 distinct aliases
+associated with accepted rows no longer resolve in this pinned snapshot after
+the retained normalization. For example, `openai/gpt-4-turbo:batch` remains priced,
+but its `canonical_slug` cannot assign that batch price to `openai/gpt-4-turbo`.
+
+### Explicit charge and coverage changes
+
+For the 429 exact qualified OpenRouter IDs, 426 default four-component rate
+vectors are unchanged. The following three change; two additional models stop
+inheriting another backend's long-context tiers. Prices below are USD per million
+tokens, and one AI credit remains USD 0.01.
+
+| OpenRouter wire ID | Previous fallback | Active scoped import |
+| --- | --- | --- |
+| `openai/gpt-4o-2024-05-13` | Bare/date-folded collision: input 2.5, cached input 1.25, output 10 | Exact dated ID: input 5, cached input 0.5, output 15. One million fresh input plus one million output changes from 1,250 to 2,000 credits. |
+| `google/gemini-2.5-pro` | Curated cache write unavailable: zero cache-write charge | Imported cache write 0.375: 37.5 credits per million cache-write tokens. |
+| `google/gemini-3.5-flash` | Curated cache write unavailable: zero cache-write charge | Imported cache write 0.0833333333333333: 8.333333 credits per million cache-write tokens after existing response rounding. |
+| `anthropic/claude-haiku-5.5`, above 100,000 prompt tokens | Copilot long tier: input 0.5, cached input 0.05, cache write 0.625, output 2.5 | Imported flat rates: 0.1, 0.01, 0.125, 0.5 respectively. At 100,001 fresh input tokens: 5.00005 to 1.00001 credits. |
+| `openai/gpt-6.1-sol`, above 272,000 prompt tokens | Copilot long tier: input 4, cached input 0.2, cache write 5, output 15 | Imported flat rates: 2, 0.1, 2.5, 10 respectively. At 272,001 fresh input tokens: 108.8004 to 54.4002 credits. |
+
+These are intentional source-scope corrections, not new verified native tariffs.
+Copilot's tiers and the explicit native compatibility policy retain their rates
+and exact boundaries. No `target.json` tariff, promotion or successor is activated.
+Future OpenRouter tier support requires governed upstream evidence, not borrowing
+the Copilot tier. Missing imported cache-read prices retain the explicit legacy
+10%-of-input policy; missing cache-write prices remain null. Explicit zero prices
+remain zero. Missing/null required input or output prices are rejected, not free.
+Nonrepresentable imported prices fail explicitly rather than underflowing to free.
+
+Native/custom requests outside the explicit associations, and requests that
+previously borrowed another backend's same-slug price, may now be unpriced.
+Concrete unpriced requests still warn and proceed; usage is excluded from
+AI-credit totals, so budget enforcement can undercount spending. Use an explicit
+operator/configured tariff or configured default where needed. Price coverage is
+not execution admission. Existing recovery, opt-outs, dynamic-selector ceilings,
+unknown-sentinel fallback, budget guards and accounting-error dispatch blocking
+remain active.
+
+The provider-free `scripts/ci/smoke-pricing-resolution.cjs` runs from the off-tree
+Docker application layout and extracted npm package, both with shipped data and
+with changed maintained rates and additional test imports passed through the
+real canonical compiler. The changed rates must change HTTP/WebSocket charges
+without editing the historical table. It
+checks actual HTTP/WebSocket charges and budgets, overriding sources, native and
+custom/OpenRouter scope, same-slug namespaces, exact/date precedence, ambiguity,
+strict tier boundaries, missing/null/zero prices, explicit charge deltas and
+refresh pins. Every run prohibits network access and requires zero network calls.
+This does not run live inference, a workflow, a container or a VM.
+
+Exact-decimal accounting, generalized assembled tariffs, promotions/successors,
+non-token charges, broader export/reasoning migrations and harness/compiler/VM
+changes remain outside this slice. This is not completion of #10295 or #10290.
+
 ## Automatic publication
 
 `.github/workflows/publish-model-catalogue.yml` is an ordinary deterministic
@@ -393,8 +489,8 @@ those fixtures do **not** substitute for a successful approved live Actions run.
 ### Bounded rollout
 
 This integration ships the publication consumer and its automated authenticity
-gate, not all Gate 5/8 criteria. Generated retired/mapping readers and legacy
-bundled pricing paths remain active. Governed OpenRouter imports, staged model
+gate, not all Gate 5/8 criteria. Generated retired/mapping readers and the active
+canonical pricing fallbacks described above are enabled. Staged target model
 facts, full pricing/eligibility consolidation, cross-repository configuration
 handoff and the broader export/compatibility phases are not activated. See
 [ADR 0004](adr/0004-model-information-management.md),

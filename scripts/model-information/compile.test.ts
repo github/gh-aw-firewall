@@ -128,7 +128,7 @@ describe('maintained model compilation', () => {
     const manifest = require('../../shared/model-information/manifest.generated.json');
     const catalogue = require('../../shared/model-information/catalog.generated.json');
     expect(manifest.catalogRevision).toBe(catalogue.catalogRevision);
-    expect(manifest.compilerVersion).toBe(4);
+    expect(manifest.compilerVersion).toBe(5);
     expect(manifest.schemaHash).toMatch(/^[0-9a-f]{64}$/);
     expect(catalogue.generatedAt).toBe(manifest.generatedAt);
     expect(manifest.sourceFiles).toEqual(expect.arrayContaining([
@@ -138,7 +138,7 @@ describe('maintained model compilation', () => {
     expect(manifest.sourceFiles).not.toContain('shared/model-information/imported/legacy-models-dev.snapshot.v1.json');
   });
 
-  it('keeps historical runtime prices frozen while allowing a reviewed staged price projection', () => {
+  it('updates active maintained pricing from canonical sources without editing the historical table', () => {
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-staged-price-'));
     try {
       for (const directory of ['scripts/model-information', 'shared/model-information']) {
@@ -161,6 +161,18 @@ describe('maintained model compilation', () => {
         path.join(temp, 'containers/api-proxy/model-information.pricing.generated.json'), 'utf8',
       ));
       expect(staged['gpt-5-codex-mini'].input).toBe(9);
+      const active = JSON.parse(fs.readFileSync(
+        path.join(temp, 'containers/api-proxy/model-information.fallback-pricing.generated.json'), 'utf8',
+      ));
+      expect(active.imported.copilot).toBeUndefined();
+      expect(active.imported.openai).toBeUndefined();
+      expect(active.compatibility).toMatchObject({
+        authority: 'policy', confidence: 'policy_fallback', channel: 'native-api',
+        sourceProvenance: require('../../shared/model-information/sources/pricing-reference.json').provenance,
+      });
+      expect(Object.keys(active.imported.openrouter)).toHaveLength(
+        require('../../shared/model-information/imported/legacy-models-dev.snapshot.v1.json').accepted,
+      );
       expect(require('../../containers/api-proxy/ai-credits-pricing')['gpt-5-codex-mini'].input).toBe(0.25);
       expect(execFileSync(process.execPath, [tempCompiler, '--check'], { cwd: temp, encoding: 'utf8' }))
         .toContain('Checked');
@@ -174,6 +186,35 @@ describe('maintained model compilation', () => {
       { at: '2026-10-19T17:20:11-07:00' },
       { at: '2026-10-21T00:00:00Z' },
     ])).toBe('2026-10-21T00:00:00.000Z');
+  });
+
+  it('does not flatten unsupported maintained tariff scope, dates, units or missing components', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-pricing-scope-'));
+    try {
+      fs.cpSync(path.join(root, 'shared/model-information/sources'), directory, { recursive: true });
+      const file = path.join(directory, 'copilot-main.json');
+      const original = JSON.parse(fs.readFileSync(file, 'utf8'));
+      for (const change of [
+        { scope: { provider: 'copilot', channel: 'copilot-cli' } },
+        { scope: { provider: 'copilot', channel: 'copilot-api', deployment: 'private' } },
+        { unit: 'USD_PER_TOKEN' },
+        { currency: 'EUR' },
+        { effectiveUntil: '2027-01-01T00:00:00Z' },
+        { components: {} },
+      ]) {
+        const source = structuredClone(original);
+        const model = source.models.find((entry: { tariffs?: unknown[] }) => entry.tariffs?.length);
+        Object.assign(model.tariffs[0], change);
+        fs.writeFileSync(file, JSON.stringify(source));
+        const result = spawnSync(process.execPath, [compiler, '--check', `--source-dir=${directory}`], {
+          cwd: root, encoding: 'utf8',
+        });
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toMatch(/Unsupported maintained fallback tariff|currency|components/);
+      }
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('stages named pricing and routing corrections without activating them', () => {
@@ -404,7 +445,7 @@ describe('maintained model compilation', () => {
 
   it('resolves generated proxy assets independently of repository shared modules', () => {
     const dockerfile = fs.readFileSync(path.join(root, 'containers/api-proxy/Dockerfile'), 'utf8');
-    expect(dockerfile).toMatch(/model-information\.pricing\.generated\.json model-information\.retired\.generated\.json/);
+    expect(dockerfile).toMatch(/model-information\.pricing\.generated\.json model-information\.fallback-pricing\.generated\.json model-information\.retired\.generated\.json/);
     expect(dockerfile).toMatch(/model-eligibility\.js harness-observation\.js/);
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-assets-'));
     try {

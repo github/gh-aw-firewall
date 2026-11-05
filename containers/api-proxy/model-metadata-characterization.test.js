@@ -265,15 +265,13 @@ describe('effective AI-credit tariff precedence and provenance', () => {
   });
 
   it.each([
-    ['openai/gpt-5.5-pro', 'models.dev'],
-    ['copilot/auto', 'dynamic_selector_fallback'],
-    ['unlisted-model', 'configured_default'],
-    ['unknown', 'configured_default'],
-  ])('%s falls through to %s when no higher tariff exists', (qualified, source) => {
+    ['openrouter', 'openai/gpt-5.5-pro', 'models.dev'],
+    ['openai', 'gpt-5.5-pro', 'configured_default'],
+    ['copilot', 'auto', 'dynamic_selector_fallback'],
+    ['copilot', 'unlisted-model', 'configured_default'],
+    ['copilot', 'unknown', 'configured_default'],
+  ])('%s/%s falls through to %s when no higher tariff exists', (provider, modelId, source) => {
     process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify({ input: 7, output: 8 });
-    const [provider, modelId] = qualified.includes('/')
-      ? qualified.split('/')
-      : ['copilot', qualified];
     expect(applyAiCreditsUsage(usage, modelId, provider)).toMatchObject({ pricingSource: source });
   });
 

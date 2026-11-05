@@ -458,6 +458,7 @@ exec '${realGit}' "$@"
       'src/model-information.eligibility.generated.json',
       'docs/model-api-mapping.json', 'containers/api-proxy/models.dev.catalog.json',
       'containers/api-proxy/model-information.pricing.generated.json',
+      'containers/api-proxy/model-information.fallback-pricing.generated.json',
       'containers/api-proxy/model-information.retired.generated.json',
       'containers/api-proxy/model-information.naming.generated.json',
       'containers/api-proxy/model-information.eligibility.generated.json',

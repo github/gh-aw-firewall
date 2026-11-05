@@ -1111,7 +1111,7 @@ describe the **legacy baseline**, not a new universal normalization policy.
 | Unversioned operator overlay | Exact dated cost wins before base prefix; a base can match specialized suffixes; queries do not match in Phase 1 fixtures. | Keep the open legacy reader; new strict overlays use deterministic exact/alias/family specificity with declared exclusions for specialized variants. |
 | Configured shared catalogue | `AWF_MODEL_PRICING_CATALOG` v1 strips prefix/date, normalizes separators/case, uses configured provider aliases, selects long tier only when input tokens **exceed** threshold. Carries `shared_catalog`, ID and version; outranks complete runtime pricing. | Map to `configured_catalog` pricing authority, **not** fetched-feed authority. Preserve existing acceptance, provider aliases, component rates, threshold boundary and accounting. Never apply new strict-format rejection retroactively. |
 | Fetched central feed | No corresponding Phase 1 loader exists. | Explicit source/revision, freshness, integrity and offline policy; price and harness only, below complete fresh runtime pricing and the existing configured catalogue. A failed custom source never triggers an unconfigured default. |
-| Curated and `models.dev` | Curated precedes bundled import. The legacy `models.dev` resolver strips any provider prefix and indexes the bare normalized slug; the credit guard calls it without a provider, so the same slug at another provider can resolve. | Preserve reviewed facts ahead of governed imports. Provider-qualified imported pricing is a future behavior change and requires parity review; do not imply that legacy lookup preserves provider identity. |
+| Curated and `models.dev` | Historical adapters strip prefixes and index bare normalized slugs; they remain for unrelated consumers. Active accounting now reads generated maintained pricing and governed provider-scoped imports. | Preserve maintained facts ahead of imports. OpenRouter imports require the OpenRouter backend and exact publisher namespace; native compatibility is explicit policy, not manufacturer-based billing inference. See the active fallback migration below. |
 | Specialized family variants | `gpt-5.5-pro` has mapping but no routing metadata; `gpt-5.6-cyber` is not a host-supported model. | Explicit exact exceptions or exclusions; family rules cannot manufacture capabilities, availability or verified pricing. |
 | `/reflect` and `models.json` | Phase 1 fixtures freeze current fields and meanings. | Extend **the existing `/reflect`** additively with an optional versioned model-information section. Do not negotiate endpoints or change the legacy snapshot shape in place. |
 
@@ -1223,12 +1223,12 @@ The broader pricing/eligibility migration remains separately gated.
 
 | Source of facts | Consumer and compiled projection | Activation |
 | --- | --- | --- |
-| `shared/model-information/sources/copilot-{main,claude,gemini,other}.json` (Copilot-qualified exact records grouped by ID family, **not** asserted billing provider; lifecycle, CLI support and curated tiers) | `src/model-information.compat.generated.json`, `containers/api-proxy/model-information.{pricing,retired}.generated.json` | Host lifecycle and proxy retirement projections active under the partial Gate 4 migration below; pricing remains staged until Gate 5. |
+| `shared/model-information/sources/copilot-{main,claude,gemini,other}.json` (Copilot-qualified exact records grouped by ID family, **not** asserted native billing provider; lifecycle, CLI support and curated tiers) | `src/model-information.compat.generated.json`, `containers/api-proxy/model-information.{pricing,retired}.generated.json` | Host lifecycle, proxy retirement and maintained Copilot pricing projections are active. Staged target corrections remain separate. |
 | `shared/model-information/sources/pricing-reference.json` (reviewed reference coverage, provider documentation and dates; rates derive from canonical tiers, with explicitly recorded reasoning-equals-output baseline) | `containers/api-proxy/ai-credits-pricing-reference.json` | Active test oracle only, not a runtime configured catalogue or feed. |
 | `shared/model-information/sources/mapping.json` (pinned endpoint family/ordering, patterns, routing, provenance) | `docs/model-api-mapping.json`, `containers/api-proxy/model-api-mapping.json` | Active byte-identical compatibility format, no routing behavior change. |
 | `shared/model-information/sources/target.json` (#10029/#10030 evidence and exact corrections) | `shared/model-information/target.generated.json`, `baseline-to-target.generated.json` | Staged only; named changes require explicit Gates 4–6 activation/review. |
 | Complete assembled maintained sources | `shared/model-information/catalog.generated.json`, `manifest.generated.json` | Static validated exports; not a central feed or live resolver input. |
-| `containers/api-proxy/models.dev.catalog.json` and `shared/model-information/imported/legacy-models-dev.metadata.json` (pinned raw bytes and provenance, not a billing-provider mapping) | Governed imported snapshot | Staged only; legacy bare-slug runtime lookup remains unchanged until Gate 5. |
+| `containers/api-proxy/models.dev.catalog.json` and `shared/model-information/imported/legacy-models-dev.metadata.json` (pinned raw bytes and provenance, not a native billing-provider mapping) | Governed imported snapshot and `containers/api-proxy/model-information.fallback-pricing.generated.json` | Active only for OpenRouter's full qualified IDs. Native-provider compatibility associations in `sources/pricing-reference.json` are explicit legacy accounting policy, not verified current billing evidence. |
 
 The host support/suggestion tests in `src/copilot-model.test.ts` and
 `src/copilot-model-catalog-sync.test.ts` characterize the existing host
@@ -1607,7 +1607,7 @@ legacy provider-component fallback remain unchanged. This is not full Gate 5:
 exact arithmetic, general provider-qualified governed imports, execution-version
 eligibility, full resolver migration and compiler handoff remain outstanding.
 
-**Authoritative shared pricing cutover (#11111):** the user-directed rollout
+**Authoritative shared pricing cutover (#11111, delivered in #11113):** the user-directed rollout
 replaces the initial shadow-only proposal in the same PR.
 `shared/model-information/pricing-resolution.js::resolvePricing`, generated with
 declarations into host/proxy contract assets, now drives real AI-credit
@@ -1665,12 +1665,36 @@ Docker application context and an extracted npm package, prohibits network
 access, uses fixture feed refreshes, and requires zero network calls. It does
 not invoke a provider, dispatch a workflow or run a live container/VM.
 Legacy cross-provider import slug collisions remain explicit fixtures, not a
-provider-qualified import correction.
+provider-qualified import correction in that earlier cutover.
+
+**Active canonical fallback sources (follow-up to #11113):** accounting now reads
+the generated maintained pricing projection and governed imported pricing through
+the existing `catalogue-pricing.js` adapter, not the legacy curated/import
+lookups. The compiler distributes a scoped import/compatibility projection
+alongside the existing maintained projection. All 42 Copilot rates, both strict
+context boundaries, and source priority remain unchanged. Sixteen native
+OpenAI/Anthropic associations are explicitly labeled legacy compatibility policy,
+retaining source provenance without asserting current billing verification.
+OpenRouter imports require pricing-provider identity `openrouter` and full
+publisher-qualified wire IDs; they cannot price Copilot, native APIs or arbitrary
+compatible backends. Exact IDs win before source-local normalization; ambiguous
+matches fail with the existing sanitized resolver error.
+
+The packaged provider-free smoke now verifies the new sources and generated
+same-slug import fixtures through real HTTP/WebSocket usage and budget paths,
+including shipped charge deltas and refresh pinning, with zero network calls.
+The [source and charge migration](../model-catalogue-publication.md#active-canonical-fallback-pricing)
+documents the three changed default imported rate vectors, two removed
+cross-backend tier inheritances, 39 no-longer-resolved unreviewed slug aliases,
+and narrowed native/custom coverage. Unpriced requests still warn/proceed and
+their charges remain excluded, never fabricated as free or made an execution
+admission requirement. No staged target tariffs are activated, and there is no
+new shadow/parity waiting gate.
 
 This is not completion of #10295 or #10290. Concrete remaining gates include
 exact-decimal accounting; fully compatible assembled tariffs across units/
 currency/token ranges/effective dates; general promotion/successor and non-token
-charges; governed provider-qualified import activation; broader consumer
+charges; broader consumer
 migration and release/live-environment evidence. These are not prerequisites
 for this cutover. Harness constraints remain empty/disabled; pricing does not
 establish executability or change runtime invocation/compiler overlays.
