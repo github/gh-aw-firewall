@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { spawnSync } from 'child_process';
+import { generateKeyPairSync, sign } from 'node:crypto';
 import Ajv2020 from 'ajv/dist/2020';
 import { normalizeEnclavesConfig } from '../../src/parsers/enclave-parser';
 import { validateRunSandboxBackend } from '../../src/enclave/run-backend';
@@ -17,6 +18,31 @@ const root = path.resolve(__dirname, '../..');
 const source = 'a'.repeat(40);
 const agents = ['copilot', 'codex', 'claude'];
 const runtimes = ['docker', 'cloud-hypervisor'];
+const oidcKeys = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const oidcJwk = {
+  ...oidcKeys.publicKey.export({ format: 'jwk' }),
+  kid: 'fixture-key', use: 'sig', alg: 'RS256',
+};
+let oidcClaimsOverride: Record<string, unknown> = {};
+let oidcTokenOverride: string | undefined;
+function signedOidcToken(eventName: string) {
+  const header = Buffer.from(JSON.stringify({ alg: 'RS256', kid: 'fixture-key', typ: 'JWT' }))
+    .toString('base64url');
+  const payload = Buffer.from(JSON.stringify({
+    iss: 'https://token.actions.githubusercontent.com',
+    aud: 'github/gh-aw-firewall',
+    exp: Math.floor(Date.now() / 1000) + 60,
+    nbf: Math.floor(Date.now() / 1000) - 1,
+    repository: 'github/gh-aw-firewall', repository_owner: 'github',
+    ref: 'refs/heads/main', event_name: eventName,
+    job_workflow_ref: 'github/gh-aw-firewall/.github/workflows/daily-agent-runtime-regression.yml@refs/heads/main',
+    sha: source,
+    ...oidcClaimsOverride,
+  })).toString('base64url');
+  const input = `${header}.${payload}`;
+  const signature = sign('RSA-SHA256', Buffer.from(input), oidcKeys.privateKey).toString('base64url');
+  return `${input}.${signature}`;
+}
 const ajv = new Ajv2020({ allErrors: true });
 ajv.addKeyword({ keyword: 'version' });
 const validate = ajv.compile(JSON.parse(fs.readFileSync(path.join(root, 'docs/awf-config.schema.json'), 'utf8')));
@@ -36,8 +62,10 @@ it('fans out six real enclave agents from exactly the broader matrix shared buil
   const other = workflow.jobs['enclave-regression-non-copilot'];
   expect(other.strategy).toEqual({ 'fail-fast': false, matrix: { agent: ['codex', 'claude'], runtime: runtimes } });
   expect(other.steps).toEqual(job.steps);
-  expect(other.permissions).toEqual({ contents: 'read' });
-  expect(job.permissions).toEqual({ contents: 'read', 'copilot-requests': 'write' });
+  expect(other.permissions).toEqual({ contents: 'read', 'id-token': 'write' });
+  expect(job.permissions).toEqual({
+    contents: 'read', 'copilot-requests': 'write', 'id-token': 'write',
+  });
   expect(job.needs).toEqual(['build', 'build-cloud-hypervisor']);
   expect(job.if).toBe("${{ !cancelled() && needs.build.result == 'success' }}");
   expect(find('Checkout main').with?.ref).toBe('main');
@@ -52,6 +80,7 @@ it('fans out six real enclave agents from exactly the broader matrix shared buil
   expect(find('Load the shared CLI and images').run).toContain('docker tag "awf-regression/$image:$SOURCE_SHA"');
   const run = find('Run real coding agent inside enclave');
   expect(run.run).toContain('run-enclave-agent-regression.js');
+  expect(run.run).toContain('ACTIONS_ID_TOKEN_REQUEST_URL,ACTIONS_ID_TOKEN_REQUEST_TOKEN');
   expect(run.env?.SOURCE_SHA).toBe('${{ needs.build.outputs.source_sha }}');
   expect(run.env?.OPENAI_API_KEY).toContain("matrix.agent == 'codex'");
   expect(run.env?.ANTHROPIC_API_KEY).toContain("matrix.agent == 'claude'");
@@ -61,7 +90,7 @@ it('fans out six real enclave agents from exactly the broader matrix shared buil
 it('waits for a real unprivileged primary HTTP listener before signaling readiness', () => {
   const source = fs.readFileSync(path.join(root, 'scripts/ci/run-enclave-agent-regression.js'), 'utf8');
   expect(source).toContain('http.server.HTTPServer(("0.0.0.0", 18080)');
-  const python = probe('copilot', 'docker', 'b'.repeat(48)).prompt;
+  const python = probe('copilot', 'docker', 'b'.repeat(48), '172.30.0.20').prompt;
   expect(python).toContain('"primaryPeerBlocked": not reachable("172.30.0.20", 18080)');
 });
 
@@ -120,7 +149,8 @@ describe.each(agents)('%s enclave regression', agent => {
       expect(config.cloudHypervisor.artifactReleaseTag).toBe(`v0.0.0-regression.${source}`);
       expect(config.cloudHypervisor.artifactManifestBundlePath).toMatch(/manifest.sigstore.jsonl$/);
     }
-    const task = probe(agent, runtime, 'b'.repeat(48));
+    const primaryAddress = runtime === 'cloud-hypervisor' ? '100.64.0.2' : '172.30.0.20';
+    const task = probe(agent, runtime, 'b'.repeat(48), primaryAddress);
     const python = task.prompt.match(/python3 - <<'PY'\n([\s\S]*)\nPY\n/)[1];
     expect(task.schema.fields.proof).toEqual({ type: 'const', value: 'b'.repeat(48) });
     expect(task.expected.credentialsIsolated).toBe(true);
@@ -145,7 +175,7 @@ def run(environment, readonly=True, uid=65534, process_status=status, peer=False
         assert file == "/awf/seed/README.md"
         raise OSError(errno.EROFS, "read-only fixture")
     def connect(address, timeout):
-        if address == ("172.31.0.30", task["port"]) or (peer and address == ("172.30.0.20", 18080)):
+        if address == ("172.31.0.30", task["port"]) or (peer and address == (task["primaryAddress"], 18080)):
             return io.BytesIO()
         raise OSError("blocked fixture")
     with patch.dict(os.environ, environment, clear=True), patch("builtins.open", opened), \\
@@ -166,7 +196,7 @@ assert run({}, uid=0) == dict(task["expected"], nonRoot=False)
 assert run({}, process_status="CapEff:\\t0000000000000001\\nNoNewPrivs:\\t0\\n") == dict(task["expected"], noCapabilities=False, noNewPrivileges=False)
 assert run({}, peer=True) == dict(task["expected"], primaryPeerBlocked=False)
 `], {
-      input: JSON.stringify({ python, expected: task.expected,
+      input: JSON.stringify({ python, expected: task.expected, primaryAddress,
         port: { copilot: 10002, codex: 10000, claude: 10001 }[agent] }),
       encoding: 'utf8', timeout: 15_000,
     });
@@ -184,7 +214,7 @@ assert run({}, peer=True) == dict(task["expected"], primaryPeerBlocked=False)
     expect(source).toMatch(/test "\$listening" = 1; printf/);
     expect(source).toContain('http.server.HTTPServer(("0.0.0.0", 18080)');
     expect(source).toContain('fs.mkdirSync(path.dirname(stop)');
-    expect(probe('copilot', 'docker', 'b'.repeat(48)).prompt)
+    expect(probe('copilot', 'docker', 'b'.repeat(48), '172.30.0.20').prompt)
       .toContain('"primaryPeerBlocked": not reachable("172.30.0.20", 18080)');
   });
 });
@@ -193,19 +223,37 @@ describe('source-pinned Cloud Hypervisor regression admission', () => {
   const originalEnvironment = process.env;
   const signer = 'github/gh-aw-firewall/.github/workflows/daily-agent-runtime-regression.yml';
   beforeEach(() => {
+    oidcClaimsOverride = {};
+    oidcTokenOverride = undefined;
     process.env = {
       ...originalEnvironment, GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: 'github/gh-aw-firewall',
       GITHUB_EVENT_NAME: 'schedule', GITHUB_REF: 'refs/heads/main',
       GITHUB_SHA: source, GITHUB_WORKFLOW_SHA: source, GITHUB_WORKFLOW_REF: `${signer}@refs/heads/main`,
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'https://pipelines.actions.githubusercontent.com/fixture/_apis/oidc/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'fixture-request-token',
     };
   });
   afterEach(() => {
     process.env = originalEnvironment;
     jest.dontMock('../../src/cloud-hypervisor/artifact-compatibility.json');
+    jest.dontMock('node:child_process');
   });
   function check(agent: string, change: (config: WrapperConfig) => void = () => {}) {
     let accepted = false;
     jest.isolateModules(() => {
+      jest.doMock('node:child_process', () => ({
+        ...jest.requireActual('node:child_process'),
+        execFileSync: (_command: string, args: string[], options?: { input?: string }) => {
+          if (args.includes('https://token.actions.githubusercontent.com/.well-known/jwks')) {
+            return JSON.stringify({ keys: [oidcJwk] });
+          }
+          if (options?.input?.includes('Authorization: bearer fixture-request-token')) {
+            return JSON.stringify({ value: oidcTokenOverride
+              ?? signedOidcToken(process.env.GITHUB_EVENT_NAME ?? '') });
+          }
+          throw new Error('Unexpected OIDC request');
+        },
+      }));
       jest.doMock('../../src/cloud-hypervisor/artifact-compatibility.json', () => ({
         releaseTag: `v0.0.0-regression.${source}`, signerWorkflow: signer,
       }));
@@ -240,6 +288,18 @@ describe('source-pinned Cloud Hypervisor regression admission', () => {
     Object.assign(process.env, env);
     expect(check('copilot')).toBe(false);
   });
+  it('rejects a tampered GitHub-issued identity token', () => {
+    const token = signedOidcToken('schedule');
+    const [header, payload, encodedSignature] = token.split('.');
+    const signature = Buffer.from(encodedSignature, 'base64url');
+    signature[0] ^= 1;
+    oidcTokenOverride = `${header}.${payload}.${signature.toString('base64url')}`;
+    expect(check('copilot')).toBe(false);
+  });
+  it('requires the full repository claim in the signed identity token', () => {
+    oidcClaimsOverride = { repository: 'gh-aw-firewall' };
+    expect(check('copilot')).toBe(false);
+  });
   it.each([
     (config: WrapperConfig) => { config.enclaves!.privateRepos[0].sensitivity = 'internal'; },
     (config: WrapperConfig) => { config.enclaves!.executors.agent.runtime = 'docker'; },
@@ -266,6 +326,10 @@ describe.each(agents)('%s launch orchestration', agent => {
   });
   async function launch(runtime: string, failure?: Error) {
     const child = { exitCode: failure ? 1 : null as number | null, signalCode: null };
+    const primaryVm = {
+      namespaces: ['awfvm-0123456789ab'], processes: [{ pid: '123', startTime: '456' }],
+      cgroups: [{ name: 'primary', device: 1, inode: 789 }],
+    };
     const retained = jest.fn();
     let config: ReturnType<typeof configuration>;
     const fixture = {
@@ -276,7 +340,11 @@ describe.each(agents)('%s launch orchestration', agent => {
         return child;
       }),
       waitForBroker: jest.fn(async () => { if (failure) throw failure; }),
-      waitForHostGatewayReadiness: jest.fn(), waitForPrimaryVmReadiness: jest.fn(),
+      waitForHostGatewayReadiness: jest.fn(),
+      waitForPrimaryVmReadiness: jest.fn(async (_awf, _deadline, _diagnostics, readiness) => {
+        readiness.onReady('100.64.0.2');
+        return primaryVm;
+      }),
       waitForDockerPrimaryReadiness: jest.fn(),
       requestMcp: jest.fn(async (_endpoint, _key, id, _method, params) => id !== 3 ? {} : {
         jsonrpc: '2.0', id, result: {
@@ -325,11 +393,18 @@ describe.each(agents)('%s launch orchestration', agent => {
     expect(fixture.waitForHostGatewayReadiness).toHaveBeenCalledTimes(1);
     expect(fixture.waitForPrimaryVmReadiness).toHaveBeenCalledTimes(runtime === 'cloud-hypervisor' ? 1 : 0);
     expect(fixture.waitForDockerPrimaryReadiness).toHaveBeenCalledTimes(1);
+    expect(fixture.waitForDockerPrimaryReadiness.mock.calls[0][4])
+      .toEqual(runtime === 'cloud-hypervisor' ? {
+        namespaces: ['awfvm-0123456789ab'], processes: [{ pid: '123', startTime: '456' }],
+        cgroups: [{ name: 'primary', device: 1, inode: 789 }],
+      } : undefined);
     const args = fixture.spawnAwf.mock.calls[0][0];
     expect(args[args.length - 1]).toMatch(/^set -e;/);
     expect(args[args.length - 1]).toContain(runtime === 'cloud-hypervisor'
       ? '/workspace/.awf-enclave-regression-stop' : path.join(directory, '.awf-enclave-regression-stop'));
     expect(fixture.requestMcp.mock.calls.map((call: unknown[]) => call[3])).toEqual(['initialize', 'tools/list', 'tools/call']);
+    expect(fixture.requestMcp.mock.calls[2][4].arguments.prompt)
+      .toContain(runtime === 'cloud-hypervisor' ? '100.64.0.2' : '172.30.0.20');
     expect(fixture.stopAwf).toHaveBeenCalledTimes(1);
     expect(fixture.removeGatewayFixture).toHaveBeenCalledTimes(1);
     expect(retained).not.toHaveBeenCalled();

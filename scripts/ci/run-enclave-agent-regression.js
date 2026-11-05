@@ -4,8 +4,10 @@ const { randomBytes } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { isIPv4 } = require('node:net');
 const live = require('./cloud-hypervisor-enclave-live-smoke');
 const collector = require('./collect-enclave-smoke-debug.cjs');
+const PRIMARY_DOCKER_ADDRESS = '172.30.0.20';
 
 const ENGINES = Object.freeze({
   copilot: { model: 'claude-sonnet-5', profile: 'anthropic', port: 10002, credential: 'COPILOT_GITHUB_TOKEN' },
@@ -51,9 +53,12 @@ function configuration(agent, runtime, source, workDir, artifacts) {
   return config;
 }
 
-function probe(agent, runtime, marker) {
+function probe(agent, runtime, marker, primaryGuestAddress) {
   if (!ENGINES[agent] || !['docker', 'cloud-hypervisor'].includes(runtime)
-    || !/^[a-f0-9]{48}$/.test(marker)) throw new Error('Invalid enclave regression probe');
+    || !/^[a-f0-9]{48}$/.test(marker)
+    || !isIPv4(primaryGuestAddress || '')) {
+    throw new Error('Invalid enclave regression probe');
+  }
   const port = ENGINES[agent].port;
   const expected = {
     proof: marker, seedReadable: true, seedReadOnly: true, nonRoot: true,
@@ -89,7 +94,7 @@ function probe(agent, runtime, marker) {
     '    "noNewPrivileges": re.search(r"^NoNewPrivs:\\s+1$", status, re.M) is not None,',
     '    "credentialsIsolated": all(isolated(os.environ.get(name)) for name in names),',
     `    "apiProxyReachable": reachable("172.31.0.30", ${port}),`,
-    '    "primaryPeerBlocked": not reachable("172.30.0.20", 18080),',
+    `    "primaryPeerBlocked": not reachable(${JSON.stringify(primaryGuestAddress)}, 18080),`,
     '    "publicEgressBlocked": not reachable("1.1.1.1", 443),',
     ...(runtime === 'cloud-hypervisor'
       ? [`    "wrongProviderPortBlocked": not reachable("172.31.0.30", ${port === 10000 ? 10001 : 10000}),`]
@@ -144,6 +149,8 @@ async function main(environment = process.env) {
   let awf;
   let failure;
   let resultValidated = false;
+  let primaryVmResidue;
+  let primaryGuestAddress = runtime === 'cloud-hypervisor' ? undefined : PRIMARY_DOCKER_ADDRESS;
   const errors = [];
   try {
     const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: workspace, encoding: 'utf8' }).trim();
@@ -191,9 +198,15 @@ async function main(environment = process.env) {
     await live.waitForHostGatewayReadiness(awf, Date.now() + 150_000, diagnostic);
     stage = 'primary-readiness';
     if (runtime === 'cloud-hypervisor') {
-      await live.waitForPrimaryVmReadiness(awf, Date.now() + 5 * 60_000, diagnostic);
+      primaryVmResidue = await live.waitForPrimaryVmReadiness(
+        awf, Date.now() + 5 * 60_000, diagnostic, {
+          onReady: address => { primaryGuestAddress = address; },
+        },
+      );
     }
-    await live.waitForDockerPrimaryReadiness(awf, Date.now() + 5 * 60_000, stdout, ready);
+    await live.waitForDockerPrimaryReadiness(
+      awf, Date.now() + 5 * 60_000, stdout, ready, primaryVmResidue,
+    );
     stage = 'invocation';
     const initialized = await live.requestMcp(handoff.endpoint, gatewayKey, 1, 'initialize', {
       protocolVersion: '2025-11-25', capabilities: {},
@@ -202,7 +215,7 @@ async function main(environment = process.env) {
     live.assertProfileInitialize(initialized, 1);
     const tools = await live.requestMcp(handoff.endpoint, gatewayKey, 2, 'tools/list', {});
     live.assertProfileTools(tools, 'agent-only', 2);
-    const task = probe(agent, runtime, randomBytes(24).toString('hex'));
+    const task = probe(agent, runtime, randomBytes(24).toString('hex'), primaryGuestAddress);
     const response = await live.requestMcp(handoff.endpoint, gatewayKey, 3, 'tools/call', {
       name: 'enclave_run_agent',
       arguments: { privateRepo: REPOSITORY, schema: task.schema, prompt: task.prompt },

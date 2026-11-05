@@ -480,6 +480,7 @@ jobs:
     permissions:
       contents: read
       copilot-requests: write
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -563,7 +564,7 @@ jobs:
           OPENAI_API_KEY: ${{ matrix.agent == 'codex' && (secrets.CODEX_API_KEY || secrets.OPENAI_API_KEY) || '' }}
           ANTHROPIC_API_KEY: ${{ matrix.agent == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
         run: |
-          sudo --preserve-env=AGENT,RUNTIME,SOURCE_SHA,GH_TOKEN,COPILOT_GITHUB_TOKEN,OPENAI_API_KEY,ANTHROPIC_API_KEY,GITHUB_ACTIONS,GITHUB_REPOSITORY,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_EVENT_NAME,GITHUB_REF,GITHUB_SHA,GITHUB_WORKFLOW_REF,GITHUB_WORKFLOW_SHA,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TEMP,RUNNER_TOOL_CACHE,AGENT_TOOLSDIRECTORY \
+          sudo --preserve-env=AGENT,RUNTIME,SOURCE_SHA,GH_TOKEN,COPILOT_GITHUB_TOKEN,OPENAI_API_KEY,ANTHROPIC_API_KEY,ACTIONS_ID_TOKEN_REQUEST_URL,ACTIONS_ID_TOKEN_REQUEST_TOKEN,GITHUB_ACTIONS,GITHUB_REPOSITORY,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_EVENT_NAME,GITHUB_REF,GITHUB_SHA,GITHUB_WORKFLOW_REF,GITHUB_WORKFLOW_SHA,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TEMP,RUNNER_TOOL_CACHE,AGENT_TOOLSDIRECTORY \
             "$(command -v node)" scripts/ci/run-enclave-agent-regression.js
       - name: Collect protected public enclave diagnostics
         if: always()
@@ -588,6 +589,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:

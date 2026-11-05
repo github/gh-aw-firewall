@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import { createPublicKey, verify as verifySignature } from 'node:crypto';
 import { isDeepStrictEqual } from 'util';
 import { releaseTag } from '../cloud-hypervisor/artifact-compatibility.json';
 import {
@@ -13,16 +15,17 @@ const WORKFLOW =
 const PUBLIC_REPOS = [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }];
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const REGRESSION_WORKFLOW_REF = `${CLOUD_HYPERVISOR_REGRESSION_SIGNER_WORKFLOW}@refs/heads/main`;
+const OIDC_AUDIENCE = 'github/gh-aw-firewall';
+const OIDC_ISSUER = 'https://token.actions.githubusercontent.com';
+const OIDC_JWKS_URL = `${OIDC_ISSUER}/.well-known/jwks`;
+const OIDC_REQUEST_HOST = 'pipelines.actions.githubusercontent.com';
+let regressionIdentityChecked = false;
+let regressionIdentityVerified = false;
 
-function parseGitHubOidcClaims(): Record<string, unknown> | undefined {
-  const token = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-  if (!token) return undefined;
-  const parts = token.split('.');
-  if (parts.length < 2) return undefined;
+function decodeJwtSegment(segment: string): Record<string, unknown> | undefined {
+  if (!/^[A-Za-z0-9_-]+$/.test(segment)) return undefined;
   try {
-    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const pad = '='.repeat((4 - (b64.length % 4)) % 4);
-    const payload = Buffer.from(b64 + pad, 'base64').toString('utf8');
+    const payload = Buffer.from(segment, 'base64url').toString('utf8');
     const parsed: unknown = JSON.parse(payload);
     return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : undefined;
   } catch {
@@ -30,19 +33,90 @@ function parseGitHubOidcClaims(): Record<string, unknown> | undefined {
   }
 }
 
-function hasExpectedRegressionWorkflowIdentity(): boolean {
-  const claims = parseGitHubOidcClaims();
-  if (!claims) return false;
+function fetchGitHubOidcToken(): string | undefined {
+  const requestUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const requestToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  if (!requestUrl || typeof requestToken !== 'string'
+      || !/^[A-Za-z0-9._~-]{1,4096}$/.test(requestToken)) return undefined;
+  try {
+    const url = new URL(requestUrl);
+    if (url.protocol !== 'https:' || url.hostname !== OIDC_REQUEST_HOST
+        || url.username || url.password || url.port || url.hash) return undefined;
+    url.searchParams.set('audience', OIDC_AUDIENCE);
+    const response = execFileSync('curl', [
+      '--config', '-', '--proto', '=https', '--tlsv1.2',
+      '--silent', '--show-error', '--fail', '--max-time', '10',
+    ], {
+      input: `url = "${url.toString()}"\nheader = "Authorization: bearer ${requestToken}"\n`,
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024,
+      timeout: 12_000,
+    });
+    const parsed: unknown = JSON.parse(response);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+    const value = (parsed as Record<string, unknown>).value;
+    return typeof value === 'string' ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function verifyGitHubOidcToken(token: string): Record<string, unknown> | undefined {
+  const parts = token.split('.');
+  if (parts.length !== 3) return undefined;
+  const header = decodeJwtSegment(parts[0]);
+  const claims = decodeJwtSegment(parts[1]);
+  if (!header || !claims || header.alg !== 'RS256' || typeof header.kid !== 'string'
+      || !/^[A-Za-z0-9_-]+$/.test(parts[2])) return undefined;
+  try {
+    const response = execFileSync('curl', [
+      '--proto', '=https', '--tlsv1.2', '--silent', '--show-error', '--fail', '--max-time', '10',
+      OIDC_JWKS_URL,
+    ], { encoding: 'utf8', maxBuffer: 64 * 1024, timeout: 12_000 });
+    const jwks: unknown = JSON.parse(response);
+    if (!jwks || typeof jwks !== 'object' || Array.isArray(jwks)) return undefined;
+    const keys = (jwks as Record<string, unknown>).keys;
+    if (!Array.isArray(keys)) return undefined;
+    const key = keys.find((entry: unknown): entry is Record<string, unknown> => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+      const candidate = entry as Record<string, unknown>;
+      return candidate.kid === header.kid && candidate.kty === 'RSA'
+        && (candidate.use === undefined || candidate.use === 'sig')
+        && (candidate.alg === undefined || candidate.alg === 'RS256');
+    });
+    if (!key || !verifySignature('RSA-SHA256', Buffer.from(`${parts[0]}.${parts[1]}`),
+      createPublicKey({
+        key: key as unknown as import('node:crypto').webcrypto.JsonWebKey, format: 'jwk',
+      }), Buffer.from(parts[2], 'base64url'))) return undefined;
+  } catch {
+    return undefined;
+  }
   const repository = claims.repository;
   const ref = claims.ref;
   const eventName = claims.event_name;
   const workflowRef = claims.job_workflow_ref;
   const sha = claims.sha;
-  return repository === 'gh-aw-firewall'
+  const audience = claims.aud;
+  const now = Math.floor(Date.now() / 1000);
+  return claims.iss === OIDC_ISSUER
+    && (audience === OIDC_AUDIENCE
+      || (Array.isArray(audience) && audience.includes(OIDC_AUDIENCE)))
+    && typeof claims.exp === 'number' && claims.exp > now
+    && (typeof claims.nbf !== 'number' || claims.nbf <= now + 60)
+    && repository === 'github/gh-aw-firewall'
+    && claims.repository_owner === 'github'
     && ref === 'refs/heads/main'
     && (eventName === 'schedule' || eventName === 'workflow_dispatch')
     && workflowRef === REGRESSION_WORKFLOW_REF
-    && sha === CLOUD_HYPERVISOR_REGRESSION_COMMIT;
+    && sha === CLOUD_HYPERVISOR_REGRESSION_COMMIT ? claims : undefined;
+}
+
+function hasExpectedRegressionWorkflowIdentity(): boolean {
+  if (regressionIdentityChecked) return regressionIdentityVerified;
+  regressionIdentityChecked = true;
+  const token = fetchGitHubOidcToken();
+  regressionIdentityVerified = token !== undefined && verifyGitHubOidcToken(token) !== undefined;
+  return regressionIdentityVerified;
 }
 
 /** Only the source-pinned daily build may exercise these public agent profiles. */
@@ -61,7 +135,7 @@ export function isCloudHypervisorDailyRegressionWorkflow(config: WrapperConfig):
     || !hasExpectedRegressionWorkflowIdentity()
     || config.containerRuntime !== 'cloud-hypervisor'
     || config.imageTag !== commit
-    || config.enableApiProxy !== true
+    || config.enableApiProxy === false
     || runtime?.artifactReleaseTag !== `v0.0.0-regression.${commit}`
     || runtime.developmentAllowUnattestedArtifacts
     || runtime.sha256 !== undefined

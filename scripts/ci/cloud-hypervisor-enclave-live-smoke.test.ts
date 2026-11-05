@@ -29,7 +29,7 @@ type VmResidue = {
 };
 type PrimaryProgress = {
   schemaVersion: number; ownerPid: number; stage: string; state: string;
-  bootAttempt: number; runId: string | null;
+  bootAttempt: number; runId: string | null; guestIp?: string;
 };
 const harness = require(harnessPath) as {
   readPrimaryVmProgress(file: string, child: StartupChild & { pid: number }): PrimaryProgress | undefined;
@@ -44,6 +44,7 @@ const harness = require(harnessPath) as {
       verify?: () => Promise<string>;
       now?: () => number;
       sleep?: (ms: number) => Promise<void>;
+      onReady?: (address: string) => void;
     },
   ): Promise<VmResidue>;
   startupDiagnostic(child: StartupChild | undefined, reason: string, stage: string, file: string, startupErrorFile?: string): {
@@ -2663,6 +2664,7 @@ describe('sanitized live acceptance failure reporting', () => {
       verify: jest.Mock<Promise<string>, []>;
       now: () => number;
       sleep: jest.Mock<Promise<void>, [number]>;
+      onReady?: jest.Mock<void, [string]>;
     };
     let output: jest.SpyInstance;
     const wait = () => harness.waitForPrimaryVmReadiness(child, 1000, {
@@ -2700,15 +2702,18 @@ describe('sanitized live acceptance failure reporting', () => {
     });
 
     it('does not capture or execute until delayed guest readiness, even after the gateway is ready', async () => {
+      const onReady = jest.fn();
+      dependencies.onReady = onReady;
       dependencies.sleep.mockImplementation(async (ms) => {
         clock += ms;
         expect(dependencies.capture).not.toHaveBeenCalled();
         expect(dependencies.verify).not.toHaveBeenCalled();
-        progress = { ...progress!, stage: 'ready', state: 'ready' };
+        progress = { ...progress!, stage: 'ready', state: 'ready', guestIp: '100.64.0.2' };
       });
       await expect(wait()).resolves.toEqual(primary);
       expect(clock).toBe(250);
       expect(dependencies.verify).toHaveBeenCalledTimes(1);
+      expect(onReady).toHaveBeenCalledWith('100.64.0.2');
       expect(output).not.toHaveBeenCalled();
     });
 
@@ -2726,7 +2731,7 @@ describe('sanitized live acceptance failure reporting', () => {
     });
 
     it('waits for incomplete resource and journal publication without accepting either', async () => {
-      progress = { ...progress!, stage: 'ready', state: 'ready' };
+      progress = { ...progress!, stage: 'ready', state: 'ready', guestIp: '100.64.0.2' };
       dependencies.capture.mockReturnValueOnce(empty);
       dependencies.verify.mockResolvedValueOnce('pending');
       await expect(wait()).resolves.toEqual(primary);
@@ -2736,7 +2741,7 @@ describe('sanitized live acceptance failure reporting', () => {
     });
 
     it('does not reuse a ready publication while its replacement is incomplete', async () => {
-      progress = { ...progress!, stage: 'ready', state: 'ready' };
+      progress = { ...progress!, stage: 'ready', state: 'ready', guestIp: '100.64.0.2' };
       dependencies.capture.mockReturnValue(empty);
       dependencies.readProgress.mockReturnValueOnce(progress).mockReturnValue(undefined);
       await expect(wait()).rejects.toThrow(/timeout/);
@@ -2771,7 +2776,7 @@ describe('sanitized live acceptance failure reporting', () => {
     });
 
     it('rejects a child termination racing successful resource verification', async () => {
-      progress = { ...progress!, stage: 'ready', state: 'ready' };
+      progress = { ...progress!, stage: 'ready', state: 'ready', guestIp: '100.64.0.2' };
       dependencies.verify.mockImplementation(async () => {
         child.signalCode = 'SIGKILL';
         return 'verified';
@@ -2797,7 +2802,7 @@ describe('sanitized live acceptance failure reporting', () => {
       ['mismatch', 'exit', 'exitCode'],
       ['rejection', 'signal', 'signalCode'],
     ])('prioritizes child termination over identity %s', async (verification, reason, status) => {
-      progress = { ...progress!, stage: 'ready', state: 'ready' };
+      progress = { ...progress!, stage: 'ready', state: 'ready', guestIp: '100.64.0.2' };
       dependencies.verify.mockImplementation(async () => {
         if (status === 'exitCode') child.exitCode = 9;
         else child.signalCode = 'SIGTERM';
@@ -2816,7 +2821,7 @@ describe('sanitized live acceptance failure reporting', () => {
     });
 
     it.each(['progress', 'resources', 'identity'])('sanitizes %s inspection failures', async (part) => {
-      progress = { ...progress!, stage: 'ready', state: 'ready' };
+      progress = { ...progress!, stage: 'ready', state: 'ready', guestIp: '100.64.0.2' };
       if (part === 'progress') dependencies.readProgress.mockImplementation(() => { throw new Error(sentinel); });
       if (part === 'resources') dependencies.capture.mockImplementation(() => { throw new Error(sentinel); });
       if (part === 'identity') dependencies.verify.mockRejectedValue(new Error(sentinel));
@@ -2825,7 +2830,7 @@ describe('sanitized live acceptance failure reporting', () => {
     });
 
     it.each(['namespaces', 'processes', 'cgroups', 'identity'])('rejects extra or mismatched %s', async (part) => {
-      progress = { ...progress!, stage: 'ready', state: 'ready' };
+      progress = { ...progress!, stage: 'ready', state: 'ready', guestIp: '100.64.0.2' };
       if (part === 'identity') dependencies.verify.mockResolvedValue('mismatch');
       else dependencies.capture.mockReturnValue({ ...primary, [part]: [...primary[part as keyof VmResidue], sentinel] });
       await expect(wait()).rejects.toThrow(/unexpected-resources/);
@@ -2848,9 +2853,10 @@ describe('sanitized live acceptance failure reporting', () => {
       const reporter = createPrimaryReadinessReporter(recordDirectory);
       reporter.publish('guest-boot', 'starting', 1, '/private/primary');
       expect(harness.readPrimaryVmProgress(file, child)).toMatchObject({ state: 'starting' });
-      reporter.publish('ready', 'ready', 1, '/private/primary');
+      reporter.publish('ready', 'ready', 1, '/private/primary', '100.64.0.2');
       reporter.close();
-      expect(harness.readPrimaryVmProgress(file, child)).toMatchObject({ state: 'ready', runId: 'primary' });
+      expect(harness.readPrimaryVmProgress(file, child))
+        .toMatchObject({ state: 'ready', runId: 'primary', guestIp: '100.64.0.2' });
       const descriptor = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
       let valid: Record<string, unknown>;
       try {
@@ -2887,7 +2893,7 @@ describe('sanitized live acceptance failure reporting', () => {
     it('safely replaces a stale readiness record on restart and rejects unsafe existing targets', () => {
       const { recordDirectory, file } = createReadinessFixture();
       const first = createPrimaryReadinessReporter(recordDirectory);
-      first.publish('ready', 'ready', 1, '/private/previous');
+      first.publish('ready', 'ready', 1, '/private/previous', '100.64.0.2');
       first.close();
       const second = createPrimaryReadinessReporter(recordDirectory);
       second.publish('preflight', 'starting', 0);
