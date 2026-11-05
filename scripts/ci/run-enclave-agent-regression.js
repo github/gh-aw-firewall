@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const live = require('./cloud-hypervisor-enclave-live-smoke');
+const collector = require('./collect-enclave-smoke-debug.cjs');
 
 const ENGINES = Object.freeze({
   copilot: { model: 'claude-sonnet-5', profile: 'anthropic', port: 10002, credential: 'COPILOT_GITHUB_TOKEN' },
@@ -23,7 +24,7 @@ function configuration(agent, runtime, source, workDir, artifacts) {
       isolation: true, allowDomains: ['github.com', 'githubusercontent.com'],
       topologyAttach: [live.GATEWAY_CONTAINER],
     },
-    container: { containerRuntime: 'docker', imageTag: source },
+    container: { ...(runtime === 'cloud-hypervisor' ? { containerRuntime: runtime } : {}), imageTag: source },
     enclaves: [{
       agent: { engine: agent, profile: engine.profile, model: engine.model, maxTaskBytes: 16_384 },
       runtime, timeout: 360, maxInvocations: 1,
@@ -79,7 +80,7 @@ function probe(agent, runtime, marker) {
     'status = open("/proc/self/status", encoding="ascii").read()',
     'names = ["GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN", "COPILOT_TOKEN", "COPILOT_PROVIDER_BEARER_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"]',
     'def isolated(value):',
-    '    return value in (None, "", "******") or re.fullmatch(r"(?:Bearer )?[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+", value) is not None',
+    '    return value in (None, "", "******")',
     'result = {',
     `    "proof": ${JSON.stringify(marker)},`,
     '    "seedReadable": seed_readable, "seedReadOnly": seed_read_only,',
@@ -88,7 +89,7 @@ function probe(agent, runtime, marker) {
     '    "noNewPrivileges": re.search(r"^NoNewPrivs:\\s+1$", status, re.M) is not None,',
     '    "credentialsIsolated": all(isolated(os.environ.get(name)) for name in names),',
     `    "apiProxyReachable": reachable("172.31.0.30", ${port}),`,
-    '    "primaryPeerBlocked": not reachable("172.30.0.20", 80),',
+    '    "primaryPeerBlocked": not reachable("172.30.0.20", 18080),',
     '    "publicEgressBlocked": not reachable("1.1.1.1", 443),',
     ...(runtime === 'cloud-hypervisor'
       ? [`    "wrongProviderPortBlocked": not reachable("172.31.0.30", ${port === 10000 ? 10001 : 10000}),`]
@@ -126,7 +127,7 @@ async function main(environment = process.env) {
   const directory = fs.mkdtempSync(path.join(environment.RUNNER_TEMP, 'awf-enclave-regression-'));
   fs.chmodSync(directory, 0o700);
   const workDir = path.join(directory, 'work');
-  const stop = path.join(workspace, '.awf-regression/enclave-stop');
+  const stop = path.join(workspace, '.awf-enclave-regression-stop');
   fs.mkdirSync(workDir, { mode: 0o700 });
   fs.mkdirSync(path.dirname(stop), { recursive: true, mode: 0o700 });
   fs.rmSync(stop, { force: true });
@@ -136,6 +137,9 @@ async function main(environment = process.env) {
   const ready = `AWF_DOCKER_PRIMARY_READY_${randomBytes(24).toString('hex')}`;
   const stdout = path.join(directory, 'awf.stdout.log');
   const stderr = path.join(directory, 'awf.stderr.log');
+  const startupErrorFile = path.join(workDir, 'proxy-logs', 'awf-startup-error.json');
+  const guestStop = runtime === 'cloud-hypervisor' ? '/workspace/.awf-enclave-regression-stop' : stop;
+  let stage = 'configuration';
   let gatewayStarted = false;
   let awf;
   let failure;
@@ -144,10 +148,12 @@ async function main(environment = process.env) {
   try {
     const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: workspace, encoding: 'utf8' }).trim();
     if (head !== source) throw new Error('Enclave regression checkout does not match the shared main build');
+    stage = 'gateway';
     const handoff = live.startGatewayFixture({
       gatewayEnv: path.join(directory, 'gateway.env'), gatewayKey, capability, identity,
       onStarted: () => { gatewayStarted = true; },
     });
+    stage = 'configuration';
     const artifacts = path.join(environment.RUNNER_TEMP, 'agent-runtime-cloud-hypervisor');
     const config = configuration(agent, runtime, source, workDir, artifacts);
     const configPath = path.join(directory, 'config.json');
@@ -159,11 +165,13 @@ async function main(environment = process.env) {
       AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST_BUNDLE: path.join(artifacts, 'cloud-hypervisor-enclave-rootfs-x86_64.manifest.sigstore.jsonl'),
     } : {};
     const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
+    stage = 'launch';
     awf = live.spawnAwf([
       path.join(workspace, 'dist/cli.js'), '--config', configPath,
       '--image-tag', source, '--skip-pull', '--work-dir', workDir, '--log-level', 'error',
       '--agent-timeout', '15', '--max-num-tool-calls', '1', '--',
-      `python3 -c 'import http.server; http.server.HTTPServer(("0.0.0.0", 80), http.server.BaseHTTPRequestHandler).serve_forever()' >/dev/null 2>&1 & listener=$!; listening=0; for attempt in $(seq 1 50); do if python3 -c 'import socket; socket.create_connection(("127.0.0.1", 80), timeout=0.2).close()' 2>/dev/null; then listening=1; break; fi; sleep 0.1; done; test "$listening" = 1; printf '%s\\n' ${quote(ready)}; while [ ! -f ${quote(stop)} ]; do sleep 1; done; kill "$listener"; wait "$listener" 2>/dev/null || true`,
+      'set -e; ' +
+      `python3 -c 'import http.server; http.server.HTTPServer(("0.0.0.0", 18080), http.server.BaseHTTPRequestHandler).serve_forever()' >/dev/null 2>&1 & listener=$!; listening=0; for attempt in $(seq 1 50); do if python3 -c 'import socket; socket.create_connection(("127.0.0.1", 18080), timeout=0.2).close()' 2>/dev/null; then listening=1; break; fi; sleep 0.1; done; test "$listening" = 1; printf '%s\\n' ${quote(ready)}; while [ ! -f ${quote(guestStop)} ]; do sleep 1; done; kill "$listener"; wait "$listener" 2>/dev/null || true`,
     ], {
       ...environment, ...artifactEnvironment,
       AWF_ENCLAVE_MCP_CAPABILITY: capability,
@@ -175,11 +183,18 @@ async function main(environment = process.env) {
     }, stdout, stderr, 'enclave-regression');
     const diagnostic = {
       stage: 'enclave-regression', stderrFile: stderr,
-      startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
+      startupErrorFile,
     };
+    stage = 'broker';
     await live.waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 10 * 60_000, diagnostic);
+    stage = 'gateway-readiness';
     await live.waitForHostGatewayReadiness(awf, Date.now() + 150_000, diagnostic);
+    stage = 'primary-readiness';
+    if (runtime === 'cloud-hypervisor') {
+      await live.waitForPrimaryVmReadiness(awf, Date.now() + 5 * 60_000, diagnostic);
+    }
     await live.waitForDockerPrimaryReadiness(awf, Date.now() + 5 * 60_000, stdout, ready);
+    stage = 'invocation';
     const initialized = await live.requestMcp(handoff.endpoint, gatewayKey, 1, 'initialize', {
       protocolVersion: '2025-11-25', capabilities: {},
       clientInfo: { name: 'awf-daily-enclave-regression', version: '1.0.0' },
@@ -192,6 +207,7 @@ async function main(environment = process.env) {
       name: 'enclave_run_agent',
       arguments: { privateRepo: REPOSITORY, schema: task.schema, prompt: task.prompt },
     });
+    stage = 'result';
     const parsed = live.parsePublicToolResult(response, 3);
     if (parsed.status !== 'ok') throw new Error('Enclave agent did not produce an approved result');
     const result = parsed.result;
@@ -199,7 +215,19 @@ async function main(environment = process.env) {
     resultValidated = true;
   } catch (error) {
     failure = error;
-    live.emitStartupDiagnostic(awf, 'enclave-regression-failed', 'enclave-regression', stderr);
+    const reason = !awf || live.failedSpawns.has(awf) ? 'spawn-failure'
+      : awf.signalCode ? 'signal' : awf.exitCode !== null ? 'exit'
+        : ['broker', 'gateway-readiness', 'primary-readiness'].includes(stage) ? 'timeout' : 'unknown';
+    live.emitStartupDiagnostic(awf, reason, 'initial', stderr, startupErrorFile);
+    try {
+      const key = `${environment.GITHUB_RUN_ID}-${environment.GITHUB_RUN_ATTEMPT}`;
+      collector.retainStartup(path.join('/var/lib/awf-enclave-smoke-export', key), {
+        agent, backend: runtime, failureStage: stage,
+        ...live.startupSnapshot(awf, reason, 'initial', 'agent-only', stderr, startupErrorFile),
+      });
+    } catch {
+      errors.push(new Error('Enclave regression startup diagnostic retention failed'));
+    }
   } finally {
     if (awf) {
       try {

@@ -1,6 +1,10 @@
 import { isDeepStrictEqual } from 'util';
 import { releaseTag } from '../cloud-hypervisor/artifact-compatibility.json';
-import { CLOUD_HYPERVISOR_CANDIDATE_COMMIT } from '../cloud-hypervisor/artifact-manifest';
+import {
+  CLOUD_HYPERVISOR_CANDIDATE_COMMIT,
+  CLOUD_HYPERVISOR_REGRESSION_COMMIT,
+  CLOUD_HYPERVISOR_REGRESSION_SIGNER_WORKFLOW,
+} from '../cloud-hypervisor/artifact-manifest';
 import { parseImageTag } from '../image-tag';
 import type { WrapperConfig } from '../types';
 
@@ -8,6 +12,45 @@ const WORKFLOW =
   'github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor-enclaves.yml';
 const PUBLIC_REPOS = [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }];
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
+
+/** Only the source-pinned daily build may exercise these public agent profiles. */
+export function isCloudHypervisorDailyRegressionWorkflow(config: WrapperConfig): boolean {
+  const commit = CLOUD_HYPERVISOR_REGRESSION_COMMIT;
+  const runtime = config.cloudHypervisor;
+  const enclaves = config.enclaves;
+  if (!commit
+    || process.env.GITHUB_ACTIONS !== 'true'
+    || process.env.GITHUB_REPOSITORY !== 'github/gh-aw-firewall'
+    || !['schedule', 'workflow_dispatch'].includes(process.env.GITHUB_EVENT_NAME ?? '')
+    || process.env.GITHUB_REF !== 'refs/heads/main'
+    || process.env.GITHUB_SHA !== commit
+    || process.env.GITHUB_WORKFLOW_SHA !== commit
+    || process.env.GITHUB_WORKFLOW_REF !== `${CLOUD_HYPERVISOR_REGRESSION_SIGNER_WORKFLOW}@refs/heads/main`
+    || config.containerRuntime !== 'cloud-hypervisor'
+    || config.imageTag !== commit
+    || config.enableApiProxy !== true
+    || runtime?.artifactReleaseTag !== `v0.0.0-regression.${commit}`
+    || runtime.developmentAllowUnattestedArtifacts
+    || runtime.sha256 !== undefined
+    || !enclaves?.enabled || enclaves.executors.script.enabled
+    || !isDeepStrictEqual(enclaves.privateRepos, PUBLIC_REPOS)) return false;
+  const agent = enclaves.executors.agent;
+  const profiles = {
+    copilot: ['anthropic', 'claude-sonnet-5'],
+    codex: ['openai', 'gpt-5.4'],
+    claude: ['anthropic', 'claude-haiku-4-5'],
+  };
+  const profile = profiles[agent.engine as keyof typeof profiles];
+  return agent.enabled && agent.runtime === 'cloud-hypervisor'
+    && profile !== undefined && agent.profile === profile[0] && agent.model === profile[1]
+    && agent.image === undefined && agent.dynamic === undefined
+    && agent.github === undefined && agent.tools === undefined
+    && agent.timeout === 360 && agent.maxInvocations === 1 && agent.maxTaskBytes === 16_384
+    && agent.maxOutputBytes === 8192 && agent.cpuLimit === '1' && agent.pidsLimit === 128
+    && agent.memoryLimit === '1g' && agent.tmpfsLimit === '256m'
+    && agent.maxModelRequests === undefined && agent.maxModelTokens === undefined
+    && isDeepStrictEqual(agent.repos, PUBLIC_REPOS);
+}
 
 /** Admission for pinned native conformance profiles, not general enclave use. */
 export function isCloudHypervisorConformanceAcceptanceWorkflow(config: WrapperConfig): boolean {
