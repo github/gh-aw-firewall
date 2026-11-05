@@ -34,25 +34,40 @@ jobs:
       - name: Build project
         run: npm run build
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Expose GitHub Actions cache runtime for Buildx CLI
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            for (const name of ['ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL']) {
+              const value = process.env[name];
+              if (!value) throw new Error(`Missing ${name} for Buildx cache`);
+              if (name === 'ACTIONS_RUNTIME_TOKEN') core.setSecret(value);
+              core.exportVariable(name, value);
+            }
+
       - name: Build local containers
+        env:
+          EXPORT_BUILD_CACHE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           echo "=== Building local containers ==="
-          retry_docker_build() {
-            local image="$1"
-            local context="$2"
-            local attempt
+          for image in squid agent; do
+            cache_args=(--cache-from "type=gha,version=2,scope=it-${image}")
+            if [ "$EXPORT_BUILD_CACHE" = true ]; then
+              cache_args+=(--cache-to "type=gha,version=2,scope=it-${image},mode=max,ignore-error=true")
+            fi
             for attempt in 1 2 3; do
-              if docker build -t "$image" "$context"; then
-                return 0
+              if docker buildx build --load "${cache_args[@]}" -t "ghcr.io/github/gh-aw-firewall/${image}:latest" "containers/${image}/"; then
+                break
               fi
-              if [ "$attempt" -lt 3 ]; then
-                sleep $((attempt * 10))
+              if [ "$attempt" -eq 3 ]; then
+                exit 1
               fi
+              sleep $((attempt * 10))
             done
-            return 1
-          }
-          retry_docker_build ghcr.io/github/gh-aw-firewall/squid:latest containers/squid/
-          retry_docker_build ghcr.io/github/gh-aw-firewall/agent:latest containers/agent/
+          done
 
       - name: Pre-test cleanup
         run: |
@@ -63,7 +78,7 @@ jobs:
         run: |
           echo "=== Running domain tests ==="
           npm run test:integration -- \
-            --testPathPatterns="(blocked-domains|dns-servers|empty-domains|wildcard-patterns)" \
+            --testPathPatterns="(blocked-domains|dns-servers|empty-domains|wildcard-patterns|no-docker|skip-pull|sudo-secure-path|git-operations)" \
             --verbose
         env:
           JEST_TIMEOUT: 180000
@@ -106,25 +121,40 @@ jobs:
       - name: Build project
         run: npm run build
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Expose GitHub Actions cache runtime for Buildx CLI
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            for (const name of ['ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL']) {
+              const value = process.env[name];
+              if (!value) throw new Error(`Missing ${name} for Buildx cache`);
+              if (name === 'ACTIONS_RUNTIME_TOKEN') core.setSecret(value);
+              core.exportVariable(name, value);
+            }
+
       - name: Build local containers
+        env:
+          EXPORT_BUILD_CACHE: 'false'
         run: |
           echo "=== Building local containers ==="
-          retry_docker_build() {
-            local image="$1"
-            local context="$2"
-            local attempt
+          for image in squid agent; do
+            cache_args=(--cache-from "type=gha,version=2,scope=it-${image}")
+            if [ "$EXPORT_BUILD_CACHE" = true ]; then
+              cache_args+=(--cache-to "type=gha,version=2,scope=it-${image},mode=max,ignore-error=true")
+            fi
             for attempt in 1 2 3; do
-              if docker build -t "$image" "$context"; then
-                return 0
+              if docker buildx build --load "${cache_args[@]}" -t "ghcr.io/github/gh-aw-firewall/${image}:latest" "containers/${image}/"; then
+                break
               fi
-              if [ "$attempt" -lt 3 ]; then
-                sleep $((attempt * 10))
+              if [ "$attempt" -eq 3 ]; then
+                exit 1
               fi
+              sleep $((attempt * 10))
             done
-            return 1
-          }
-          retry_docker_build ghcr.io/github/gh-aw-firewall/squid:latest containers/squid/
-          retry_docker_build ghcr.io/github/gh-aw-firewall/agent:latest containers/agent/
+          done
 
       - name: Pre-test cleanup
         run: |
@@ -178,25 +208,40 @@ jobs:
       - name: Build project
         run: npm run build
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Expose GitHub Actions cache runtime for Buildx CLI
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            for (const name of ['ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL']) {
+              const value = process.env[name];
+              if (!value) throw new Error(`Missing ${name} for Buildx cache`);
+              if (name === 'ACTIONS_RUNTIME_TOKEN') core.setSecret(value);
+              core.exportVariable(name, value);
+            }
+
       - name: Build local containers
+        env:
+          EXPORT_BUILD_CACHE: 'false'
         run: |
           echo "=== Building local containers ==="
-          retry_docker_build() {
-            local image="$1"
-            local context="$2"
-            local attempt
+          for image in squid agent; do
+            cache_args=(--cache-from "type=gha,version=2,scope=it-${image}")
+            if [ "$EXPORT_BUILD_CACHE" = true ]; then
+              cache_args+=(--cache-to "type=gha,version=2,scope=it-${image},mode=max,ignore-error=true")
+            fi
             for attempt in 1 2 3; do
-              if docker build -t "$image" "$context"; then
-                return 0
+              if docker buildx build --load "${cache_args[@]}" -t "ghcr.io/github/gh-aw-firewall/${image}:latest" "containers/${image}/"; then
+                break
               fi
-              if [ "$attempt" -lt 3 ]; then
-                sleep $((attempt * 10))
+              if [ "$attempt" -eq 3 ]; then
+                exit 1
               fi
+              sleep $((attempt * 10))
             done
-            return 1
-          }
-          retry_docker_build ghcr.io/github/gh-aw-firewall/squid:latest containers/squid/
-          retry_docker_build ghcr.io/github/gh-aw-firewall/agent:latest containers/agent/
+          done
 
       - name: Pre-test cleanup
         run: |
@@ -207,7 +252,7 @@ jobs:
         run: |
           echo "=== Running protocol & security tests ==="
           npm run test:integration -- \
-            --testPathPatterns="(protocol-support|credential-hiding|one-shot-tokens|token-unset|git-operations)" \
+            --testPathPatterns="(protocol-support|credential-hiding|one-shot-tokens|token-unset)" \
             --verbose
         env:
           JEST_TIMEOUT: 180000
@@ -250,12 +295,32 @@ jobs:
       - name: Build project
         run: npm run build
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Expose GitHub Actions cache runtime for Buildx CLI
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            for (const name of ['ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL']) {
+              const value = process.env[name];
+              if (!value) throw new Error(`Missing ${name} for Buildx cache`);
+              if (name === 'ACTIONS_RUNTIME_TOKEN') core.setSecret(value);
+              core.exportVariable(name, value);
+            }
+
       - name: Build local containers
+        env:
+          EXPORT_BUILD_CACHE: 'false'
         run: |
           echo "=== Building local containers ==="
           for image in squid agent; do
+            cache_args=(--cache-from "type=gha,version=2,scope=it-${image}")
+            if [ "$EXPORT_BUILD_CACHE" = true ]; then
+              cache_args+=(--cache-to "type=gha,version=2,scope=it-${image},mode=max,ignore-error=true")
+            fi
             for attempt in 1 2 3; do
-              if docker build -t "ghcr.io/github/gh-aw-firewall/${image}:latest" "containers/${image}/"; then
+              if docker buildx build --load "${cache_args[@]}" -t "ghcr.io/github/gh-aw-firewall/${image}:latest" "containers/${image}/"; then
                 break
               fi
               if [ "$attempt" -eq 3 ]; then
@@ -274,7 +339,7 @@ jobs:
         run: |
           echo "=== Running container & ops tests ==="
           npm run test:integration -- \
-            --testPathPatterns="(compose-environment|container-workdir|environment-variables|error-handling|exit-code-propagation|filesystem-allowwrite|log-commands|no-docker|volume-mounts|skip-pull|sudo-secure-path)" \
+            --testPathPatterns="(compose-environment|container-workdir|environment-variables|error-handling|exit-code-propagation|filesystem-allowwrite|log-commands)" \
             --verbose
         env:
           JEST_TIMEOUT: 180000
@@ -317,25 +382,40 @@ jobs:
       - name: Build project
         run: npm run build
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Expose GitHub Actions cache runtime for Buildx CLI
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            for (const name of ['ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL']) {
+              const value = process.env[name];
+              if (!value) throw new Error(`Missing ${name} for Buildx cache`);
+              if (name === 'ACTIONS_RUNTIME_TOKEN') core.setSecret(value);
+              core.exportVariable(name, value);
+            }
+
       - name: Build local containers
+        env:
+          EXPORT_BUILD_CACHE: 'false'
         run: |
           echo "=== Building local containers ==="
-          retry_docker_build() {
-            local image="$1"
-            local context="$2"
-            local attempt
+          for image in squid agent; do
+            cache_args=(--cache-from "type=gha,version=2,scope=it-${image}")
+            if [ "$EXPORT_BUILD_CACHE" = true ]; then
+              cache_args+=(--cache-to "type=gha,version=2,scope=it-${image},mode=max,ignore-error=true")
+            fi
             for attempt in 1 2 3; do
-              if docker build -t "$image" "$context"; then
-                return 0
+              if docker buildx build --load "${cache_args[@]}" -t "ghcr.io/github/gh-aw-firewall/${image}:latest" "containers/${image}/"; then
+                break
               fi
-              if [ "$attempt" -lt 3 ]; then
-                sleep $((attempt * 10))
+              if [ "$attempt" -eq 3 ]; then
+                exit 1
               fi
+              sleep $((attempt * 10))
             done
-            return 1
-          }
-          retry_docker_build ghcr.io/github/gh-aw-firewall/squid:latest containers/squid/
-          retry_docker_build ghcr.io/github/gh-aw-firewall/agent:latest containers/agent/
+          done
 
       - name: Pre-test cleanup
         run: |
@@ -346,7 +426,7 @@ jobs:
         run: |
           echo "=== Running API proxy tests ==="
           npm run test:integration -- \
-            --testPathPatterns="api-proxy" \
+            --testPathPatterns="(api-proxy|volume-mounts)" \
             --verbose
         env:
           JEST_TIMEOUT: 180000
