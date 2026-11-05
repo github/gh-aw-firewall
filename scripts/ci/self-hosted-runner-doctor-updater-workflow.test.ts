@@ -54,7 +54,8 @@ describe('runner doctor updater workflow config', () => {
     expect(lock).toContain('if [ "$attempt" -eq 3 ]; then');
     expect(lock).toContain('GH_AW_INFO_AGENT_RUNTIME: ""');
     expect(lock).not.toContain('--container-runtime cloud-hypervisor');
-    expect(lock).toMatch(/github\/gh-aw(?:-actions\/|\/actions\/)setup@[a-f0-9]{40}/);
+    expect(lock).toContain('repository: github/gh-aw');
+    expect(lock).toContain('uses: ./actions/setup');
     expect(lock).toMatch(/needs\.prepare_candidates\.outputs\.has_candidates == 'true'/);
     const manifestLine = lock.split('\n').find((line) => line.startsWith('# gh-aw-manifest: '));
     expect(manifestLine).toBeDefined();

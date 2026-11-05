@@ -23,7 +23,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
   const compilerVersion =
     'v1.0.1';
   const setupAction =
-    'github/gh-aw-actions/setup@221ba4f4319de6b8e809d1a15528b3ae6a818aa5';
+    './actions/setup';
   const source = fs.readFileSync(
     path.join(workflowsDir, 'smoke-enclave-cloud-hypervisor.md'), 'utf8'
   );
@@ -211,10 +211,10 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
       `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.96 --checksums-sha256 ${checksum}`
     );
     expect(lock).toContain('"engine_versions":{"copilot":"1.0.96"}');
-    expect(lock).toContain(`"compiler_version":"${compilerVersion}"`);
-    expect(lock).toContain(setupAction);
+    expect(lock.split('\n')[0]).toContain('"schema_version":"v4"');
+    expect(lock).toContain('repository: github/gh-aw');
     const setupSteps = Object.values(compiled.jobs).flatMap(job => job.steps)
-      .filter(step => 'uses' in step && String(step.uses).includes('/setup@'));
+      .filter(step => 'uses' in step && step.uses === setupAction);
     expect(setupSteps).toHaveLength(4);
     for (const step of setupSteps) {
       expect('uses' in step && step.uses).toBe(setupAction);
@@ -504,7 +504,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(lock).toContain('\\"cloudHypervisor\\":{\\"previewEnabled\\":true');
     expect(lock).toContain('--exclude-env AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS');
     expect(lock).toContain('--exclude-env AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS');
-    expect(lock).toContain(`"compiler_version":"${compilerVersion}"`);
+    expect(lock.split('\n')[0]).toContain('"schema_version":"v4"');
   });
 
   it('pins the published AWF and its attested artifacts to the same release', () => {
@@ -654,18 +654,17 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(compiledWritablePaths()).not.toContain('/run/awf-config-audit');
   });
 
-  it('retains official release revocation and minimum-version enforcement without issue writes', () => {
+  it('uses the compiler-managed setup action without issue writes', () => {
     const compiled = yaml.load(lock) as {
       jobs: Record<string, {
-        steps: Array<{ name: string; env?: Record<string, string>;
+        steps: Array<{ name: string; uses?: string; env?: Record<string, string>;
           with?: Record<string, string> }>;
       }>;
     };
     const check = compiled.jobs.activation.steps.find(step =>
       step.name === 'Check compile-agentic version');
-    expect(check?.env?.GH_AW_COMPILED_VERSION).toBe(compilerVersion);
-    expect(check?.env?.GH_AW_BLOCKED_VERSION_REPORT_AS_ISSUE).toBe('false');
-    expect(check?.with?.script).toContain("require(path.join(actionsDir, 'check_version_updates.cjs'))");
+    expect(check).toBeUndefined();
+    expect(compiled.jobs.activation.steps.some(step => step.uses === setupAction)).toBe(true);
   });
 
   it('sets up release-matched primary and script-role artifacts', () => {
@@ -957,7 +956,8 @@ describe('smoke enclave build workflow', () => {
       version: '1.0.98',
       'checksums-sha256': '372f0c8d3d50076455cd19ef080dc59dc2a32401d8b2d4f77ce190c8ab13bc59',
     });
-    expect(lock).toContain('github/gh-aw-actions/setup@221ba4f4319de6b8e809d1a15528b3ae6a818aa5');
+    expect(lock).toContain('repository: github/gh-aw');
+    expect(lock).toContain('uses: ./actions/setup');
     expect(compiled.jobs.agent.env.GH_AW_ENGINE_VERSION).toBe(frontmatter.engine.version);
     expect(minimum).toMatch(/^\d+\.\d+\.\d+$/);
     expect('1.0.34'.localeCompare(minimum!, 'en', { numeric: true })).toBeLessThan(0);

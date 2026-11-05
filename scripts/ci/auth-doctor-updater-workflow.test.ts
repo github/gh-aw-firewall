@@ -87,6 +87,7 @@ describe('auth doctor updater workflow config', () => {
     expect(lock).toContain('GH_AW_INFO_AGENT_RUNTIME: ""');
     expect(lock).not.toContain('--container-runtime cloud-hypervisor');
     expect(lock).toMatch(/memory-none-nopolicy-\$\{\{ env\.GH_AW_WORKFLOW_ID_SANITIZED \}\}-/);
-    expect(lock).toMatch(/github\/gh-aw(?:-actions\/|\/actions\/)setup@[a-f0-9]{40}/);
+    expect(lock).toContain('repository: github/gh-aw');
+    expect(lock).toContain('uses: ./actions/setup');
   });
 });
