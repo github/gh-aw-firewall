@@ -242,6 +242,7 @@ describe('agent regression harness', () => {
         } else {
           console.log(response);
         }
+        process.stderr.write(process.env.AGENT_TERMINAL_OUTPUT || '');
       `);
     }
     writeTool('sudo', `
@@ -273,8 +274,20 @@ describe('agent regression harness', () => {
         ANTHROPIC_API_KEY: '',
         ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_API_KEY ? 'sk-ant-placeholder-key-for-credential-isolation' : '',
       };
-      const result = spawnSync(command, guestArgs, { cwd: process.env.TEST_ROOT, env, stdio: 'inherit' });
-      process.exit(result.status ?? 1);
+      const result = spawnSync(command, guestArgs, {
+        cwd: process.env.TEST_ROOT, env, stdio: ['ignore', 'pipe', 'inherit'],
+      });
+      let output = result.stdout.toString();
+      if (process.env.COMPLETION_OUTPUT !== undefined) {
+        output = output.replace('AWF-REGRESSION-COMPLETE', process.env.COMPLETION_OUTPUT);
+      }
+      process.stdout.write(output);
+      for (const [variable, file] of [['HOST_PROOF', 'agent-proof.txt'], ['HOST_RESPONSE', 'response.txt']]) {
+        if (process.env[variable] !== undefined) {
+          fs.writeFileSync(process.env.TEST_ROOT + '/.awf-regression/results/' + file, process.env[variable]);
+        }
+      }
+      process.exit(Number(process.env.AWF_EXIT_CODE ?? result.status ?? 1));
     `);
   });
 
@@ -286,6 +299,17 @@ describe('agent regression harness', () => {
     return spawnSync('bash', [
       guestScript, agent, `AWF-REGRESSION-${agent}-test-123-1`,
     ], { cwd: directory, env: { ...environment, ...overrides }, encoding: 'utf8' });
+  }
+
+  function runHost(overrides: NodeJS.ProcessEnv = {}) {
+    return spawnSync('bash', [hostScript], {
+      cwd: directory,
+      env: {
+        ...environment, AGENT: 'claude', RUNTIME: 'nvx',
+        ANTHROPIC_API_KEY: 'test-only-credential', ...overrides,
+      },
+      encoding: 'utf8',
+    });
   }
 
   it.each(agents)('requires real inference and a tool-written proof for %s', agent => {
@@ -369,6 +393,58 @@ describe('agent regression harness', () => {
       expect(fs.readFileSync(path.join(staged, 'source-sha.txt'), 'utf8')).toBe(`${environment.SOURCE_SHA}\n`);
     },
   );
+
+  it.each(['docker', 'nvx'])('keeps completion on its own line after cursor-show output in claude / %s', runtime => {
+    const result = runHost({ RUNTIME: runtime, AGENT_TERMINAL_OUTPUT: '\u001b[?25h' });
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('\u001b[?25h\nAWF-REGRESSION-COMPLETE\n');
+    const staged = path.join(environment.RUNNER_TEMP!, `agent-runtime-evidence-123-1-claude-${runtime}`);
+    for (const file of ['agent-proof.txt', 'response.txt']) {
+      expect(fs.readFileSync(path.join(staged, file), 'utf8'))
+        .toBe(`AWF-REGRESSION-claude-${runtime}-123-1\n`);
+    }
+    expect(fs.readFileSync(path.join(directory, 'summary.md'), 'utf8'))
+      .toContain(`claude / ${runtime}: PASS`);
+  });
+
+  it.each([
+    '',
+    'AWF-REGRESSION-COMPLET',
+    'AWF-REGRESSION-\nCOMPLETE',
+    '"AWF-REGRESSION-COMPLETE"',
+    'claimed AWF-REGRESSION-COMPLETE',
+    'AWF-REGRESSION-COMPLETE extra',
+    ' AWF-REGRESSION-COMPLETE',
+    'AWF-REGRESSION-COMPLETE ',
+    '\u001b[?25hquoted AWF-REGRESSION-COMPLETE',
+  ])('rejects invalid host completion output %j even with valid proof and response', output => {
+    const result = runHost({ COMPLETION_OUTPUT: output });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('Missing exact inference response or guest completion marker');
+    expect(fs.existsSync(path.join(directory, 'summary.md'))).toBe(false);
+  });
+
+  it.each(['HOST_PROOF', 'HOST_RESPONSE'].flatMap(variable =>
+    ['', 'AWF-REGRESSION-claude-nvx-123', 'quoted AWF-REGRESSION-claude-nvx-123-1',
+      'AWF-REGRESSION-claude-nvx-123-1 extra', '\u001b[?25hAWF-REGRESSION-claude-nvx-123-1']
+      .map(value => [variable, value]),
+  ))('retains exact host evidence requirements for %s: %j', (variable, value) => {
+    const result = runHost({ [variable]: value, AGENT_TERMINAL_OUTPUT: '\u001b[?25h' });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain(variable === 'HOST_PROOF' ?
+      'Missing or incorrect agent-written workspace proof' :
+      'Missing exact inference response or guest completion marker');
+    expect(fs.existsSync(path.join(directory, 'summary.md'))).toBe(false);
+  });
+
+  it('rejects a nonzero command exit even with exact evidence and a genuine completion marker', () => {
+    const result = runHost({ AWF_EXIT_CODE: '42', AGENT_TERMINAL_OUTPUT: '\u001b[?25h' });
+    expect(result.status).toBe(42);
+    expect(result.stdout).toContain('\u001b[?25h\nAWF-REGRESSION-COMPLETE\n');
+    expect(result.stdout).toContain('failed with exit code 42');
+    expect(fs.existsSync(path.join(directory, 'summary.md'))).toBe(false);
+  });
 
   it('fails rather than skipping a cell with a missing credential', () => {
     const result = spawnSync('bash', [hostScript], {

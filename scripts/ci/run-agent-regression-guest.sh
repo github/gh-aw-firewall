@@ -59,4 +59,5 @@ esac
 test -f "$results/agent-proof.txt" || fail 'Agent did not write the workspace proof'
 test "$(cat "$results/agent-proof.txt")" = "$marker" || fail 'Agent wrote an incorrect workspace proof'
 grep -Fxq "$marker" "$results/response.txt" || fail 'Inference response did not contain the exact marker'
-echo AWF-REGRESSION-COMPLETE
+# Keep terminal control output without a trailing newline off the completion line.
+printf '\n%s\n' AWF-REGRESSION-COMPLETE
