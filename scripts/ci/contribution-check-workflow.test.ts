@@ -3,6 +3,8 @@ import * as path from 'path';
 
 const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const sourcePath = path.join(workflowsDir, 'contribution-check.md');
+const lockPath = path.join(workflowsDir, 'contribution-check.lock.yml');
+const frameworkCommit = '0627fdbe4beb5f3b71aa569f8d97150b87f2111a';
 
 describe('contribution-check workflow', () => {
   it('pre-fetches PR diff, metadata, and CONTRIBUTING.md in pre-agent steps', () => {
@@ -37,5 +39,17 @@ describe('contribution-check workflow', () => {
 
     expect(source).toContain('max-turns: 4');
     expect(source).toContain('model: auto');
+  });
+
+  it('pins all framework checkouts to the reviewed gh-aw commit', () => {
+    const lock = fs.readFileSync(lockPath, 'utf-8');
+    const frameworkCheckouts = lock
+      .split('\n      - name:')
+      .filter((step) => step.includes('repository: github/gh-aw'));
+
+    expect(frameworkCheckouts.length).toBeGreaterThan(0);
+    for (const checkout of frameworkCheckouts) {
+      expect(checkout).toContain(`ref: ${frameworkCommit}`);
+    }
   });
 });
