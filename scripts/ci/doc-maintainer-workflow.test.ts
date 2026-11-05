@@ -14,12 +14,13 @@ describe('doc maintainer workflow optimization config', () => {
       sandbox: { agent: { runtime: string } };
     };
     const lock = yaml.load(fs.readFileSync(lockPath, 'utf-8')) as {
-      jobs: { agent: { 'runs-on': string } };
+      jobs: { agent: { 'runs-on': string; steps: Array<{ run?: string }> } };
     };
 
     expect(frontmatter['runs-on']).toBe('ubuntu-24.04');
     expect(frontmatter.sandbox.agent.runtime).toBe('cloud-hypervisor');
     expect(lock.jobs.agent['runs-on']).toBe('ubuntu-24.04');
+    expect(lock.jobs.agent.steps.some(step => step.run?.includes('--container-runtime cloud-hypervisor'))).toBe(true);
   });
 
   it('disables unused tools and keeps condensed prompt sections in source workflow', () => {
