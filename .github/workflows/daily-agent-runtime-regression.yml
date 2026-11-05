@@ -594,3 +594,39 @@ jobs:
         agent: [codex, claude]
         runtime: [docker, cloud-hypervisor]
     steps: *enclave-regression-steps
+
+  report-failures:
+    name: Report regression failures
+    needs:
+      - build
+      - build-cloud-hypervisor
+      - build-nvx
+      - regression-copilot
+      - regression-non-copilot
+      - enclave-regression-copilot
+      - enclave-regression-non-copilot
+    if: ${{ always() && contains(needs.*.result, 'failure') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Checkout reporting code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Create or update regression failure issue
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        with:
+          script: |
+            const report = require('./scripts/ci/report-agent-regression-failures.cjs');
+            await report({
+              github, context, core,
+              sourceSha: process.env.SOURCE_SHA,
+              runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+            });
