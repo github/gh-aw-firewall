@@ -13,7 +13,14 @@ fail() {
 test -r package.json || fail 'Workspace export is unavailable'
 test -n "${HTTPS_PROXY:?}"
 test -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}${ANTHROPIC_API_KEY:-}" || fail 'A host credential variable reached the guest'
-test -z "${COPILOT_GITHUB_TOKEN:-}" || test "$COPILOT_GITHUB_TOKEN" = '******' || fail 'Copilot credential is not isolated'
+node <<'NODE' || fail 'Copilot credential is not isolated'
+const { COPILOT_PLACEHOLDER_TOKEN } = require('./dist/constants/placeholders');
+const names = ['COPILOT_GITHUB_TOKEN', 'COPILOT_TOKEN', 'COPILOT_PROVIDER_API_KEY'];
+if (!COPILOT_PLACEHOLDER_TOKEN || names.some(name =>
+  process.env[name] && process.env[name] !== COPILOT_PLACEHOLDER_TOKEN)) {
+  process.exit(1);
+}
+NODE
 test -z "${OPENAI_API_KEY:-}" || test "$OPENAI_API_KEY" = sk-placeholder-for-api-proxy || fail 'OpenAI credential is not isolated'
 test -z "${CODEX_API_KEY:-}" || test "$CODEX_API_KEY" = sk-placeholder-for-api-proxy || fail 'Codex credential is not isolated'
 test -z "${ANTHROPIC_AUTH_TOKEN:-}" || test "$ANTHROPIC_AUTH_TOKEN" = sk-ant-placeholder-key-for-credential-isolation || fail 'Anthropic credential is not isolated'
