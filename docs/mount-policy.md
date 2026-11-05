@@ -16,8 +16,9 @@ microVM all read from this one source of truth, so they can no longer diverge.
 The Cloud Hypervisor microVM does not currently consult this policy: its
 production export path (`src/cloud-hypervisor/exports.ts`) only resolves the
 workspace (`rw`), the runner tool cache (`ro`, only under the non-default
-`workspace-and-tool-cache` mount policy), `$RUNNER_TEMP/gh-aw` (`ro`, when
-`RUNNER_TEMP` is set), and `/tmp/gh-aw` (`rw`) — it does not export `$HOME` at all, so the home allow/deny lists have no
+`workspace-and-tool-cache` policy, using `RUNNER_TOOL_CACHE` or its fallback
+`AGENT_TOOLSDIRECTORY`), `$RUNNER_TEMP/gh-aw` (`ro`, when `RUNNER_TEMP` is set
+and the directory exists), and `/tmp/gh-aw` (`rw`, when the directory exists) — it does not export `$HOME` at all, so the home allow/deny lists have no
 production call site for this runtime. `MicrovmWorkspaceImage`
 (`src/microvm/workspace.ts`) does read `home.toolSubdirs` and
 `credentials.entries`, but it has no production call site today; it is
