@@ -83,6 +83,17 @@ function getImportedPricingFact(provider, model) {
 
 const fields = ['input', 'output', 'cachedInput', 'cacheWrite', 'reasoning'];
 
+function validateConvertedTariffPrice(price, unit) {
+  try {
+    const parsed = exact.decimal(price);
+    const converted = unit === 'USD_PER_TOKEN'
+      ? exact.multiply(parsed, exact.decimal(1_000_000)) : parsed;
+    exact.fromExact({ input: converted });
+  } catch {
+    throw new Error('catalogue_tariff_unsupported');
+  }
+}
+
 function validateTariffs(snapshot) {
   for (const model of snapshot.models) {
     for (const tariff of model.tariffs || []) {
@@ -94,7 +105,7 @@ function validateTariffs(snapshot) {
           (tariff.tier !== 'long_context' && tariff.promptTokensAbove !== undefined) ||
           Object.entries(tariff.components).some(([field, item]) => {
             if (typeof item.price === 'object') return field !== 'cacheWrite';
-            exact.decimal(item.price);
+            validateConvertedTariffPrice(item.price, tariff.unit);
             return false;
           })) {
         throw new Error('catalogue_tariff_unsupported');

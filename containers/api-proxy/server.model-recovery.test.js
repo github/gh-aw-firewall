@@ -193,6 +193,17 @@ test('allows recovery to a priceable model with a credit budget', async () => {
   expect(JSON.parse(sent()).model).toBe('gpt-5.3-codex');
 });
 
+test('skips pricing-error candidates while recovering to a priceable model', async () => {
+  load({ AWF_MAX_AI_CREDITS: '1' });
+  catalog.replaceRuntimeModels('copilot', [
+    record('invalid-pricing', { pricingError: true }),
+    record('gpt-5.3-codex'),
+  ]);
+  await start();
+  expect(requests).toHaveLength(1);
+  expect(JSON.parse(sent()).model).toBe('gpt-5.3-codex');
+});
+
 test.each([
   { AWF_MODEL_FALLBACK: '{"enabled":false}' },
   { AWF_MODEL_FALLBACK: '{"excludeEngines":["copilot"]}' },

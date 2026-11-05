@@ -18,6 +18,36 @@ function makeTrackedSocket() {
 }
 
 describe('createProviderServer', () => {
+  test('returns a sanitized pricing error from /reflect before writing success headers', () => {
+    const server = createProviderServer({
+      name: 'openai',
+      isManagementPort: false,
+    }, {
+      handleManagementEndpoint: () => false,
+      reflectEndpoints: () => {
+        throw Object.assign(new Error('private configuration details'), {
+          code: 'pricing_resolution_error',
+        });
+      },
+      checkRateLimit: () => false,
+      proxyRequest: jest.fn(),
+      proxyWebSocket: jest.fn(),
+    });
+    const req = new EventEmitter();
+    req.url = '/reflect';
+    req.method = 'GET';
+    req.headers = {};
+    const res = { writeHead: jest.fn(), end: jest.fn() };
+
+    server.emit('request', req, res);
+
+    expect(res.writeHead).toHaveBeenCalledWith(500, { 'Content-Type': 'application/json' });
+    expect(JSON.parse(res.end.mock.calls[0][0])).toEqual({ error: {
+      type: 'pricing_resolution_error',
+      message: 'AI-credit pricing resolution failed; accounting could not be completed.',
+    } });
+  });
+
   test('advertises model-budget enforcement to budgeted service healthchecks', () => {
     const response = { writeHead: jest.fn(), end: jest.fn() };
     createHealthCheckHandler({

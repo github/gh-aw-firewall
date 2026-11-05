@@ -251,8 +251,20 @@ function createManagementHandlers(deps) {
       return true;
     }
     if (req.method === 'GET' && req.url === '/reflect') {
+      let reflection;
+      try {
+        reflection = reflectEndpoints();
+      } catch (error) {
+        if (error.code !== 'pricing_resolution_error') throw error;
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: {
+          type: 'pricing_resolution_error',
+          message: 'AI-credit pricing resolution failed; accounting could not be completed.',
+        } }));
+        return true;
+      }
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(reflectEndpoints()));
+      res.end(JSON.stringify(reflection));
       return true;
     }
     return false;
