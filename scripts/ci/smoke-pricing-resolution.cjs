@@ -38,6 +38,12 @@ const log = () => {};
 const context = { provider: 'copilot', catalogue: null, requestId: 'smoke', logRequest: log };
 const charge = (model, options = {}, tokens = 1000000) =>
   computeTokenBudgetUsage({ ...context, ...options }, { input_tokens: tokens }, model);
+const assertEstimated = (model, options = {}) => {
+  const usage = charge(model, options);
+  assert.equal(usage.ai_credits_pricing_source, 'median_estimate');
+  assert.equal(usage.ai_credits_accounting_policy, 'backend_median_estimate');
+  return usage;
+};
 const runtime = (model, prices) => ({ copilot: [{
   id: model, provider: 'copilot', observedAt: '2026-10-23T00:00:00Z',
   pricing: { default: prices },
@@ -56,7 +62,7 @@ function chargeHttpAndWebSocket(provider, model, expectedCredits, tokens = 10000
   const observed = [];
   const tiers = [];
   const options = {
-    requestId: 'smoke-source', provider, path: '/chat/completions',
+    requestId: `smoke-source-${process.pid}`, provider, path: '/chat/completions',
     startTime: Date.now(), metrics: { increment: log, observe: log, gauge: log },
     requestModel: model,
     onUsage: (usage, reportedModel) => {
@@ -122,12 +128,15 @@ async function main() {
   assert.equal(guard.getAiCreditsBlockState().maxExceeded, true);
   reset();
   for (const provider of ['copilot', 'openai', 'perceptron', 'custom-backend', undefined]) {
-    assert.equal(charge('perceptron/perceptron-mk1', { provider }), undefined);
-    assert.equal(charge('perceptron-mk1', { provider }), undefined);
+    for (const model of ['perceptron/perceptron-mk1', 'perceptron-mk1']) {
+      if (['copilot', 'openai'].includes(provider)) assertEstimated(model, { provider });
+      else assert.equal(charge(model, { provider }), undefined);
+    }
   }
   assert.equal(charge('gpt-5.4', { provider: 'unassociated-backend' }), undefined);
-  assert.equal(charge('openai/gpt-5.4', { provider: 'copilot' }), undefined);
+  assertEstimated('openai/gpt-5.4', { provider: 'copilot' });
   assert.equal(guard.checkModelPricing('perceptron-mk1', 'custom-backend'), null);
+  reset();
   assert.equal(guard.getAiCreditsReflectState().total, 0);
   assert.equal(guard.applyAiCreditsUsage({
     input_tokens: 1000000, output_tokens: 1000000,
@@ -139,7 +148,7 @@ async function main() {
       input_tokens: 1000000, cache_write_tokens: 1000000,
     }, model, 'openrouter').aiCreditsThisResponse, credits);
   }
-  assert.equal(charge('openai/gpt-4-turbo', { provider: 'openrouter' }), undefined);
+  assertEstimated('openai/gpt-4-turbo', { provider: 'openrouter' });
   assert.equal(charge('openai/gpt-4-turbo:batch', { provider: 'openrouter' })
     .ai_credits_this_response, 500);
   for (const [model, tokens, credits, tier] of [
@@ -193,7 +202,7 @@ async function main() {
         process.env.AWF_MAX_AI_CREDITS = '400';
         assert.equal(guard.getAiCreditsBlockState().maxExceeded, false);
       }
-      assert.equal(charge(model, { provider: 'copilot' }), undefined);
+      assertEstimated(model, { provider: 'copilot' });
       assert.equal(charge('shared-slug', { provider: 'smoke-a' }), undefined);
     }
     reset();
@@ -206,7 +215,7 @@ async function main() {
       assert.equal(usage.aiCreditsThisResponse, expected);
     }
     for (const model of ['smoke-a/null-model', 'smoke-a/missing-model', 'smoke_a/shared-slug']) {
-      assert.equal(charge(model, { provider: 'openrouter' }), undefined);
+      assertEstimated(model, { provider: 'openrouter' });
     }
     assert.throws(() => charge('smoke-a/exact_model-20261212', { provider: 'openrouter' }),
       { code: 'pricing_resolution_error' });
@@ -266,11 +275,34 @@ async function main() {
   });
   assert.equal(zero.ai_credits_this_response, 0);
   assert.equal(zero.ai_credits_pricing_source, 'provider');
-  assert.equal(charge('smoke-model', { runtimeCatalog: partial }), undefined);
-  assert.equal(guard.getAiCreditsReflectState().total, 0);
-  assert.equal(charge('concrete-unpriced'), undefined);
+  assert.equal(charge('smoke-model', { runtimeCatalog: partial }).ai_credits_pricing_source, 'provider');
+  assertEstimated('concrete-unpriced');
   assert.equal(charge('auto').ai_credits_pricing_source, 'dynamic_selector_fallback');
   assert.equal(charge('unknown').ai_credits_pricing_source, 'builtin_fallback');
+
+  // The actual HTTP/WebSocket trackers must charge the exact even-count median,
+  // reflect its estimate, and retain sub-projection precision in budget checks.
+  for (const [low, blocked] of [
+    ['0.999999999999999999999999999997', false], ['1', true],
+  ]) {
+    reset();
+    process.env.AWF_MODEL_PRICING_CATALOG = JSON.stringify({
+      schemaVersion: 1, unit: 'USD_PER_1M_TOKENS', catalogId: 'smoke-median', version: 'v1',
+      providers: { 'smoke-median': { models: {
+        a: { ...rates, input: low }, b: { ...rates, input: '1.000000000000000000000000000001' },
+      } } },
+    });
+    process.env.AWF_MAX_AI_CREDITS = '2';
+    chargeHttpAndWebSocket('smoke-median', 'missing', 1, 10000);
+    assert.equal(guard.getAiCreditsBlockState().maxExceeded, blocked);
+    const reflected = guard.getAiCreditsReflectState().by_model.missing;
+    assert.equal(reflected.pricing_source, 'median_estimate');
+    assert.equal(reflected.accounting_policy, 'backend_median_estimate');
+    assert.equal(reflected.pricing_estimate.donorCount, 2);
+    assert.equal(reflected.fallback_pricing_used, true);
+    assert.equal(charge('missing', { provider: 'smoke-median' }, 10000)
+      .ai_credits_pricing_estimate.basis, 'backend');
+  }
 
   // Both real protocol trackers must retain charges smaller than their public
   // six-place response values, and enforce unrounded budgets/steering.
@@ -388,6 +420,25 @@ async function main() {
     assert.equal(charge(model, { catalogue: pinned, runtimeCatalog: {} }).ai_credits_this_response, 200);
     assert.equal(charge(model, { catalogue: loader.capture(), runtimeCatalog: {} }).ai_credits_this_response, 400);
     assert.equal(charge(model, { catalogue: pinned }).ai_credits_pricing_catalog_version, pinned.revision);
+    reset();
+    const familyPin = { ...pinned, snapshot: structuredClone(pinned.snapshot) };
+    const familyDonor = familyPin.snapshot.models[0];
+    familyDonor.identity.family = 'smoke-family';
+    const secondDonor = structuredClone(familyDonor);
+    secondDonor.identity = { ...secondDonor.identity, rawId: 'median-second',
+      lookupId: 'median-second', key: 'copilot/median-second' };
+    secondDonor.tariffs[0].components.input.price = '4';
+    const missing = structuredClone(secondDonor);
+    missing.identity = { ...missing.identity, rawId: 'median-missing',
+      lookupId: 'median-missing', key: 'copilot/median-missing' };
+    missing.tariffs = [];
+    familyPin.snapshot.models.push(secondDonor, missing);
+    chargeHttpAndWebSocket('copilot', 'median-missing', 300, 1000000, 'default', 600, {}, {
+      catalogue: familyPin, runtimeCatalog: {},
+    });
+    const familyEstimate = guard.getAiCreditsReflectState().by_model['median-missing'];
+    assert.equal(familyEstimate.accounting_policy, 'family_median_estimate');
+    assert.equal(familyEstimate.pricing_estimate.donorCount, 2);
     const decimalPin = { ...pinned, snapshot: structuredClone(pinned.snapshot) };
     decimalPin.snapshot.models[0].tariffs[0].components.input.price = '0.999999999999999999999999999999';
     reset();
@@ -451,7 +502,7 @@ async function main() {
     assert.equal(charge('smoke-model').ai_credits_this_response, 900);
   } finally {
     await loader.stop();
-    closeLogStream();
+    await closeLogStream();
     fs.rmSync(cacheDirectory, { recursive: true, force: true });
   }
 
@@ -522,7 +573,22 @@ async function main() {
   assert.match(response, /500 Internal Server Error/);
   assert.match(response, /pricing_resolution_error/);
   assert.equal(destroyed, true);
-  closeLogStream();
+  await closeLogStream();
+  const records = fs.readFileSync(load('token-tracker').TOKEN_LOG_FILE, 'utf8')
+    .trim().split('\n').map(line => JSON.parse(line));
+  for (const [model, basis, count] of [['missing', 'backend', 4], ['median-missing', 'family', 2]]) {
+    const estimated = records.filter(record => record.request_id === `smoke-source-${process.pid}` &&
+      record.model === model &&
+      record.ai_credits_pricing_source === 'median_estimate');
+    assert.equal(estimated.length, count);
+    assert.deepEqual([...new Set(estimated.map(record => record.path))].sort(),
+      ['/chat/completions', '/responses']);
+    for (const record of estimated) {
+      assert.equal(record.ai_credits_pricing_estimate.basis, basis);
+      assert.equal(record.ai_credits_pricing_estimate.donorCount, 2);
+      assert.match(record.ai_credits_pricing_estimate.tariffFingerprint, /^[a-f0-9]{64}$/);
+    }
+  }
   assert.equal(networkCalls, 0);
   console.log(JSON.stringify({ event: 'pricing_resolution_smoke_passed', networkCalls }));
 }

@@ -377,7 +377,9 @@ test('configured v1 and operator authorities remain above runtime central prices
     resetModelPricingCatalogForTests();
     resetProviderPricingOverlaysForTests();
     process.env.COPILOT_PROVIDER_API_KEY = 'fixture-byok-not-a-real-key';
-    expect(usage()).toBeNull();
+    expect(usage()).toMatchObject({
+      pricingSource: 'median_estimate', pricingEstimate: { sources: ['curated'] },
+    });
   } finally {
     for (const key of keys) {
       if (saved[key] === undefined) delete process.env[key];

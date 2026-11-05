@@ -103,6 +103,8 @@ function resetModelPricingCatalogForTests() {
 }
 
 module.exports = {
+  getConfiguredPricingModelIds: provider => [...new Set(getProviderAliases(provider)
+    .flatMap(alias => Object.keys(getCatalog()?.providers[alias]?.models || {})))],
   getConfiguredPricingFact,
   resolveModelPricingCatalog,
   resetModelPricingCatalogForTests,

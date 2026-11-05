@@ -118,9 +118,14 @@ Out-of-bound imported decimals fail explicitly rather than underflowing to free.
 
 Native/custom requests outside the explicit associations, and requests that
 previously borrowed another backend's same-slug price, may now be unpriced.
-Concrete unpriced requests still warn and proceed; usage is excluded from
-AI-credit totals, so budget enforcement can undercount spending. Use an explicit
-operator/configured tariff or configured default where needed. Price coverage is
+Concrete requests without exact/default pricing now warn and use the exact
+per-component median of applicable same-backend declared-family tariffs, or
+the backend-wide median when no family donors exist. These accounting estimates
+contribute to credits and budgets; only a backend with no eligible donors remains
+unpriced/excluded, with an explicit undercount warning. See
+[missing model pricing](awf-config-spec.md#1033-missing-model-pricing-warnings)
+for donor, optional-component and provenance semantics. Use an explicit
+operator/configured tariff or configured default for verified rates. Price coverage is
 not execution admission. Existing recovery, opt-outs, dynamic-selector ceilings,
 unknown-sentinel fallback, budget guards and accounting-error dispatch blocking
 remain active.

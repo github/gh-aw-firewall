@@ -126,6 +126,14 @@ function resetProviderPricingOverlaysForTests() {
 }
 
 module.exports = {
+  getProviderPricingModelIds: provider => {
+    const providers = getProviders();
+    for (const alias of getProviderAliases(provider)) {
+      const models = providers?.[alias]?.models;
+      if (models && typeof models === 'object' && !Array.isArray(models)) return Object.keys(models);
+    }
+    return [];
+  },
   getProviderAliases,
   getProviderPricingFact,
   resolveProviderPricingOverlay,
