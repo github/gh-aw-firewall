@@ -542,6 +542,19 @@ merely producing a FAIL summary. Evidence artifacts identify the tested source
 commit and retain logs for seven days. A failed VM artifact build does not
 suppress Docker jobs or the other VM runtime's jobs.
 
+After all builds and matrix jobs finish, a deterministic reporting job creates
+one GitHub issue if any build or regression job failed, without changing the
+failing Actions status. The report links the run attempt and each failed job,
+lists failed step names, and identifies the tested source revision (or explicitly
+notes when the build could not publish it). Only job metadata is published, not
+logs, prompts, credentials, or artifacts. Issue-write and Actions-read access are
+limited to the reporting job.
+
+Failing reruns update the same run's issue, including closed issues without
+reopening them, using the latest job results across attempts for partial reruns.
+Successful and cancelled-only runs create no issue; a successful rerun leaves
+any earlier failure report unchanged.
+
 Required credentials follow the existing smoke workflows: Copilot uses
 `COPILOT_GITHUB_TOKEN` or the job token with `copilot-requests: write`; Codex uses
 `CODEX_API_KEY` or `OPENAI_API_KEY`; Claude uses `ANTHROPIC_API_KEY`. Agent CLI
