@@ -12,6 +12,38 @@ const WORKFLOW =
   'github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor-enclaves.yml';
 const PUBLIC_REPOS = [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }];
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
+const REGRESSION_WORKFLOW_REF = `${CLOUD_HYPERVISOR_REGRESSION_SIGNER_WORKFLOW}@refs/heads/main`;
+
+function parseGitHubOidcClaims(): Record<string, unknown> | undefined {
+  const token = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  if (!token) return undefined;
+  const parts = token.split('.');
+  if (parts.length < 2) return undefined;
+  try {
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+    const payload = Buffer.from(b64 + pad, 'base64').toString('utf8');
+    const parsed: unknown = JSON.parse(payload);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function hasExpectedRegressionWorkflowIdentity(): boolean {
+  const claims = parseGitHubOidcClaims();
+  if (!claims) return false;
+  const repository = claims.repository;
+  const ref = claims.ref;
+  const eventName = claims.event_name;
+  const workflowRef = claims.job_workflow_ref;
+  const sha = claims.sha;
+  return repository === 'gh-aw-firewall'
+    && ref === 'refs/heads/main'
+    && (eventName === 'schedule' || eventName === 'workflow_dispatch')
+    && workflowRef === REGRESSION_WORKFLOW_REF
+    && sha === CLOUD_HYPERVISOR_REGRESSION_COMMIT;
+}
 
 /** Only the source-pinned daily build may exercise these public agent profiles. */
 export function isCloudHypervisorDailyRegressionWorkflow(config: WrapperConfig): boolean {
@@ -25,7 +57,8 @@ export function isCloudHypervisorDailyRegressionWorkflow(config: WrapperConfig):
     || process.env.GITHUB_REF !== 'refs/heads/main'
     || process.env.GITHUB_SHA !== commit
     || process.env.GITHUB_WORKFLOW_SHA !== commit
-    || process.env.GITHUB_WORKFLOW_REF !== `${CLOUD_HYPERVISOR_REGRESSION_SIGNER_WORKFLOW}@refs/heads/main`
+    || process.env.GITHUB_WORKFLOW_REF !== REGRESSION_WORKFLOW_REF
+    || !hasExpectedRegressionWorkflowIdentity()
     || config.containerRuntime !== 'cloud-hypervisor'
     || config.imageTag !== commit
     || config.enableApiProxy !== true
