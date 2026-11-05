@@ -362,6 +362,28 @@ Pricing is provider- and channel-scoped. A tariff contains:
 Maintained decimal prices are stored without binary floating-point loss and
 converted to an exact internal unit for accounting.
 
+The active Phase 5 arithmetic implementation uses bounded nonnegative rational
+values through source normalization, unit/batch conversion, shared tariff
+selection, token charges and per-model/process accumulation. Public rate views
+remain Numbers with private exact companions; request/connection captures retain
+both without serializing internal values. Maintained generated rates retain their
+source decimal strings. Legacy numeric inputs preserve their available
+`String(value)` representation only, never recovered source precision.
+
+Six-place credit rounding is output-only, nearest with exact ties upward;
+percent-used remains ceiling-clamped at two places. Budget/hard-cap and steering
+comparisons use unrounded totals and exact limits, including sub-output-unit
+charges. Thus `0.9999996` credits no longer exhausts a one-credit budget merely
+because it displays as one. Existing logs, reflection, telemetry and environment
+fields remain compatible output projections, not restartable exact ledgers.
+Unsupported decimals, unsafe token counts, arithmetic bounds and nonrepresentable
+outputs fail explicitly through sanitized pricing errors and subsequent dispatch
+blocking, not approximation or lower-authority fallback. See
+[exact-decimal accounting](../model-catalogue-publication.md#exact-decimal-accounting)
+for limits, examples and provider-free distributed HTTP/WebSocket coverage.
+This authoritative slice preserves source scopes and leaves #10295 and #10290
+open; no new promotion, successor or generalized tariff behavior is activated.
+
 An omitted price is not automatically zero. An unavailable cache-write price is
 different from a published zero-cost cache write.
 

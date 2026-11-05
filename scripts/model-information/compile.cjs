@@ -8,6 +8,7 @@ const { identity } = require('../../shared/model-information/identity');
 const { validate, validateRecords } = require('../../shared/model-information/contracts');
 const { importLegacySnapshot } = require('../../shared/model-information/import-legacy-snapshot');
 const schema = require('../../shared/model-information/schema.v1.json');
+const exact = require('../../shared/model-information/exact-pricing');
 
 const rootArgument = process.argv.find(arg => arg.startsWith('--root='));
 if (rootArgument && !process.argv.includes('--check')) {
@@ -21,7 +22,7 @@ if (sourceArgument && !process.argv.includes('--check')) {
 const sources = sourceArgument
   ? path.resolve(sourceArgument.slice('--source-dir='.length))
   : path.join(root, 'shared/model-information/sources');
-const compilerVersion = 5;
+const compilerVersion = 6;
 const read = file => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
 const json = value => `${JSON.stringify(value, null, 2)}\n`;
@@ -330,10 +331,11 @@ function compile() {
           ? !Number.isSafeInteger(tariff.promptTokensAbove) || tariff.promptTokensAbove <= 0
           : tariff.promptTokensAbove !== undefined) ||
         ['input', 'cachedInput', 'cacheWrite', 'output'].some(field => !tariff.components[field]) ||
-        Object.entries(tariff.components).some(([field, item]) =>
-          typeof item.price === 'object' ? field !== 'cacheWrite' :
-            !Number.isFinite(Number(item.price)) ||
-              (Number(item.price) === 0 && /[1-9]/.test(item.price)))) ||
+        Object.entries(tariff.components).some(([field, item]) => {
+          if (typeof item.price === 'object') return field !== 'cacheWrite';
+          exact.decimal(item.price);
+          return false;
+        })) ||
         tariffs.filter(tariff => tariff.tier === 'default').length !== 1 ||
         tariffs.filter(tariff => tariff.tier === 'long_context').length > 1) {
       throw new Error(`Unsupported maintained fallback tariff: ${model.identity.key}`);
@@ -342,7 +344,7 @@ function compile() {
       ? model.identity.lookupId : model.identity.rawId;
     const convert = tariff => ({
       ...Object.fromEntries(Object.entries(tariff.components).map(([key, item]) =>
-        [key, typeof item.price === 'object' ? null : Number(item.price)])),
+        [key, typeof item.price === 'object' ? null : item.price])),
       ...(tariff.promptTokensAbove !== undefined ? { threshold: tariff.promptTokensAbove } : {}),
     });
     const base = tariffs.find(tariff => tariff.tier === 'default');
@@ -365,9 +367,9 @@ function compile() {
         const rate = pricing[name];
         const project = values => ({
           ...(values.threshold !== undefined ? { threshold: values.threshold } : {}),
-          input: values.input, cachedInput: values.cachedInput,
-          cacheWrite: values.cacheWrite, output: values.output,
-          reasoning: values.reasoning ?? (data.reasoningMatchesOutput ? values.output : undefined),
+          input: Number(values.input), cachedInput: Number(values.cachedInput),
+          cacheWrite: values.cacheWrite === null ? null : Number(values.cacheWrite), output: Number(values.output),
+          reasoning: Number(values.reasoning ?? (data.reasoningMatchesOutput ? values.output : undefined)),
         });
         return [name, {
           ...project(rate),
@@ -403,8 +405,13 @@ function compile() {
       !nativeCompatibility.additionalModels) {
     throw new Error('pricing-reference.json: expected explicit legacy native compatibility policy');
   }
+  const withReasoning = tier => ({ ...tier, reasoning: tier.reasoning ?? tier.output });
   const compatibilityProviders = Object.fromEntries(Object.entries(referenceProviders).map(([provider, data]) =>
-    [provider, { ...data.models }]));
+    [provider, Object.fromEntries(Object.keys(data.models).map(name => {
+      const rate = pricing[name];
+      return [name, { ...withReasoning(rate),
+        ...(rate.longContext ? { longContext: withReasoning(rate.longContext) } : {}) }];
+    }))]));
   for (const [provider, names] of Object.entries(nativeCompatibility.additionalModels)) {
     if (!compatibilityProviders[provider] || !Array.isArray(names) ||
         new Set(names).size !== names.length ||
@@ -470,13 +477,14 @@ function compile() {
   errors.push(...validate('resolvedExport', JSON.parse(output['shared/model-information/target.generated.json'])));
   for (const file of ['contracts.js', 'contracts.d.ts', 'identity.js', 'identity.d.ts', 'resolution.js', 'resolution.d.ts',
     'eligibility.js', 'eligibility.d.ts', 'harness-observation.js', 'harness-observation.d.ts',
-    'pricing-resolution.js', 'pricing-resolution.d.ts', 'schema.v1.json',
+    'pricing-resolution.js', 'pricing-resolution.d.ts', 'exact-pricing.js', 'schema.v1.json',
     'publication.v1.schema.json', 'publication-contract.cjs', 'publication.cjs']) {
     output[`containers/api-proxy/catalogue-contract/${file}`] =
       fs.readFileSync(path.join(root, 'shared/model-information', file), 'utf8');
   }
   for (const file of ['identity.js', 'identity.d.ts', 'resolution.js', 'resolution.d.ts', 'eligibility.js', 'eligibility.d.ts',
-    'harness-observation.js', 'harness-observation.d.ts', 'pricing-resolution.js', 'pricing-resolution.d.ts']) {
+    'harness-observation.js', 'harness-observation.d.ts', 'pricing-resolution.js', 'pricing-resolution.d.ts',
+    'exact-pricing.js']) {
     output[`src/model-information-contract/${file}`] =
       fs.readFileSync(path.join(root, 'shared/model-information', file), 'utf8');
   }

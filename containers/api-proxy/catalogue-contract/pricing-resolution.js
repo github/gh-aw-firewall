@@ -1,6 +1,7 @@
 'use strict';
 
 const components = ['input', 'cachedInput', 'cacheWrite', 'output'];
+const exact = require('./exact-pricing');
 
 function reached(sources, name) {
   if (!Object.hasOwn(sources, name)) throw new Error('pricing_resolution_incomplete_sources');
@@ -14,10 +15,16 @@ function selectPricingFact(fact, tokens, preferredTier) {
   if (!fact) return null;
   const long = !!fact.longContext && (preferredTier
     ? preferredTier === 'long_context' : tokens > fact.threshold);
+  let pricing;
+  try {
+    pricing = exact.rates(long ? fact.longContext : fact.default);
+  } catch {
+    throw new Error('pricing_resolution_invalid_tariff');
+  }
   return {
     ...fact.metadata,
     ...(long ? fact.longMetadata : fact.defaultMetadata),
-    pricing: { ...(long ? fact.longContext : fact.default) },
+    pricing,
     source: fact.source,
     tier: long ? 'long_context' : (fact.tier || 'default'),
   };
@@ -58,10 +65,11 @@ function resolveCentralTariff(capture, fact) {
       source: 'central_feed', tier: tariff.tier,
       pricingCatalogId: source, pricingCatalogVersion: revision,
       observedAt: tariff.provenance.at,
-      pricing: Object.fromEntries(Object.entries(tariff.components).map(([field, item]) => [
+      pricing: exact.fromExact(Object.fromEntries(Object.entries(tariff.components).map(([field, item]) => [
         field, typeof item.price === 'object' ? null :
-          Number(item.price) * (tariff.unit === 'USD_PER_TOKEN' ? 1_000_000 : 1),
-      ])),
+          exact.multiply(exact.decimal(item.price),
+            exact.decimal(tariff.unit === 'USD_PER_TOKEN' ? 1_000_000 : 1)),
+      ]))),
     },
     componentSources: Object.fromEntries(Object.entries(tariff.components).map(([field, item]) => [
       field, { source: 'central_feed', tier: tariff.tier, observedAt: item.provenance.at,
@@ -108,12 +116,12 @@ function resolvePricing(capture) {
             if (!selected || !Object.hasOwn(selected.pricing, field)) {
               return outcome(capture, null, undefined, missingModelPricing);
             }
-            pricing[field] = selected.pricing[field];
+            pricing[field] = exact.rate(selected.pricing, field);
             componentSources[field] = componentProvenance(selected);
           }
           // Legacy incomplete/stale-provider merging returns only these four
           // components, even when the fallback has reasoning or tier metadata.
-          result = { ...runtime, pricing };
+          result = { ...runtime, pricing: exact.fromExact(pricing) };
         }
       }
     }

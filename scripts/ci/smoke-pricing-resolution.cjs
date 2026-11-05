@@ -28,7 +28,7 @@ const { computeTokenBudgetUsage } = load('token-budget-log');
 const guard = load('guards/ai-credits-guard');
 const { buildCommonGuardChecks } = load('guards/common-guard-checks');
 const { enforceWebSocketGuards } = load('websocket-guards');
-const { replaceRuntimeModels, clearRuntimeModels, captureRuntimePricing } = load('runtime-model-catalog');
+const { replaceRuntimeModels, clearRuntimeModels, captureRuntimePricing, parseProviderModelMetadata } = load('runtime-model-catalog');
 const { trackTokenUsage, trackWebSocketTokenUsage, closeLogStream } = load('token-tracker');
 const bundledPricing = load('model-information.fallback-pricing.generated.json');
 const maintainedPricing = load('model-information.pricing.generated.json');
@@ -51,7 +51,8 @@ const reset = () => {
   }
 };
 
-function chargeHttpAndWebSocket(provider, model, expectedCredits, tokens = 1000000, tier = 'default') {
+function chargeHttpAndWebSocket(provider, model, expectedCredits, tokens = 1000000, tier = 'default',
+  expectedTotal = expectedCredits * 2, extraUsage = {}, pricingOptions = {}) {
   const observed = [];
   const tiers = [];
   const options = {
@@ -59,14 +60,14 @@ function chargeHttpAndWebSocket(provider, model, expectedCredits, tokens = 10000
     startTime: Date.now(), metrics: { increment: log, observe: log, gauge: log },
     requestModel: model,
     onUsage: (usage, reportedModel) => {
-      const result = computeTokenBudgetUsage({ ...context, provider }, usage, reportedModel);
+      const result = computeTokenBudgetUsage({ ...context, provider, ...pricingOptions }, usage, reportedModel);
       observed.push(result.ai_credits_this_response);
       tiers.push(result.ai_credits_pricing_tier);
       return result;
     },
   };
   const payload = Buffer.from(JSON.stringify({
-    model, usage: { prompt_tokens: tokens, completion_tokens: 0, total_tokens: tokens },
+    model, usage: { prompt_tokens: tokens, completion_tokens: 0, total_tokens: tokens, ...extraUsage },
   }));
   const upstream = new EventEmitter();
   upstream.headers = { 'content-type': 'application/json' };
@@ -87,7 +88,7 @@ function chargeHttpAndWebSocket(provider, model, expectedCredits, tokens = 10000
   socket.emit('close');
   assert.deepEqual(observed, [expectedCredits, expectedCredits]);
   assert.deepEqual(tiers, [tier, tier]);
-  assert.equal(guard.getAiCreditsReflectState().total, expectedCredits * 2);
+  if (expectedTotal !== null) assert.equal(guard.getAiCreditsReflectState().total, expectedTotal);
 }
 
 async function main() {
@@ -109,7 +110,11 @@ async function main() {
     ['copilot', 'text-embedding-3-small', 2],
   ]) {
     reset();
+    if (fixtureSources && model === 'gpt-5-mini') process.env.AWF_MAX_AI_CREDITS = '150';
     chargeHttpAndWebSocket(provider, model, credits);
+    if (fixtureSources && model === 'gpt-5-mini') {
+      assert.equal(guard.getAiCreditsBlockState().maxExceeded, false);
+    }
   }
   reset();
   process.env.AWF_MAX_AI_CREDITS = '500';
@@ -184,6 +189,10 @@ async function main() {
     ]) {
       reset();
       chargeHttpAndWebSocket('openrouter', model, credits);
+      if (model === 'smoke-a/exact-model') {
+        process.env.AWF_MAX_AI_CREDITS = '400';
+        assert.equal(guard.getAiCreditsBlockState().maxExceeded, false);
+      }
       assert.equal(charge(model, { provider: 'copilot' }), undefined);
       assert.equal(charge('shared-slug', { provider: 'smoke-a' }), undefined);
     }
@@ -201,8 +210,10 @@ async function main() {
     }
     assert.throws(() => charge('smoke-a/exact_model-20261212', { provider: 'openrouter' }),
       { code: 'pricing_resolution_error' });
-    assert.throws(() => charge('smoke-a/underflow-model', { provider: 'openrouter' }),
-      { code: 'pricing_resolution_error' });
+    reset();
+    process.env.AWF_MAX_AI_CREDITS = `0.${'0'.repeat(328)}1`;
+    assert.equal(charge('smoke-a/underflow-model', { provider: 'openrouter' }).ai_credits_this_response, 0);
+    assert.equal(guard.getAiCreditsBlockState().maxExceeded, true);
   }
 
   reset();
@@ -261,6 +272,102 @@ async function main() {
   assert.equal(charge('auto').ai_credits_pricing_source, 'dynamic_selector_fallback');
   assert.equal(charge('unknown').ai_credits_pricing_source, 'builtin_fallback');
 
+  // Both real protocol trackers must retain charges smaller than their public
+  // six-place response values, and enforce unrounded budgets/steering.
+  reset();
+  process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify({
+    input: '0.0001', output: '0', cachedInput: '0', cacheWrite: null,
+  });
+  for (let i = 0; i < 500; i++) {
+    chargeHttpAndWebSocket('openai', 'exact-smoke', 0, 1, 'default', null);
+  }
+  assert.equal(guard.getAiCreditsReflectState().total, 0.00001);
+  assert.equal(guard.getAiCreditsReflectState().by_model['exact-smoke'].total, 0.00001);
+  guard.resetAiCreditsGuardForTests();
+  assert.equal(charge('exact-smoke', { provider: 'openai' }, 1000).ai_credits_this_response, 0.00001);
+  assert.equal(process.env.AWF_AI_CREDITS_USED, '0.00001');
+  for (const [price, blocked] of [
+    ['0.999999999999999999999999999999', false],
+    ['1', true], ['1.000000000000000000000000000001', true],
+  ]) {
+    reset();
+    process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify({ ...rates, input: price });
+    process.env.AWF_MAX_AI_CREDITS = '2';
+    chargeHttpAndWebSocket('openai', 'exact-smoke', 1, 10000);
+    assert.equal(guard.getAiCreditsBlockState().maxExceeded, blocked);
+  }
+  for (const [price, crossed] of [
+    ['0.799999999999999999999999999999', false], ['0.8', true],
+    ['0.800000000000000000000000000001', true],
+  ]) {
+    reset();
+    process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify({ ...rates, input: price });
+    process.env.AWF_MAX_AI_CREDITS = '2';
+    chargeHttpAndWebSocket('openai', 'exact-smoke', 0.8, 10000);
+    assert.equal(guard.getAiCreditsReflectState().thresholds_crossed.includes(80), crossed);
+  }
+  for (const [price, blocked] of [
+    ['4999.999999999999999999999999999999', false], ['5000', true],
+    ['5000.000000000000000000000000000001', true],
+  ]) {
+    reset();
+    process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify({ ...rates, input: price });
+    chargeHttpAndWebSocket('openai', 'exact-smoke', 5000, 10000);
+    assert.equal(guard.getAiCreditsBlockState()?.hardCap === true, blocked);
+  }
+  for (const [price, rounded] of [
+    ['0.004999999999999999999999999999', 0], ['0.005', 0.000001],
+    ['0.005000000000000000000000000001', 0.000001],
+  ]) {
+    reset();
+    process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify({ ...rates, input: price });
+    chargeHttpAndWebSocket('openai', 'exact-smoke', rounded, 1, 'default', 0.000001);
+  }
+  reset();
+  process.env.AWF_MODEL_PRICING_CATALOG = JSON.stringify({
+    schemaVersion: 1, unit: 'USD_PER_1M_TOKENS', catalogId: 'exact-config', version: 'v1',
+    providers: { openai: { models: { 'exact-smoke': {
+      input: '0.999999999999999999999999999999', output: '0', reasoning: '0',
+      cachedInput: '0', cacheWrite: null,
+    } } } },
+  });
+  process.env.AWF_MAX_AI_CREDITS = '2';
+  chargeHttpAndWebSocket('openai', 'exact-smoke', 1, 10000);
+  assert.equal(guard.getAiCreditsBlockState().maxExceeded, false);
+
+  reset();
+  process.env.AWF_API_PROXY_PROVIDERS = JSON.stringify({ openai: { models: {
+    'exact-smoke': { cost: {
+      input: '0.0000000099999999999999999999999999999', output: '0',
+    } },
+  } } });
+  process.env.AWF_MAX_AI_CREDITS = '0.000002';
+  chargeHttpAndWebSocket('openai', 'exact-smoke', 0.000001, 1);
+  assert.equal(guard.getAiCreditsBlockState().maxExceeded, false);
+
+  reset();
+  process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify({
+    input: '0.1', cachedInput: '0.02', cacheWrite: '0.03', output: '0.7', reasoning: '0.9',
+  });
+  chargeHttpAndWebSocket('openai', 'exact-smoke', 0.000646, 10, 'default', 0.001292, {
+    completion_tokens: 7,
+    prompt_tokens_details: { cached_tokens: 3 },
+    completion_tokens_details: { reasoning_tokens: 4 },
+  });
+
+  reset();
+  const providerRecords = parseProviderModelMetadata('copilot', { data: [{
+    id: 'exact-smoke', billing: { token_prices: { batch_size: '3', default: {
+      input_price: '0.1', output_price: '0', cache_read_price: '0', cache_write_price: '0',
+    } } },
+  }] });
+  replaceRuntimeModels('copilot', providerRecords);
+  const exactPin = captureRuntimePricing();
+  replaceRuntimeModels('copilot', runtime('exact-smoke', rates).copilot);
+  process.env.AWF_MAX_AI_CREDITS = '0.2';
+  chargeHttpAndWebSocket('copilot', 'exact-smoke', 0.1, 3, 'default', 0.2, {}, { runtimeCatalog: exactPin });
+  assert.equal(guard.getAiCreditsBlockState().maxExceeded, true);
+
   reset();
   let published = first;
   let reads = 0;
@@ -281,6 +388,14 @@ async function main() {
     assert.equal(charge(model, { catalogue: pinned, runtimeCatalog: {} }).ai_credits_this_response, 200);
     assert.equal(charge(model, { catalogue: loader.capture(), runtimeCatalog: {} }).ai_credits_this_response, 400);
     assert.equal(charge(model, { catalogue: pinned }).ai_credits_pricing_catalog_version, pinned.revision);
+    const decimalPin = { ...pinned, snapshot: structuredClone(pinned.snapshot) };
+    decimalPin.snapshot.models[0].tariffs[0].components.input.price = '0.999999999999999999999999999999';
+    reset();
+    process.env.AWF_MAX_AI_CREDITS = '2';
+    chargeHttpAndWebSocket('copilot', model, 1, 10000, 'default', 2, {}, {
+      catalogue: decimalPin, runtimeCatalog: {},
+    });
+    assert.equal(guard.getAiCreditsBlockState().maxExceeded, false);
     process.env.COPILOT_PROVIDER_API_KEY = 'provider-free-fixture';
     assert.notEqual(charge(model, { catalogue: pinned })?.ai_credits_pricing_source, 'central_feed');
     delete process.env.COPILOT_PROVIDER_API_KEY;
@@ -361,6 +476,33 @@ async function main() {
   assert.equal(guard.getAiCreditsReflectState().total, 0);
   assert.equal(guard.getAiCreditsReflectState().pricing_error, 'pricing_resolution_error');
   delete process.env.AWF_DEFAULT_AI_CREDITS_PRICING;
+  guard.resetAiCreditsGuardForTests();
+  replaceRuntimeModels('copilot', parseProviderModelMetadata('copilot', { data: [{
+    id: 'invalid-tariff', billing: { token_prices: {
+      batch_size: 1, default: { input_price: '1e999', output_price: '0' },
+    } },
+  }] }));
+  const failingSocket = new EventEmitter();
+  trackWebSocketTokenUsage(failingSocket, {
+    requestId: 'smoke-ws-accounting-failure', provider: 'copilot', path: '/responses',
+    requestModel: 'invalid-tariff', startTime: Date.now(),
+    metrics: { increment: log, observe: log, gauge: log },
+    onUsage: (usage, model) => computeTokenBudgetUsage(context, usage, model),
+  });
+  const failingPayload = Buffer.from(JSON.stringify({
+    model: 'invalid-tariff', usage: { prompt_tokens: 1, completion_tokens: 0 },
+  }));
+  const failingHeader = Buffer.alloc(4);
+  failingHeader[0] = 0x81;
+  failingHeader[1] = 126;
+  failingHeader.writeUInt16BE(failingPayload.length, 2);
+  failingSocket.emit('data', Buffer.concat([
+    Buffer.from('HTTP/1.1 101 Switching Protocols\r\n\r\n'), failingHeader, failingPayload,
+  ]));
+  failingSocket.emit('end');
+  failingSocket.emit('close');
+  assert.equal(guard.getAiCreditsReflectState().pricing_error, 'pricing_resolution_error');
+  assert.equal(guard.getAiCreditsReflectState().total, 0);
   const deps = Object.fromEntries([
     'getMaxRunsBlockState', 'getMaxCacheMissesBlockState', 'getPermissionDeniedBlockState',
     'getAiCreditsBlockState', 'getModelMultiplierCapBlockState', 'getRetiredModelBlockState',

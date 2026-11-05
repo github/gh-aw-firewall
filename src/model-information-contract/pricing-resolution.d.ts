@@ -22,14 +22,18 @@ export interface PricingMetadata {
 }
 export interface PricingFact {
   source: PricingSource;
-  default: Readonly<TokenPrices>;
-  longContext?: Readonly<TokenPrices>;
+  /** Decimal strings retain source precision; Number inputs retain String(value) only. */
+  default: Readonly<SourceTokenPrices>;
+  longContext?: Readonly<SourceTokenPrices>;
   threshold?: number;
   tier?: string;
   metadata?: Readonly<PricingMetadata>;
   defaultMetadata?: Readonly<PricingMetadata>;
   longMetadata?: Readonly<PricingMetadata>;
 }
+export type SourceTokenPrices = {
+  [P in keyof TokenPrices]: P extends 'threshold' ? TokenPrices[P] : TokenPrices[P] | string;
+};
 export interface PricingProvenance {
   at: string;
   stale?: boolean;

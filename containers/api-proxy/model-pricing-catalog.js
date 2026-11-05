@@ -2,6 +2,7 @@
 
 const { getProviderAliases } = require('./provider-pricing-overlays');
 const { selectPricingFact } = require('./catalogue-contract/pricing-resolution');
+const exact = require('./catalogue-contract/exact-pricing');
 
 let cachedRaw;
 let cachedCatalog = null;
@@ -18,17 +19,14 @@ function normalizePricing(entry) {
   const normalizeTier = (tier, requireThreshold = false) => {
     if (!tier || typeof tier !== 'object' || Array.isArray(tier)) return null;
     const { input, output, cachedInput, cacheWrite, reasoning } = tier;
-    if (typeof input !== 'number' || !Number.isFinite(input) || input < 0 ||
-        typeof output !== 'number' || !Number.isFinite(output) || output < 0 ||
-        typeof cachedInput !== 'number' || !Number.isFinite(cachedInput) || cachedInput < 0 ||
-        (cacheWrite !== null && (typeof cacheWrite !== 'number' || !Number.isFinite(cacheWrite) || cacheWrite < 0)) ||
-        typeof reasoning !== 'number' || !Number.isFinite(reasoning) || reasoning < 0) {
+    if ([input, output, cachedInput, reasoning].some(value => value === undefined) ||
+        cacheWrite === undefined) {
       return null;
     }
     const threshold = tier.threshold;
     if (requireThreshold && (!Number.isFinite(threshold) || threshold <= 0)) return null;
     return {
-      pricing: { input, cachedInput, cacheWrite, output, reasoning },
+      pricing: exact.rates({ input, cachedInput, cacheWrite, output, reasoning }),
       ...(requireThreshold ? { threshold } : {}),
     };
   };
@@ -39,9 +37,10 @@ function normalizePricing(entry) {
 
   const longContext = normalizeTier(entry.longContext, true);
   if (!longContext) return null;
+  longContext.pricing.threshold = longContext.threshold;
   return {
     default: defaultTier.pricing,
-    longContext: { ...longContext.pricing, threshold: longContext.threshold },
+    longContext: longContext.pricing,
   };
 }
 

@@ -161,9 +161,17 @@ function getAutomaticRecoveryCandidates({ model, provider, body, url, req, isPer
     catalogue: req?.awfCatalogue, runtimeCatalog: req?.awfRuntimePricing,
   };
   const enforceCreditPricing = parsePositiveNumber(process.env.AWF_MAX_AI_CREDITS) !== null;
+  const isRecoveryCandidatePriceable = (candidate, route) => {
+    try {
+      return isModelPriceable(candidate, route, pricingOptions);
+    } catch (error) {
+      if (error.code === 'pricing_resolution_error') return false;
+      throw error;
+    }
+  };
   const permitted = (candidate, route) =>
     isModelEligible(candidate, route, req, { inputMode: 'native' }) &&
-    (!enforceCreditPricing || isModelPriceable(candidate, route, pricingOptions)) &&
+    (!enforceCreditPricing || isRecoveryCandidatePriceable(candidate, route)) &&
     (isPermitted
       ? isPermitted(candidate, route)
       : getCurrentGuardChecks(candidate, provider, pricingOptions)
