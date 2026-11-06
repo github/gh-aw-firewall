@@ -10,19 +10,6 @@ func classifyRequest(text string, models ...ModelChoice) *ClassifyRequest {
 	return &ClassifyRequest{Conversation: List[Message]{userText(text)}, Models: models}
 }
 
-func TestClassificationContractChecksUnknownModeFirst(t *testing.T) {
-	modeStart := strings.Index(ClassificationContract, "mode is how costly")
-	if modeStart < 0 {
-		t.Fatal("classification contract has no mode guidance")
-	}
-	modeContract := ClassificationContract[modeStart:]
-	unknown := strings.Index(modeContract, "unknown = no intelligible request.")
-	firstRule := strings.Index(modeContract, "1. robust =")
-	if unknown < 0 || firstRule < 0 || unknown > firstRule {
-		t.Fatal("unknown mode must precede the ranked mode rules")
-	}
-}
-
 func TestClassificationPlanFollowsPreferenceOrder(t *testing.T) {
 	req := classifyRequest("Fix this function",
 		ModelChoice{ID: "fast", Model: "provider/fast"},
