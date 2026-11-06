@@ -315,8 +315,15 @@ describe('Cloud Hypervisor artifact trust', () => {
   it('resolves a trusted operator UID without requiring a GID', () => {
     jest.spyOn(process, 'getuid').mockReturnValue(0);
     jest.spyOn(process, 'getgid').mockReturnValue(0);
+    const sudoGid = process.env.SUDO_GID;
+    delete process.env.SUDO_GID;
     process.env.SUDO_UID = '2001';
-    expect(resolveTrustedOperatorUid()).toBe(2001);
+    try {
+      expect(resolveTrustedOperatorUid()).toBe(2001);
+    } finally {
+      if (sudoGid === undefined) delete process.env.SUDO_GID;
+      else process.env.SUDO_GID = sudoGid;
+    }
   });
 
   it.each(['0x10', '1e3', '4294967295', '9007199254740992'])(
