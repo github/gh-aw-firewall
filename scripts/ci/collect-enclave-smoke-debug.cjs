@@ -42,8 +42,8 @@ const MAX_STREAM_BYTES = 1024 * 1024;
 const MAX_FILES = 32;
 const MAX_RUN_PROJECTION_FILES = 4;
 const MAX_STATUS_BYTES = 4096;
-const MAX_PUBLISHED_FILES = MAX_FILES + MAX_RUN_PROJECTION_FILES + 2;
-const MAX_PUBLISHED_BYTES = (MAX_FILES + MAX_RUN_PROJECTION_FILES) * MAX_STREAM_BYTES + 2 * MAX_STATUS_BYTES;
+const MAX_PUBLISHED_FILES = MAX_FILES + MAX_RUN_PROJECTION_FILES + 3;
+const MAX_PUBLISHED_BYTES = (MAX_FILES + MAX_RUN_PROJECTION_FILES) * MAX_STREAM_BYTES + 3 * MAX_STATUS_BYTES;
 const MAX_DIRECTORY_ENTRIES = 4096;
 const MAX_USAGE_BYTES = 16 * 1024;
 const ID = /^[a-f0-9]{32}$/;
@@ -701,6 +701,71 @@ function startupFiles(runDirectory, backend, uid) {
   }
 }
 
+const FINALIZATION_REASONS = Object.freeze({
+  'awf-stop': ['none', 'stop-request-failed', 'stop-failed'],
+  'awf-exit': ['none', 'nonzero-exit', 'signal', 'not-exited'],
+  'audit-presence': ['none', 'missing', 'unsafe', 'io-error'],
+  'audit-schema': ['none', 'invalid'],
+  'audit-invocation': ['none', 'count', 'repository', 'sensitivity', 'failure-record'],
+  'awf-cleanup': ['none', 'incomplete-audit', 'work-dir-present', 'io-error'],
+  'gateway-cleanup': ['none', 'remove-failed'],
+  'stop-file-cleanup': ['none', 'remove-failed'],
+  'diagnostic-retention': ['none', 'retention-failed'],
+});
+const PRIMARY_STAGES = ['configuration', 'gateway', 'launch', 'broker', 'gateway-readiness',
+  'primary-readiness', 'invocation', 'result'];
+
+function projectFinalization(value, backend) {
+  check(object(value) && value.schemaVersion === 1 && value.backend === backend
+    && ['docker', 'cloud-hypervisor'].includes(backend)
+    && ['copilot', 'codex', 'claude'].includes(value.agent)
+    && boolean(value.resultValidated) && object(value.checks), 'finalization-schema');
+  const checks = {};
+  for (const [gate, reasons] of Object.entries(FINALIZATION_REASONS)) {
+    const entry = value.checks[gate];
+    check(Array.isArray(entry) && entry.length === 2
+      && ['passed', 'failed', 'not-attempted', 'not-required'].includes(entry[0])
+      && reasons.includes(entry[1]) && (entry[0] === 'failed') === (entry[1] !== 'none'),
+    'finalization-schema');
+    checks[gate] = [...entry];
+  }
+  const failure = item => {
+    check(object(item) && (item.gate === 'primary'
+      ? PRIMARY_STAGES.includes(item.reason)
+      : typeof item.gate === 'string' && Object.prototype.hasOwnProperty.call(FINALIZATION_REASONS, item.gate)
+        && FINALIZATION_REASONS[item.gate].includes(item.reason) && item.reason !== 'none'),
+    'finalization-schema');
+    return { gate: item.gate, reason: item.reason };
+  };
+  check(Array.isArray(value.secondaryFailures)
+    && value.secondaryFailures.length <= Object.keys(FINALIZATION_REASONS).length, 'finalization-schema');
+  return Buffer.from(JSON.stringify({
+    schemaVersion: 1, component: 'enclave-regression-finalization', backend, agent: value.agent,
+    resultValidated: value.resultValidated, checks,
+    primaryFailure: value.primaryFailure === null ? null : failure(value.primaryFailure),
+    secondaryFailures: value.secondaryFailures.map(failure),
+  }) + '\n');
+}
+
+function retainFinalization(runDirectory, value, uid = 0, trustedRoot = '/') {
+  directory(runDirectory, uid, trustedRoot);
+  const prepared = JSON.parse(readRegular(path.join(runDirectory, 'baseline.json'), MAX_STREAM_BYTES, uid));
+  check(!fs.existsSync(path.join(runDirectory, 'collected')), 'prepared-scope', 'scope-already-collected');
+  const bytes = projectFinalization(value, prepared.binding?.backend);
+  check(bytes.length <= MAX_STATUS_BYTES, 'file-size', 'oversized');
+  fs.writeFileSync(path.join(runDirectory, 'finalization.json'), bytes, { mode: 0o600, flag: 'wx' });
+}
+
+function finalizationFiles(runDirectory, backend, uid) {
+  try {
+    const bytes = readRegular(path.join(runDirectory, 'finalization.json'), MAX_STATUS_BYTES, uid);
+    return [['finalization.json', projectFinalization(parseRecord(decodeUtf8(bytes, 'finalization-schema')), backend)]];
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
 function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, trustedRoot = '/', binding,
   privilegedUid = 0, stagingTrustedRoot = '/') {
   const stagingUid = binding ? privilegedUid : uid;
@@ -777,7 +842,8 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
   }
   const runtime = binding?.backend ?? roots.backend ?? 'cloud-hypervisor';
   check(['docker', 'cloud-hypervisor'].includes(runtime), 'prepared-scope');
-  const files = startupFiles(runDirectory, runtime, stagingUid);
+  const files = [...startupFiles(runDirectory, runtime, stagingUid),
+    ...finalizationFiles(runDirectory, runtime, stagingUid)];
   let envelope;
   if (debugInvocations.length) {
     const source = path.join(roots.debug, runId, invocation);
@@ -920,7 +986,7 @@ function assertPublicationBounds(files, status) {
 }
 
 module.exports = {
-  prepare, collect, retainStartup, projectStartup,
+  prepare, collect, retainStartup, projectStartup, retainFinalization, projectFinalization, FINALIZATION_REASONS,
   MAX_STREAM_BYTES, MAX_FILES, MAX_PUBLISHED_FILES, MAX_PUBLISHED_BYTES, MAX_STATUS_BYTES,
   directory, inventory, readRegular, projectProxyUsage, projectProxyResponse,
   projectProxyEvents, projectProxyContainerLog, isSafeCopilotAuthLogFields,
@@ -1037,11 +1103,12 @@ function publishCollectionFailure(runDirectory, runnerUid, runnerGid, error, uid
     fs.rmSync(pending, { recursive: true, force: true });
     const upload = path.join(runDirectory, 'upload');
     fs.mkdirSync(upload, { mode: 0o700 });
-    // Startup evidence is validated independently; a later collection failure
-    // must not erase the original launch failure or publish partial invocation data.
-    let startup = [];
-    try { startup = startupFiles(runDirectory, baseline.binding?.backend, uid); } catch { /* Fail closed. */ }
-    for (const [name, bytes] of startup) {
+    // Each harness record survives independently of invocation collection failures.
+    const harness = [];
+    for (const read of [startupFiles, finalizationFiles]) {
+      try { harness.push(...read(runDirectory, baseline.binding?.backend, uid)); } catch { /* Fail closed. */ }
+    }
+    for (const [name, bytes] of harness) {
       const target = path.join(upload, name);
       fs.writeFileSync(target, bytes, { mode: 0o600, flag: 'wx' });
       fs.chownSync(target, runnerUid, runnerGid);
@@ -1056,7 +1123,7 @@ function publishCollectionFailure(runDirectory, runnerUid, runnerGid, error, uid
 }
 
 function classifyFailure(error) {
-  const checks = ['startup-schema', 'operation-schema', 'session-schema', 'session-bound', 'stream-bound',
+  const checks = ['startup-schema', 'finalization-schema', 'operation-schema', 'session-schema', 'session-bound', 'stream-bound',
     'diagnostics-schema', 'diagnostics-identity',
     'retention-eligibility', 'stop-proof', 'stream-schema', 'coverage-schema', 'backend-schema', 'docker-stop-proof',
     'prepared-scope', 'run-budget', 'journal-schema', 'journal-identity', 'invocation-budget', 'proxy-run-identity',

@@ -350,6 +350,16 @@ If subsequent invocation collection fails, `startup.json` remains separate from
 `collection-status.txt`; successful collection alone does not establish startup
 or inference success.
 
+After finalization, the daily regression also emits
+`AWF_ENCLAVE_REGRESSION_FINALIZATION` and retains a bounded `finalization.json`.
+It records result validation separately from AWF stop/exit, audit presence,
+schema/invocation validation, cleanup, and diagnostic retention, preserving the
+first failure and subsequent failures without exception text or audit payloads.
+Both harness records are validated independently when invocation collection fails.
+The harness keeps its audit directory outside `workDir`, which AWF removes on
+shutdown; valid invocation output alone cannot override missing audit or incomplete
+cleanup.
+
 ```text
 node collector.cjs prepare BACKEND RUN_ID-RUN_ATTEMPT RUNNER_UID RUNNER_GID
 node collector.cjs collect BACKEND RUN_ID-RUN_ATTEMPT RUNNER_UID RUNNER_GID
