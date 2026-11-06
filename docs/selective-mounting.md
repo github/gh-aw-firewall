@@ -13,7 +13,7 @@ AWF implements **granular selective mounting** to protect against credential exf
 - Subdirectories with credentials (e.g., `~/.config/hub/config`) were fully accessible
 
 **Fixed Implementation**: As of v0.14.1, AWF uses **granular mounting**:
-- Mount **only** the workspace directory (`$GITHUB_WORKSPACE` or current working directory)
+- Mount **only** the workspace directory (`$GITHUB_WORKSPACE` or current working directory) and `/tmp`, plus selected system paths
 - Mount selected home tool directories and `~/.copilot/logs` separately for agent state
 - Apply `/dev/null` overlays as defense-in-depth
 - Never mount the entire `$HOME` directory
