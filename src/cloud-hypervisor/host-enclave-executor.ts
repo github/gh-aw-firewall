@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import { resolveOperatorIdentity } from '../sudo-identity';
 import { normalizeAgentPolicy } from '../enclave/execution-policy';
 import { readBoundedEnclaveResult as readBoundedCloudHypervisorEnclaveResult } from '../enclave/invocation-result';
 export { readBoundedEnclaveResult as readBoundedCloudHypervisorEnclaveResult } from '../enclave/invocation-result';
@@ -146,12 +147,11 @@ const defaultDependencies: HostEnclaveExecutorDependencies = {
   chown: fs.chown,
   rm: fs.rm,
   resolveIdentity: () => {
-    const uid = Number(process.env.SUDO_UID ?? process.getuid?.());
-    const gid = Number(process.env.SUDO_GID ?? process.getgid?.());
-    if (!Number.isSafeInteger(uid) || !Number.isSafeInteger(gid) || uid < 1 || gid < 1) {
+    const identity = resolveOperatorIdentity();
+    if (!identity) {
       throw new Error('Cloud Hypervisor enclave storage requires a non-root operator uid/gid');
     }
-    return { uid, gid };
+    return identity;
   },
 };
 
