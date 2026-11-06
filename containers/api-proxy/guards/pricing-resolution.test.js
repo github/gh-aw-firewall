@@ -242,6 +242,11 @@ test.each(['gpt-4o', 'gpt-4o-mini', 'gpt-4.1'])(
   'zero-batch Copilot model %s uses fallback accounting without disabling budgets',
   model => {
     replaceRuntimeModels('copilot', parseProviderModelMetadata('copilot', { data: [{
+      id: model, billing: { token_prices: { batch_size: 1, default: {
+        input_price: 0, output_price: 0, cache_read_price: 0, cache_write_price: 0,
+      } } },
+    }] }));
+    replaceRuntimeModels('copilot', parseProviderModelMetadata('copilot', { data: [{
       id: model, billing: { token_prices: { batch_size: 0, default: {
         input_price: 0, output_price: 0, cache_read_price: 0, cache_write_price: 0,
       } } },

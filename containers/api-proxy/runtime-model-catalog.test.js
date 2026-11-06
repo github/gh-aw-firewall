@@ -126,6 +126,11 @@ describe('runtime model catalog', () => {
     'treats a zero-batch all-zero %s tariff as missing pricing, not free',
     format => {
       const prices = { input_price: 0, output_price: '0', cache_read_price: '0.0', cache_write_price: 0 };
+      replaceRuntimeModels('copilot', parseProviderModelMetadata('copilot', {
+        data: [{ id: 'gpt-4o', billing: { token_prices: {
+          batch_size: 1, default: prices,
+        } } }],
+      }));
       const tokenPrices = format === 'legacy'
         ? { batch_size: 0, ...prices }
         : { batch_size: '0', default: prices,
@@ -135,8 +140,11 @@ describe('runtime model catalog', () => {
       });
       expect(records[0]).not.toHaveProperty('pricing');
       expect(records[0]).not.toHaveProperty('pricingError');
+      expect(records[0].pricingMissing).toBe(true);
       replaceRuntimeModels('copilot', records);
       expect(resolveRuntimePricing('copilot', 'gpt-4o')).toBeNull();
+      expect(getRuntimeModels('copilot')[0]).not.toHaveProperty('pricing');
+      expect(getRuntimeModels('copilot')[0]).not.toHaveProperty('pricingMissing');
       expect(getRuntimeCatalogSnapshot().copilot[0]).not.toHaveProperty('pricing_error');
     },
   );
