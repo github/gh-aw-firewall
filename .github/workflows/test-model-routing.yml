@@ -141,7 +141,7 @@ jobs:
           apiProxy:
             enabled: true
             allowedModels:
-              - github-copilot/gpt-5.6-sol
+              - github-copilot/claude-haiku-5.5
             routing:
               objective:
                 goal: cost
@@ -161,7 +161,7 @@ jobs:
           test -n "${COPILOT_API_URL:-}" || { echo "COPILOT_API_URL is missing" >&2; exit 1; }
           response="$(curl --fail --silent --show-error --max-time 120 \
             -H "Content-Type: application/json" \
-            --data "{\"model\":\"gpt-5.6-sol\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly ROUTED_OK.\"}],\"max_tokens\":16,\"stream\":false}" \
+            --data "{\"model\":\"claude-haiku-5.5\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly ROUTED_OK.\"}],\"max_tokens\":16,\"stream\":false}" \
             "${COPILOT_API_URL}/chat/completions")"
           node -e '
             const assert = require("node:assert/strict");
@@ -169,7 +169,7 @@ jobs:
             const text = result.choices?.[0]?.message?.content;
             assert.equal(typeof text, "string", "Copilot response contained no message text");
             assert.match(text, /ROUTED_OK/, "Copilot did not return the expected smoke response");
-            console.log("ROUTED_COPILOT_INFERENCE=passed model=gpt-5.6-sol");
+            console.log("ROUTED_COPILOT_INFERENCE=passed model=claude-haiku-5.5");
           ' "$response"
           SCRIPT
           )"
@@ -312,7 +312,7 @@ jobs:
             enabled: true
             allowedModels:
               - github-copilot/gpt-5.6-luna
-              - github-copilot/gpt-5.6-sol
+              - github-copilot/claude-haiku-4.5
           container:
             images:
               agent: ${AGENT_IMAGE}
@@ -355,11 +355,11 @@ jobs:
           }
 
           assert_responses "$(responses gpt-5.6-luna)"
-          assert_responses "$(responses gpt-5.6-sol)"
-          echo "CROSS_ENDPOINT_SUBAGENT=passed main=gpt-5.6-luna subagent=gpt-5.6-sol requested=/responses"
-          assert_chat "$(chat gpt-5.6-sol)"
+          assert_responses "$(responses claude-haiku-4.5)"
+          echo "CROSS_ENDPOINT_SUBAGENT=passed main=gpt-5.6-luna subagent=claude-haiku-4.5 requested=/responses"
+          assert_chat "$(chat claude-haiku-4.5)"
           assert_chat "$(chat gpt-5.6-luna)"
-          echo "CROSS_ENDPOINT_SUBAGENT=passed main=gpt-5.6-sol subagent=gpt-5.6-luna requested=/chat/completions"
+          echo "CROSS_ENDPOINT_SUBAGENT=passed main=claude-haiku-4.5 subagent=gpt-5.6-luna requested=/chat/completions"
           SCRIPT
           )"
           sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
@@ -387,7 +387,7 @@ jobs:
           apiProxy:
             enabled: true
             allowedModels:
-              - github-copilot/gpt-5.6-sol
+              - github-copilot/claude-haiku-5.5
               - github-copilot/gpt-5.6-luna
               - github-copilot/gpt-4o
             disallowedModels:
@@ -420,7 +420,7 @@ jobs:
             assert.equal(routing?.status, "selected", "/reflect did not report a routed selection: " + JSON.stringify(routing));
             const copilot = reflect.endpoints.find(endpoint => endpoint.provider === "copilot");
             assert.ok(copilot, "Copilot is missing from /reflect");
-            const expectedModels = ["gpt-5.6-sol", "gpt-5.6-luna"];
+            const expectedModels = ["claude-haiku-5.5", "gpt-5.6-luna"];
             assert.ok(Array.isArray(copilot.models), "Copilot model catalogue is missing");
             assert.deepEqual(
               [...copilot.models].sort(),
@@ -448,31 +448,25 @@ jobs:
               process.env.ROUTING_EVIDENCE_DIR + "/selection-" + process.env.ROUTING_TARGET + ".json",
               JSON.stringify(s) + "\n",
             );
-            const chatRequest = model => ({
-              path: "/chat/completions",
-              body: { model, messages: [{ role: "user", content: "Reply with exactly ROUTED_OK." }], max_tokens: 16, stream: false },
-            });
-            const responsesRequest = (model, effort) => ({
-              path: "/responses",
-              body: { model, input: "Reply with exactly ROUTED_OK.", reasoning: { effort }, max_output_tokens: 2048, stream: false },
-            });
+            // The routed choice carries the selected effort; the other candidate uses low.
+            const effort = model => (model === s.model ? (s.effort ?? "low") : "low");
             const candidates = {
-              "github-copilot/gpt-5.6-sol": chatRequest("gpt-5.6-sol"),
+              "github-copilot/claude-haiku-5.5": {
+                path: "/chat/completions",
+                body: { model: "claude-haiku-5.5", messages: [{ role: "user", content: "Reply with exactly ROUTED_OK." }], reasoning_effort: effort("github-copilot/claude-haiku-5.5"), max_tokens: 2048, stream: false },
+              },
               "github-copilot/gpt-5.6-luna": {
                 path: "/responses",
-                body: { model: "gpt-5.6-luna", input: "Reply with exactly ROUTED_OK.", reasoning: { effort: "low" }, max_output_tokens: 2048, stream: false },
+                body: { model: "gpt-5.6-luna", input: "Reply with exactly ROUTED_OK.", reasoning: { effort: effort("github-copilot/gpt-5.6-luna") }, max_output_tokens: 2048, stream: false },
               },
             };
             assert.ok(Object.hasOwn(candidates, s.model), "router selected a model outside the allow-list: " + s.model);
-            assert.equal(s.endpoint, s.effort === null ? "/chat/completions" : "/responses", "unexpected endpoint for " + s.model);
+            assert.equal(s.endpoint, candidates[s.model].path, "unexpected endpoint for " + s.model);
             console.error("ROUTED_SELECTION=" + JSON.stringify(s));
             const model = process.env.ROUTING_TARGET === "other"
               ? Object.keys(candidates).find(model => model !== s.model)
               : s.model;
-            const request = model === s.model
-              ? s.effort === null ? chatRequest(s.wire_model) : responsesRequest(s.wire_model, s.effort)
-              : candidates[model];
-            console.log(JSON.stringify({ model, ...request }));
+            console.log(JSON.stringify({ model, ...candidates[model] }));
           ' "$reflect")"
           path="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).path)' "$plan")"
           body="$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(process.argv[1]).body))' "$plan")"
@@ -586,12 +580,10 @@ jobs:
             assert.equal(inference.selected_endpoint, reflected.endpoint);
             assert.equal(inference.provider, "copilot");
             const requestedModel = target === "selected" ? reflected.wire_model
-              : ["gpt-5.6-sol", "gpt-5.6-luna"].find(model => model !== reflected.wire_model);
+              : ["claude-haiku-5.5", "gpt-5.6-luna"].find(model => model !== reflected.wire_model);
             assert.equal(inference.requested_model, requestedModel);
-            const requestedEndpoint = target === "selected" ? reflected.endpoint
-              : requestedModel === "gpt-5.6-luna" ? "/responses" : "/chat/completions";
-            const requestedEffort = target === "selected" ? reflected.effort
-              : requestedModel === "gpt-5.6-luna" ? "low" : null;
+            const requestedEndpoint = requestedModel === "gpt-5.6-luna" ? "/responses" : "/chat/completions";
+            const requestedEffort = requestedModel === reflected.wire_model ? (reflected.effort ?? "low") : "low";
             assert.equal(inference.pathname, requestedEndpoint);
             assert.equal(inference.requested_effort, requestedEffort);
             assert.equal(inference.routed, target === "selected" ? "as_selected" : "deviated");
@@ -690,7 +682,7 @@ jobs:
           apiProxy:
             enabled: true
             allowedModels:
-              - github-copilot/gpt-5.6-sol
+              - github-copilot/claude-haiku-5.5
               - github-copilot/gpt-5.6-luna
             routing:
               objective:
