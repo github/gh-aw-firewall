@@ -49,7 +49,7 @@ func TestInferLabels(t *testing.T) {
 		{"Fix the architecture regression in this module", TaskFix, ScopeSubsystem},
 		{"Add an error counter to this function", TaskImplement, ScopeLocal},
 		{"Could you please fix this file?", TaskFix, ScopeLocal},
-		{"Explain the architecture bug", TaskExplain, ScopeSubsystem},
+		{"Explain the architecture bug", TaskAnalyze, ScopeSubsystem},
 		{"Plan a fix across services", TaskPlan, ScopeCrossSystem},
 		{"Compare both files", TaskPlan, ScopeMultiFile},
 		{"Rename this function", TaskRefactor, ScopeLocal},

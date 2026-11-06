@@ -271,7 +271,7 @@ describe('routing controller', () => {
 
   it('records a classified selection when the classifier reply is fenced', async () => {
     const classification = {
-      labels: { task_type: 'explain', scope: 'local', task_complexity: 'unknown' },
+      labels: { task_type: 'analyze', scope: 'local', task_complexity: 'unknown' },
       mode: 'economy',
     };
     const { controller, calls, records } = createHarness({
