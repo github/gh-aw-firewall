@@ -85,7 +85,7 @@ var leadRules = []struct {
 	taskType TaskType
 	leads    cues
 }{
-	{TaskExplain, explainLeads},
+	{TaskAnalyze, explainLeads},
 	{TaskFix, fixLeads},
 	{TaskPlan, planLeads},
 	{TaskChore, choreLeads},
@@ -130,7 +130,7 @@ func inferTaskType(text string) TaskType {
 	case fixSymptoms.anywhere(text):
 		return TaskFix
 	case explainCues.anywhere(text), questionLeads.leads(action), questionCues.anywhere(text):
-		return TaskExplain
+		return TaskAnalyze
 	case choreCues.anywhere(text):
 		return TaskChore
 	case refactorCues.anywhere(text):

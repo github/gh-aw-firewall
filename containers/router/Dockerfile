@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG VERSION=0.2.1
+ARG VERSION=0.3.0
 
 # The builder runs on the build machine and cross-compiles, so multi-platform builds need no
 # emulation. The runtime image has no shell, so every check runs here.

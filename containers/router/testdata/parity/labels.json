@@ -4,7 +4,7 @@
       "description": "The explain-lead cue 'explain'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-lead-explain",
       "text": "explain the widget"
@@ -13,7 +13,7 @@
       "description": "The explain-lead cue 'summarize'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-lead-summarize",
       "text": "summarize the widget"
@@ -22,7 +22,7 @@
       "description": "The explain-lead cue 'summarise'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-lead-summarise",
       "text": "summarise the widget"
@@ -31,7 +31,7 @@
       "description": "The explain-lead cue 'describe'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-lead-describe",
       "text": "describe the widget"
@@ -40,7 +40,7 @@
       "description": "The explain-lead cue 'walk me through'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-lead-walk_me_through",
       "text": "walk me through the widget"
@@ -49,7 +49,7 @@
       "description": "The explain-lead cue 'walk through'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-lead-walk_through",
       "text": "walk through the widget"
@@ -58,7 +58,7 @@
       "description": "The explain-lead cue 'clarify'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-lead-clarify",
       "text": "clarify the widget"
@@ -67,7 +67,7 @@
       "description": "The explain-lead cue 'elaborate'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-lead-elaborate",
       "text": "elaborate the widget"
@@ -1534,7 +1534,7 @@
       "description": "The explain-cue cue 'explain'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-cue-explain",
       "text": "i would like to explain the widget"
@@ -1543,7 +1543,7 @@
       "description": "The explain-cue cue 'summarize'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-cue-summarize",
       "text": "i would like to summarize the widget"
@@ -1552,7 +1552,7 @@
       "description": "The explain-cue cue 'summarise'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-cue-summarise",
       "text": "i would like to summarise the widget"
@@ -1561,7 +1561,7 @@
       "description": "The explain-cue cue 'summary of'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-cue-summary_of",
       "text": "i would like to summary of the widget"
@@ -1570,7 +1570,7 @@
       "description": "The explain-cue cue 'describe'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-cue-describe",
       "text": "i would like to describe the widget"
@@ -1579,7 +1579,7 @@
       "description": "The explain-cue cue 'clarify'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-cue-clarify",
       "text": "i would like to clarify the widget"
@@ -1588,7 +1588,7 @@
       "description": "The explain-cue cue 'elaborate'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-cue-elaborate",
       "text": "i would like to elaborate the widget"
@@ -1597,7 +1597,7 @@
       "description": "The explain-cue cue 'walk me through'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-cue-walk_me_through",
       "text": "i would like to walk me through the widget"
@@ -1606,7 +1606,7 @@
       "description": "The explain-cue cue 'walk through'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-cue-walk_through",
       "text": "i would like to walk through the widget"
@@ -1615,7 +1615,7 @@
       "description": "The explain-cue cue 'tell me about'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-cue-tell_me_about",
       "text": "i would like to tell me about the widget"
@@ -1624,7 +1624,7 @@
       "description": "The explain-cue cue 'understand'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-cue-understand",
       "text": "i would like to understand the widget"
@@ -1633,7 +1633,7 @@
       "description": "The explain-cue cue 'overview'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-cue-overview",
       "text": "i would like to overview the widget"
@@ -1642,7 +1642,7 @@
       "description": "The explain-cue cue 'high level'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "explain-cue-high_level",
       "text": "i would like to high level the widget"
@@ -1651,7 +1651,7 @@
       "description": "The question-lead cue 'why'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "question-lead-why",
       "text": "why the widget"
@@ -1660,7 +1660,7 @@
       "description": "The question-lead cue 'what'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "question-lead-what",
       "text": "what the widget"
@@ -1669,7 +1669,7 @@
       "description": "The question-lead cue 'how'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "question-lead-how",
       "text": "how the widget"
@@ -1678,7 +1678,7 @@
       "description": "The question-lead cue \"what's\"",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "question-lead-what-s",
       "text": "what's the widget"
@@ -1687,7 +1687,7 @@
       "description": "The question-lead cue 'whats'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "question-lead-whats",
       "text": "whats the widget"
@@ -1696,7 +1696,7 @@
       "description": "The question-cue cue 'why'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "question-cue-why",
       "text": "so why the widget"
@@ -1705,7 +1705,7 @@
       "description": "The question-cue cue 'what is'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "question-cue-what_is",
       "text": "so what is the widget"
@@ -1714,7 +1714,7 @@
       "description": "The question-cue cue 'what are'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "question-cue-what_are",
       "text": "so what are the widget"
@@ -1723,7 +1723,7 @@
       "description": "The question-cue cue 'what does'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "question-cue-what_does",
       "text": "so what does the widget"
@@ -1732,7 +1732,7 @@
       "description": "The question-cue cue 'what it does'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "question-cue-what_it_does",
       "text": "so what it does the widget"
@@ -1741,7 +1741,7 @@
       "description": "The question-cue cue 'what it is'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "question-cue-what_it_is",
       "text": "so what it is the widget"
@@ -1750,7 +1750,7 @@
       "description": "The question-cue cue \"what's\"",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "question-cue-what-s",
       "text": "so what's the widget"
@@ -1759,7 +1759,7 @@
       "description": "The question-cue cue 'how does'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "question-cue-how_does",
       "text": "so how does the widget"
@@ -1768,7 +1768,7 @@
       "description": "The question-cue cue 'how do'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "question-cue-how_do",
       "text": "so how do the widget"
@@ -1777,7 +1777,7 @@
       "description": "The question-cue cue 'where is'",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "question-cue-where_is",
       "text": "so where is the widget"
@@ -2965,7 +2965,7 @@
       "description": "A lead beats a symptom",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "order-lead-over-symptom",
       "text": "explain the error"
@@ -3010,7 +3010,7 @@
       "description": "A question beats a chore cue",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "order-question-over-chore",
       "text": "what is the lockfile"
@@ -3064,7 +3064,7 @@
       "description": "Whitespace runs collapse",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "normalize-whitespace",
       "text": "  walk \t\n through   the parser  "
@@ -3073,7 +3073,7 @@
       "description": "A newline inside a multi-word cue",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "normalize-split-cue",
       "text": "walk me\nthrough the parser"
@@ -3091,7 +3091,7 @@
       "description": "U+0009 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-0009",
       "text": "walk\tthrough the parser"
@@ -3100,7 +3100,7 @@
       "description": "U+000A separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-000A",
       "text": "walk\nthrough the parser"
@@ -3109,7 +3109,7 @@
       "description": "U+000B separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-000B",
       "text": "walk\u000bthrough the parser"
@@ -3118,7 +3118,7 @@
       "description": "U+000C separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-000C",
       "text": "walk\fthrough the parser"
@@ -3127,7 +3127,7 @@
       "description": "U+000D separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-000D",
       "text": "walk\rthrough the parser"
@@ -3136,7 +3136,7 @@
       "description": "U+001C separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-001C",
       "text": "walk\u001cthrough the parser"
@@ -3145,7 +3145,7 @@
       "description": "U+001D separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-001D",
       "text": "walk\u001dthrough the parser"
@@ -3154,7 +3154,7 @@
       "description": "U+001E separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-001E",
       "text": "walk\u001ethrough the parser"
@@ -3163,7 +3163,7 @@
       "description": "U+001F separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-001F",
       "text": "walk\u001fthrough the parser"
@@ -3172,7 +3172,7 @@
       "description": "U+0020 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-0020",
       "text": "walk through the parser"
@@ -3181,7 +3181,7 @@
       "description": "U+0085 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-0085",
       "text": "walk\u0085through the parser"
@@ -3190,7 +3190,7 @@
       "description": "U+00A0 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-00A0",
       "text": "walk\u00a0through the parser"
@@ -3199,7 +3199,7 @@
       "description": "U+1680 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-1680",
       "text": "walk\u1680through the parser"
@@ -3208,7 +3208,7 @@
       "description": "U+2000 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-2000",
       "text": "walk\u2000through the parser"
@@ -3217,7 +3217,7 @@
       "description": "U+2001 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-2001",
       "text": "walk\u2001through the parser"
@@ -3226,7 +3226,7 @@
       "description": "U+2002 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-2002",
       "text": "walk\u2002through the parser"
@@ -3235,7 +3235,7 @@
       "description": "U+2003 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-2003",
       "text": "walk\u2003through the parser"
@@ -3244,7 +3244,7 @@
       "description": "U+2004 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-2004",
       "text": "walk\u2004through the parser"
@@ -3253,7 +3253,7 @@
       "description": "U+2005 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-2005",
       "text": "walk\u2005through the parser"
@@ -3262,7 +3262,7 @@
       "description": "U+2006 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-2006",
       "text": "walk\u2006through the parser"
@@ -3271,7 +3271,7 @@
       "description": "U+2007 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-2007",
       "text": "walk\u2007through the parser"
@@ -3280,7 +3280,7 @@
       "description": "U+2008 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-2008",
       "text": "walk\u2008through the parser"
@@ -3289,7 +3289,7 @@
       "description": "U+2009 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-2009",
       "text": "walk\u2009through the parser"
@@ -3298,7 +3298,7 @@
       "description": "U+200A separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-200A",
       "text": "walk\u200athrough the parser"
@@ -3307,7 +3307,7 @@
       "description": "U+2028 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-2028",
       "text": "walk\u2028through the parser"
@@ -3316,7 +3316,7 @@
       "description": "U+2029 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-2029",
       "text": "walk\u2029through the parser"
@@ -3325,7 +3325,7 @@
       "description": "U+202F separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-202F",
       "text": "walk\u202fthrough the parser"
@@ -3334,7 +3334,7 @@
       "description": "U+205F separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-205F",
       "text": "walk\u205fthrough the parser"
@@ -3343,7 +3343,7 @@
       "description": "U+3000 separates words",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "analyze"
       },
       "id": "whitespace-3000",
       "text": "walk\u3000through the parser"

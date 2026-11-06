@@ -118,6 +118,6 @@
       "models": [{"id": "fast", "model": "github-copilot/router-fast"}],
       "classification": {"labels": {"task_type": "invented", "scope": "unknown", "task_complexity": "unknown"}, "mode": "balanced"}
     },
-    "status": 422, "response": {"code": "invalid_json", "detail": "request does not match the contract: classification.labels.task_type: Input should be 'explain', 'plan', 'fix', 'refactor', 'chore', 'implement' or 'unknown'"}
+    "status": 422, "response": {"code": "invalid_json", "detail": "request does not match the contract: classification.labels.task_type: Input should be 'analyze', 'review', 'plan', 'fix', 'refactor', 'chore', 'implement' or 'unknown'"}
   }
 ]

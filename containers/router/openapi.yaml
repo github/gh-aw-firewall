@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: gh-aw-router HTTP API
-  version: 0.2.1
+  version: 0.3.0
   license:
     name: MIT
     identifier: MIT
@@ -15,7 +15,7 @@ info:
     economy, balanced, robust, or auto. Auto uses the supplied classification's mode,
     falling back to balanced when classification is absent or its mode is unknown.
     /capabilities lists the fixed profiles the loaded tables serve.
-    Routing tables (schema_version 1) each carry one fixed profile.
+    Routing tables (schema_version 2) each carry one fixed profile.
     Other schema versions are rejected. Unserved profiles return invalid_request without fallback.
     Planning requests contain only decision inputs. Execution identity and
     outcome correlation remain with the caller; the router stores no task state.
@@ -335,7 +335,7 @@ components:
       properties:
         task_type:
           type: string
-          enum: [explain, plan, fix, refactor, chore, implement, unknown]
+          enum: [analyze, review, plan, fix, refactor, chore, implement, unknown]
         scope:
           type: string
           enum: [local, multi_file, subsystem, cross_system, unknown]

@@ -22,7 +22,7 @@ const offeredChoices = [
   },
 ];
 
-const HAIKU_REPLY = '{"labels":{"task_type":"explain","scope":"local","task_complexity":"unknown"},"mode":"economy"}';
+const HAIKU_REPLY = '{"labels":{"task_type":"analyze","scope":"local","task_complexity":"unknown"},"mode":"economy"}';
 
 describe('routing contracts', () => {
   it('accepts a classifier reply wrapped in a code fence labelled json', () => {
@@ -58,9 +58,18 @@ describe('routing contracts', () => {
 
   it('rejects a fenced classifier reply that fails the schema', () => {
     const invalid = {
-      labels: { task_type: 'explain', scope: 'local', task_complexity: 'unknown', mode: 'economy' },
+      labels: { task_type: 'analyze', scope: 'local', task_complexity: 'unknown', mode: 'economy' },
     };
     expect(validateClassifierOutput(`\`\`\`json\n${JSON.stringify(invalid)}\n\`\`\``)).toBeNull();
+  });
+
+  it('accepts the review task type and rejects the retired explain task type', () => {
+    const reply = taskType => JSON.stringify({
+      labels: { task_type: taskType, scope: 'local', task_complexity: 'unknown' },
+      mode: 'economy',
+    });
+    expect(validateClassifierOutput(reply('review'))).toEqual(JSON.parse(reply('review')));
+    expect(validateClassifierOutput(reply('explain'))).toBeNull();
   });
 
   it('rejects malformed JSON inside a fenced classifier reply', () => {
