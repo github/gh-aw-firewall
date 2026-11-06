@@ -24,6 +24,7 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     'AWF_ENSURE_USR_LOCAL_BIN',
     'AWF_STAGED_RUNNER_BINARY_NAME',
     'AWF_GEMINI_ENABLED',
+    'AWF_AI_CREDITS_HARD_CAP',
     'MCP_GATEWAY_HOST_DOMAIN',
     'AWF_ENCLAVE_MCP_CAPABILITY',
     'AWF_ENCLAVE_MCP_GATEWAY_IDENTITY',

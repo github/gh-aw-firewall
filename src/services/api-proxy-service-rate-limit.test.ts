@@ -89,6 +89,31 @@ describe('API proxy sidecar: rate limiting and token guard', () => {
         expect(env.AWF_MAX_AI_CREDITS).toBeUndefined();
       });
 
+      it.each([undefined, '', 'invalid', '100', '20000'])(
+        'passes host hard cap %s only to the api-proxy even with --env-all and --env',
+        (hardCap) => {
+          const original = process.env.AWF_AI_CREDITS_HARD_CAP;
+          if (hardCap === undefined) delete process.env.AWF_AI_CREDITS_HARD_CAP;
+          else process.env.AWF_AI_CREDITS_HARD_CAP = hardCap;
+          try {
+            const result = generateDockerCompose({
+              ...mockConfig,
+              enableApiProxy: true,
+              openaiApiKey: 'sk-test-key',
+              envAll: true,
+              additionalEnv: { AWF_AI_CREDITS_HARD_CAP: '999999' },
+            }, mockNetworkConfigWithProxy);
+            const proxyEnv = result.services['api-proxy'].environment as Record<string, string>;
+            const agentEnv = result.services.agent.environment as Record<string, string>;
+            expect(proxyEnv.AWF_AI_CREDITS_HARD_CAP).toBe(hardCap || undefined);
+            expect(agentEnv.AWF_AI_CREDITS_HARD_CAP).toBeUndefined();
+          } finally {
+            if (original === undefined) delete process.env.AWF_AI_CREDITS_HARD_CAP;
+            else process.env.AWF_AI_CREDITS_HARD_CAP = original;
+          }
+        },
+      );
+
       it('should set AWF_MAX_MODEL_MULTIPLIER when maxModelMultiplierCap is configured', () => {
         const configWithCap = {
           ...mockConfig,

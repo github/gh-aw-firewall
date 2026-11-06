@@ -267,6 +267,7 @@ function buildOtelEnv(): Record<string, string> {
  */
 function buildRateLimitEnv(config: WrapperConfig): Record<string, string> {
   return {
+    ...pickEnvVars('AWF_AI_CREDITS_HARD_CAP'),
     // Rate limiting configuration
     ...(config.rateLimitConfig && {
       AWF_RATE_LIMIT_ENABLED: String(config.rateLimitConfig.enabled),

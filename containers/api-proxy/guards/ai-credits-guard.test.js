@@ -24,14 +24,17 @@ const { resetModelPricingCatalogForTests } = require('../model-pricing-catalog')
 
 describe('ai-credits-guard', () => {
   let originalMaxAiCredits;
+  let originalHardCap;
   let originalDefaultPricing;
   let originalModelPricingCatalog;
 
   beforeEach(() => {
     originalMaxAiCredits = process.env.AWF_MAX_AI_CREDITS;
+    originalHardCap = process.env.AWF_AI_CREDITS_HARD_CAP;
     originalDefaultPricing = process.env.AWF_DEFAULT_AI_CREDITS_PRICING;
     originalModelPricingCatalog = process.env.AWF_MODEL_PRICING_CATALOG;
     delete process.env.AWF_MAX_AI_CREDITS;
+    delete process.env.AWF_AI_CREDITS_HARD_CAP;
     delete process.env.AWF_DEFAULT_AI_CREDITS_PRICING;
     delete process.env.AWF_MODEL_PRICING_CATALOG;
     resetAiCreditsGuardForTests();
@@ -50,6 +53,11 @@ describe('ai-credits-guard', () => {
       delete process.env.AWF_MAX_AI_CREDITS;
     } else {
       process.env.AWF_MAX_AI_CREDITS = originalMaxAiCredits;
+    }
+    if (originalHardCap === undefined) {
+      delete process.env.AWF_AI_CREDITS_HARD_CAP;
+    } else {
+      process.env.AWF_AI_CREDITS_HARD_CAP = originalHardCap;
     }
     if (originalDefaultPricing === undefined) {
       delete process.env.AWF_DEFAULT_AI_CREDITS_PRICING;
@@ -851,6 +859,78 @@ describe('ai-credits-guard', () => {
     expect(state.maxAiCredits).toBe(HARD_CAP_AI_CREDITS);
   });
 
+  it.each([undefined, '', ' ', 'invalid', '20000credits', '0', '-1', 'NaN', 'Infinity', '1e309'])(
+    'retains the default hard cap for invalid operator value %s', (rawCap) => {
+      if (rawCap !== undefined) process.env.AWF_AI_CREDITS_HARD_CAP = rawCap;
+      expect(getAiCreditsReflectState().effective_max_ai_credits).toBe(HARD_CAP_AI_CREDITS);
+      applyAiCreditsUsage({ input_tokens: 400_000_000 }, 'gpt-5-mini', 'copilot');
+      expect(getAiCreditsBlockState()).toMatchObject({
+        maxAiCredits: HARD_CAP_AI_CREDITS, maxExceeded: true, hardCap: true,
+      });
+    },
+  );
+
+  it.each([undefined, '0', '-1'])('enforces a raised hard cap with budget %s', (rawMax) => {
+    process.env.AWF_AI_CREDITS_HARD_CAP = '20000';
+    if (rawMax !== undefined) process.env.AWF_MAX_AI_CREDITS = rawMax;
+    applyAiCreditsUsage({ input_tokens: 400_000_000 }, 'gpt-5-mini', 'copilot');
+    expect(getAiCreditsBlockState()).toBeNull();
+    expect(getAiCreditsReflectState().effective_max_ai_credits).toBe(20000);
+    applyAiCreditsUsage({ input_tokens: 400_000_000 }, 'gpt-5-mini', 'copilot');
+    expect(getAiCreditsBlockState()).toEqual({
+      maxAiCredits: 20000, totalAiCredits: 20000, maxExceeded: true, hardCap: true,
+    });
+  });
+
+  it.each([undefined, '0', '-1'])('enforces a lowered fractional hard cap with budget %s', (rawMax) => {
+    process.env.AWF_AI_CREDITS_HARD_CAP = '0.1';
+    if (rawMax !== undefined) process.env.AWF_MAX_AI_CREDITS = rawMax;
+    applyAiCreditsUsage({ input_tokens: 4000 }, 'gpt-5-mini', 'copilot');
+    expect(getAiCreditsBlockState()).toEqual({
+      maxAiCredits: 0.1, totalAiCredits: 0.1, maxExceeded: true, hardCap: true,
+    });
+  });
+
+  it.each([
+    ['20000', '30000', 20000],
+    ['20000', '15000', 15000],
+    ['100', '200', 100],
+    ['100', '50', 50],
+  ])('clamps budget %s / %s to the operator ceiling', (rawCap, rawMax, effective) => {
+    process.env.AWF_AI_CREDITS_HARD_CAP = rawCap;
+    process.env.AWF_MAX_AI_CREDITS = rawMax;
+    expect(getAiCreditsBlockState()).toMatchObject({ maxAiCredits: effective, maxExceeded: false });
+    expect(getAiCreditsReflectState()).toMatchObject({
+      max_ai_credits: effective, effective_max_ai_credits: effective,
+    });
+  });
+
+  it('invalidates cached budget clamping when the hard cap changes', () => {
+    process.env.AWF_MAX_AI_CREDITS = '30000';
+    expect(getAiCreditsReflectState().max_ai_credits).toBe(10000);
+    process.env.AWF_AI_CREDITS_HARD_CAP = '20000';
+    expect(getAiCreditsReflectState().max_ai_credits).toBe(20000);
+    process.env.AWF_AI_CREDITS_HARD_CAP = '100';
+    expect(getAiCreditsReflectState().max_ai_credits).toBe(100);
+    delete process.env.AWF_AI_CREDITS_HARD_CAP;
+    expect(getAiCreditsReflectState().max_ai_credits).toBe(10000);
+  });
+
+  it.each([
+    ['20000', 640_000_000],
+    ['100', 3_200_000],
+  ])('uses operator hard cap %s for reflection and steering', (rawCap, inputTokens) => {
+    process.env.AWF_AI_CREDITS_HARD_CAP = rawCap;
+    applyAiCreditsUsage({ input_tokens: inputTokens }, 'gpt-5-mini', 'copilot');
+    expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
+    expect(getAiCreditsReflectState()).toMatchObject({
+      effective_max_ai_credits: Number(rawCap),
+      percent_used: 80,
+      thresholds_crossed: [80],
+    });
+    expect(getAiCreditsBlockState()).toBeNull();
+  });
+
   it('builds a structured max ai credits limit error payload', () => {
     expect(buildAiCreditsLimitError({
       totalAiCredits: 0.125,
@@ -874,7 +954,7 @@ describe('ai-credits-guard', () => {
     })).toEqual({
       error: {
         type: 'ai_credits_limit_exceeded',
-        message: 'Hard cap on AI credits reached (10000.500000 / 10000). This limit cannot be overridden.',
+        message: 'Hard cap on AI credits reached (10000.500000 / 10000). This limit is set by the operator and cannot be raised from inside the run.',
         total_ai_credits: 10000.5,
         max_ai_credits: 10000,
         hard_cap: true,
