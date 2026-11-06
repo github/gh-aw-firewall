@@ -159,6 +159,8 @@ function getAutomaticRecoveryCandidates({ model, provider, body, url, req, isPer
   const suggestion = getRetiredModelBlockState(model, provider)?.suggestion.toLowerCase();
   const pricingOptions = {
     catalogue: req?.awfCatalogue, runtimeCatalog: req?.awfRuntimePricing,
+    // Accounting estimates must not change automatic execution-model selection.
+    allowMedianEstimate: false,
   };
   const enforceCreditPricing = parsePositiveNumber(process.env.AWF_MAX_AI_CREDITS) !== null;
   const isRecoveryCandidatePriceable = (candidate, route) => {

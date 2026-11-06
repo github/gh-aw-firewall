@@ -6,6 +6,7 @@ const NANO_AIU_PER_AIU = 1_000_000_000;
 const GEMINI_MODEL_NAME_PREFIX = 'models/';
 
 const runtimeCatalog = Object.create(null);
+const captureTimes = new WeakMap();
 
 function canonicalizeModel(model) {
   if (!model || typeof model !== 'string') return '';
@@ -284,12 +285,21 @@ module.exports = {
   getRuntimeModels,
   findRuntimeModel,
   resolveRuntimePricing,
-  captureRuntimePricing: () => Object.fromEntries(Object.entries(runtimeCatalog).map(([provider, records]) =>
-    [provider, records.map(record => ({
-      ...structuredClone(record),
-      ...(record.pricing ? { pricing: Object.fromEntries(Object.entries(record.pricing).map(([tier, prices]) =>
-        [tier, exact.rates(prices)])) } : {}),
-    }))])),
+  getRuntimePricingCaptureTime: (catalog, provider) =>
+    captureTimes.get(catalog[provider]) ?? captureTimes.get(catalog) ?? Date.now(),
+  captureRuntimePricing: () => {
+    const snapshot = Object.fromEntries(Object.entries(runtimeCatalog).map(([provider, records]) =>
+      [provider, records.map(record => ({
+        ...structuredClone(record),
+        ...(record.pricing ? { pricing: Object.fromEntries(Object.entries(record.pricing).map(([tier, prices]) =>
+          [tier, exact.rates(prices)])) } : {}),
+      }))]));
+    const time = Date.now();
+    captureTimes.set(snapshot, time);
+    // Request routing merges backend captures while retaining their record arrays.
+    for (const records of Object.values(snapshot)) captureTimes.set(records, time);
+    return snapshot;
+  },
   getRuntimeCatalogSnapshot,
   testHelpers: {
     normalizeCopilotPricing,

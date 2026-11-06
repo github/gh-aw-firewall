@@ -4,17 +4,22 @@ jest.mock('./model-information.naming.generated.json', () => ({
   models: [{
     identity: {
       key: 'copilot/canonical-model', provider: 'copilot', rawId: 'canonical-model',
-      lookupId: 'canonical-model',
+      lookupId: 'canonical-model', family: 'bundled-family',
       aliases: [{
         id: 'friendly-model', match: 'exact',
         scope: { provider: 'copilot', channel: 'copilot-api' },
       }],
     },
+  }, {
+    identity: {
+      key: 'copilot/median-missing', provider: 'copilot', rawId: 'median-missing',
+      lookupId: 'median-missing', family: 'bundled-family',
+    },
   }],
   rules: [],
 }), { virtual: true });
 
-const { resolveCentralPricing, validateTariffs } = require('./catalogue-pricing');
+const { resolveCentralPricing, validateTariffs, getMedianPricingFact } = require('./catalogue-pricing');
 const { computeTokenBudgetUsage } = require('./token-budget-log');
 
 const provenance = { at: '2026-10-23T00:00:00Z' };
@@ -138,4 +143,85 @@ test('rejects tariffs whose unit-converted numeric rate is unrepresentable', () 
   for (const component of Object.values(tariff.components)) component.price = '9'.repeat(310);
 
   expect(() => validateTariffs(snapshot.snapshot)).toThrow('catalogue_tariff_unsupported');
+});
+
+test.each(['stale', 'retired', 'removed', 'expired', 'future', 'component', 'deployment', 'channel', 'byok'])(
+  'family donor selection excludes %s evidence, independently of request availability', exclusion => {
+    const pinned = capture('median-a', '2');
+    const a = pinned.snapshot.models[0];
+    a.identity.family = 'declared-family';
+    const b = structuredClone(capture('median-b', '100').snapshot.models[0]);
+    b.identity.family = 'declared-family';
+    const missing = structuredClone(capture('median-missing').snapshot.models[0]);
+    missing.identity.family = 'declared-family';
+    missing.tariffs = [];
+    if (exclusion === 'stale') b.provenance = { ...provenance, stale: true };
+    if (['retired', 'removed'].includes(exclusion)) b.lifecycle = { status: exclusion };
+    if (exclusion === 'expired') b.tariffs[0].effectiveUntil = new Date(pinned.time).toISOString();
+    if (exclusion === 'future') b.tariffs[0].effectiveFrom = '2027-01-01T00:00:00Z';
+    if (exclusion === 'component') b.tariffs[0].components.input.provenance = { ...provenance, stale: true };
+    if (exclusion === 'deployment') b.tariffs[0].scope.deployment = 'private';
+    if (exclusion === 'channel') b.tariffs[0].scope.channel = 'cli';
+    pinned.snapshot.models.push(b, missing);
+    const before = structuredClone(pinned);
+    const fact = getMedianPricingFact('copilot', 'median-missing', 100, {
+      catalogue: pinned, runtimeCatalog: {}, centralAllowed: exclusion !== 'byok',
+    });
+    expect(fact.metadata.estimate).toMatchObject(exclusion === 'byok'
+      ? { basis: 'backend', sources: ['curated'] }
+      : { basis: 'family', donorCount: 1, sources: ['central_feed'] });
+    if (exclusion !== 'byok') expect(fact.default.input).toBe(2);
+    expect(pinned).toEqual(before);
+  },
+);
+
+test('new captures change family medians and fingerprints without changing pinned estimates', () => {
+  const pinned = capture('canonical-model', '2');
+  pinned.snapshot.models[0].identity.family = 'declared-family';
+  const missing = structuredClone(capture('median-missing').snapshot.models[0]);
+  missing.identity.family = 'declared-family';
+  missing.tariffs = [];
+  pinned.snapshot.models.push(missing);
+  const options = { catalogue: pinned, centralAllowed: true, runtimeCatalog: {} };
+  const first = getMedianPricingFact('copilot', 'median-missing', 0, options);
+  const next = structuredClone(pinned);
+  next.revision = 'r2';
+  next.snapshot.models[0].tariffs[0].components.input.price = '8';
+  const second = getMedianPricingFact('copilot', 'median-missing', 0, { ...options, catalogue: next });
+  expect(first.default.input).toBe(2);
+  expect(second.default.input).toBe(8);
+  expect(second.metadata.pricingCatalogVersion).not.toBe(first.metadata.pricingCatalogVersion);
+  expect(getMedianPricingFact('copilot', 'median-missing', 0, options)).toEqual(first);
+});
+
+test('family-free feed captures retain bundled family evidence', () => {
+  const pinned = capture();
+  const missing = structuredClone(capture('median-missing').snapshot.models[0]);
+  missing.tariffs = [];
+  pinned.snapshot.models.push(missing);
+
+  const fact = getMedianPricingFact('copilot', 'median-missing', 0, {
+    catalogue: pinned, centralAllowed: true, runtimeCatalog: {},
+  });
+  expect(fact.metadata.estimate).toMatchObject({ basis: 'family', family: 'bundled-family' });
+});
+
+test('runtime provider freshness uses the pinned runtime capture time, not the feed time', () => {
+  const { replaceRuntimeModels, captureRuntimePricing, clearRuntimeModels } =
+    require('./runtime-model-catalog');
+  jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-23T12:00:00Z'));
+  replaceRuntimeModels('copilot', [{
+    id: 'canonical-model', observedAt: '2026-10-23T06:00:00Z',
+    pricing: { default: { input: 5, cachedInput: 1, output: 5, cacheWrite: null } },
+  }]);
+  const runtimeCatalog = captureRuntimePricing();
+  const pinned = capture();
+  pinned.snapshot.models.push(capture('median-missing').snapshot.models[0]);
+
+  const fact = getMedianPricingFact('copilot', 'median-missing', 0, {
+    catalogue: pinned, centralAllowed: true, runtimeCatalog,
+  });
+  expect(fact.default.input).toBe(3.5);
+  expect(fact.metadata.estimate.sources).toContain('provider');
+  clearRuntimeModels('copilot');
 });

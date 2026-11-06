@@ -529,7 +529,7 @@ describe('proxyWebSocket security guards', () => {
   );
 
   it.each([undefined, '10'])(
-    'warns and allows an unpriced WebSocket query model with maxAiCredits=%s', max => {
+    'warns and allows an estimated WebSocket query model with maxAiCredits=%s', max => {
       if (max === undefined) delete process.env.AWF_MAX_AI_CREDITS;
       else process.env.AWF_MAX_AI_CREDITS = max;
 
@@ -539,7 +539,7 @@ describe('proxyWebSocket security guards', () => {
 
       expect(socket.write).not.toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 400 Bad Request'));
       expect(lines).toEqual(expect.arrayContaining([
-        expect.objectContaining({ level: 'warn', event: 'unknown_model_ai_credits_pricing', modelProvided: true }),
+        expect.objectContaining({ level: 'warn', event: 'estimated_model_ai_credits_pricing', basis: 'backend' }),
       ]));
       // No upstream proxy is configured here; reaching this error proves the guards passed.
       expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 502 Bad Gateway'));

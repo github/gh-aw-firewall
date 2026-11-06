@@ -89,10 +89,22 @@ function resolvePricing(capture) {
   let componentSources;
   let missingModelPricing = false;
   if (!result) {
-    const runtime = selectPricingFact(reached(sources, 'runtime'), inputTokens);
-    const completeFreshRuntime = runtime && components.every(field =>
+    let runtime = selectPricingFact(reached(sources, 'runtime'), inputTokens);
+    const allowMissingCacheWrite = capture.allowMissingCacheWrite === true;
+    if (allowMissingCacheWrite && runtime && !Object.hasOwn(runtime.pricing, 'cacheWrite')) {
+      runtime = { ...runtime, pricing: exact.fromExact({
+        ...Object.fromEntries(Object.keys(runtime.pricing).map(field => [
+          field, field === 'threshold' ? runtime.pricing[field] : exact.rate(runtime.pricing, field),
+        ])),
+        cacheWrite: null,
+      }) };
+    }
+    const runtimeTime = capture.runtimeTime ?? capture.time;
+    const requiredRuntimeFields = allowMissingCacheWrite
+      ? ['input', 'cachedInput', 'output'] : components;
+    const completeFreshRuntime = runtime && requiredRuntimeFields.every(field =>
       Object.hasOwn(runtime.pricing, field)) &&
-      (capture.time === null || fresh({ at: runtime.observedAt }, capture.time, capture.maxAge));
+      (runtimeTime === null || fresh({ at: runtime.observedAt }, runtimeTime, capture.maxAge));
     if (completeFreshRuntime) {
       result = runtime;
     } else {
@@ -102,8 +114,9 @@ function resolvePricing(capture) {
       if (!result) {
         const tokens = runtime ? 0 : inputTokens;
         const preferredTier = runtime?.tier;
-        for (const name of ['curated', 'imported', 'selector', 'configuredDefault', 'sentinel']) {
+        for (const name of ['curated', 'imported', 'selector', 'configuredDefault', 'median', 'sentinel']) {
           if (name === 'configuredDefault') missingModelPricing = true;
+          if (name === 'median' && !Object.hasOwn(sources, name)) continue;
           result = selectPricingFact(reached(sources, name), tokens, preferredTier);
           if (result) break;
         }
@@ -119,9 +132,20 @@ function resolvePricing(capture) {
             pricing[field] = exact.rate(selected.pricing, field);
             componentSources[field] = componentProvenance(selected);
           }
-          // Legacy incomplete/stale-provider merging returns only these four
-          // components, even when the fallback has reasoning or tier metadata.
-          result = { ...runtime, pricing: exact.fromExact(pricing) };
+          if (result?.estimate) {
+            const hasRuntimeReasoning = Object.hasOwn(runtime.pricing, 'reasoning') ||
+              Object.hasOwn(runtime.pricing, 'output');
+            const selected = hasRuntimeReasoning ? runtime : result;
+            const field = Object.hasOwn(runtime.pricing, 'reasoning') ? 'reasoning' : 'output';
+            pricing.reasoning = exact.rate(selected.pricing, hasRuntimeReasoning ? field : 'reasoning');
+            componentSources.reasoning = componentProvenance(selected);
+          }
+          // Keep the historical four-component merge for non-estimate fallbacks.
+          result = { ...runtime, pricing: exact.fromExact(pricing),
+            ...(result?.estimate ? {
+              estimate: result.estimate, accountingPolicy: result.accountingPolicy,
+              usedFallbackPricing: true,
+            } : {}) };
         }
       }
     }
@@ -129,9 +153,52 @@ function resolvePricing(capture) {
   return outcome(capture, result, componentSources, missingModelPricing);
 }
 
+// Donors are already scope-, freshness- and tier-selected, never policy outputs.
+function medianPricingFact(donors, family) {
+  const eligible = donors.filter(donor => donor.result &&
+    ['operator', 'shared_catalog', 'provider', 'central_feed', 'curated', 'models.dev']
+      .includes(donor.result.source));
+  const relatives = family ? eligible.filter(donor => donor.family === family) : [];
+  const selected = relatives.length ? relatives : eligible;
+  if (!selected.length) return null;
+  const pricing = {};
+  const componentDonors = {};
+  for (const field of [...components, 'reasoning']) {
+    const values = selected.map(({ result }) => {
+      const key = field === 'reasoning' && result.pricing.reasoning === undefined ? 'output' : field;
+      return result.pricing[key] == null ? null : exact.rate(result.pricing, key);
+    }).filter(value => value !== null).sort(exact.compare);
+    componentDonors[field] = values.length;
+    if (!values.length) {
+      if (field !== 'cacheWrite') return null;
+      pricing[field] = null;
+      continue;
+    }
+    const middle = Math.floor(values.length / 2);
+    pricing[field] = values.length % 2 ? values[middle]
+      : exact.divide(exact.add(values[middle - 1], values[middle]), exact.decimal(2));
+  }
+  const basis = relatives.length ? 'family' : 'backend';
+  return {
+    source: 'median_estimate', default: exact.fromExact(pricing),
+    metadata: {
+      accountingPolicy: `${basis}_median_estimate`, usedFallbackPricing: true,
+      estimate: {
+        basis, ...(relatives.length && /^[a-z0-9][a-z0-9._-]{0,119}$/i.test(family) ? { family } : {}),
+        donorCount: selected.length,
+        componentDonors,
+        sources: [...new Set(selected.flatMap(donor => [
+          donor.result.source,
+          ...Object.values(donor.componentSources || {}).map(component => component.source),
+        ]))].sort(),
+      },
+    },
+  };
+}
+
 function componentProvenance(result) {
   const provenance = { source: result.source, tier: result.tier };
-  for (const field of ['observedAt', 'apiVersion', 'pricingCatalogId', 'pricingCatalogVersion']) {
+  for (const field of ['observedAt', 'apiVersion', 'pricingCatalogId', 'pricingCatalogVersion', 'estimate']) {
     if (result[field] !== undefined) provenance[field] = result[field];
   }
   return provenance;
@@ -162,4 +229,4 @@ function outcome(capture, result, componentSources, missingModelPricing) {
   };
 }
 
-module.exports = { resolvePricing, selectPricingFact, resolveCentralTariff, fresh };
+module.exports = { resolvePricing, selectPricingFact, resolveCentralTariff, fresh, medianPricingFact };

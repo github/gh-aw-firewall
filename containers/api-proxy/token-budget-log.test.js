@@ -19,9 +19,9 @@ describe('computeTokenBudgetUsage', () => {
     resetModelPricingCatalogForTests();
   });
 
-  it('returns undefined when neither guard is active', () => {
+  it('returns undefined when the backend has no donors or configured default', () => {
     const result = computeTokenBudgetUsage(
-      { logRequest, requestId: 'req-1', provider: 'openai' },
+      { logRequest, requestId: 'req-1', provider: 'no-priced-backend' },
       { input_tokens: 10, output_tokens: 5 },
       'brand-new-model-xyz',
     );

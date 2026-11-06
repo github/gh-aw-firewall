@@ -1270,15 +1270,16 @@ Legacy model names are **canonicalized** before lookup: provider prefixes
 as interchangeable. For example, `copilot/claude-sonnet-4.6`,
 `claude_sonnet_4_6`, and `claude-sonnet-4-6` all resolve to the same pricing
 entry. Version-date suffixes are also normalized. Shared-catalog entries and
-bundled pricing require an exact canonical model match; AWF does not infer a
-price from a related model-family prefix. `apiProxy.providers` retains its
+bundled pricing require an exact canonical model match; family estimates below
+do not become exact tariffs. `apiProxy.providers` retains its
 explicit longest-prefix override behavior.
 Fetched central tariffs instead match only the exact reviewed provider-qualified,
 raw or lookup identity; they do not infer aliases, date suffixes or families.
 
 If none of these sources resolves the model, the `defaultAiCreditsPricing` fallback
-(if configured) is used. If that is also absent, the request proceeds with a
-warning and unpriced usage is excluded from AI-credit totals.
+(if configured) is used. If that is also absent, a concrete named model uses
+the same-backend median estimate described below, with a warning. Only usage
+with no eligible backend donors remains excluded from AI-credit totals.
 Models whose catalog entry carries zero-cost pricing are recognized as known
 models with zero AI credit impact and do not produce missing-pricing warnings.
 
@@ -1408,15 +1409,51 @@ catalogs:
 1. **If `defaultAiCreditsPricing` is configured**: the fallback rates are used
    and the request proceeds normally.
 
-2. **If `defaultAiCreditsPricing` is NOT configured**: the request proceeds and
-   the proxy logs an `unknown_model_ai_credits_pricing` warning once per model.
-   Usage without resolvable pricing is excluded from AI-credit totals, so
-   `maxAiCredits` and the hard cap may undercount actual spending. The proxy
-   does not invent a price or treat missing pricing as model ineligibility,
-   including during automatic fallback selection. Configure accurate
-   `apiProxy.defaultAiCreditsPricing` rates to account for otherwise unpriced
-   usage. Incomplete pricing tiers also warn; responses with complete pricing
-   continue to be accounted for normally.
+2. **Otherwise, for a concrete named model**: use the per-component median
+   of applicable priced members of its declared canonical family on the same
+   serving backend. If the family is unknown or has no eligible members, use
+   all applicable priced models on that backend. No manufacturer inference,
+   publisher stripping or new prefix/date family heuristic is applied.
+   The currently bundled naming catalogue declares no families; absent a
+   declared family in the captured catalogue, it therefore uses backend medians.
+   The proxy emits `estimated_model_ai_credits_pricing` once per backend/model
+   and estimate basis. Estimated usage counts toward totals, steering, the
+   configured budget and the hard cap; it is **not verified provider billing**.
+
+3. **If the backend has no eligible priced donors**: warn with
+   `unknown_model_ai_credits_pricing`, proceed, and exclude unpriced usage.
+   Budgets can still undercount this residual usage. Configure an explicit
+   tariff or `apiProxy.defaultAiCreditsPricing` to cover it. Missing pricing
+   does not make an explicitly requested model ineligible.
+
+Each donor is counted once by canonical identity, using the existing source
+precedence (operator, configured catalogue, fresh provider metadata, applicable
+fresh central tariff, maintained tariff, governed import). Donors never use
+defaults, selector/sentinel policies or another estimate. Central tariffs retain
+provider/channel/deployment, effective interval and component freshness checks;
+retired/removed records and stale provider observations are excluded. Bundled
+compatibility/import facts retain their existing explicit policy provenance;
+unknown upstream observation time is not presented as fresh verification.
+Donors use the requested prompt-token tier, independently of execution discovery.
+
+Each component is sorted using exact rational prices. Odd counts select the
+middle value; even counts average the middle two exactly. Zero is a price;
+missing/null cache-write prices are not zero donors. Cache write remains null
+if no donor supplies it, preserving the existing unavailable-cache-write
+accounting semantics. A donor without a reasoning price uses its output rate
+before the reasoning median is calculated. Missing required input/output/cache
+read components must resolve through existing source rules, never fabricated
+zeros. Estimates can fill missing provider components without replacing supplied
+provider rates. Quiet priceability probes do not warn or mutate accounting.
+
+Reflection and token-usage records expose `pricing_source: median_estimate`,
+`accounting_policy: family_median_estimate` or `backend_median_estimate`,
+`fallback_pricing_used: true`, and estimate basis, donor/component counts and
+source kinds. `same_backend_median_v1` and a deterministic SHA-256 tariff
+fingerprint identify the estimate without exposing donor configuration.
+The nested estimate retains `tariffFingerprint` even for partial-provider fills.
+Request-pinned runtime/feed captures prevent refreshes from changing in-flight
+estimates. Accounting estimates do not rename, route or recover execution models.
 
 This behavior applies to HTTP requests and WebSocket upgrades, with or without
 `maxAiCredits`. Existing budget limits still reject requests once the accounted

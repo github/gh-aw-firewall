@@ -554,6 +554,7 @@ describe('token-usage JSONL record schema field', () => {
         ai_credits_total: 0.05,
         ai_credits_pricing_catalog_id: 'github/gh-aw/model-pricing',
         ai_credits_pricing_catalog_version: 'sha256:test-http-catalog',
+        ai_credits_pricing_estimate: { basis: 'family', donorCount: 3 },
       }),
     });
 
@@ -575,6 +576,7 @@ describe('token-usage JSONL record schema field', () => {
         ai_credits_total: 0.05,
         ai_credits_pricing_catalog_id: 'github/gh-aw/model-pricing',
         ai_credits_pricing_catalog_version: 'sha256:test-http-catalog',
+        ai_credits_pricing_estimate: { basis: 'family', donorCount: 3 },
       });
       expect(validateTokenUsageRecord(parsed)).toBe(true);
       done();
@@ -629,6 +631,7 @@ describe('token-usage JSONL record schema field', () => {
         ai_credits_total: 0.08,
         ai_credits_pricing_catalog_id: 'github/gh-aw/model-pricing',
         ai_credits_pricing_catalog_version: 'sha256:test-ws-catalog',
+        ai_credits_pricing_estimate: { basis: 'backend', donorCount: 4 },
       }),
     });
 
@@ -647,6 +650,7 @@ describe('token-usage JSONL record schema field', () => {
         ai_credits_total: 0.08,
         ai_credits_pricing_catalog_id: 'github/gh-aw/model-pricing',
         ai_credits_pricing_catalog_version: 'sha256:test-ws-catalog',
+        ai_credits_pricing_estimate: { basis: 'backend', donorCount: 4 },
       });
       expect(validateTokenUsageRecord(parsed)).toBe(true);
       done();
