@@ -179,6 +179,11 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
     if (!httpHeaderParsed) {
       const headerEnd = buffer.indexOf('\r\n\r\n');
       if (headerEnd === -1) return; // need more data for full header
+      const statusLine = buffer.subarray(0, buffer.indexOf('\r\n')).toString('latin1');
+      const status = /^HTTP\/1\.[01] ([1-5][0-9]{2})(?: |$)/.exec(statusLine);
+      auditTrack('WS_UPSTREAM_RESPONSE', {
+        rid: requestId, provider, path: reqPath, status: status ? Number(status[1]) : null,
+      });
       headerBytes = headerEnd + 4;
       buffer = buffer.slice(headerBytes);
       httpHeaderParsed = true;
