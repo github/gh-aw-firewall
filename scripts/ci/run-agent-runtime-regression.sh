@@ -83,7 +83,11 @@ sudo --preserve-env=COPILOT_GITHUB_TOKEN,OPENAI_API_KEY,ANTHROPIC_API_KEY,AWF_CL
   "$(command -v node)" "$root/dist/cli.js" "${args[@]}" \
   -- bash "$guest_root/scripts/ci/run-agent-regression-guest.sh" "$AGENT" "$marker" \
   2>&1 | tee "$host_logs/awf.log" || status=$?
-AWF_COLLECT_AGENT_REGRESSION_EVIDENCE=1 node -e "$collector" "$results" "$staged"
+evidence_args=("$results" "$staged")
+if [ "$AGENT" = codex ]; then
+  evidence_args+=("$host_logs/proxy-logs/api-proxy-logs/token-usage.jsonl")
+fi
+AWF_COLLECT_AGENT_REGRESSION_EVIDENCE=1 node -e "$collector" "${evidence_args[@]}"
 printf '%s\n' "$SOURCE_SHA" > "$staged/source-sha.txt"
 if [ "$status" -ne 0 ]; then
   echo "::error::$AGENT / $RUNTIME failed with exit code $status; see regression evidence"
@@ -94,9 +98,18 @@ if [ ! -f "$staged/agent-proof.txt" ] || [ "$(cat "$staged/agent-proof.txt")" !=
   echo "::error::Missing or incorrect agent-written workspace proof"
   exit 1
 fi
-if ! grep -Fxq "$marker" "$staged/response.txt" ||
+if [ "$(cat "$staged/response.txt")" != "$marker" ] ||
    ! grep -Fxq 'AWF-REGRESSION-COMPLETE' "$host_logs/awf.log"; then
   echo "::error::Missing exact inference response or guest completion marker"
   exit 1
+fi
+if [ "$AGENT" = codex ]; then
+  node -e '
+    const report = require(process.argv[1]);
+    if (!report.requests.some(request => request.status === 101 || request.status === 200)) {
+      console.error("Missing successful Codex inference through api-proxy");
+      process.exit(1);
+    }
+  ' "$staged/codex-routing.json"
 fi
 printf "### %s / %s: PASS\n\nSource: \`%s\`\n" "$AGENT" "$RUNTIME" "$SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"

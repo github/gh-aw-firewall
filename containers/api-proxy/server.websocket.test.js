@@ -261,6 +261,38 @@ describe('proxyWebSocket', () => {
       });
     });
 
+    it('replaces Codex placeholder auth through the OpenAI adapter before the WSS upgrade', async () => {
+      jest.spyOn(http, 'request').mockReturnValue(connectReq);
+      jest.spyOn(tls, 'connect').mockReturnValue(tlsSocket);
+      const { createOpenAIAdapter } = require('./providers/openai');
+      const { createWebSocketUpgradeHandler } = require('./server-factory');
+      const adapter = createOpenAIAdapter({ OPENAI_API_KEY: 'test-only-sidecar-key' });
+      const placeholder = 'sk-placeholder-for-api-proxy';
+      const req = makeUpgradeReq();
+      req.headers.authorization = 'Bearer ' + placeholder;
+      req.headers['proxy-authorization'] = 'Bearer ' + placeholder;
+      req.headers['x-api-key'] = placeholder;
+
+      createWebSocketUpgradeHandler(adapter, wsProxy)(req, socket, Buffer.alloc(0));
+      connectReq.emit('connect', { statusCode: 200 }, tunnel);
+      tlsSocket.emit('secureConnect');
+      const upgrade = tlsSocket.write.mock.calls.find(
+        ([data]) => typeof data === 'string' && data.startsWith('GET ')
+      )[0];
+      expect(upgrade.startsWith('GET /v1/responses HTTP/1.1\r\n')).toBe(true);
+      expect(upgrade).not.toContain(placeholder);
+      expect(upgrade).toContain('Authorization: ' + adapter.getAuthHeaders().Authorization);
+      expect(upgrade.match(/^authorization:/gim)).toHaveLength(1);
+      expect(upgrade).not.toMatch(/^(proxy-authorization|x-api-key):/im);
+      expect(upgrade).toContain('host: api.openai.com\r\n');
+      expect(http.request).toHaveBeenCalledWith(expect.objectContaining({
+        method: 'CONNECT', path: 'api.openai.com:443', host: '127.0.0.1', port: 3128,
+      }));
+      expect(tls.connect).toHaveBeenCalledWith(expect.objectContaining({
+        servername: 'api.openai.com', rejectUnauthorized: true,
+      }));
+    });
+
     it('forwards the CONNECT request to the configured Squid proxy host/port', () => {
       let capturedOptions;
       jest.spyOn(http, 'request').mockImplementation((options) => {

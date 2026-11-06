@@ -49,6 +49,34 @@ describe('proxyRequest X-Initiator injection', () => {
     };
   }
 
+  it('replaces Codex placeholder auth through the OpenAI adapter on HTTPS fallback', async () => {
+    const { createOpenAIAdapter } = require('./providers/openai');
+    const { createProxyHandler } = require('./server-factory');
+    const adapter = createOpenAIAdapter({ OPENAI_API_KEY: 'test-only-sidecar-key' });
+    const { getCaptured, getWrittenBody } = mockHttpsRequest();
+    const placeholder = 'sk-placeholder-for-api-proxy';
+    const req = makeReqFactory('/v1/responses', {
+      authorization: 'Bearer ' + placeholder,
+      'proxy-authorization': 'Bearer ' + placeholder,
+      'x-api-key': placeholder,
+    });
+    const body = { model: 'gpt-5.4', input: 'fixture', stream: true };
+    createProxyHandler(adapter, () => false, proxyRequest)(req, makeRes());
+    req.emit('data', Buffer.from(JSON.stringify(body)));
+    req.emit('end');
+    await flushPromises();
+    const options = getCaptured();
+    expect(options.hostname).toBe('api.openai.com');
+    expect(options.path).toBe('/v1/responses');
+    expect(options.headers.Authorization).toBe(adapter.getAuthHeaders().Authorization);
+    expect(Object.keys(options.headers).filter(name => name.toLowerCase() === 'authorization'))
+      .toHaveLength(1);
+    expect(JSON.stringify(options.headers)).not.toContain(placeholder);
+    expect(options.headers['proxy-authorization']).toBeUndefined();
+    expect(options.headers['x-api-key']).toBeUndefined();
+    expect(JSON.parse(getWrittenBody())).toEqual(body);
+  });
+
   it('injects x-initiator: agent when absent on direct copilot requests', async () => {
     const { getCaptured } = mockHttpsRequest();
     const req = makeReq();

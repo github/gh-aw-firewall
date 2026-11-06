@@ -9,6 +9,8 @@ const path = require('node:path');
 const FILES = ['agent-proof.txt', 'agent-version.txt', 'response.txt'];
 const MAX_FILE_BYTES = 64 * 1024;
 const MAX_TOTAL_BYTES = 128 * 1024;
+const MAX_ROUTING_BYTES = 1024 * 1024;
+const MAX_ROUTING_RECORDS = 100;
 
 function assertDirectoryChain(directory) {
   const resolved = path.resolve(directory);
@@ -29,6 +31,52 @@ function redact(contents, secrets) {
     result = result.replaceAll(secret, '[REDACTED]').replaceAll('Bearer ' + secret, '[REDACTED]');
   }
   return result;
+}
+
+function collectCodexRoutingEvidence(filename, destination) {
+  const report = { source: 'api-proxy-token-usage', status: 'unavailable', requests: [] };
+  let fd;
+  try {
+    assertDirectoryChain(path.dirname(filename));
+    fd = fs.openSync(filename, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.size > MAX_ROUTING_BYTES) {
+      report.status = 'rejected';
+    } else {
+      const buffer = Buffer.alloc(MAX_ROUTING_BYTES + 1);
+      let length = 0;
+      while (length < buffer.length) {
+        const read = fs.readSync(fd, buffer, length, buffer.length - length, null);
+        if (read === 0) break;
+        length += read;
+      }
+      if (length > MAX_ROUTING_BYTES) {
+        report.status = 'rejected';
+      } else {
+        report.status = 'available';
+        for (const line of buffer.subarray(0, length).toString('utf8').split('\n')) {
+          let record;
+          try { record = JSON.parse(line); } catch { continue; }
+          if (record?.event !== 'token_usage' || record.provider !== 'openai' ||
+              !['/responses', '/v1/responses'].includes(record.path) ||
+              !Number.isInteger(record.status) ||
+              !(record.status === 101 || (record.status >= 200 && record.status <= 599))) continue;
+          report.requests.push({
+            transport: record.status === 101 ? 'websocket' : 'http',
+            path: record.path,
+            status: record.status,
+          });
+          if (report.requests.length === MAX_ROUTING_RECORDS) break;
+        }
+      }
+    }
+  } catch {
+    // Missing or unsafe evidence is not proof of sidecar routing.
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+  fs.writeFileSync(path.join(destination, 'codex-routing.json'), `${JSON.stringify(report)}\n`,
+    { mode: 0o600, flag: 'wx' });
 }
 
 function collectAgentRegressionEvidence(sourceDirectory, destination, secrets = []) {
@@ -78,14 +126,15 @@ function collectAgentRegressionEvidence(sourceDirectory, destination, secrets = 
   return copied;
 }
 
-module.exports = { collectAgentRegressionEvidence, assertDirectoryChain, redact, FILES, MAX_FILE_BYTES, MAX_TOTAL_BYTES };
+module.exports = { collectAgentRegressionEvidence, collectCodexRoutingEvidence, assertDirectoryChain, redact, FILES, MAX_FILE_BYTES, MAX_TOTAL_BYTES };
 
 if (process.env.AWF_COLLECT_AGENT_REGRESSION_EVIDENCE === '1') {
-  const [sourceDirectory, destination] = process.argv.slice(1);
+  const [sourceDirectory, destination, codexUsageFile] = process.argv.slice(1);
   if (!sourceDirectory || !destination) throw new Error('Evidence source and destination are required');
   collectAgentRegressionEvidence(sourceDirectory, destination, [
     process.env.COPILOT_GITHUB_TOKEN,
     process.env.OPENAI_API_KEY,
     process.env.ANTHROPIC_API_KEY,
   ]);
+  if (codexUsageFile) collectCodexRoutingEvidence(codexUsageFile, destination);
 }
