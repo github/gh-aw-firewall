@@ -46,6 +46,8 @@ function signedOidcToken(eventName: string) {
     ref: 'refs/heads/main', event_name: eventName,
     workflow_ref: 'github/gh-aw-firewall/.github/workflows/daily-agent-runtime-regression.yml@refs/heads/main',
     workflow_sha: source,
+    job_workflow_ref: 'github/gh-aw-firewall/.github/workflows/daily-agent-runtime-regression.yml@refs/heads/main',
+    job_workflow_sha: source,
     sha: source,
     ...oidcClaimsOverride,
   })).toString('base64url');
@@ -278,6 +280,10 @@ describe('source-pinned Cloud Hypervisor regression admission', () => {
         releaseTag: `v0.0.0-regression.${source}`, signerWorkflow: signer,
       }));
       const { validateEnclavesConfig } = jest.requireActual('../../src/enclave/preflight');
+      const hostEligibility = jest.requireActual<typeof import('../../src/cloud-hypervisor/host-eligibility')>(
+        '../../src/cloud-hypervisor/host-eligibility',
+      );
+      jest.spyOn(hostEligibility, 'assertGithubHostedRunnerEligibility').mockImplementation(() => undefined);
       const { assertCloudHypervisorPreSecurityCompatibility } =
         jest.requireActual('../../src/cloud-hypervisor/runtime-validation');
       const { cloudHypervisorDailyRegressionRejection } =
@@ -363,7 +369,13 @@ describe('source-pinned Cloud Hypervisor regression admission', () => {
   it.each([
     { workflow_ref: undefined }, { workflow_ref: 'other/workflow@refs/heads/main' },
     { workflow_sha: undefined }, { workflow_sha: 'b'.repeat(40) },
-    { job_workflow_ref: `${signer}@refs/heads/main` },
+    { job_workflow_ref: undefined }, { job_workflow_ref: 'other/workflow@refs/heads/main' },
+    { job_workflow_sha: undefined }, { job_workflow_sha: 'b'.repeat(40) },
+    { workflow_ref: `${signer}@refs/heads/main`, job_workflow_ref: 'other/workflow@refs/heads/main' },
+    {
+      workflow_ref: `${signer}@refs/heads/main`, job_workflow_ref: 'other/workflow@refs/heads/main',
+      job_workflow_sha: 'b'.repeat(40),
+    },
     { workflow_ref: undefined, job_workflow_ref: `${signer}@refs/heads/main` },
   ])('rejects missing, mismatched or reusable signed workflow identity (%#)', claims => {
     oidcClaimsOverride = claims;

@@ -315,6 +315,22 @@ describe('Cloud Hypervisor runtime validation', () => {
     )).toThrow(error);
   });
 
+  it('keeps the generic enclave admission error in release builds', () => {
+    let error: (Error & { code?: string }) | undefined;
+    try {
+      assertCloudHypervisorPreSecurityCompatibility(config({
+        enclaves: normalizeEnclavesConfig([{
+          script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+        }], { primaryRuntime: 'cloud-hypervisor' }),
+      }));
+    } catch (caught) {
+      error = caught as Error & { code?: string };
+    }
+
+    expect(error?.message).toContain('real end-to-end isolation acceptance');
+    expect(error?.code).toBeUndefined();
+  });
+
   it('admits only the published manual static-script acceptance workflow', () => {
     const keys = [
       'GITHUB_ACTIONS',

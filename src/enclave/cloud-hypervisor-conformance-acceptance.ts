@@ -119,7 +119,8 @@ function verifyGitHubOidcToken(token: string): RegressionRejection | 'verified' 
     && (eventName === 'schedule' || eventName === 'workflow_dispatch')
     && workflowRef === REGRESSION_WORKFLOW_REF
     && claims.workflow_sha === CLOUD_HYPERVISOR_REGRESSION_COMMIT
-    && claims.job_workflow_ref === undefined
+    && claims.job_workflow_ref === REGRESSION_WORKFLOW_REF
+    && claims.job_workflow_sha === CLOUD_HYPERVISOR_REGRESSION_COMMIT
     && sha === CLOUD_HYPERVISOR_REGRESSION_COMMIT
     ? 'verified' : 'cloud-hypervisor-enclave-admission-claims';
 }
@@ -135,10 +136,10 @@ function regressionWorkflowIdentity(): RegressionRejection | 'verified' {
 /** Closed-vocabulary rejection evidence; never includes token or endpoint data. */
 export function cloudHypervisorDailyRegressionRejection(config: WrapperConfig): RegressionRejection | undefined {
   const commit = CLOUD_HYPERVISOR_REGRESSION_COMMIT;
+  if (!commit) return undefined;
   const runtime = config.cloudHypervisor;
   const enclaves = config.enclaves;
-  if (!commit
-    || process.env.GITHUB_ACTIONS !== 'true'
+  if (process.env.GITHUB_ACTIONS !== 'true'
     || process.env.GITHUB_REPOSITORY !== 'github/gh-aw-firewall'
     || !['schedule', 'workflow_dispatch'].includes(process.env.GITHUB_EVENT_NAME ?? '')
     || process.env.GITHUB_REF !== 'refs/heads/main'
@@ -181,7 +182,8 @@ export function cloudHypervisorDailyRegressionRejection(config: WrapperConfig): 
 
 /** Only the source-pinned daily build may exercise these public agent profiles. */
 export function isCloudHypervisorDailyRegressionWorkflow(config: WrapperConfig): boolean {
-  return cloudHypervisorDailyRegressionRejection(config) === undefined;
+  return CLOUD_HYPERVISOR_REGRESSION_COMMIT !== undefined
+    && cloudHypervisorDailyRegressionRejection(config) === undefined;
 }
 
 /** Admission for pinned native conformance profiles, not general enclave use. */
