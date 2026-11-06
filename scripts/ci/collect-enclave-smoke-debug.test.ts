@@ -67,6 +67,20 @@ describe('host-only public enclave debug collector', () => {
     collector.retainStartup(run, value, uid, temp);
     return value;
   }
+  function finalization() {
+    return {
+      schemaVersion: 1, backend: 'cloud-hypervisor', agent: 'copilot', resultValidated: true,
+      checks: Object.fromEntries(Object.keys(collector.FINALIZATION_REASONS).map(gate =>
+        [gate, [gate === 'audit-presence' ? 'failed' : 'passed', gate === 'audit-presence' ? 'missing' : 'none']])),
+      primaryFailure: { gate: 'audit-presence', reason: 'missing' }, secondaryFailures: [],
+      detail: 'PRIVATE_PROMPT_AND_CREDENTIAL_SENTINEL',
+    };
+  }
+  function retainFinalization() {
+    const binding = { backend: 'cloud-hypervisor', runnerUid: uid, runnerGid: gid };
+    prepare(run, roots, uid, temp, binding);
+    collector.retainFinalization(run, finalization(), uid, temp);
+  }
   function absentEvidence() {
     let error: unknown;
     try { collectRun(); } catch (caught) { error = caught; }
@@ -138,6 +152,74 @@ describe('host-only public enclave debug collector', () => {
       .toMatchObject({ diagnostic: { category: 'broker', exitCode: 1 } });
     expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8')).toContain('failedCheck=stop-proof');
   });
+  it('exports bounded post-result finalization evidence without invocation artifacts', () => {
+    retainFinalization();
+    expect(collectRun()).toBe(1);
+    const file = path.join(run, 'upload/finalization.json');
+    const text = fs.readFileSync(file, 'utf8');
+    expect(text).not.toContain('PRIVATE_');
+    expect(Buffer.byteLength(text)).toBeLessThan(collector.MAX_STATUS_BYTES);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expect(JSON.parse(text)).toMatchObject({
+      resultValidated: true, primaryFailure: { gate: 'audit-presence', reason: 'missing' },
+    });
+  });
+  it('retains startup and finalization independently when invocation collection fails', () => {
+    retainStartup(true);
+    collector.retainFinalization(run, finalization(), uid, temp);
+    invocation(false);
+    let failure: unknown;
+    try { collectRun(); } catch (error) { failure = error; }
+    collector.publishCollectionFailure(run, uid, gid, failure, uid, temp);
+    expect(fs.readdirSync(path.join(run, 'upload')).sort())
+      .toEqual(['collection-status.txt', 'finalization.json', 'startup.json']);
+  });
+  it('keeps finalization evidence even when startup validation fails', () => {
+    retainStartup();
+    collector.retainFinalization(run, finalization(), uid, temp);
+    fs.chmodSync(path.join(run, 'startup.json'), 0o644);
+    let failure: unknown;
+    try { collectRun(); } catch (error) { failure = error; }
+    collector.publishCollectionFailure(run, uid, gid, failure, uid, temp);
+    expect(fs.readdirSync(path.join(run, 'upload')).sort())
+      .toEqual(['collection-status.txt', 'finalization.json']);
+  });
+  it.each(['symlink', 'hardlink', 'permissions', 'oversized', 'backend', 'reason', 'owner', 'ancestor-symlink'])(
+    'rejects unsafe finalization evidence %s without disclosing input', kind => {
+      retainFinalization();
+      const file = path.join(run, 'finalization.json');
+      if (kind === 'symlink') {
+        fs.renameSync(file, path.join(temp, 'outside'));
+        fs.symlinkSync(path.join(temp, 'outside'), file);
+      } else if (kind === 'hardlink') fs.linkSync(file, path.join(temp, 'linked'));
+      else if (kind === 'permissions') fs.chmodSync(file, 0o644);
+      else if (kind === 'oversized') fs.writeFileSync(file, Buffer.alloc(collector.MAX_STATUS_BYTES + 1));
+      else if (kind === 'ancestor-symlink') {
+        fs.renameSync(run, path.join(temp, 'original-run'));
+        fs.symlinkSync(path.join(temp, 'original-run'), run);
+      } else if (kind === 'owner') {
+        const fstat = mutableFs.fstatSync;
+        jest.spyOn(mutableFs, 'fstatSync').mockImplementation(fd =>
+          Object.assign(fstat(fd), { uid: uid + 1 }));
+      } else {
+        const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (kind === 'backend') value.backend = 'docker';
+        else value.primaryFailure.reason = 'PRIVATE_PROMPT_AND_CREDENTIAL_SENTINEL';
+        fs.writeFileSync(file, JSON.stringify(value));
+      }
+      let failure: unknown;
+      try { collectRun(); } catch (error) { failure = error; }
+      expect(failure).toBeDefined();
+      jest.restoreAllMocks();
+      if (kind === 'ancestor-symlink') {
+        fs.unlinkSync(run);
+        fs.renameSync(path.join(temp, 'original-run'), run);
+        fs.chmodSync(file, 0o644);
+      } else if (kind === 'owner') fs.chmodSync(file, 0o644);
+      collector.publishCollectionFailure(run, uid, gid, failure, uid, temp);
+      expect(fs.readdirSync(path.join(run, 'upload'))).toEqual(['collection-status.txt']);
+      expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8')).not.toContain('PRIVATE_');
+    });
   it.each(['symlink', 'hardlink', 'permissions', 'oversized', 'backend', 'category'])(
     'rejects unsafe startup evidence %s without disclosing raw input', kind => {
       retainStartup();
@@ -1255,11 +1337,12 @@ describe('standalone public enclave diagnostics collector', () => {
   });
 
   it('bounds all published files and bytes including the fixed run projection reserve and status', () => {
-    expect(collector.MAX_PUBLISHED_FILES).toBe(MAX_FILES + 4 + 2);
-    expect(collector.MAX_PUBLISHED_BYTES).toBe((MAX_FILES + 4) * MAX_STREAM_BYTES + 2 * collector.MAX_STATUS_BYTES);
+    expect(collector.MAX_PUBLISHED_FILES).toBe(MAX_FILES + 4 + 3);
+    expect(collector.MAX_PUBLISHED_BYTES).toBe((MAX_FILES + 4) * MAX_STREAM_BYTES + 3 * collector.MAX_STATUS_BYTES);
     const bytes = Buffer.alloc(MAX_STREAM_BYTES);
     const files = [...Array.from({ length: MAX_FILES + 4 }, (_, index) => [`file-${index}`, bytes]),
-      ['startup.json', Buffer.alloc(collector.MAX_STATUS_BYTES)]];
+      ['startup.json', Buffer.alloc(collector.MAX_STATUS_BYTES)],
+      ['finalization.json', Buffer.alloc(collector.MAX_STATUS_BYTES)]];
     const status = 'x'.repeat(collector.MAX_STATUS_BYTES);
     expect(() => collector.assertPublicationBounds(files, status)).not.toThrow();
     expect(() => collector.assertPublicationBounds([...files, ['extra', Buffer.alloc(0)]], status))
