@@ -82,8 +82,8 @@ describe('API proxy sidecar: rate limiting and token guard', () => {
         expect(env.AWF_MAX_MODEL_MULTIPLIER).toBe('4');
       });
 
-      it('should not set AWF_MAX_AI_CREDITS in api-proxy when maxAiCredits is not configured', () => {
-        const result = generateDockerCompose({ ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' }, mockNetworkConfigWithProxy);
+      it.each([-1, 0, undefined])('should not set AWF_MAX_AI_CREDITS for a disabled budget (%s)', (maxAiCredits) => {
+        const result = generateDockerCompose({ ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key', maxAiCredits }, mockNetworkConfigWithProxy);
         const proxy = result.services['api-proxy'];
         const env = proxy.environment as Record<string, string>;
         expect(env.AWF_MAX_AI_CREDITS).toBeUndefined();
