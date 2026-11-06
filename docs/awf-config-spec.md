@@ -1159,7 +1159,7 @@ Setting the field to `false`, or omitting it, opts out.
 
 When enabled, the proxy tracks AI-credit and runtime thresholds
 at 80%, 90%, 95%, and 99%. Credit thresholds use the lower of configured
-`maxAiCredits` and the non-overridable 10,000-credit hard cap (the hard cap is
+`maxAiCredits` and the operator-controlled hard cap (10,000 credits by default; the hard cap is
 the ceiling when `maxAiCredits` is not configured). Runtime thresholds use the
 agent start marker written by the runtime; the host timeout and API proxy use
 that same start time and deadline.
@@ -1213,7 +1213,7 @@ container.
 
 Setting `maxAiCredits` to `-1` or `0` disables the configured budget, as if the
 field were omitted. AWF does not inject `AWF_MAX_AI_CREDITS` for these values.
-Other negative values are invalid. The non-overridable 10,000-credit hard cap
+Other negative values are invalid. The operator-controlled hard cap
 still applies.
 
 When configured, the proxy MUST enforce this budget. Once cumulative accounted AI credits reach or
@@ -1226,17 +1226,31 @@ When `apiProxy.enableTokenSteering` is true, cumulative credits also queue the
 80%, 90%, 95%, and 99% advisory warnings. This warning path does not alter credit
 accounting or terminal rejection.
 
-Regardless of `maxAiCredits` configuration, AWF also enforces a non-overridable
-hard cap of **10,000 accounted AI credits**. When cumulative accounted AI credits reach this hard
+Regardless of `maxAiCredits` configuration, AWF always enforces a hard cap,
+defaulting to **10,000 accounted AI credits**. Operators MAY lower or raise it
+by setting `AWF_AI_CREDITS_HARD_CAP` in the host environment before invoking AWF
+(or directly on the api-proxy container). The value MUST be a positive finite
+number; unset, empty, unparseable, zero, negative, or non-finite values retain
+the 10,000-credit default. There is no value that disables the hard cap.
+
+AWF forwards this host variable only to the api-proxy, not to the sandboxed
+agent, including with `--env-all`. Agent `--env` / `--env-file` values do not
+configure the cap. When using `sudo`, preserve the host variable explicitly.
+The counter is per-run and is not persisted; changing the operator setting
+requires a new invocation.
+
+When cumulative accounted AI credits reach this hard
 cap, subsequent requests MUST be rejected with HTTP `403` and error type
 `ai_credits_limit_exceeded`, and the error/log payload MUST include
 `hard_cap: true`.
 
 If both limits are present, the effective enforcement threshold is the lower of:
 - configured `maxAiCredits`
-- the fixed hard cap (10,000)
+- the operator-controlled hard cap (10,000 by default)
 
-Setting `maxAiCredits` above 10,000 MUST NOT raise the effective limit.
+Setting `maxAiCredits` above the hard cap MUST NOT raise the effective limit.
+Agent-facing errors MUST NOT name the operator environment variable or explain
+how to raise the cap.
 
 ### 10.3.1 Model Name Resolution for Pricing
 
