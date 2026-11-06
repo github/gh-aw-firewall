@@ -20,14 +20,32 @@ describe('enclave agent session artifact preservation', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('preserves redacted sessions in the public audit collection', () => {
+  it('keeps even redacted sessions out of the public audit collection', () => {
     fs.writeFileSync(
       sessionLogPath,
       '{"event":"session","engine":"copilot","sensitivity":"redacted"}\n',
     );
 
     expect(preserveInvocationSession(sessionLogPath, auditDir, 'redacted')).toBe(true);
-    expect(fs.existsSync(path.join(auditDir, 'sessions', 'redacted.jsonl'))).toBe(true);
+    expect(fs.existsSync(path.join(auditDir, 'sessions'))).toBe(false);
+    expect(fs.readFileSync(path.join(auditDir, 'raw-debug-sessions', 'redacted.jsonl'), 'utf8'))
+      .toContain('"sensitivity":"redacted"');
+  });
+
+  it.each([
+    '{"event":"session","sensitivity":"redacted","private":"private seed sentinel"}\n',
+    '{"event":"success","private":"private seed sentinel"}\n',
+    '{"event":"failure","category":"result-schema","private":"private seed sentinel"}\n',
+    'private seed sentinel\n',
+  ])('never trusts workload-controlled transcript classification: %s', transcript => {
+    fs.writeFileSync(sessionLogPath, transcript);
+    expect(preserveInvocationSession(sessionLogPath, auditDir, 'forged')).toBe(true);
+    expect(fs.existsSync(path.join(auditDir, 'sessions'))).toBe(false);
+    expect(fs.readFileSync(path.join(auditDir, 'raw-debug-sessions', 'forged.jsonl'), 'utf8'))
+      .toBe(transcript);
+    expect(fs.statSync(path.join(auditDir, 'raw-debug-sessions')).mode & 0o777).toBe(0o700);
+    expect(fs.statSync(path.join(auditDir, 'raw-debug-sessions', 'forged.jsonl')).mode & 0o777)
+      .toBe(0o600);
   });
 
   it('segregates raw-debug sessions from the public audit collection', () => {

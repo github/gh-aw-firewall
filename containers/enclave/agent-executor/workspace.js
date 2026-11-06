@@ -98,17 +98,9 @@ function preserveInvocationSession(sessionLogPath, auditDir, invocationId) {
     const data = Buffer.alloc(stat.size);
     const bytesRead = fs.readSync(sourceFd, data, 0, stat.size, 0);
     if (bytesRead !== stat.size) return false;
-    const transcript = data.toString('utf8');
-    const rawDebug = transcript.split('\n').some((line) => {
-      if (!line) return false;
-      try {
-        const event = JSON.parse(line);
-        return event.event === 'session' && event.sensitivity === 'raw-debug';
-      } catch {
-        return false;
-      }
-    });
-    const sessionsDir = path.join(auditDir, rawDebug ? 'raw-debug-sessions' : 'sessions');
+    // Shell workloads can overwrite this file, including its sensitivity label.
+    // Never export workload-origin bytes through the public audit collection.
+    const sessionsDir = path.join(auditDir, 'raw-debug-sessions');
     fs.mkdirSync(sessionsDir, { recursive: true, mode: 0o700 });
     const destination = path.join(sessionsDir, `${invocationId}.jsonl`);
     fs.writeFileSync(destination, data.subarray(0, bytesRead), { mode: 0o600 });

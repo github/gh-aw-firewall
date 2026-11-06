@@ -287,6 +287,8 @@ identity, zero capabilities, no-new-privileges, read-only root and seed, bounded
 writable paths, or dedicated proxy-only network. Shell tools must write the
 required result to `/awf/out`: an empty file remains a canonical failure even
 when Codex exits zero or prints a conversational answer.
+The dedicated enclave API proxy disables provider-hosted web search and fetch
+independently of the primary agent's policy, including shell-generated requests.
 
 > **Terminology.** *Executor* and *enclave* are distinct, and this document uses
 > both. An **executor** is trusted execution machinery and a configuration kind:
@@ -341,15 +343,14 @@ Every enclave invocation writes a bounded, per-invocation transcript
 (`session.jsonl`) inside the enclave. Host-owned Docker execution keeps this
 file inside the bounded private allocation and destroys it during cleanup;
 it is not returned through the host protocol or exported as an artifact.
-On the legacy container-runner path, the broker copies it verbatim into
-`<auditDir>/enclave-agent-sessions/<invocationId>.jsonl` and the CLI exposes
-under `sandbox/firewall/audit/enclave-agent-sessions/` when audit artifacts
-are preserved or uploaded. Because the enclave can read confidential
-repository content under the invocation's disclosure budget, this transcript
-crosses the enclave boundary and must never carry that content past it.
+On the legacy container-runner path, the broker retains it only under private
+`<auditDir>/raw-debug-sessions/<invocationId>.jsonl`, which the CLI's audit
+collector does not export. Shell workloads can overwrite this file, including
+its sensitivity label; neither a redaction claim nor successful result validation
+makes workload-written bytes safe to publish outside the disclosure budget.
 
-The enclave entrypoint (`containers/enclave/agent-entrypoint.py`) enforces
-this by construction:
+The enclave entrypoint (`containers/enclave/agent-entrypoint.py`) additionally
+minimizes the transcript it writes; this is not an export authorization:
 
 - Lifecycle events (`progress`, `session`, `preflight`, `resource-snapshot`,
   `operation-error`, `failure`, `success`) only ever contain fixed
@@ -366,17 +367,16 @@ this by construction:
   `AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS=true` environment variable on the
   enclave container. Eligible, positively verified public-only host execution
   uses this trusted setting for protected retention; private, mixed, dynamic,
-  custom-image and unsupported-runtime scopes cannot enable it. The broker marks
-  these transcripts and segregates them under its private
-  `raw-debug-sessions/` directory instead of `sessions/`; the CLI's audit
-  collector copies only `sessions/`, so raw-debug transcripts are never
-  included in the normal workflow artifact path.
+  custom-image and unsupported-runtime scopes cannot enable it. The broker
+  retains all workload-written transcripts under private `raw-debug-sessions/`,
+  regardless of their claimed sensitivity; the CLI's audit collector copies only
+  `sessions/`, so these transcripts never enter the normal workflow artifact path.
 - This redaction applies uniformly on every exit path: normal completion,
   timeouts, cancellations, engine failures, malformed output, and
   configuration errors all route through `append_engine_result`,
   `read_copilot_diagnostics`, or the fixed `failure`/`operation-error`
-  shapes above. Outside authorized public-only debugging, there is no code path
-  that appends raw enclave text to the transcript.
+  shapes above. Outside authorized public-only debugging, the entrypoint does not
+  append raw enclave text, but shell workloads can still forge transcript bytes.
 
 The only free-form, repository-derived value that is allowed to leave the
 enclave through a different channel is the broker-validated bounded result

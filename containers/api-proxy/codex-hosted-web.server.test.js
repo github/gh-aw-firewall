@@ -121,15 +121,28 @@ describe('Codex hosted-web policy through the OpenAI adapter', () => {
     });
   });
 
-  it('rejects disabled standalone search without upstream dispatch', async () => {
+  it.each([
+    ['/v1/alpha/search', {
+      input: 'sensitive query text',
+      settings: { external_web_access: true },
+    }],
+    ['/v1/responses', {
+      model: 'gpt-5',
+      input: 'sensitive query text',
+      tools: [{ type: 'web_search' }],
+    }],
+    ['/v1/responses', {
+      model: 'gpt-5',
+      input: 'sensitive query text',
+      tools: [{ type: 'web_search_preview' }],
+    }],
+  ])('rejects disabled hosted web at %s without upstream dispatch', async (path, body) => {
     const adapter = createOpenAIAdapter({
       OPENAI_API_KEY: 'sk-test',
       AWF_CODEX_HOSTED_WEB_POLICY: '{"enabled":false}',
     });
-    const { res, upstreamBody } = await dispatch(adapter, '/v1/alpha/search', {
-      input: 'sensitive query text',
-      settings: { external_web_access: true },
-    });
+    const { res, upstreamBody } = await dispatch(adapter, path, body);
+    expect(https.request).not.toHaveBeenCalled();
     expect(upstreamBody).toBeNull();
     expect(res.writeHead).toHaveBeenCalledWith(403, expect.objectContaining({
       'Content-Type': 'application/json',
@@ -142,9 +155,12 @@ describe('Codex hosted-web policy through the OpenAI adapter', () => {
   it('leaves ordinary OpenAI requests exactly unchanged', async () => {
     const adapter = createOpenAIAdapter({
       OPENAI_API_KEY: 'sk-test',
-      AWF_CODEX_HOSTED_WEB_POLICY: POLICY,
+      AWF_CODEX_HOSTED_WEB_POLICY: '{"enabled":false}',
     });
-    const body = { model: 'gpt-5', input: 'ordinary request' };
+    const body = {
+      model: 'gpt-5', input: 'ordinary request',
+      tools: [{ type: 'function', name: 'exec_command', parameters: { type: 'object' } }],
+    };
     expect((await dispatch(adapter, '/v1/responses', body)).upstreamBody).toEqual(body);
   });
 });

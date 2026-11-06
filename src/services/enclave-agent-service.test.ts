@@ -5,6 +5,9 @@ import { parseImageTag } from '../image-tag';
 import type { WrapperConfig } from '../types';
 import { buildEnclaveMcpService, resolveEnclaveAgentApiPort } from './enclave-mcp-service';
 import { generateDockerCompose } from '../compose-generator';
+import { buildApiProxyServiceConfig } from './api-proxy-service-config';
+import { normalizeCodexHostedWebPolicy } from '../codex-hosted-web-policy';
+import { normalizeClaudeHostedWebPolicy } from '../claude-hosted-web-policy';
 import * as hostIdentity from '../host-identity';
 import {
   ENCLAVE_AGENT_API_PROXY_IP,
@@ -86,6 +89,29 @@ function githubToolsEnclaves() {
 }
 
 describe('unified enclave agent executor compose assembly', () => {
+  it.each([
+    undefined,
+    { enabled: false },
+    { enabled: true, allowedDomains: ['docs.github.com'] },
+    { enabled: true, blockedDomains: ['example.com'] },
+  ])('disables dedicated hosted-web access independently of primary policy %j', policy => {
+    const wrapper = config({ codexHostedWeb: policy, claudeHostedWeb: policy });
+    const original = JSON.stringify(wrapper);
+    const result = buildEnclaveMcpService({ config: wrapper, imageConfig: ghcr, networkConfig });
+    expect(result.agentApiProxyService?.environment).toMatchObject({
+      AWF_CODEX_HOSTED_WEB_POLICY: '{"enabled":false}',
+      AWF_CLAUDE_HOSTED_WEB_POLICY: '{"enabled":false}',
+    });
+    const primary = buildApiProxyServiceConfig({
+      config: wrapper, imageConfig: ghcr, networkConfig, apiProxyLogsPath: '/tmp/proxy-logs',
+    }).environment;
+    expect(primary.AWF_CODEX_HOSTED_WEB_POLICY)
+      .toBe(policy ? JSON.stringify(normalizeCodexHostedWebPolicy(policy)) : undefined);
+    expect(primary.AWF_CLAUDE_HOSTED_WEB_POLICY)
+      .toBe(policy ? JSON.stringify(normalizeClaudeHostedWebPolicy(policy)) : undefined);
+    expect(JSON.stringify(wrapper)).toBe(original);
+  });
+
   it('never applies the primary harness observation to a dedicated enclave proxy', () => {
     const env = build({ agentCommand: 'copilot --model primary' }).agentApiProxyService?.environment;
     expect(env).toBeDefined();

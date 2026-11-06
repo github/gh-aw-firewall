@@ -16,6 +16,7 @@ import {
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { deriveEnclaveContainerSpec } = require('../../containers/enclave/agent-executor/enclave-runner-spec.js');
+const { preserveInvocationSession } = require('../../containers/enclave/agent-executor/workspace.js');
 const { probe } = require('../../scripts/ci/run-enclave-agent-regression.js');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -27,7 +28,8 @@ const MiB = 1024 ** 2;
 
 // No real provider, credentials, or session payloads. Only fixed status metadata is logged.
 const provider = String.raw`
-import json, os
+import json, os, time
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 class Handler(BaseHTTPRequestHandler):
@@ -37,6 +39,11 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
     def do_POST(self):
         assert self.path == "/v1/responses"
+        Path("/tmp/ready").touch()
+        for _ in range(600):
+            if Path("/tmp/release").exists(): break
+            time.sleep(0.05)
+        else: raise RuntimeError("topology check did not release inference")
         size = int(self.headers["Content-Length"])
         assert size <= 1024 * 1024
         request = json.loads(self.rfile.read(size))
@@ -78,7 +85,7 @@ HTTPServer(("0.0.0.0", 10000), Handler).serve_forever()
 `;
 
 acceptance('Docker enclave pinned Codex shell execution', () => {
-  test.each(['diagnostic', 'failed-command', 'no-tool'])(
+  test.each(['diagnostic', 'forged-session', 'failed-command', 'no-tool'])(
     '%s preserves outer confinement and the canonical result contract',
     async scenario => {
       const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-codex-shell-'));
@@ -97,6 +104,8 @@ acceptance('Docker enclave pinned Codex shell execution', () => {
       let containerName: string | undefined;
       const containers: string[] = [];
       const networks: string[] = [];
+      const diagnosticScenario = scenario === 'diagnostic' || scenario === 'forged-session';
+      const privateSentinel = 'private seed transcript sentinel';
       try {
         expect(fs.readFileSync(path.join(root, 'containers/enclave/Dockerfile'), 'utf8'))
           .toContain(`ARG CODEX_VERSION=${pinnedVersion}`);
@@ -110,6 +119,7 @@ acceptance('Docker enclave pinned Codex shell execution', () => {
         const seed = path.join(directory, 'seeds', seedId);
         fs.mkdirSync(seed, { recursive: true, mode: 0o755 });
         fs.writeFileSync(path.join(seed, 'README.md'), 'public fixture seed\n', { mode: 0o444 });
+        fs.writeFileSync(path.join(seed, 'private.txt'), privateSentinel, { mode: 0o444 });
         docker(['network', 'create', '--internal', '--subnet', '172.31.0.0/24', network]);
         networks.push(network);
         docker(['network', 'create', '--internal', peerNetwork]);
@@ -150,11 +160,16 @@ acceptance('Docker enclave pinned Codex shell execution', () => {
           '    assert all(flag in mounts[target] for flag in ["rw", "noexec", "nosuid", "nodev"])',
           '    assert os.statvfs(target).f_blocks * os.statvfs(target).f_frsize == 256 * 1024 ** 2',
           diagnostic,
+          ...(scenario === 'forged-session' ? [
+            'import json',
+            'Path("/awf/session.jsonl").write_text(json.dumps({"event": "session", "sensitivity": "redacted", "private": Path("/awf/seed/private.txt").read_text()}) + "\\n")',
+          ] : []),
           'PY',
         ].join('\n');
         docker([
           'run', '-d', '--pull', 'never', '--name', proxyName, '--network', network,
           '--ip', '172.31.0.30', ...confinement,
+          '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=1m',
           '--env', `COMMAND=${command}`, '--env', `SCENARIO=${scenario}`,
           '--entrypoint', '/usr/bin/python3', image!, '-u', '-c', provider,
         ]);
@@ -196,10 +211,16 @@ acceptance('Docker enclave pinned Codex shell execution', () => {
           '-v', `${path.join(root, 'containers/enclave/public_debug_capture.py')}:/usr/local/bin/public_debug_capture.py:ro`);
         docker(args);
         containers.push(containerName);
+        docker([
+          'exec', proxyName, '/usr/bin/python3', '-c',
+          'import time\nfrom pathlib import Path\nfor _ in range(600):\n if Path("/tmp/ready").exists(): break\n time.sleep(0.05)\nelse: raise RuntimeError("inference not ready")',
+        ]);
         const members = Object.values(JSON.parse(docker(['network', 'inspect', network]))[0].Containers)
           .map((member: unknown) => (member as { Name: string }).Name).sort();
         expect(members).toEqual([proxyName, containerName].sort());
-        expect(docker(['wait', containerName])).toBe(scenario === 'diagnostic' ? '0' : '33');
+        docker(['exec', proxyName, '/usr/bin/python3', '-c',
+          'from pathlib import Path; Path("/tmp/release").touch()']);
+        expect(docker(['wait', containerName])).toBe(diagnosticScenario ? '0' : '33');
         const state = JSON.parse(docker(['inspect', containerName]))[0];
         expect(state.State.OOMKilled).toBe(false);
         expect(state.HostConfig.Privileged).toBe(false);
@@ -208,7 +229,7 @@ acceptance('Docker enclave pinned Codex shell execution', () => {
           .trim().split('\n').map(line => JSON.parse(line));
         expect(events).toContainEqual(expect.objectContaining({ event: 'engine-result', exitCode: 0 }));
         const output = fs.readFileSync(path.join(invocation, 'out'), 'utf8');
-        if (scenario === 'diagnostic') {
+        if (diagnosticScenario) {
           const result = JSON.parse(output);
           expect(new Ajv().validate(schema, result)).toBe(true);
           expect(result).toEqual(task.expected);
@@ -223,8 +244,16 @@ acceptance('Docker enclave pinned Codex shell execution', () => {
             toolResultReceived: true, toolFailed: scenario === 'failed-command',
           });
         } else expect(metadata).toBe('');
+        if (scenario === 'forged-session') {
+          expect(JSON.stringify(events)).toContain(privateSentinel);
+        } else expect(JSON.stringify(events)).not.toContain(privateSentinel);
+        const auditDir = path.join(directory, 'audit');
+        expect(preserveInvocationSession(path.join(invocation, 'session.jsonl'), auditDir, invocationId))
+          .toBe(true);
+        expect(fs.existsSync(path.join(auditDir, 'sessions'))).toBe(false);
         expect(JSON.stringify(events)).not.toContain('bwrap:');
-        expect(JSON.stringify(events)).not.toContain(command);
+        expect(JSON.stringify(events)).not.toContain(JSON.stringify(command).slice(1, -1));
+        expect(JSON.stringify(events)).not.toContain(task.expected.proof);
       } finally {
         // Confirm every workload stopped before releasing its writable storage.
         if (containerName && !containers.includes(containerName)) {
