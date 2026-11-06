@@ -3,6 +3,32 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { deriveEnclaveContainerSpec } = require('../../containers/enclave/agent-executor/enclave-runner-spec');
+
+function containerEnvironment(root: string): Record<string, string> {
+  const { launchArgs } = deriveEnclaveContainerSpec({
+    config: {
+      engine: 'claude', profile: 'anthropic', model: 'claude-haiku-4-5',
+      apiEndpoint: 'http://172.31.0.30:10001',
+      hostWorkDir: '/private/work', hostSeedsDir: '/private/seeds',
+      enclaveMountDir: `${root}/runtime/agent`, enclaveSeedPath: '/awf/seed',
+      enclaveTaskPath: '/awf/task.txt', enclaveSchemaPath: '/awf/schema.json',
+      enclaveSeccompPath: '/private/seccomp.json', enclaveImage: 'enclave:test',
+      enclaveUid: 65534, enclaveGid: 65534, network: 'awf-enclave-agent',
+      memoryLimit: '768m', tmpfsLimit: '96m', cpuLimit: 0.5, pidsLimit: 47,
+      timeoutSeconds: 12, maxOutputBytes: 1024,
+    },
+    runId: 'a'.repeat(32), invocationId: 'b'.repeat(32), seedId: 'c'.repeat(32),
+  });
+  return Object.fromEntries(launchArgs.flatMap((arg: string, index: number) => {
+    if (arg !== '--env') return [];
+    const value = launchArgs[index + 1] as string;
+    const separator = value.indexOf('=');
+    return [[value.slice(0, separator), value.slice(separator + 1)]];
+  }));
+}
+
 // Opt in with the same immutable Claude binary installed in the enclave image.
 const binary = process.env.AWF_TEST_CLAUDE_BIN;
 const pinnedTest = binary ? it : it.skip;
@@ -13,27 +39,41 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import signal
-import subprocess
+import shlex
 import threading
 
-root = Path(os.environ["FIXTURE_ROOT"])
+staged = Path(os.environ["FIXTURE_ROOT"])
+root = staged / "runtime"
 spec = importlib.util.spec_from_file_location("entrypoint", os.environ["ENTRYPOINT"])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 module.CLAUDE_BIN = os.environ["CLAUDE_BIN"]
 module.AGENT_DIR = root / "agent"
 module.OUT_PATH = root / "out"
+module.OUTPUT_DIR = root / "output"
+module.SEED_DIR = staged / "seed"
+module.TASK_PATH = staged / "task.txt"
+module.SCHEMA_PATH = staged / "schema.json"
+module.TEMP_DIR = root / "tmp"
+module.SHARED_MEMORY_DIR = Path("/dev/shm")
+module.STORAGE_PROBE_PATH = module.TEMP_DIR / ".awf-enclave-storage-probe.jsonl"
 module.SESSION_LOG_PATH = root / "session.jsonl"
 module.SESSION_LOG_PATH.touch()
 module.AGENT_DIR.mkdir()
 (root / "output").mkdir()
 (root / "output" / "out").touch()
 module.OUT_PATH.symlink_to(root / "output" / "out")
-(root / "seed").mkdir(mode=0o555)
-(root / "home").mkdir()
-(root / "config").mkdir()
 (root / "tmp").mkdir()
+diagnostic = (
+    "import json, os; from pathlib import Path; "
+    "status = Path('/proc/self/status').read_text(); "
+    "valid = os.geteuid() == 65534 and os.getegid() == 65534 "
+    "and int(next(line.split()[1] for line in status.splitlines() if line.startswith('CapEff:')), 16) == 0 "
+    "and 'NoNewPrivs:\\t1' in status "
+    "and bool(os.statvfs(" + repr(str(module.SEED_DIR)) + ").f_flag & os.ST_RDONLY); "
+    "Path(" + repr(str(module.OUT_PATH)) + ").write_text(json.dumps(valid))"
+)
+shell_command = "python3 -c " + shlex.quote(diagnostic)
 requests = []
 class Provider(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -54,7 +94,7 @@ class Provider(http.server.BaseHTTPRequestHandler):
         )
         content = [{"type": "text", "text": "done"}] if has_result else [{
             "type": "tool_use", "id": "tool_fixture", "name": "Bash",
-            "input": {"command": "printf true > " + str(module.OUT_PATH)},
+            "input": {"command": shell_command},
         }]
         stop = "end_turn" if has_result else "tool_use"
         message = {
@@ -87,70 +127,105 @@ class Provider(http.server.BaseHTTPRequestHandler):
 
 server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Provider)
 threading.Thread(target=server.serve_forever, daemon=True).start()
-environment = {
-    "PATH": "/usr/bin:/bin", "HOME": str(root / "home"), "TMPDIR": str(root / "tmp"),
-    "CLAUDE_CONFIG_DIR": str(root / "config"),
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:" + str(server.server_port),
-    "ANTHROPIC_API_KEY": "******", "ANTHROPIC_AUTH_TOKEN": "synthetic-fixture",
-    "DISABLE_AUTOUPDATER": "1", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
-    "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL": "1",
-}
-if os.environ.get("ALLOW_TOOLS") == "true":
-    os.environ["AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS"] = "none"
-    os.environ["AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS"] = "Bash,Read,Write,Edit,Glob,Grep"
-command = module.build_engine_command("claude", "claude-haiku-4-5",
-    "Run the shell diagnostic and write true to " + str(module.OUT_PATH), root)
+environment = json.loads(os.environ["CONTAINER_ENVIRONMENT"])
+environment.update(PATH="/usr/bin:/bin", TMPDIR=str(module.TEMP_DIR))
+legacy = os.environ.get("LEGACY_ARGV") == "true"
+if os.environ.get("ALLOW_TOOLS") != "true":
+    environment["AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS"] = "Read,Glob,Grep"
+if legacy:
+    environment.pop("AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS", None)
+    environment.pop("AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS", None)
+    build_command = module.build_engine_command
+    def build_legacy_command(*args):
+        command = build_command(*args)
+        command[command.index("--permission-prompts") + 1] = "auto"
+        return command
+    module.build_engine_command = build_legacy_command
+os.environ.clear()
+os.environ.update(environment)
+configure_environment = module.configure_engine_environment
+def configure_fixture_environment(engine):
+    configure_environment(engine)
+    # Substitute only the provider edge after validating the production environment.
+    os.environ["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:" + str(server.server_port)
+module.configure_engine_environment = configure_fixture_environment
 try:
-    process = subprocess.Popen(command, cwd=root / "seed", env=environment,
-                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, start_new_session=True)
-    try:
-        stdout, stderr = module.communicate_claude(process, 12)
-        result = {"exitCode": process.returncode, "stdoutBytes": len(stdout),
-                  "stderrBytes": len(stderr), "timeout": False}
-        result["errorClasses"] = [code for code in ["EROFS", "EACCES", "ENOENT", "ECONNREFUSED"]
-                                  if code.encode() in stderr]
-    except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
-        stdout, stderr = process.communicate()
-        result = {"exitCode": None, "stdoutBytes": len(stdout),
-                  "stderrBytes": len(stderr), "timeout": True}
+    result = {"exitCode": module.main()}
 finally:
     server.shutdown()
 result["requests"] = requests
 result["output"] = module.OUT_PATH.read_text() if module.OUT_PATH.exists() else ""
-result["stages"] = [event["stage"] for event in map(json.loads, module.SESSION_LOG_PATH.read_text().splitlines())
-                    if event.get("event") == "progress"]
+events = list(map(json.loads, module.SESSION_LOG_PATH.read_text().splitlines()))
+result["stages"] = [event["stage"] for event in events if event.get("event") == "progress"]
+result["nativeExit"] = next(event["exitCode"] for event in events if event["event"] == "engine-result")
+result["startupFailures"] = [event["classification"] for event in events
+                             if event.get("stage") == "claude-startup-failure"]
+result["streamSummary"] = next(event for event in events if event.get("stage") == "claude-stream-summary")
 print(json.dumps(result))
 `;
 
-pinnedTest.each([false, true])('checks pinned Claude shell execution with explicit approvals=%s', approved => {
+it('builds unattended Claude arguments from the production container environment', () => {
+  const result = spawnSync('python3', ['-c', String.raw`
+import importlib.util, json, os
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("entrypoint", os.environ["ENTRYPOINT"])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+print(json.dumps(module.build_engine_command("claude", "trusted-model", "task", Path("/agent"))))
+`], {
+    env: { ...containerEnvironment('/fixture'), PATH: process.env.PATH, ENTRYPOINT: entrypoint },
+    encoding: 'utf8',
+  });
+  expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
+  expect(JSON.parse(result.stdout)).toEqual(expect.arrayContaining([
+    '--permission-mode', 'default', '--permission-prompts', 'none',
+    '--allowedTools', 'Bash,Read,Write,Edit,Glob,Grep',
+  ]));
+});
+
+pinnedTest.each([
+  { approved: false, legacy: false },
+  { approved: true, legacy: false },
+  { approved: false, legacy: true },
+])('checks pinned Claude production launch %j', ({ approved, legacy }) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-claude-unattended-'));
   try {
     const stagedEntrypoint = path.join(root, 'entrypoint.py');
     fs.copyFileSync(entrypoint, stagedEntrypoint);
     fs.chmodSync(stagedEntrypoint, 0o444);
-    const ownership = spawnSync('sudo', ['chown', '65534:65534', root]);
-    expect(ownership.status).toBe(0);
-    const result = spawnSync('sudo', ['--preserve-env=ENTRYPOINT,FIXTURE_ROOT,CLAUDE_BIN,ALLOW_TOOLS',
+    fs.mkdirSync(path.join(root, 'runtime'));
+    fs.mkdirSync(path.join(root, 'seed'), { mode: 0o555 });
+    fs.writeFileSync(path.join(root, 'task.txt'), 'Run the shell diagnostic and write its boolean result to /awf/out.', { mode: 0o444 });
+    fs.writeFileSync(path.join(root, 'schema.json'), '{"type":"boolean"}', { mode: 0o444 });
+    fs.chmodSync(root, 0o755);
+    const result = spawnSync('sudo', ['--preserve-env=ENTRYPOINT,FIXTURE_ROOT,CLAUDE_BIN,ALLOW_TOOLS,LEGACY_ARGV,CONTAINER_ENVIRONMENT',
       'unshare', '--net', '--mount', '--pid', '--fork',
       '--kill-child', '--mount-proc', '/bin/sh', '-c',
       'mount --make-rprivate / && mount --bind / / && mount -o remount,bind,ro /'
       + ' && mount -o remount,bind,ro /dev/shm'
-      + ' && mount --bind "$2" "$2" && mount -o remount,bind,rw "$2"'
+      + ' && mount -t tmpfs -o rw,noexec,nosuid,nodev,size=96m,uid=65534,gid=65534 tmpfs "$2/runtime"'
       + ' && ip link set lo up'
       + ' && exec setpriv --reuid=65534 --regid=65534 --clear-groups --no-new-privs --bounding-set=-all python3 -c "$1"',
       'fixture', fixture, root], {
       env: { PATH: '/usr/bin:/bin:/usr/local/bin', ENTRYPOINT: stagedEntrypoint,
-        FIXTURE_ROOT: root, CLAUDE_BIN: binary!, ALLOW_TOOLS: String(approved) },
+        FIXTURE_ROOT: root, CLAUDE_BIN: binary!, ALLOW_TOOLS: String(approved),
+        LEGACY_ARGV: String(legacy),
+        CONTAINER_ENVIRONMENT: JSON.stringify(containerEnvironment(root)) },
       encoding: 'utf8', timeout: 20_000,
     });
     expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
     expect(result.stderr).toBe('');
     const observed = JSON.parse(result.stdout);
+    if (legacy) {
+      expect(observed).toEqual(expect.objectContaining({
+        exitCode: 24, nativeExit: 1, output: '', requests: [],
+        startupFailures: ['invalid-option-value'],
+      }));
+      expect(observed.stages).not.toContain('claude-initialized');
+      return;
+    }
     expect(observed).toEqual(expect.objectContaining({
-      timeout: false, exitCode: 0, output: approved ? 'true' : '',
+      exitCode: approved ? 0 : 33, nativeExit: 0, output: approved ? 'true' : '',
     }));
     expect(observed.requests.some((route: string) => route.split('?')[0] === '/v1/messages')).toBe(true);
     expect(observed.stages).toEqual(expect.arrayContaining([
