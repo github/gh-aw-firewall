@@ -172,10 +172,10 @@ export function assertCloudHypervisorPreSecurityCompatibility(config: WrapperCon
     && !isCloudHypervisorConformanceAcceptanceWorkflow(config)
     && !isCloudHypervisorDailyRegressionWorkflow(config)
   ) {
-    throw new Error(
+    throw Object.assign(new Error(
       'Cloud Hypervisor primary-agent execution with enclaves is reserved until the '
       + 'real end-to-end isolation acceptance completes; no runtime fallback is permitted',
-    );
+    ), { code: 'cloud-hypervisor-enclave-admission' });
   }
   if (primaryCloudHypervisor && config.dnsOverHttps) {
     throw new Error('Cloud Hypervisor preview does not support DNS-over-HTTPS');

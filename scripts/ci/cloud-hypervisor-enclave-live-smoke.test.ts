@@ -614,6 +614,32 @@ describe('sanitized host startup diagnostics', () => {
     expect(diagnose(stderrFile).category).toBe('unsupported-host');
     expect(JSON.stringify(diagnose(stderrFile))).not.toContain(sentinel);
   });
+  it.each([
+    ['configuration', 'configuration-rejected', 'configuration'],
+    ['validation', 'validation-rejected', 'configuration'],
+    ['backend-selection', 'backend-selection-rejected', 'container-runtime'],
+    ['backend-selection', 'cloud-hypervisor-enclave-admission', 'configuration'],
+  ])('retains the finite early fatal reason without a startup record (%s/%s)', (phase, reason, category) => {
+    const earlyFailure = { schemaVersion: 1, phase, reason };
+    fs.writeFileSync(stderrFile, `${sentinel}\nAWF_EARLY_STARTUP_FAILURE ${JSON.stringify(earlyFailure)}\n`);
+    const diagnostic = diagnose(stderrFile);
+    expect(diagnostic).toMatchObject({ phase: 'pre-broker', category, earlyFailure });
+    expect(JSON.stringify(diagnostic)).not.toContain(sentinel);
+  });
+
+  it.each([
+    { schemaVersion: 1, phase: 'configuration', reason: 'PRIVATE_SECRET' },
+    { schemaVersion: 1, phase: 'PRIVATE_SECRET', reason: 'configuration-rejected' },
+    { schemaVersion: 1, phase: 'configuration', reason: 'configuration-rejected', secret: 'PRIVATE_SECRET' },
+    { schemaVersion: 2, phase: 'configuration', reason: 'configuration-rejected' },
+    { schemaVersion: 1, phase: ['configuration'], reason: 'configuration-rejected' },
+    { schemaVersion: 1, phase: 'configuration', reason: '__proto__' },
+  ])('rejects unknown or malformed early markers without leaking them (%#)', value => {
+    fs.writeFileSync(stderrFile, `AWF_EARLY_STARTUP_FAILURE ${JSON.stringify(value)}\n`);
+    expect(diagnose(stderrFile)).not.toHaveProperty('earlyFailure');
+    expect(diagnose(stderrFile).category).toBe('unknown');
+    expect(JSON.stringify(diagnose(stderrFile))).not.toContain('PRIVATE_SECRET');
+  });
 
   it('prefers the existing structured host startup record, matching the entire message', () => {
     const startupErrorFile = path.join(directory, 'awf-startup-error.json');

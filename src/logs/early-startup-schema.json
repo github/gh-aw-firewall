@@ -1,0 +1,13 @@
+{
+  "phases": {
+    "configuration": "configuration-rejected",
+    "validation": "validation-rejected",
+    "backend-selection": "backend-selection-rejected"
+  },
+  "reasons": {
+    "configuration-rejected": "configuration",
+    "validation-rejected": "configuration",
+    "backend-selection-rejected": "container-runtime",
+    "cloud-hypervisor-enclave-admission": "configuration"
+  }
+}
