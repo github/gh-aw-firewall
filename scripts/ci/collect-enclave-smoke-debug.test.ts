@@ -89,6 +89,34 @@ describe('host-only public enclave debug collector', () => {
     };
   }
 
+  it('preserves finite Claude lifecycle evidence without engine payloads', () => {
+    const envelope = {
+      ...commonEnvelope(),
+      session: { status: 'captured', events: [
+        { event: 'progress', stage: 'claude-initialized', permissionMode: 'default',
+          shellAvailable: true, cwd: 'PRIVATE_PATH', headers: 'PRIVATE_HEADER' },
+        { event: 'progress', stage: 'claude-permission-denied', input: 'PRIVATE_COMMAND' },
+        { event: 'progress', stage: 'claude-api-retry', httpStatus: 403, error: 'PRIVATE_ERROR' },
+        { event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
+          stderrObserved: false, captureTruncated: false, outputState: 'empty', raw: 'PRIVATE_MODEL' },
+      ] },
+    };
+    const projected = JSON.parse(projectDiagnostics(envelope, {
+      runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor',
+    }).toString());
+    expect(projected.session.events).toEqual([
+      { event: 'progress', stage: 'claude-initialized', permissionMode: 'default', shellAvailable: true },
+      { event: 'progress', stage: 'claude-permission-denied' },
+      { event: 'progress', stage: 'claude-api-retry', httpStatus: 403 },
+      { event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
+        stderrObserved: false, captureTruncated: false, outputState: 'empty' },
+    ]);
+    expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+    envelope.session.events[0].permissionMode = 'PRIVATE_MODE';
+    expect(() => projectDiagnostics(envelope, { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' }))
+      .toThrow(/session-schema/);
+  });
+
   it('collects a failed invocation but excludes stale directories and journals', () => {
     fs.mkdirSync(path.join(roots.debug, 'c'.repeat(32)), { mode: 0o700 });
     fs.writeFileSync(path.join(roots.journal, `${'d'.repeat(32)}.journal`), 'stale', { mode: 0o600 });

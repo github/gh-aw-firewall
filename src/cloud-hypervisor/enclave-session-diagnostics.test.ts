@@ -69,6 +69,27 @@ describe('bounded guest session evidence', () => {
     expect(JSON.stringify(result)).not.toContain('PRIVATE_');
   });
 
+  it('retains only allowlisted Claude progress metadata', async () => {
+    await write([
+      { event: 'progress', stage: 'claude-initialized', permissionMode: 'default',
+        shellAvailable: true, cwd: 'PRIVATE_PATH', tools: ['PRIVATE_TOOL'], key: 'PRIVATE_KEY' },
+      { event: 'progress', stage: 'claude-api-retry', httpStatus: 403, error: 'PRIVATE_ERROR' },
+      { event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
+        stderrObserved: false, captureTruncated: false, outputState: 'empty', raw: 'PRIVATE_MODEL' },
+      { event: 'progress', stage: 'claude-result', permissionMode: 'PRIVATE_MODE',
+        outputState: 'PRIVATE_OUTPUT', httpStatus: 999, toolError: 'PRIVATE_ERROR' },
+    ]);
+    const result = await read();
+    expect(result.events).toEqual([
+      { event: 'progress', stage: 'claude-initialized', permissionMode: 'default', shellAvailable: true },
+      { event: 'progress', stage: 'claude-api-retry', httpStatus: 403 },
+      { event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
+        stderrObserved: false, captureTruncated: false, outputState: 'empty' },
+      { event: 'progress', stage: 'claude-result' },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('PRIVATE_');
+  });
+
   it('bounds events while retaining the first failure and last milestone independently', async () => {
     await write([
       ...Array.from({ length: 200 }, () => ({ event: 'progress', stage: 'engine-launch-attempt' })),

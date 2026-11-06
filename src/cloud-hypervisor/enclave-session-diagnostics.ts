@@ -12,6 +12,8 @@ const STAGES = [
   'configuration-accepted', 'input-accepted', 'runtime-paths-ready', 'preflight-completed',
   'engine-launch-attempt', 'engine-started', 'engine-completed', 'output-normalization-started',
   'output-normalized', 'output-write-attempt', 'output-written',
+  'claude-first-byte', 'claude-initialized', 'claude-response', 'claude-tool-requested',
+  'claude-tool-completed', 'claude-permission-denied', 'claude-api-retry', 'claude-result', 'claude-stream-summary',
 ];
 const CATEGORIES = [
   'configuration-invalid', 'input-invalid', 'engine-failed', 'result-write-failed', 'deadline-exceeded',
@@ -107,6 +109,20 @@ function projectEvent(value: Record<string, unknown>): SafeEvent | undefined {
     result.stage = value.stage;
     for (const key of ['attempt', 'runtimeMs']) if (integer(value[key])) result[key] = value[key];
     if (typeof value.valid === 'boolean') result.valid = value.valid;
+    if (String(value.stage).startsWith('claude-')) {
+      for (const key of ['shellAvailable', 'toolError', 'resultError', 'stdoutObserved',
+        'stderrObserved', 'captureTruncated']) {
+        if (typeof value[key] === 'boolean') result[key] = value[key];
+      }
+      if (allowed(value.permissionMode, ['default', 'auto', 'acceptEdits', 'bypassPermissions', 'unknown'])) {
+        result.permissionMode = value.permissionMode;
+      }
+      if (allowed(value.outputState, ['present', 'empty', 'unavailable'])) result.outputState = value.outputState;
+      if (value.httpStatus === null || (integer(value.httpStatus)
+        && [400, 401, 403, 404, 408, 429, 500, 502, 503, 504].includes(value.httpStatus))) {
+        result.httpStatus = value.httpStatus;
+      }
+    }
   } else if (value.event === 'preflight' && allowed(value.path, PATHS)) {
     result.event = 'preflight';
     result.path = value.path;

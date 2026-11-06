@@ -278,6 +278,18 @@ AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave
 
 - **Script executor** — `enclave_run_script` runs a bounded Python script in a no-network, read-only, single-use sandbox.
 - **Agent executor** — `enclave_run_agent` runs pinned Copilot, Codex, or Claude in a bounded single-use enclave. Codex requires the `openai` profile and Claude requires `anthropic`. Its mandatory peer is the dedicated API proxy; only the selected provider route is configured and real credentials remain outside the enclave. Copilot's `agent.tools.github` (or the deprecated legacy `agent.github.cli: issues-read-v1` marker) also permits a direct connection to compiler-owned shared mcpg. GitHub MCP and dynamic repository admission remain Copilot-only and fail closed for the other engines.
+
+Claude uses an explicit unattended permission policy: `default` mode, no
+permission prompts, and pre-approved Bash, Read, Write, Edit, Glob, and Grep.
+These approvals do not bypass the enclave's filesystem, capability, or network
+restrictions. Its streaming output is projected onto bounded, deduplicated
+`claude-*` lifecycle milestones (initialization, provider response/retry, tool
+request/completion, permission denial, result, and stream/output presence).
+Prompts, headers, tool inputs/results, and model text are never retained in
+Claude diagnostics, including public/raw-debug runs. A provider response is not
+proof of successful tool execution; a result event is not the result channel.
+The unchanged deadline and schema-validated `/awf/out` contract still apply:
+silent exits and no-output timeouts remain explicit failures.
 - **Shared controls** — the `repos` lists of the `enclaves` entries form the only trusted repository catalog; script and agent calls debit the same per-run repository ledger and share one admission lane.
 
 > **Terminology.** *Executor* and *enclave* are distinct, and this document uses

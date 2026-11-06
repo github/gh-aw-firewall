@@ -228,6 +228,35 @@ if scenario != "missing-copilot":
     copilot = Path(module.engine_binary(os.environ["AWF_ENCLAVE_AGENT_ENGINE"]))
     if scenario == "timeout":
         copilot.write_text("#!/bin/sh\nsleep 30 &\nwait\n", encoding="utf-8")
+    elif scenario.startswith("claude-stream"):
+        stream_events = [
+            {"type": ["untrusted"]},
+            {"type": "system", "subtype": "init", "permissionMode": {"private": "PRIVATE_MODE"},
+             "tools": ["Bash"], "cwd": "PRIVATE_PATH", "apiKeySource": "PRIVATE_KEY"},
+            {"type": "system", "subtype": "init", "permissionMode": "default", "tools": ["Bash"]},
+            {"type": "stream_event", "event": {"type": "message_start", "message": "PRIVATE_MODEL"}},
+            {"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "name": "Bash", "input": {"command": "PRIVATE_COMMAND"}},
+                {"type": "text", "text": "PRIVATE_MODEL"},
+            ]}},
+            {"type": "user", "message": {"content": [
+                {"type": "tool_result", "content": "PRIVATE_REPOSITORY", "is_error": True},
+            ]}},
+            {"type": "system", "subtype": "api_retry", "error_status": 403, "error": "PRIVATE_HEADER"},
+            {"type": "result", "is_error": True,
+             "permission_denials": [{"tool_name": "Bash", "tool_input": "PRIVATE_COMMAND"}]},
+        ]
+        copilot.write_text(
+            "#!/usr/bin/python3\nimport json, sys, time\n"
+            + ("sys.stdout.write('x' * (512 * 1024) + '\\n'); sys.stdout.flush()\n"
+               if scenario == "claude-stream-flood" else "")
+            + "for event in " + repr(stream_events * 2) + ": print(json.dumps(event), flush=True)\n"
+            + ("time.sleep(30)\n" if scenario == "claude-stream-timeout" else
+               "open(" + repr(str(module.OUT_PATH)) + ", 'w').write('true')\n"),
+            encoding="utf-8",
+        )
+    elif scenario == "silent-success":
+        copilot.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     elif scenario == "stdout-only":
         copilot.write_text("#!/bin/sh\nprintf '%s\\n' true\n", encoding="utf-8")
     else:
@@ -386,6 +415,10 @@ describe('enclave agent protected entrypoint diagnostics', () => {
       expect(result.arguments).toContain('--print');
       expect(result.arguments).toContain('--bare');
       expect(result.arguments).not.toContain('--dangerously-skip-permissions');
+      expect(result.arguments).toContain('--permission-mode\ndefault\n');
+      expect(result.arguments).toContain('--permission-prompts\nnone\n');
+      expect(result.arguments).toContain('--allowedTools\nBash,Read,Write,Edit,Glob,Grep\n');
+      expect(result.arguments).toContain('--output-format\nstream-json\n');
       expect(result.arguments).toContain('--strict-mcp-config');
       expect(result.arguments).toContain('{"mcpServers":{}}');
       expect(result.arguments).toContain('--no-session-persistence');
@@ -405,8 +438,13 @@ describe('enclave agent protected entrypoint diagnostics', () => {
       AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS: 'true',
     });
     expect(result.exitCode).toBe(0);
-    expect(result.transcript).toContain('protected conversational output');
-    expect(result.transcript).toContain('[REDACTED]');
+    if (engine === 'claude') {
+      expect(result.transcript).not.toContain('protected conversational output');
+      expect(result.transcript).not.toContain('Authorization');
+    } else {
+      expect(result.transcript).toContain('protected conversational output');
+      expect(result.transcript).toContain('[REDACTED]');
+    }
     expect(result.transcript).not.toContain('model-budget-capability-sentinel');
     expect(result.transcript).not.toContain('test-secret-token-value');
   });
@@ -415,6 +453,65 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     const result = runHarness('timeout', providerEnv(engine));
     expect(result.exitCode).toBe(20);
     expect(result.transcript).toContain('deadline-exceeded');
+    expect(result.output).toBe('');
+    if (engine === 'claude') {
+      expect(events(result)).toContainEqual(expect.objectContaining({
+        stage: 'claude-stream-summary', stdoutObserved: false, stderrObserved: false, outputState: 'empty',
+      }));
+    }
+  });
+
+  it('projects Claude lifecycle events without retaining any engine content, even with raw debugging enabled', () => {
+    const result = runHarness('claude-stream', {
+      ...providerEnv('claude'), AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS: 'true',
+    });
+    const progress = events(result).filter(event => String(event.stage).startsWith('claude-'));
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe('true');
+    for (const stage of ['claude-initialized', 'claude-response', 'claude-tool-requested',
+      'claude-tool-completed', 'claude-api-retry', 'claude-permission-denied', 'claude-result']) {
+      expect(progress.filter(event => event.stage === stage)).toHaveLength(1);
+    }
+    expect(progress).toContainEqual(expect.objectContaining({
+      stage: 'claude-initialized', permissionMode: 'unknown', shellAvailable: true,
+    }));
+    expect(progress).toContainEqual(expect.objectContaining({ stage: 'claude-api-retry', httpStatus: 403 }));
+    expect(result.transcript).not.toContain('PRIVATE_');
+    expect(result.transcript).not.toContain('tool_input');
+    expect(result.transcript).not.toContain('raw');
+  });
+
+  it('retains Claude progress at the deadline without accepting an empty output', () => {
+    const result = runHarness('claude-stream-timeout', {
+      ...providerEnv('claude'), AWF_ENCLAVE_AGENT_DEADLINE_SECONDS: '1',
+    });
+    expect(result.exitCode).toBe(20);
+    expect(result.output).toBe('');
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-stream-summary', stdoutObserved: true, outputState: 'empty',
+    }));
+    const transcript = events(result);
+    expect(transcript[transcript.length - 1]).toEqual({ event: 'failure', category: 'deadline-exceeded' });
+    expect(result.transcript).not.toContain('PRIVATE_');
+  });
+
+  it('bounds Claude stream capture and resumes projection after an oversized line', () => {
+    const result = runHarness('claude-stream-flood', providerEnv('claude'));
+    expect(result.exitCode).toBe(0);
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-stream-summary', captureTruncated: true,
+    }));
+    expect(events(result)).toContainEqual(expect.objectContaining({ stage: 'claude-result' }));
+    expect(result.transcriptBytes).toBeLessThan(16 * 1024);
+    expect(result.transcript).not.toContain('PRIVATE_');
+  });
+
+  it('does not turn a silent successful Claude exit into a result', () => {
+    const result = runHarness('silent-success', providerEnv('claude'));
+    expect(result.exitCode).toBe(33);
+    expect(result.output).toBe('');
+    const transcript = events(result);
+    expect(transcript[transcript.length - 1]).toEqual({ event: 'failure', category: 'result-empty' });
   });
 
   it.each(['codex', 'claude'])('rejects non-proxy endpoints for %s', engine => {
