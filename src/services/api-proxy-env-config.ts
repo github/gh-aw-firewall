@@ -274,7 +274,7 @@ function buildRateLimitEnv(config: WrapperConfig): Record<string, string> {
       AWF_RATE_LIMIT_RPH: String(config.rateLimitConfig.rph),
       AWF_RATE_LIMIT_BYTES_PM: String(config.rateLimitConfig.bytesPm),
     }),
-    ...(config.maxAiCredits !== undefined && {
+    ...(config.maxAiCredits !== undefined && config.maxAiCredits !== -1 && config.maxAiCredits !== 0 && {
       AWF_MAX_AI_CREDITS: String(config.maxAiCredits),
     }),
     ...(config.defaultAiCreditsPricing && {
