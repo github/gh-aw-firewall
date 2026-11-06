@@ -1544,6 +1544,32 @@ jobs:
                 -- your-agent-command
 ```
 
+## AI-credit hard cap
+
+The API proxy always enforces a per-run ceiling on accounted AI credits, even
+when `maxAiCredits` is omitted or disabled. Its default is **10,000 credits**
+(about $100 at $0.01 per credit). Operators can lower or raise it by setting
+`AWF_AI_CREDITS_HARD_CAP` in the host environment before starting AWF, or directly
+on the api-proxy container. Only positive finite numbers are accepted; unset,
+empty, unparseable, zero, negative, and non-finite values retain the default.
+The guard cannot be disabled.
+
+```bash
+AWF_AI_CREDITS_HARD_CAP=25000 sudo --preserve-env=AWF_AI_CREDITS_HARD_CAP \
+  awf --config /path/to/awf.yaml -- your-agent-command
+```
+
+AWF forwards this setting only to the api-proxy, never to the agent, including
+with `--env-all`. `--env` and `--env-file` do not configure this operator setting.
+The effective limit is the lower of a positive `maxAiCredits` budget and the
+hard cap, or just the hard cap when no budget is configured. Reflection and
+steering use that same limit. At the cap, subsequent model requests receive
+HTTP `403` with `ai_credits_limit_exceeded` and `hard_cap: true`; the error does
+not name the environment variable or tell the agent how to raise its ceiling.
+Credits are not persisted between invocations; start a new run to change the cap.
+Unpriced usage is excluded from accounting, so actual spending can exceed the
+accounted limit.
+
 ## Runtime and AI-credit steering
 
 Budget steering is **opt-in**. Pass `--enable-token-steering` on the CLI or set `apiProxy.enableTokenSteering: true` in the config file:
@@ -1554,7 +1580,7 @@ apiProxy:
   enableTokenSteering: true
 ```
 
-This one switch enables advisory warnings for AI-credit and runtime thresholds at 80%, 90%, 95%, and 99%. Credit thresholds use the lower of `maxAiCredits` and the non-overridable 10,000-credit hard cap (or the hard cap alone when no credit budget is configured). Runtime steering uses the actual agent start marker, not the first model request. Host timeout enforcement uses a separate host-controlled deadline and does not trust the agent-writable marker.
+This one switch enables advisory warnings for AI-credit and runtime thresholds at 80%, 90%, 95%, and 99%. Credit thresholds use the lower of `maxAiCredits` and the operator-controlled hard cap (10,000 credits by default), or the hard cap alone when no credit budget is configured. Runtime steering uses the actual agent start marker, not the first model request. Host timeout enforcement uses a separate host-controlled deadline and does not trust the agent-writable marker.
 
 To opt a workflow out explicitly, set `apiProxy.enableTokenSteering: false` (or omit the field). The CLI/config value is the only source of the sidecar's `AWF_ENABLE_TOKEN_STEERING` env var, which is emitted only when steering is enabled.
 
