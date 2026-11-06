@@ -355,7 +355,7 @@
     },
     "ai_credits_pricing_estimate": {
       "type": "object",
-      "description": "Provenance of an estimated price (median of same-family or same-backend donor models) used when the model had no exact or configured pricing. Present when the price was estimated."
+      "description": "Provenance of an estimated price (median of same-family or same-backend donor models) used when the model had no exact or configured pricing. Present when the price was estimated.",
       "properties": {
         "basis": {
           "type": "string",

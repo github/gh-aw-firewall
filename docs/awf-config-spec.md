@@ -231,7 +231,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.anthropicCacheTailTtl` → `--anthropic-cache-tail-ttl <5m|1h>`
 - `apiProxy.hostedWeb.claude` → *(config-only; maps to `AWF_CLAUDE_HOSTED_WEB_POLICY` — AWF-owned domain policy for Anthropic-hosted `web_search_*`/`web_fetch_*` server tools; see [§9.8 Claude Hosted Web Search and Fetch](#98-claude-hosted-web-search-and-fetch))*
 - `apiProxy.hostedWeb.codex` → *(config-only; maps to `AWF_CODEX_HOSTED_WEB_POLICY` — AWF-owned domain policy for OpenAI Responses `web_search` and Codex `/v1/alpha/search`; see [§9.9 Codex/OpenAI Hosted Web Policy](#99-codexopenai-hosted-web-policy))*
-- `apiProxy.maxAiCredits` → *(config-only; maps to `AWF_MAX_AI_CREDITS`)*
+- `apiProxy.maxAiCredits` → `--max-ai-credits <number>` *(maps to `AWF_MAX_AI_CREDITS` for positive budgets)*
 - `apiProxy.defaultAiCreditsPricing` → *(config-only; maps to `AWF_DEFAULT_AI_CREDITS_PRICING`)*
 - `apiProxy.modelPricingCatalog` → *(config-only; maps to `AWF_MODEL_PRICING_CATALOG` — versioned, provider-scoped model prices; see the AI credits pricing section)*
 - `apiProxy.modelCatalogue` → *(config-only; maps to `AWF_MODEL_CATALOGUE` — runtime reviewed-source loading, offline/local controls, refresh and age policy; see [runtime catalogue configuration](model-catalogue-publication.md#configuration-and-fallback))*
@@ -1206,13 +1206,14 @@ ports still serve provider-local `/health` responses.
 ### 10.3 Max AI Credits Configuration
 
 `maxAiCredits` accepts a positive budget or a disabled value (`-1` or `0`).
-It is supplied via the AWF config file
-(including stdin config via `--config -`) and maps to the
+It is supplied via `--max-ai-credits <number>` or the AWF config file
+(including stdin config via `--config -`). A positive budget maps to the
 `AWF_MAX_AI_CREDITS` environment variable injected into the api-proxy
 container.
 
 Setting `maxAiCredits` to `-1` or `0` disables the configured budget, as if the
 field were omitted. AWF does not inject `AWF_MAX_AI_CREDITS` for these values.
+For example, `awf --max-ai-credits -1 -- <command>` selects no configured cap.
 Other negative values are invalid. The non-overridable 10,000-credit hard cap
 still applies.
 

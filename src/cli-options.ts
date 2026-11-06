@@ -493,6 +493,11 @@ program
     'Disable rate limiting in the API proxy (requires --enable-api-proxy)',
   )
   .option(
+    '--max-ai-credits <number>',
+    'Maximum cumulative AI credits per run; -1 or 0 disables the configured budget.\n' +
+    '                                       The non-overridable 10,000-credit hard cap still applies.',
+  )
+  .option(
     '--max-model-multiplier <model:multiplier,...>',
     'Per-model cost multipliers used by --max-model-multiplier-cap (requires --enable-api-proxy).\n' +
     '                                       Format: comma-separated model:multiplier pairs, e.g.\n' +

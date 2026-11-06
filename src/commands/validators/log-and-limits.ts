@@ -57,6 +57,17 @@ function parseOptionalNumber(option: string | number | undefined): number | unde
   return option !== undefined ? Number(option) : undefined;
 }
 
+function parseMaxAiCredits(option: unknown): number | undefined {
+  if (option === undefined) return undefined;
+  const value = typeof option === 'number' || (typeof option === 'string' && option.trim() !== '')
+    ? Number(option)
+    : NaN;
+  if (!Number.isFinite(value) || (value < 0 && value !== -1)) {
+    exitValidationError('Error: Invalid maxAiCredits value (must be > 0, or -1 or 0 to disable the configured budget)');
+  }
+  return value === -1 || value === 0 ? undefined : value;
+}
+
 function validatePositiveIntegerOption(optionName: string, value: number | undefined): void {
   if (value !== undefined && (!Number.isInteger(value) || value <= 0)) {
     exitValidationError(`Error: Invalid ${optionName} value (must be a positive integer)`);
@@ -75,7 +86,6 @@ function validateModelMultiplierOptions(options: ValidatorOptions): ModelMultipl
   const modelAliases = options.modelAliases as Record<string, string[]> | undefined;
   const allowedModels = options.allowedModels as string[] | undefined;
   const disallowedModels = options.disallowedModels as string[] | undefined;
-  const maxAiCreditsOption = options.maxAiCredits as string | number | undefined;
   const defaultModelMultiplierOption = options.defaultModelMultiplier as string | number | undefined;
   // Config-file multipliers (already a Record<string, number>)
   const configFileMultipliers = options.modelMultipliers as
@@ -96,13 +106,12 @@ function validateModelMultiplierOptions(options: ValidatorOptions): ModelMultipl
     configFileMultipliers || cliMultipliers
       ? { ...configFileMultipliers, ...cliMultipliers }
       : undefined;
-  const maxAiCredits = parseOptionalNumber(maxAiCreditsOption);
+  const maxAiCredits = parseMaxAiCredits(options.maxAiCredits);
   const defaultModelMultiplier = parseOptionalNumber(defaultModelMultiplierOption);
   const maxModelMultiplierCap = parseOptionalNumber(
     options.maxModelMultiplierCap as string | number | undefined,
   );
 
-  validatePositiveNumberOption('maxAiCredits', maxAiCredits);
   validatePositiveNumberOption('defaultModelMultiplier', defaultModelMultiplier);
   validatePositiveNumberOption('maxModelMultiplierCap', maxModelMultiplierCap);
 

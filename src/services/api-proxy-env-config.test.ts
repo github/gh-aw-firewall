@@ -389,6 +389,11 @@ describe('buildRateLimitEnv', () => {
     expect(env.AWF_MAX_AI_CREDITS).toBe('1.25');
   });
 
+  it.each([-1, 0, undefined])('omits AWF_MAX_AI_CREDITS for a disabled budget (%s)', (maxAiCredits) => {
+    const env = buildRateLimitEnv({ ...baseConfig, workDir: '/tmp/awf-test', maxAiCredits });
+    expect(env).not.toHaveProperty('AWF_MAX_AI_CREDITS');
+  });
+
   it('sets model multiplier environment variables when configured', () => {
     const env = buildRateLimitEnv({
       ...baseConfig,
