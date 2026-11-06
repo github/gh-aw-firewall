@@ -257,6 +257,15 @@ if scenario != "missing-copilot":
         )
     elif scenario == "silent-success":
         copilot.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    elif scenario in ("claude-crash-after-output", "claude-startup-crash"):
+        copilot.write_text(
+            "#!/usr/bin/python3\nimport os, resource, signal\n"
+            "resource.setrlimit(resource.RLIMIT_CORE, (0, 0))\n"
+            + ("print('protected engine output', flush=True)\n"
+               if scenario == "claude-crash-after-output" else "")
+            + "os.kill(os.getpid(), signal.SIGABRT)\n",
+            encoding="utf-8",
+        )
     elif scenario == "stdout-only":
         copilot.write_text("#!/bin/sh\nprintf '%s\\n' true\n", encoding="utf-8")
     else:
@@ -512,6 +521,15 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     expect(result.output).toBe('');
     const transcript = events(result);
     expect(transcript[transcript.length - 1]).toEqual({ event: 'failure', category: 'result-empty' });
+  });
+
+  it.each([
+    ['claude-crash-after-output', 0], ['claude-startup-crash', 2],
+  ])('preserves startup retry semantics for %s without exposing streams', (scenario, retries) => {
+    const result = runHarness(String(scenario), providerEnv('claude'));
+    expect(result.exitCode).toBe(24);
+    expect(events(result).filter(event => event.event === 'engine-retry')).toHaveLength(Number(retries));
+    expect(result.transcript).not.toContain('protected engine output');
   });
 
   it.each(['codex', 'claude'])('rejects non-proxy endpoints for %s', engine => {

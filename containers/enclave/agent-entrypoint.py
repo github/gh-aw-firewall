@@ -1251,7 +1251,7 @@ def main() -> int:
         )
         startup_crash = (
             completed.returncode in {-signal.SIGABRT, -signal.SIGSEGV}
-            and not stdout
+            and not (completed.stdout if engine == "claude" else stdout)
             and runtime < STARTUP_CRASH_WINDOW_SECONDS
         )
         if not startup_crash or attempt == MAX_STARTUP_RETRIES:
