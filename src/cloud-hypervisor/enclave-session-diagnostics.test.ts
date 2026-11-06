@@ -92,6 +92,25 @@ describe('bounded guest session evidence', () => {
     expect(JSON.stringify(result)).not.toContain('PRIVATE_');
   });
 
+  it.each([
+    'unknown-option', 'invalid-option-value', 'missing-option-value',
+    'invalid-settings', 'invalid-mcp-config', 'unknown',
+  ])('retains only the closed Claude startup classification %s', async classification => {
+    await write([
+      { event: 'progress', stage: 'claude-startup-failure', classification,
+        stderr: 'PRIVATE_STDERR', prompt: 'PRIVATE_PROMPT', exception: 'PRIVATE_EXCEPTION' },
+      { event: 'progress', stage: 'claude-startup-failure', classification: 'PRIVATE_CLASS' },
+      { event: 'progress', stage: 'claude-response', classification },
+    ]);
+    const result = await read();
+    expect(result.events).toEqual([
+      { event: 'progress', stage: 'claude-startup-failure', classification },
+      { event: 'progress', stage: 'claude-startup-failure' },
+      { event: 'progress', stage: 'claude-response' },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('PRIVATE_');
+  });
+
   it('retains only the latest Claude stream summary independently of capped events and later milestones', async () => {
     await write([
       { event: 'progress', stage: 'claude-stream-summary', stdoutObserved: false, outputState: 'empty' },

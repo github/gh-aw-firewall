@@ -223,6 +223,26 @@ describe('host-only public enclave debug collector', () => {
     expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThan(8192);
   });
 
+  it.each([
+    'unknown-option', 'invalid-option-value', 'missing-option-value',
+    'invalid-settings', 'invalid-mcp-config', 'unknown',
+  ])('preserves startup classification %s through host and protected artifact projection', classification => {
+    const event = { event: 'progress', stage: 'claude-startup-failure', classification,
+      stderr: 'PRIVATE_STDERR', prompt: 'PRIVATE_PROMPT', exception: 'PRIVATE_EXCEPTION' };
+    const session = projectEnclaveSessionDiagnostics(Buffer.from(JSON.stringify(event)));
+    const identity = { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' };
+    const projected = JSON.parse(projectDiagnostics({ ...commonEnvelope(), session }, identity).toString());
+    expect(projected.session.events).toEqual([
+      { event: 'progress', stage: 'claude-startup-failure', classification },
+    ]);
+    expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+    expect(() => projectDiagnostics({
+      ...commonEnvelope(), session: { status: 'captured', events: [
+        { ...event, classification: 'PRIVATE_CLASS' },
+      ] },
+    }, identity)).toThrow(/session-schema/);
+  });
+
   it('projects the independent Claude summary and rejects incorrect summary schema', () => {
     const envelope = { ...commonEnvelope(), session: {
       status: 'captured', claudeStreamSummary: {
