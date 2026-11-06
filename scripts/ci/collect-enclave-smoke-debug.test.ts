@@ -49,12 +49,13 @@ describe('host-only public enclave debug collector', () => {
     return source;
   }
   const collectRun = () => collect(run, uid, gid, roots, uid, temp);
-  function retainStartup(structured = false) {
+  function retainStartup(structured = false, earlyFailure?: Record<string, unknown>) {
     const binding = { backend: 'cloud-hypervisor', runnerUid: uid, runnerGid: gid };
     prepare(run, roots, uid, temp, binding);
     const stderr = path.join(temp, 'private.stderr');
     const startup = path.join(temp, 'private-startup.json');
-    fs.writeFileSync(stderr, 'PRIVATE_PROMPT_AND_CREDENTIAL_SENTINEL\n', { mode: 0o600 });
+    fs.writeFileSync(stderr, 'PRIVATE_PROMPT_AND_CREDENTIAL_SENTINEL\n' +
+      (earlyFailure ? `AWF_EARLY_STARTUP_FAILURE ${JSON.stringify(earlyFailure)}\n` : ''), { mode: 0o600 });
     if (structured) fs.writeFileSync(startup, JSON.stringify({
       phase: 'startup', message: 'Trusted enclave MCP gateway container is unavailable',
       timestamp: '2026-01-01T00:00:00Z',
@@ -296,6 +297,21 @@ describe('host-only public enclave debug collector', () => {
       .toMatchObject({ diagnostic: { category: 'broker', exitCode: 1 } });
     expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8')).toContain('failedCheck=stop-proof');
   });
+  it('exports the allowlisted early admission reason independently of invocation evidence', () => {
+    const earlyFailure = {
+      schemaVersion: 1, phase: 'backend-selection', reason: 'cloud-hypervisor-enclave-admission',
+    };
+    retainStartup(false, earlyFailure);
+    expect(collectRun()).toBe(1);
+    const text = fs.readFileSync(path.join(run, 'upload/startup.json'), 'utf8');
+    expect(JSON.parse(text)).toMatchObject({
+      diagnostic: { category: 'configuration', earlyFailure },
+      evidence: { record: { final: 'missing' } },
+    });
+    expect(text).not.toContain('PRIVATE_');
+    expect(Buffer.byteLength(text)).toBeLessThan(collector.MAX_STATUS_BYTES);
+  });
+
   it('exports bounded post-result finalization evidence without invocation artifacts', () => {
     retainFinalization();
     expect(collectRun()).toBe(1);

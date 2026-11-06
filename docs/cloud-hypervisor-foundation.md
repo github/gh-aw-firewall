@@ -350,6 +350,17 @@ If subsequent invocation collection fails, `startup.json` remains separate from
 `collection-status.txt`; successful collection alone does not establish startup
 or inference success.
 
+Before the startup record exists, the CLI emits a bounded
+`AWF_EARLY_STARTUP_FAILURE` marker containing only a version, fixed phase
+(`configuration`, `validation`, or `backend-selection`), and allowlisted reason.
+The exporter retains it as `diagnostic.earlyFailure`; unknown or malformed
+markers are discarded, never copied as stderr. `cloud-hypervisor-enclave-admission`
+identifies rejection by the primary-plus-enclave admission guard, not a storage,
+guest, or provider failure. The daily regression's ordinary-job OIDC identity
+uses signed `workflow_ref` and `workflow_sha` claims; reusable-job identity is
+not admitted. Signature, source commit, artifact attestation, exact profile,
+storage bounds, runtime matching, and no-fallback checks remain mandatory.
+
 After finalization, the daily regression also emits
 `AWF_ENCLAVE_REGRESSION_FINALIZATION` and retains a bounded `finalization.json`.
 It records result validation separately from AWF stop/exit, audit presence,

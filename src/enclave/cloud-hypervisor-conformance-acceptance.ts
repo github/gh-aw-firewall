@@ -94,7 +94,7 @@ function verifyGitHubOidcToken(token: string): Record<string, unknown> | undefin
   const repository = claims.repository;
   const ref = claims.ref;
   const eventName = claims.event_name;
-  const workflowRef = claims.job_workflow_ref;
+  const workflowRef = claims.workflow_ref;
   const sha = claims.sha;
   const audience = claims.aud;
   const now = Math.floor(Date.now() / 1000);
@@ -108,6 +108,8 @@ function verifyGitHubOidcToken(token: string): Record<string, unknown> | undefin
     && ref === 'refs/heads/main'
     && (eventName === 'schedule' || eventName === 'workflow_dispatch')
     && workflowRef === REGRESSION_WORKFLOW_REF
+    && claims.workflow_sha === CLOUD_HYPERVISOR_REGRESSION_COMMIT
+    && claims.job_workflow_ref === undefined
     && sha === CLOUD_HYPERVISOR_REGRESSION_COMMIT ? claims : undefined;
 }
 

@@ -645,6 +645,15 @@ function projectStartup(value, backend) {
     logInspection: member(['unavailable', 'structured', 'bounded']),
   });
   check(Object.keys(diagnostic).length === 8, 'startup-schema');
+  if (value.diagnostic.earlyFailure !== undefined) {
+    // The protected collector is installed as a standalone, root-owned file.
+    diagnostic.earlyFailure = fields(value.diagnostic.earlyFailure, {
+      schemaVersion: member([1]), phase: member(['configuration', 'validation', 'backend-selection']),
+      reason: member(['configuration-rejected', 'validation-rejected', 'backend-selection-rejected',
+        'cloud-hypervisor-enclave-admission']),
+    });
+    check(Object.keys(diagnostic.earlyFailure).length === 3, 'startup-schema');
+  }
   if (value.diagnostic.enclaveStartup !== undefined) {
     diagnostic.enclaveStartup = fields(value.diagnostic.enclaveStartup, {
       stage: member(stages), readiness: member(['not-attempted', 'attempted', 'ready']),

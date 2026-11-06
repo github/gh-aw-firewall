@@ -24,6 +24,7 @@ import {
 } from '../../nvx/runtime-validation';
 import { assertProtectedCommandOutputCaptureSupported } from '../../protected-command-output-capture';
 import { assertFilesystemWritePolicyCompatibility } from '../../filesystem-policy';
+import { withEarlyStartupDiagnostics } from '../../logs/early-startup-diagnostics';
 import {
   formatCloudHypervisorDockerFallbackWarning,
   isCloudHypervisorUnsupportedHostError,
@@ -102,15 +103,18 @@ export function assembleAndValidateConfig(
   }
   validateInfrastructureOptions(config);
   try {
-    assertCloudHypervisorSelection(config);
-    assertNvxSelection(config);
+    withEarlyStartupDiagnostics('backend-selection', () => {
+      assertCloudHypervisorSelection(config);
+      assertNvxSelection(config);
+    });
   } catch (error) {
     logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   }
   if (requiresCloudHypervisorInfrastructure(config)) {
     try {
-      assertCloudHypervisorPreSecurityCompatibility(config);
+      withEarlyStartupDiagnostics('backend-selection', () =>
+        assertCloudHypervisorPreSecurityCompatibility(config));
     } catch (error) {
       logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
       process.exit(1);
@@ -124,26 +128,28 @@ export function assembleAndValidateConfig(
     process.exit(1);
   }
   if (requiresCloudHypervisorInfrastructure(config)) {
-    try {
-      assertCloudHypervisorRuntimeCompatibility(config);
-    } catch (error) {
-      if (
-        isCloudHypervisorUnsupportedHostError(error)
-        && isPrimaryCloudHypervisorRuntime(config)
-        && !usesCloudHypervisorEnclaveRuntime(config)
-      ) {
-        fallBackCloudHypervisorToDocker(config, error);
-      } else {
-        logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
-        process.exit(1);
+    withEarlyStartupDiagnostics('backend-selection', () => {
+      try {
+        assertCloudHypervisorRuntimeCompatibility(config);
+      } catch (error) {
+        if (
+          isCloudHypervisorUnsupportedHostError(error)
+          && isPrimaryCloudHypervisorRuntime(config)
+          && !usesCloudHypervisorEnclaveRuntime(config)
+        ) {
+          fallBackCloudHypervisorToDocker(config, error);
+        } else {
+          logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
+          process.exit(1);
+        }
       }
-    }
+    });
   }
   if (isPrimaryNvxRuntime(config)) {
     // NVX never falls back to another runtime: any validation failure here
     // (missing preview flag, unsupported host, invalid artifacts) is fatal.
     try {
-      assertNvxRuntimeCompatibility(config);
+      withEarlyStartupDiagnostics('backend-selection', () => assertNvxRuntimeCompatibility(config));
     } catch (error) {
       logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
       process.exit(1);

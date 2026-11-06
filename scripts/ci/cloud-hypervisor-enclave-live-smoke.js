@@ -676,7 +676,23 @@ function cacheStartupRecord(file) {
 }
 
 const EXIT_MARKER = 'AWF_STARTUP_EXIT ';
+const EARLY_FAILURE_MARKER = 'AWF_EARLY_STARTUP_FAILURE ';
+const earlyStartupSchema = require('../../src/logs/early-startup-schema.json');
 const WRITE_OUTCOMES = ['written', 'oversize', 'unsafe-target', 'io-error', 'error', 'not-attempted'];
+
+function safeEarlyFailureMarker(line) {
+  try {
+    const value = JSON.parse(line.slice(EARLY_FAILURE_MARKER.length));
+    if (!value || JSON.stringify(Object.keys(value).sort()) !== '["phase","reason","schemaVersion"]'
+        || value.schemaVersion !== 1
+        || typeof value.phase !== 'string' || typeof value.reason !== 'string'
+        || !Object.hasOwn(earlyStartupSchema.phases, value.phase)
+        || !Object.hasOwn(earlyStartupSchema.reasons, value.reason)) return undefined;
+    return { schemaVersion: 1, phase: value.phase, reason: value.reason };
+  } catch {
+    return undefined;
+  }
+}
 
 function safeExitMarker(line) {
   let value;
@@ -724,6 +740,7 @@ function collectStartupEvidence(child, reason, stage, stderrFile, startupErrorFi
   let category = 'unknown';
   let logInspection = 'unavailable';
   let enclaveStartup;
+  let earlyFailure;
   let cachedRecordApplied = false;
   const evidence = {
     schemaVersion: 1,
@@ -774,6 +791,11 @@ function collectStartupEvidence(child, reason, stage, stderrFile, startupErrorFi
     };
     if (inspected.buffer) {
       const lines = inspected.buffer.toString('utf8').split('\n');
+      for (const line of lines.filter(line => line.startsWith(EARLY_FAILURE_MARKER)).reverse()) {
+        earlyFailure = safeEarlyFailureMarker(line);
+        if (earlyFailure) break;
+      }
+      if (earlyFailure && !enclaveStartup) category = earlyStartupSchema.reasons[earlyFailure.reason];
       const markers = lines.filter((line) => line.startsWith(EXIT_MARKER));
       evidence.awfExitMarkers = Math.min(markers.length, 1000);
       for (const line of markers.reverse()) {
@@ -807,6 +829,7 @@ function collectStartupEvidence(child, reason, stage, stderrFile, startupErrorFi
       .includes(child?.signalCode) ? child.signalCode : null,
     logInspection,
     ...(enclaveStartup ? { enclaveStartup } : {}),
+    ...(earlyFailure ? { earlyFailure } : {}),
   };
   return { diagnostic, evidence };
 }

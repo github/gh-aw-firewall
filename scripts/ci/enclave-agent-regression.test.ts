@@ -42,7 +42,8 @@ function signedOidcToken(eventName: string) {
     nbf: Math.floor(Date.now() / 1000) - 1,
     repository: 'github/gh-aw-firewall', repository_owner: 'github',
     ref: 'refs/heads/main', event_name: eventName,
-    job_workflow_ref: 'github/gh-aw-firewall/.github/workflows/daily-agent-runtime-regression.yml@refs/heads/main',
+    workflow_ref: 'github/gh-aw-firewall/.github/workflows/daily-agent-runtime-regression.yml@refs/heads/main',
+    workflow_sha: source,
     sha: source,
     ...oidcClaimsOverride,
   })).toString('base64url');
@@ -305,6 +306,15 @@ describe('source-pinned Cloud Hypervisor regression admission', () => {
   });
   it('requires the full repository claim in the signed identity token', () => {
     oidcClaimsOverride = { repository: 'gh-aw-firewall' };
+    expect(check('copilot')).toBe(false);
+  });
+  it.each([
+    { workflow_ref: undefined }, { workflow_ref: 'other/workflow@refs/heads/main' },
+    { workflow_sha: undefined }, { workflow_sha: 'b'.repeat(40) },
+    { job_workflow_ref: `${signer}@refs/heads/main` },
+    { workflow_ref: undefined, job_workflow_ref: `${signer}@refs/heads/main` },
+  ])('rejects missing, mismatched or reusable signed workflow identity (%#)', claims => {
+    oidcClaimsOverride = claims;
     expect(check('copilot')).toBe(false);
   });
   it.each([

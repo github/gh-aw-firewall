@@ -63,6 +63,7 @@ import {
 } from '../enclave/dynamic-delegation';
 import { takeStaticGithubExecutorCapability } from '../enclave/static-github-handoff';
 import { getStartupDiagnosticPath } from '../logs/startup-diagnostics';
+import { withEarlyStartupDiagnostics } from '../logs/early-startup-diagnostics';
 import { HostPreflightReporter } from '../cloud-hypervisor/host-preflight-progress';
 import {
   getEnclaveStartupProgress,
@@ -628,11 +629,13 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     ? REFLECT_COMMAND
     : args.length === 1 ? args[0] : joinShellArgs(args);
 
-  applyConfigFilePrecedence(options as Record<string, unknown>, getOptionValueSource);
+  withEarlyStartupDiagnostics('configuration', () =>
+    applyConfigFilePrecedence(options as Record<string, unknown>, getOptionValueSource));
 
   // Validate all options and assemble the config.
   // Calls process.exit(1) on any validation failure.
-  const config = validateOptions(options as Record<string, unknown>, agentCommand);
+  const config = withEarlyStartupDiagnostics('validation', () =>
+    validateOptions(options as Record<string, unknown>, agentCommand));
   if (config.workDir === undefined) {
     config.workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-'));
   }
