@@ -29,8 +29,8 @@ function agentProviderEnvironment(engine, endpoint, model, directory, budgetToke
         ANTHROPIC_AUTH_TOKEN: token,
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
         DISABLE_AUTOUPDATER: '1',
-        AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS: 'none',
-        AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS: 'Bash,Read,Write,Edit,Glob,Grep',
+        AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS: 'standard',
+        AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS: 'Read,Glob,Grep',
       };
     default:
       throw new Error('Unsupported enclave agent engine');
