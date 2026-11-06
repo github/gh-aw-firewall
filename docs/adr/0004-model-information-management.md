@@ -1390,8 +1390,10 @@ absence; consumers retain their existing provider-specific discovery rules.
 In particular, `status: unknown` can coexist with `admitted: true` when only
 discovery is unknown and no applicable safety constraint requires that evidence.
 Lifecycle retirement and policy denial remain distinct from discovery and harness
-requirements. Pricing is not an eligibility input: unpriced usage retains the
-warning and AI-credit undercount boundary introduced in #10757.
+requirements. Pricing is not an eligibility input: concrete missing-price usage
+now uses a warned same-backend family/backend median accounting estimate after
+configured defaults. The warning and AI-credit undercount boundary introduced in
+issue #10757 remains only when that backend has no eligible priced donors.
 
 Harness requirements reuse the canonical `scope`, `name`, `scheme`, `minimum`,
 optional `excludedRanges`, `reason`, and `provenance` fields. Scope matching is

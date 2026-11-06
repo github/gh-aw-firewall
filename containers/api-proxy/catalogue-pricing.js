@@ -1,12 +1,20 @@
 'use strict';
 
 const { resolveModelIdentity } = require('./model-identity');
-const { resolveCentralTariff, fresh } = require('./catalogue-contract/pricing-resolution');
+const { resolveCentralTariff, resolvePricing, selectPricingFact, medianPricingFact, fresh } =
+  require('./catalogue-contract/pricing-resolution');
 const { resolveIdentity } = require('./catalogue-contract/resolution');
-const { identity } = require('./catalogue-contract/identity');
+const { identity, normalizeId } = require('./catalogue-contract/identity');
+const { createHash } = require('node:crypto');
 const exact = require('./catalogue-contract/exact-pricing');
 const maintainedPricing = require('./model-information.pricing.generated.json');
 const fallbackPricing = require('./model-information.fallback-pricing.generated.json');
+const naming = require('./model-information.naming.generated.json');
+const retired = require('./model-information.retired.generated.json');
+const { getProviderPricingFact, getProviderPricingModelIds } = require('./provider-pricing-overlays');
+const { getConfiguredPricingFact, getConfiguredPricingModelIds } = require('./model-pricing-catalog');
+const { getRuntimePricingFact, captureRuntimePricing, getRuntimePricingCaptureTime } =
+  require('./runtime-model-catalog');
 
 function indexPrices(providers) {
   return new Map(Object.entries(providers).map(([provider, records]) => [provider, {
@@ -147,7 +155,115 @@ function resolveCentralPricing(provider, model, inputTokens, capture, context = 
   return selected ? { ...selected.result, pricing: Object.freeze(selected.result.pricing) } : null;
 }
 
+function getMedianPricingFact(provider, model, inputTokens, options = {}) {
+  if (!provider || model === 'unknown' || model.toLowerCase() === 'auto') return null;
+  const scope = options.scope || {
+    provider, channel: provider === 'copilot' ? 'copilot-api' : 'native-api',
+  };
+  const catalogue = options.centralAllowed ? options.catalogue : null;
+  const runtime = options.runtimeCatalog || captureRuntimePricing();
+  const runtimeTime = getRuntimePricingCaptureTime(runtime, provider);
+  const time = options.catalogue?.time ?? runtimeTime;
+  const maxAge = options.catalogue?.maxAge ?? 30 * 24 * 3600 * 1000;
+  const declared = new Map(naming.models.map(record => [record.identity.key, record]));
+  const models = new Map(declared);
+  for (const record of catalogue?.snapshot.models || []) {
+    // Feed family evidence may enrich pricing, but feed aliases cannot extend naming policy.
+    const bundled = declared.get(record.identity.key);
+    models.set(record.identity.key, { ...record, identity: {
+      ...record.identity, family: record.identity.family ?? bundled?.identity.family,
+      aliases: bundled?.identity.aliases || [],
+    } });
+  }
+  const view = { models: [...models.values()], rules: naming.rules };
+  const resolve = id => resolveIdentity(id, scope, view, {
+    providerPrefix: false, caseInsensitive: true,
+  });
+  const requested = resolve(model);
+  if (!requested.identity) return null;
+  const family = resolved => resolved.family === undefined ? undefined
+    : normalizeId(resolved.family, { caseInsensitive: true, separators: true });
+  const ids = new Set([
+    ...getProviderPricingModelIds(provider), ...getConfiguredPricingModelIds(provider),
+    ...(runtime[provider] || []).map(record => record.id),
+    ...(catalogue?.snapshot.models || []).filter(record => record.identity.provider === provider)
+      .map(record => record.identity.rawId),
+    ...Object.keys(maintainedPrices.get(provider)?.records ||
+      compatibilityPrices.get(provider)?.records || {}),
+    ...Object.keys(fallbackPricing.imported[provider] || {}),
+  ]);
+  const identities = new Map();
+  for (const id of [...ids].sort()) {
+    if (id === 'unknown' || id.toLowerCase() === 'auto') continue;
+    const resolved = resolve(id);
+    if (!resolved.identity) continue;
+    let group = identities.get(resolved.identity.key);
+    if (!group) {
+      group = { resolved, ids: [] };
+      identities.set(resolved.identity.key, group);
+    }
+    group.ids.push(id);
+  }
+  const donors = [];
+  for (const { resolved, ids: sourceIds } of identities.values()) {
+    const canonical = resolved.identity.rawId;
+    sourceIds.sort((a, b) => (a === canonical ? -1 : b === canonical ? 1 : a.localeCompare(b)));
+    const records = (catalogue?.snapshot.models || []).filter(record =>
+      record.identity.key === resolved.identity.key);
+    if ((provider === 'copilot' && Object.hasOwn(retired, canonical)) ||
+        records.some(record => ['retired', 'removed'].includes(record.lifecycle?.status))) continue;
+    const firstSource = getter => {
+      for (const id of sourceIds) {
+        const fact = getter(id);
+        if (fact) return fact;
+      }
+      return null;
+    };
+    const resolution = resolvePricing({
+      identity: resolved.identity, scope, inputTokens, time, runtimeTime, maxAge,
+      allowMissingCacheWrite: true, sources: {
+        operator: () => firstSource(id => getProviderPricingFact(provider, id, { preserveNamespace: true })),
+        configured: () => firstSource(id => getConfiguredPricingFact(provider, id, { preserveNamespace: true })),
+        runtime: () => {
+          const fact = firstSource(id => getRuntimePricingFact(provider, id, runtime));
+          const selected = selectPricingFact(fact, inputTokens);
+          // Donors cannot reuse the historical stale-provider merge behavior.
+          return selected && fresh({ at: selected.observedAt }, runtimeTime, maxAge) ? fact : null;
+        },
+        central: () => firstSource(id => getCentralPricingFact(provider, id, catalogue, {
+          ...scope, nativeInput: true,
+        })),
+        curated: () => firstSource(id => getMaintainedPricingFact(provider, id)),
+        imported: () => firstSource(id => getImportedPricingFact(provider, id)),
+        selector: null, configuredDefault: null, median: null, sentinel: null,
+      },
+    });
+    if (resolution.result) donors.push({
+      key: resolved.identity.key, result: resolution.result, family: family(resolved),
+      componentSources: resolution.componentSources,
+    });
+  }
+  const fact = medianPricingFact(donors, family(requested));
+  if (!fact) return null;
+  const selected = fact.metadata.estimate.basis === 'family'
+    ? donors.filter(donor => donor.family === family(requested)) : donors;
+  const fingerprint = selected.map(({ key, result, componentSources }) => [
+    key, result.source, result.tier, result.pricingCatalogId, result.pricingCatalogVersion,
+    result.observedAt, componentSources, Object.keys(result.pricing).filter(field => field !== 'threshold')
+      .sort().map(field => {
+        const price = exact.rate(result.pricing, field);
+        return [field, price === null ? null : `${price.n}/${price.d}`];
+      }),
+  ]);
+  fact.metadata.pricingCatalogId = 'same_backend_median_v1';
+  fact.metadata.pricingCatalogVersion = createHash('sha256')
+    .update(JSON.stringify([scope, family(requested), fact.metadata.estimate.basis, fingerprint])).digest('hex');
+  fact.metadata.estimate.tariffFingerprint = fact.metadata.pricingCatalogVersion;
+  return fact;
+}
+
 module.exports = {
   getCentralPricingFact, resolveCentralPricing, validateTariffs, fresh,
   getMaintainedPricingFact, getImportedPricingFact,
+  getMedianPricingFact,
 };

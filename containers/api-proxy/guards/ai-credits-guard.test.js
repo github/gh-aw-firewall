@@ -198,8 +198,8 @@ describe('ai-credits-guard', () => {
       output_tokens: 100,
     }, prefixedModel, 'copilot');
 
-    expect(usage).toBeNull();
-    expect(getAiCreditsReflectState().total).toBe(0);
+    expect(usage).toMatchObject({ pricingSource: 'median_estimate', accountingPolicy: 'backend_median_estimate' });
+    expect(getAiCreditsReflectState().total).toBeGreaterThan(0);
     expect(checkModelPricing(prefixedModel, 'copilot')).toBeNull();
   });
 
@@ -416,7 +416,7 @@ describe('ai-credits-guard', () => {
     const { lines } = collectLogOutput();
     expect(checkModelPricing('catalog-only-model-preview', PROVIDER_COPILOT)).toBeNull();
     expect(lines).toEqual([
-      expect.objectContaining({ event: 'unknown_model_ai_credits_pricing' }),
+      expect.objectContaining({ event: 'estimated_model_ai_credits_pricing', basis: 'backend' }),
     ]);
   });
 
@@ -632,19 +632,13 @@ describe('ai-credits-guard', () => {
 
     const { lines } = collectLogOutput();
     expect(checkModelPricing('new-runtime-model', PROVIDER_COPILOT)).toBeNull();
-    expect(lines).toEqual([
-      expect.objectContaining({
-        event: 'unknown_model_ai_credits_pricing',
-        modelProvided: true,
-        message: expect.stringContaining('unpriced usage is excluded'),
-      }),
-    ]);
+    expect(lines).toEqual([]);
     expect(applyAiCreditsUsage(
       { input_tokens: 100, output_tokens: 10 }, 'new-runtime-model', PROVIDER_COPILOT,
     )).toMatchObject({ pricingSource: 'provider' });
     expect(applyAiCreditsUsage(
       { input_tokens: 2000, output_tokens: 10 }, 'new-runtime-model', PROVIDER_COPILOT,
-    )).toBeNull();
+    )).toMatchObject({ pricingSource: 'provider', accountingPolicy: 'backend_median_estimate' });
     expect(lines).toHaveLength(1);
   });
 
@@ -733,16 +727,15 @@ describe('ai-credits-guard', () => {
     });
   });
 
-  it('warns and skips usage for unknown models', () => {
+  it('warns and estimates usage for concrete models without prices', () => {
     const { lines } = collectLogOutput();
     const usage = applyAiCreditsUsage({ input_tokens_include_cache: true, input_tokens: 100 }, 'unknown-model', 'copilot');
 
-    expect(usage).toBeNull();
-    expect(getAiCreditsReflectState()).toMatchObject({ total: 0, by_model: {} });
+    expect(usage).toMatchObject({ pricingSource: 'median_estimate', aiCreditsThisResponse: 0.02 });
+    expect(getAiCreditsReflectState().total).toBe(0.02);
     expect(lines).toContainEqual(expect.objectContaining({
-      event: 'unknown_model_ai_credits_pricing',
+      event: 'estimated_model_ai_credits_pricing',
       level: 'warn',
-      modelProvided: true,
     }));
     expect(lines[0]).not.toHaveProperty('model');
   });
@@ -892,7 +885,7 @@ describe('ai-credits-guard', () => {
   describe('model name canonicalization', () => {
     it('does not strip an arbitrary prefix from provider-native accounting IDs', () => {
       const usage = applyAiCreditsUsage({ input_tokens_include_cache: true, input_tokens: 1000, output_tokens: 100 }, 'copilot/claude-sonnet-4-6', 'copilot');
-      expect(usage).toBeNull();
+      expect(usage.pricingSource).toBe('median_estimate');
     });
 
     it('resolves models with dot separators (claude-sonnet-4.6)', () => {
@@ -912,7 +905,7 @@ describe('ai-credits-guard', () => {
     it('does not borrow a maintained price for a prefixed provider-native ID', () => {
       resetAiCreditsGuardForTests();
       const usage = applyAiCreditsUsage({ input_tokens_include_cache: true, input_tokens: 1000, output_tokens: 100 }, 'copilot/gpt-5.4-mini', 'copilot');
-      expect(usage).toBeNull();
+      expect(usage.pricingSource).toBe('median_estimate');
     });
 
     it('strips alpha date suffixes before pricing lookup', () => {
@@ -986,7 +979,7 @@ describe('ai-credits-guard', () => {
   });
 
   describe('missing model pricing warnings', () => {
-    it('warns once and allows unpriced usage when maxAiCredits is active', () => {
+    it('warns once and charges estimated usage when maxAiCredits is active', () => {
       process.env.AWF_MAX_AI_CREDITS = '10';
       resetAiCreditsGuardForTests();
 
@@ -995,16 +988,14 @@ describe('ai-credits-guard', () => {
       expect(checkModelPricing('brand-new-model-xyz', 'copilot')).toBeNull();
       expect(applyAiCreditsUsage(
         { input_tokens_include_cache: true, input_tokens: 1000, output_tokens: 500 }, 'brand-new-model-xyz', 'copilot',
-      )).toBeNull();
-      expect(getAiCreditsReflectState()).toMatchObject({ total: 0, by_model: {} });
-      expect(getAiCreditsReflectState().by_model).toEqual({});
-      expect(getAiCreditsBlockState()).toMatchObject({ maxExceeded: false, totalAiCredits: 0 });
+      )).toMatchObject({ pricingSource: 'median_estimate', aiCreditsThisResponse: 0.75 });
+      expect(getAiCreditsReflectState().total).toBe(0.75);
+      expect(getAiCreditsBlockState()).toMatchObject({ maxExceeded: false, totalAiCredits: 0.75 });
       expect(lines).toEqual([
         expect.objectContaining({
           level: 'warn',
-          event: 'unknown_model_ai_credits_pricing',
-          modelProvided: true,
-          message: expect.stringContaining('budget enforcement may undercount spending'),
+          event: 'estimated_model_ai_credits_pricing',
+          message: expect.stringContaining('not verified provider billing'),
         }),
       ]);
     });
@@ -1113,10 +1104,10 @@ describe('ai-credits-guard', () => {
   describe('isModelPriceable (side-effect-free)', () => {
     it('reports priced and unpriced models correctly', () => {
       expect(isModelPriceable('openai/gpt-4-turbo:batch', 'openrouter')).toBe(true);
-      expect(isModelPriceable('openai/gpt-4-turbo', 'openrouter')).toBe(false);
-      expect(isModelPriceable('gpt-4-turbo', PROVIDER_OPENAI)).toBe(false);
+      expect(isModelPriceable('openai/gpt-4-turbo', 'openrouter')).toBe(true);
+      expect(isModelPriceable('gpt-4-turbo', PROVIDER_OPENAI)).toBe(true);
       expect(isModelPriceable('gpt-5-mini')).toBe(false);
-      expect(isModelPriceable('crest-alpha-0418-block-cy4.5', PROVIDER_OPENAI)).toBe(false);
+      expect(isModelPriceable('crest-alpha-0418-block-cy4.5', PROVIDER_OPENAI)).toBe(true);
     });
 
     it('emits no warning when probing unpriceable models', () => {
@@ -1142,7 +1133,7 @@ describe('ai-credits-guard', () => {
       checkModelPricing('crest-alpha-probe-7', PROVIDER_OPENAI);
       spy.mockRestore();
 
-      expect(lines.some(l => l.event === 'unknown_model_ai_credits_pricing')).toBe(true);
+      expect(lines.some(l => l.event === 'estimated_model_ai_credits_pricing')).toBe(true);
     });
   });
 

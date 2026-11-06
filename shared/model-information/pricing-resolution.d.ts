@@ -2,7 +2,16 @@ import { ModelIdentity } from './identity';
 import { ModelScope } from './resolution';
 
 export type PricingSource = 'operator' | 'shared_catalog' | 'provider' | 'central_feed' |
-  'curated' | 'models.dev' | 'dynamic_selector_fallback' | 'configured_default' | 'builtin_fallback';
+  'curated' | 'models.dev' | 'dynamic_selector_fallback' | 'configured_default' | 'builtin_fallback' |
+  'median_estimate';
+export interface PricingEstimate {
+  basis: 'family' | 'backend';
+  family?: string;
+  donorCount: number;
+  componentDonors: Record<string, number>;
+  sources: PricingSource[];
+  tariffFingerprint?: string;
+}
 export interface TokenPrices {
   input?: number;
   cachedInput?: number;
@@ -16,6 +25,7 @@ export interface PricingMetadata {
   apiVersion?: string;
   pricingCatalogId?: string;
   pricingCatalogVersion?: string;
+  estimate?: PricingEstimate;
   accountingPolicy?: string;
   dynamicSelector?: string;
   usedFallbackPricing?: boolean;
@@ -71,7 +81,7 @@ export interface PricingCapture {
   /** Omitted is allowed only for unreachable sources. null = absent/inapplicable. */
   readonly sources: Readonly<Partial<Record<
     'operator' | 'configured' | 'runtime' | 'curated' | 'imported' | 'selector' |
-    'configuredDefault' | 'sentinel', PricingFact | null | (() => PricingFact | null)
+    'configuredDefault' | 'median' | 'sentinel', PricingFact | null | (() => PricingFact | null)
   >> & { central?: CentralPricingFact | null | (() => CentralPricingFact | null) }>;
 }
 export interface PricingResult extends PricingMetadata {
@@ -93,6 +103,7 @@ export interface PricingResolution {
     apiVersion?: string;
     pricingCatalogId?: string;
     pricingCatalogVersion?: string;
+    estimate?: PricingEstimate;
   }>;
 }
 export function resolvePricing(capture: PricingCapture): PricingResolution;
@@ -103,3 +114,10 @@ export function resolveCentralTariff(
 ):
   { result: PricingResult; componentSources: PricingResolution['componentSources'] } | null;
 export function fresh(provenance: PricingProvenance, time: number, maxAge: number): boolean;
+export function medianPricingFact(
+  donors: readonly {
+    result: PricingResult | null;
+    family?: string;
+    componentSources?: PricingResolution['componentSources'];
+  }[], family?: string,
+): PricingFact | null;

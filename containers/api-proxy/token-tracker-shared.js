@@ -38,6 +38,7 @@ function mergeBudgetFields(record, budgetResult) {
     'ai_credits_pricing_tier',
     'ai_credits_pricing_catalog_id',
     'ai_credits_pricing_catalog_version',
+    'ai_credits_pricing_estimate',
     'ai_credits_accounting_policy',
     'ai_credits_fallback_pricing_used',
     'ai_credits_dynamic_selector',

@@ -324,7 +324,7 @@ describe('proxyRequest max-ai-credits guard', () => {
   });
 
   it.each([undefined, '0.1'])(
-    'forwards unpriced models with maxAiCredits=%s and warns without charging fabricated credits', async max => {
+    'forwards missing-price models with maxAiCredits=%s and warns while charging estimates', async max => {
       if (max === undefined) delete process.env.AWF_MAX_AI_CREDITS;
       else process.env.AWF_MAX_AI_CREDITS = max;
       const writeSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
@@ -343,12 +343,12 @@ describe('proxyRequest max-ai-credits guard', () => {
       });
 
       expect(res.writeHead).toHaveBeenCalledWith(200, expect.anything());
-      expect(getStructuredLogs(writeSpy, 'unknown_model_ai_credits_pricing')).toEqual([
-        expect.objectContaining({ level: 'warn', modelProvided: true }),
+      expect(getStructuredLogs(writeSpy, 'estimated_model_ai_credits_pricing')).toEqual([
+        expect.objectContaining({ level: 'warn', basis: 'backend' }),
       ]);
       const credits = require('./guards/ai-credits-guard').getAiCreditsReflectState();
-      expect(credits.total).toBe(0);
-      expect(credits.by_model).toEqual({});
+      expect(credits.total).toBeGreaterThan(0);
+      expect(credits.by_model[model]).toMatchObject({ pricing_source: 'median_estimate' });
     },
   );
 });

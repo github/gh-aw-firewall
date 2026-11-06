@@ -115,16 +115,17 @@ test.each([199999, 200000, 200001])('provider whole/partial tiers %s retain comp
     { input: 6, output: 8, cacheWrite: 0 },
   ) };
   const usage = charge('fixture', options, 'copilot', tokens);
-  // No fallback exists for fixture, so the missing cache component stays unpriced.
-  expect(usage).toBeNull();
-  expect(resolvePricing.mock.results[0].value.result).toBeNull();
+  expect(usage).toMatchObject({ pricingSource: 'provider', fallbackPricingUsed: true,
+    accountingPolicy: 'backend_median_estimate' });
+  expect(resolvePricing.mock.results[0].value.componentSources.cachedInput.source).toBe('median_estimate');
   resetAiCreditsGuardForTests();
+  resolvePricing.mockClear();
   process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify(rates);
   const priced = charge('fixture', options, 'copilot', tokens);
   expect(priced.pricingSource).toBe('provider');
   expect(priced.pricingTier).toBe(tokens > 200000 ? 'long_context' : 'default');
   expect(priced.aiCreditsThisResponse).toBeCloseTo(tokens * (tokens > 200000 ? 6 : 1) / 10000, 6);
-  const resolution = resolvePricing.mock.results[1].value;
+  const resolution = resolvePricing.mock.results[0].value;
   expect(resolution.componentSources.cachedInput.source).toBe('configured_default');
   expect(resolution.result.pricing.cacheWrite).toBe(tokens > 200000 ? 0 : null);
 });
@@ -156,7 +157,8 @@ test.each(['boundary', 'future', 'stale', 'freshUntil', 'deployment', 'channel',
     if (boundary === 'byok') process.env.COPILOT_PROVIDER_API_KEY = 'test-secret';
     if (boundary === 'custom-target') process.env.COPILOT_API_TARGET = 'https://private.invalid';
     const usage = charge('fixture', { catalogue });
-    expect(usage?.pricingSource || null).toBe(boundary === 'boundary' ? 'central_feed' : null);
+    expect(usage?.pricingSource || null).toBe(boundary === 'boundary' ? 'central_feed' : 'median_estimate');
+    if (boundary !== 'boundary') expect(usage.pricingEstimate.sources).not.toContain('central_feed');
   },
 );
 
@@ -192,7 +194,7 @@ test.each([199999, 200000, 200001])('central long-context strict boundary %s and
   expect(usage.aiCreditsThisResponse).toBeCloseTo(tokens * (tokens > 200000 ? 8 : 3) / 10000, 6);
   tariffs[1].effectiveUntil = new Date(catalogue.time).toISOString();
   const afterExpiry = charge('fixture', { catalogue }, 'copilot', tokens);
-  expect(afterExpiry?.pricingSource || null).toBe(tokens > 200000 ? null : 'central_feed');
+  expect(afterExpiry?.pricingSource || null).toBe(tokens > 200000 ? 'median_estimate' : 'central_feed');
 });
 
 test.each([271999, 272000, 272001])('curated long-context strict boundary %s is independently selected', tokens => {
@@ -203,11 +205,11 @@ test.each([271999, 272000, 272001])('curated long-context strict boundary %s is 
 
 test('maintained/import matching preserves source normalization without cross-backend price borrowing', () => {
   expect(charge('claude_sonnet_4-20260101').pricingSource).toBe('curated');
-  expect(charge('anthropic/claude_sonnet_4-20260101')).toBeNull();
-  expect(charge('ANTHROPIC/CLAUDE_SONNET_4-20260101')).toBeNull();
+  expect(charge('anthropic/claude_sonnet_4-20260101').pricingSource).toBe('median_estimate');
+  expect(charge('ANTHROPIC/CLAUDE_SONNET_4-20260101').pricingSource).toBe('median_estimate');
   const model = 'perceptron/perceptron-mk1';
   expect(charge(model, {}, 'custom-provider')).toBeNull();
-  expect(charge(model, {}, 'copilot')).toBeNull();
+  expect(charge(model, {}, 'copilot').pricingSource).toBe('median_estimate');
   expect(charge(model, {}, 'openrouter')).toMatchObject({
     pricingSource: 'models.dev', aiCreditsThisResponse: 15,
     pricingCatalogVersion: require('../model-information.fallback-pricing.generated.json')
@@ -222,9 +224,10 @@ test('selector/default/sentinel and concrete-unpriced accounting retain warnings
   const selector = charge('auto');
   expect(selector).toMatchObject({ pricingSource: 'dynamic_selector_fallback', fallbackPricingUsed: true });
   expect(charge('unknown').pricingSource).toBe('builtin_fallback');
-  expect(charge('concrete-unpriced')).toBeNull();
-  expect(charge('concrete-unpriced')).toBeNull();
-  expect(logs.lines.filter(line => line.event === 'unknown_model_ai_credits_pricing')).toHaveLength(2);
+  expect(charge('concrete-unpriced').pricingSource).toBe('median_estimate');
+  expect(charge('concrete-unpriced').pricingSource).toBe('median_estimate');
+  expect(logs.lines.filter(line => line.event === 'estimated_model_ai_credits_pricing')).toHaveLength(1);
+  expect(logs.lines.filter(line => line.event === 'unknown_model_ai_credits_pricing')).toHaveLength(1);
   process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify(rates);
   expect(charge('concrete-unpriced').pricingSource).toBe('configured_default');
   process.env.AWF_MAX_AI_CREDITS = '1';

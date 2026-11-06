@@ -4,7 +4,8 @@ const { logRequest, sanitizeForLog } = require('../logging');
 const pricingByModel = require('../model-information.pricing.generated.json');
 const { getRuntimePricingFact } = require('../runtime-model-catalog');
 const { getCatalogueLoader } = require('../catalogue-loader');
-const { getCentralPricingFact, getMaintainedPricingFact, getImportedPricingFact } = require('../catalogue-pricing');
+const { getCentralPricingFact, getMaintainedPricingFact, getImportedPricingFact,
+  getMedianPricingFact } = require('../catalogue-pricing');
 const { resolveApiKey, deriveCopilotApiTarget, isGithubCopilotCatalogTarget } = require('../providers/copilot-auth');
 const { getProviderPricingFact } = require('../provider-pricing-overlays');
 const { getConfiguredPricingFact } = require('../model-pricing-catalog');
@@ -233,6 +234,11 @@ function resolveModelPricing(model, state = aiCreditsState, provider = undefined
       const { defaultPricing } = getAiCreditsConfig();
       return defaultPricing ? { source: 'configured_default', default: defaultPricing } : null;
     },
+    median: () => options.allowMedianEstimate === false ? null : getMedianPricingFact(provider, pricingModel, inputTokens, {
+      scope, catalogue, runtimeCatalog: options.runtimeCatalog,
+      centralAllowed: !resolveApiKey(process.env) &&
+        isGithubCopilotCatalogTarget(deriveCopilotApiTarget(process.env)),
+    }),
     sentinel: () => pricingModel === 'unknown'
       ? { source: 'builtin_fallback', default: BUILTIN_FALLBACK_PRICING } : null,
   } };
@@ -251,8 +257,26 @@ function resolveModelPricing(model, state = aiCreditsState, provider = undefined
     error.statusCode = 500;
     throw error;
   }
-  if (resolution.missingModelPricing && !options.quiet) warnMissingModelPricing(model, state);
+  if (resolution.missingModelPricing && !options.quiet) {
+    warnSelectedModelPricing(model, provider, resolution.result, state);
+  }
   return resolution.result;
+}
+
+function warnSelectedModelPricing(model, provider, result, state = aiCreditsState) {
+  if (!result?.estimate) return warnMissingModelPricing(model, state);
+  const estimate = result.estimate;
+  const key = `${provider}:${model}:${estimate.basis}`;
+  if (state.warnedUnknownModels.has(key)) return;
+  logRequest('warn', 'estimated_model_ai_credits_pricing', {
+    provider: sanitizeForLog(provider), basis: estimate.basis,
+    ...(estimate.family ? { family: sanitizeForLog(estimate.family).slice(0, 120) } : {}),
+    donor_count: estimate.donorCount, component_donors: estimate.componentDonors,
+    sources: estimate.sources,
+    message: 'Model pricing is unavailable; using a same-backend per-component median accounting estimate. ' +
+      'Estimated usage counts toward AI-credit totals and budgets; this is not verified provider billing.',
+  });
+  state.warnedUnknownModels.add(key);
 }
 
 /**
@@ -284,8 +308,8 @@ function warnMissingModelPricing(model, state = aiCreditsState) {
   if (state.warnedUnknownModels.has(model)) return;
   logRequest('warn', 'unknown_model_ai_credits_pricing', {
     modelProvided: Boolean(model),
-    message: 'Model pricing is unavailable from the pricing catalogs. ' +
-      'Configured defaultAiCreditsPricing will be used if available; otherwise ' +
+    message: 'Model-specific pricing is unavailable from the pricing catalogs. ' +
+      'Configured defaultAiCreditsPricing will be used if available; otherwise, without eligible same-backend median donors, ' +
       'unpriced usage is excluded from AI-credit totals and budget enforcement may undercount spending.',
   });
   state.warnedUnknownModels.add(model);
@@ -295,7 +319,11 @@ function checkModelPricing(model, provider = undefined, options = {}) {
   if (aiCreditsState.pricingFailure) return buildPricingResolutionError();
   try {
     getAiCreditsConfig();
-    if (model && !isModelPriceable(model, provider, options)) warnMissingModelPricing(model);
+    if (model) {
+      const selected = resolveModelPricing(model, aiCreditsState, provider, 0, { ...options, quiet: true });
+      if (selected?.estimate) warnSelectedModelPricing(model, provider, selected);
+      else if (!selected || !isModelPriceable(model, provider, options)) warnMissingModelPricing(model);
+    }
   } catch (error) {
     if (error.code !== 'pricing_resolution_error') throw error;
     return buildPricingResolutionError();
@@ -385,6 +413,7 @@ function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, prov
     pricingDiscountPercent: pricingResolution.discountPercent,
     pricingCatalogId: pricingResolution.pricingCatalogId,
     pricingCatalogVersion: pricingResolution.pricingCatalogVersion,
+    pricingEstimate: pricingResolution.estimate,
     accountingPolicy: pricingResolution.accountingPolicy ||
       (dynamicSelector ? 'dynamic_selector_runtime' : model === 'unknown' ? 'unknown_model_fallback' : 'concrete_model'),
     usedFallbackPricing: pricingResolution.usedFallbackPricing === true ||
@@ -455,6 +484,7 @@ function applyExactAiCreditsUsage(normalizedUsage, model, provider = undefined, 
   modelBucket.accountingPolicy = calc.accountingPolicy;
   modelBucket.fallbackPricingUsed = calc.usedFallbackPricing;
   modelBucket.dynamicSelector = calc.dynamicSelector;
+  modelBucket.pricingEstimate = calc.pricingEstimate;
   aiCreditsState.totalAiCredits = total;
   updateAiCreditSteeringThresholds();
 
@@ -471,6 +501,7 @@ function applyExactAiCreditsUsage(normalizedUsage, model, provider = undefined, 
     pricingTier: calc.pricingTier,
     ...(calc.pricingCatalogId ? { pricingCatalogId: calc.pricingCatalogId } : {}),
     ...(calc.pricingCatalogVersion ? { pricingCatalogVersion: calc.pricingCatalogVersion } : {}),
+    ...(calc.pricingEstimate ? { pricingEstimate: calc.pricingEstimate } : {}),
     accountingPolicy: calc.accountingPolicy,
     fallbackPricingUsed: calc.usedFallbackPricing,
     dynamicSelector: calc.dynamicSelector,
@@ -507,6 +538,7 @@ function buildAiCreditsReflectState() {
       pricing_tier: usage.pricingTier,
       ...(usage.pricingCatalogId ? { pricing_catalog_id: usage.pricingCatalogId } : {}),
       ...(usage.pricingCatalogVersion ? { pricing_catalog_version: usage.pricingCatalogVersion } : {}),
+      ...(usage.pricingEstimate ? { pricing_estimate: usage.pricingEstimate } : {}),
       accounting_policy: usage.accountingPolicy || null,
       fallback_pricing_used: usage.fallbackPricingUsed === true,
       dynamic_selector: usage.dynamicSelector || null,

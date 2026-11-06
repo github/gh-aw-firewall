@@ -31,6 +31,7 @@ function computeTokenBudgetUsage(context, normalizedUsage, model) {
       ai_credits_total: aiCreditsUsage.totalAiCredits,
       pricing_source: aiCreditsUsage.pricingSource,
       pricing_tier: aiCreditsUsage.pricingTier,
+      ...(aiCreditsUsage.pricingEstimate ? { pricing_estimate: aiCreditsUsage.pricingEstimate } : {}),
       ...(aiCreditsUsage.pricingCatalogId ? { pricing_catalog_id: aiCreditsUsage.pricingCatalogId } : {}),
       ...(aiCreditsUsage.pricingCatalogVersion
         ? { pricing_catalog_version: aiCreditsUsage.pricingCatalogVersion }
@@ -47,6 +48,9 @@ function computeTokenBudgetUsage(context, normalizedUsage, model) {
     budgetFields.ai_credits_total = aiCreditsUsage.totalAiCredits;
     budgetFields.ai_credits_pricing_source = aiCreditsUsage.pricingSource;
     budgetFields.ai_credits_pricing_tier = aiCreditsUsage.pricingTier;
+    if (aiCreditsUsage.pricingEstimate) {
+      budgetFields.ai_credits_pricing_estimate = aiCreditsUsage.pricingEstimate;
+    }
     if (aiCreditsUsage.pricingCatalogId) {
       budgetFields.ai_credits_pricing_catalog_id = aiCreditsUsage.pricingCatalogId;
     }

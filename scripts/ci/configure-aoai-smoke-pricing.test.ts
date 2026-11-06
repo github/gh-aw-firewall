@@ -43,7 +43,7 @@ test('pins confirmed deployment pricing in both configs while preserving every e
   }
 });
 
-test('the actual guard prices configured aliases and leaves unpriced usage unaccounted', () => {
+test('the actual guard prices configured aliases and estimates concrete unpriced usage', () => {
   execFileSync(process.execPath, [script, ...files]);
   const config = JSON.parse(fs.readFileSync(files[0], 'utf8')) as { apiProxy: { modelPricingCatalog: unknown } };
   const probe = `
@@ -55,9 +55,13 @@ test('the actual guard prices configured aliases and leaves unpriced usage unacc
       input_tokens:1000,cache_read_tokens:100,output_tokens:500,input_tokens_include_cache:true
     },'o4-mini-aw','copilot');
     assert(Math.abs(usage.aiCreditsThisResponse-0.32175)<1e-10);
-    assert.equal(guard.applyAiCreditsUsage({
+    const estimated=guard.applyAiCreditsUsage({
       input_tokens:1000,output_tokens:500
-    },'unknown-azure-deployment','copilot'),null);
+    },'unknown-azure-deployment','copilot');
+    assert.equal(estimated.pricingSource,'median_estimate');
+    assert.equal(estimated.accountingPolicy,'backend_median_estimate');
+    assert(estimated.pricingEstimate.donorCount>0);
+    assert(estimated.aiCreditsThisResponse>0);
     const state=guard.getAiCreditsReflectState();
     assert.equal(state.max_ai_credits,10);
     assert.equal(state.effective_max_ai_credits,10);
@@ -70,9 +74,10 @@ test('the actual guard prices configured aliases and leaves unpriced usage unacc
   const logs = output.toString().trim().split('\n').map(line => JSON.parse(line));
   expect(logs).toEqual(expect.arrayContaining([
     expect.objectContaining({
-      event: 'unknown_model_ai_credits_pricing',
-      modelProvided: true,
-      message: expect.stringContaining('unpriced usage is excluded'),
+      event: 'estimated_model_ai_credits_pricing',
+      basis: 'backend',
+      donor_count: expect.any(Number),
+      message: expect.stringContaining('same-backend'),
     }),
   ]));
   expect(logs[0]).not.toHaveProperty('model');
