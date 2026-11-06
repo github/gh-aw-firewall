@@ -210,6 +210,27 @@ describe('getModelPolicyBlockState', () => {
     if (reason) expect(check.block.reason).toBe(reason);
   });
 
+  it('rejects a provider-qualified disallowed model with 403 before its pricing is checked', () => {
+    process.env.AWF_DISALLOWED_MODELS = JSON.stringify(['github-copilot/gpt-4o']);
+    const guard = loadGuard();
+    const { buildCommonGuardChecks } = require('./common-guard-checks');
+    const deps = {
+      ...guard,
+      getMaxRunsBlockState: () => null,
+      getMaxCacheMissesBlockState: () => null,
+      getPermissionDeniedBlockState: () => null,
+      getAiCreditsBlockState: () => null,
+      getModelMultiplierCapBlockState: () => null,
+      getRetiredModelBlockState: () => null,
+      checkModelPricing: () => ({ error: { type: 'pricing_resolution_error' } }),
+    };
+    const first = buildCommonGuardChecks(deps, 'gpt-4o', 'copilot').find(entry => entry.isBlocked(entry.block));
+    expect(first.eventName).toBe('model_policy_violation');
+    expect(first.statusCode).toBe(403);
+    const allowed = buildCommonGuardChecks(deps, 'gpt-4.1', 'copilot').find(entry => entry.isBlocked(entry.block));
+    expect(allowed.eventName).toBe('pricing_resolution_error');
+  });
+
   it.each([
     ['getModelMultiplierCapBlockState', 'model_multiplier_cap_exceeded', 400],
     ['getRetiredModelBlockState', 'retired_model', 400],

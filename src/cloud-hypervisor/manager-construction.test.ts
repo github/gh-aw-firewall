@@ -64,6 +64,24 @@ import {
         gid: 2002,
       });
 
+      process.env.SUDO_UID = '500';
+      process.env.SUDO_GID = '20';
+      expect(cloudHypervisorManagerTestHelpers.resolveCloudHypervisorIdentity()).toEqual({
+        uid: 1000,
+        gid: 1000,
+      });
+
+      for (const id of ['0x10', '1e3', '4294967295', '9007199254740992']) {
+        process.env.SUDO_UID = id;
+        process.env.SUDO_GID = '2002';
+        expect(cloudHypervisorManagerTestHelpers.resolveCloudHypervisorIdentity)
+          .toThrow(/non-root target uid\/gid/);
+        process.env.SUDO_UID = '2001';
+        process.env.SUDO_GID = id;
+        expect(cloudHypervisorManagerTestHelpers.resolveCloudHypervisorIdentity)
+          .toThrow(/non-root target uid\/gid/);
+      }
+
       delete process.env.SUDO_UID;
       delete process.env.SUDO_GID;
       expect(cloudHypervisorManagerTestHelpers.resolveCloudHypervisorIdentity)

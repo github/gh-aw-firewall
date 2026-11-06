@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import execa, { type ExecaChildProcess } from 'execa';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
 import { getSafeHostGid, getSafeHostUid } from '../host-identity';
+import { resolveOperatorIdentity } from '../sudo-identity';
 import {
   LinuxNetworkCommands,
   MicrovmNetworkManager,
@@ -173,14 +174,7 @@ export const cloudHypervisorManagerTestHelpers = {
 };
 
 function resolveCloudHypervisorIdentity(): CloudHypervisorIdentity {
-  const operatorUid = parsePositiveIdentity(process.env.SUDO_UID) ?? process.getuid?.();
-  const operatorGid = parsePositiveIdentity(process.env.SUDO_GID) ?? process.getgid?.();
-  if (
-    operatorUid === undefined ||
-    operatorGid === undefined ||
-    operatorUid === 0 ||
-    operatorGid === 0
-  ) {
+  if (!resolveOperatorIdentity()) {
     throw new Error(
       'Cloud Hypervisor requires a non-root target uid/gid; run through sudo from a non-root account',
     );
@@ -193,11 +187,6 @@ function resolveCloudHypervisorIdentity(): CloudHypervisorIdentity {
     );
   }
   return { uid, gid };
-}
-
-function parsePositiveIdentity(value: string | undefined): number | undefined {
-  if (!value || !/^[1-9]\d*$/.test(value)) return undefined;
-  return Number(value);
 }
 
 /**
