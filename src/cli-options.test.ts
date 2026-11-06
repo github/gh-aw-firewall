@@ -17,6 +17,7 @@ describe('cli-options program', () => {
     program.setOptionValueWithSource('excludeEnv', [], 'default');
     program.setOptionValueWithSource('mount', [], 'default');
     program.setOptionValueWithSource('inputDir', undefined, 'default');
+    program.setOptionValueWithSource('maxAiCredits', undefined, 'default');
     program.setOptionValueWithSource('cloudHypervisorMountPolicy', undefined, 'default');
     program.setOptionValueWithSource('cloudHypervisorScratchMib', undefined, 'default');
     program.setOptionValueWithSource('cloudHypervisorEnclaveDebugPublic', undefined, 'default');
@@ -25,6 +26,11 @@ describe('cli-options program', () => {
   it('exposes the expected metadata', () => {
     expect(program.name()).toBe('awf');
     expect(program.description()).toContain('firewall');
+  });
+
+  it.each(['-1', '0', '0.5', '100'])('parses --max-ai-credits %s', (value) => {
+    program.parse(['node', 'awf', '--max-ai-credits', value, '--', 'true'], { from: 'node' });
+    expect(program.opts().maxAiCredits).toBe(value);
   });
 
   it('accumulates repeated --env values via the collect callback', () => {
