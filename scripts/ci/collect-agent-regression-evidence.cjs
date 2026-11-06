@@ -99,6 +99,7 @@ function collectCodexRoutingEvidence(filename, destination) {
     diagnostics.partialLine = lines.pop() !== '';
     report.status = 'empty';
     const pending = new Set();
+    let successful = false;
     for (const line of lines) {
       if (!line) continue;
       let record;
@@ -131,12 +132,12 @@ function collectCodexRoutingEvidence(filename, destination) {
         diagnostics.invalidStatus++;
         continue;
       }
-      if (report.requests.length === MAX_ROUTING_RECORDS) { diagnostics.truncated = true; break; }
+      if (websocket ? record.status === 101 : record.status >= 200 && record.status < 300) successful = true;
+      if (report.requests.length === MAX_ROUTING_RECORDS) { diagnostics.truncated = true; continue; }
       report.requests.push({ transport: websocket ? 'websocket' : 'http', path: endpoint, status: record.status });
     }
     diagnostics.pending = pending.size;
-    if (report.requests.some(request => request.transport === 'websocket' ?
-      request.status === 101 : request.status >= 200 && request.status < 300)) {
+    if (successful) {
       report.status = 'successful';
     } else if (report.requests.length) report.status = 'failed';
     else if (diagnostics.malformed || diagnostics.wrongSource || diagnostics.invalidStatus || diagnostics.partialLine) {

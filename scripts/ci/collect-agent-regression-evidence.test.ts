@@ -136,6 +136,25 @@ describe('agent regression evidence collector', () => {
     expect(Buffer.byteLength(contents)).toBeLessThan(64 * 1024);
   });
 
+  it('continues evaluating routing success after the output record cap', () => {
+    const usage = path.join(directory, 'token-tracker-audit.jsonl');
+    const unsuccessful = Array.from({ length: 100 }, (_, index) => JSON.stringify({
+      ts: index, rid: `http-${index}`, event: 'TRACK_START', provider: 'openai', path: '/v1/responses', status: 429,
+    }));
+    const successful = JSON.stringify({
+      ts: 101, rid: 'successful-http', event: 'TRACK_START', provider: 'openai', path: '/v1/responses', status: 200,
+    });
+    fs.writeFileSync(usage, `${unsuccessful.concat(successful).join('\n')}\n`);
+    fs.mkdirSync(destination);
+    collectCodexRoutingEvidence(usage, destination);
+    const report = JSON.parse(fs.readFileSync(path.join(destination, 'codex-routing.json'), 'utf8'));
+    expect(report).toMatchObject({
+      status: 'successful',
+      requests: Array.from({ length: 100 }, () => ({ transport: 'http', path: '/v1/responses', status: 429 })),
+      diagnostics: { truncated: true, starts: 101 },
+    });
+  });
+
   it.each([
     { contents: '', status: 'empty', diagnostics: { partialLine: false } },
     { contents: '{"event":"TRACK_START"', status: 'rejected', diagnostics: { partialLine: true } },
@@ -241,8 +260,7 @@ describe('agent regression evidence collector', () => {
         startTime: Date.now(), metrics: { increment() {} }, res: client,
       });
       response.emit('data', Buffer.from('data: {"type":"response.completed","response":{"status":"completed"}}\\n\\n'));
-      ${event === 'close' ? 'client' : 'response'}.emit(${JSON.stringify(event)});
-      response.emit('end');
+      ${event === 'close' ? 'client.emit("close");' : 'response.emit("end");'}
       closeLogStream().catch(() => { process.exitCode = 1; });
     `], { env: { ...process.env, AWF_TOKEN_LOG_DIR: directory, AWF_VERSION: '0.0.0-test' }, encoding: 'utf8', timeout: 10000 });
     expect(result.status).toBe(0);
@@ -250,9 +268,15 @@ describe('agent regression evidence collector', () => {
     expect(fs.readFileSync(path.join(directory, 'token-usage.jsonl'), 'utf8')).toBe('');
     fs.mkdirSync(destination);
     collectCodexRoutingEvidence(path.join(directory, 'token-tracker-audit.jsonl'), destination);
-    expect(JSON.parse(fs.readFileSync(path.join(destination, 'codex-routing.json'), 'utf8'))).toMatchObject({
+    const report = JSON.parse(fs.readFileSync(path.join(destination, 'codex-routing.json'), 'utf8'));
+    expect(report).toMatchObject({
       status: 'successful', requests: [{ transport: 'http', path: '/v1/responses', status: 200 }],
-      diagnostics: { starts: 1, ends: 1, pending: 0, noUsage: 1 },
+      diagnostics: {
+        starts: 1,
+        ends: event === 'end' ? 1 : 0,
+        pending: event === 'end' ? 0 : 1,
+        noUsage: event === 'end' ? 1 : 0,
+      },
     });
   });
 });
