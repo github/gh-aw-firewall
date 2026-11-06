@@ -280,6 +280,14 @@ AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave
 - **Agent executor** — `enclave_run_agent` runs pinned Copilot, Codex, or Claude in a bounded single-use enclave. Codex requires the `openai` profile and Claude requires `anthropic`. Its mandatory peer is the dedicated API proxy; only the selected provider route is configured and real credentials remain outside the enclave. Copilot's `agent.tools.github` (or the deprecated legacy `agent.github.cli: issues-read-v1` marker) also permits a direct connection to compiler-owned shared mcpg. GitHub MCP and dynamic repository admission remain Copilot-only and fail closed for the other engines.
 - **Shared controls** — the `repos` lists of the `enclaves` entries form the only trusted repository catalog; script and agent calls debit the same per-run repository ledger and share one admission lane.
 
+Codex 0.159.3 uses `exec --dangerously-bypass-approvals-and-sandbox` inside the
+already hardened outer enclave. This supported externally sandboxed mode avoids
+nested bubblewrap and interactive approvals; it does not change AWF's non-root
+identity, zero capabilities, no-new-privileges, read-only root and seed, bounded
+writable paths, or dedicated proxy-only network. Shell tools must write the
+required result to `/awf/out`: an empty file remains a canonical failure even
+when Codex exits zero or prints a conversational answer.
+
 > **Terminology.** *Executor* and *enclave* are distinct, and this document uses
 > both. An **executor** is trusted execution machinery and a configuration kind:
 > `enclaves.executors.{script,agent}`, `executorKind`, and the code under

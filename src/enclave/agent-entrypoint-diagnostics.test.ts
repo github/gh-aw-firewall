@@ -230,6 +230,14 @@ if scenario != "missing-copilot":
         copilot.write_text("#!/bin/sh\nsleep 30 &\nwait\n", encoding="utf-8")
     elif scenario == "stdout-only":
         copilot.write_text("#!/bin/sh\nprintf '%s\\n' true\n", encoding="utf-8")
+    elif scenario == "shell-launch-failed":
+        copilot.write_text(
+            "#!/bin/sh\n"
+            "printf '%s\\n' 'bwrap: Failed to make / slave: Operation not permitted' >&2\n"
+            "printf '%s\\n' true\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
     else:
         copilot.write_text(
             "#!/bin/sh\n"
@@ -379,7 +387,8 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     expect(result.arguments).not.toContain('--max-model-requests');
     expect(result.arguments).not.toContain('--max-model-tokens');
     if (engine === 'codex') {
-      expect(result.arguments).not.toContain('--dangerously-bypass-approvals-and-sandbox');
+      expect(result.arguments.split('\n')).toContain('--dangerously-bypass-approvals-and-sandbox');
+      expect(result.arguments).not.toContain('--approve-for-me');
       expect(result.arguments).toContain('model_providers.awf.env_key="OPENAI_API_KEY"');
       expect(result.arguments).toContain('--ephemeral');
     } else {
@@ -397,6 +406,18 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.output).toBe('');
     expect(result.transcript).toContain('result-empty');
+  });
+
+  it('rejects a Codex shell-launch failure even when the CLI exits zero and prints a result', () => {
+    const result = runHarness('shell-launch-failed', providerEnv('codex'));
+    expect(result.exitCode).toBe(33);
+    expect(result.output).toBe('');
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      event: 'engine-result', exitCode: 0,
+    }));
+    const transcript = events(result);
+    expect(transcript[transcript.length - 1]).toEqual({ event: 'failure', category: 'result-empty' });
+    expect(result.transcript).not.toContain('bwrap:');
   });
 
   it.each(['codex', 'claude'])('redacts %s capabilities even in trusted raw diagnostics', engine => {

@@ -917,8 +917,10 @@ def configure_engine_environment(engine: str) -> None:
 
 def build_engine_command(engine: str, model: str, prompt: str, log_dir: Path) -> list[str]:
     if engine == "codex":
+        # AWF supplies the outer sandbox; nested bubblewrap cannot run with zero capabilities.
         return [
             CODEX_BIN, "exec", "--skip-git-repo-check",
+            "--dangerously-bypass-approvals-and-sandbox",
             "--ephemeral",
             "--model", model,
             "-c", 'model_provider="awf"',
