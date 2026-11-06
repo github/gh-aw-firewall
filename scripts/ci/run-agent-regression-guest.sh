@@ -13,7 +13,30 @@ fail() {
 test -r package.json || fail 'Workspace export is unavailable'
 test -n "${HTTPS_PROXY:?}"
 test -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}${ANTHROPIC_API_KEY:-}" || fail 'A host credential variable reached the guest'
-test -z "${COPILOT_GITHUB_TOKEN:-}" || test "$COPILOT_GITHUB_TOKEN" = '******' || fail 'Copilot credential is not isolated'
+if node <<'NODE'
+let placeholder;
+try {
+  placeholder = require('./dist/constants/placeholders')?.COPILOT_PLACEHOLDER_TOKEN;
+} catch {
+  process.exit(2);
+}
+if (typeof placeholder !== 'string' || placeholder.length === 0) {
+  process.exit(2);
+}
+const names = ['COPILOT_GITHUB_TOKEN', 'COPILOT_TOKEN', 'COPILOT_PROVIDER_API_KEY'];
+if (names.some(name => process.env[name] && process.env[name] !== placeholder)) {
+  process.exit(1);
+}
+NODE
+then
+  :
+else
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    fail 'Copilot credential is not isolated'
+  fi
+  fail 'Copilot placeholder contract is unavailable'
+fi
 test -z "${OPENAI_API_KEY:-}" || test "$OPENAI_API_KEY" = sk-placeholder-for-api-proxy || fail 'OpenAI credential is not isolated'
 test -z "${CODEX_API_KEY:-}" || test "$CODEX_API_KEY" = sk-placeholder-for-api-proxy || fail 'Codex credential is not isolated'
 test -z "${ANTHROPIC_AUTH_TOKEN:-}" || test "$ANTHROPIC_AUTH_TOKEN" = sk-ant-placeholder-key-for-credential-isolation || fail 'Anthropic credential is not isolated'
@@ -47,8 +70,15 @@ case "$agent" in
       > "$results/response.txt"
     ;;
   codex)
-    codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox \
-      --model gpt-5.4 --output-last-message "$results/response.txt" "$prompt"
+    codex_base_url="${OPENAI_BASE_URL:?Missing OpenAI sidecar URL}"
+    codex_base_url="${codex_base_url%/}"
+    codex_base_url="${codex_base_url%/v1}/v1"
+    # Pin both transports to the sidecar; placeholders are replaced only there.
+    CODEX_API_KEY=sk-placeholder-for-api-proxy \
+      codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox \
+      -c 'model_provider="awf"' \
+      -c "model_providers.awf={name=\"AWF\",base_url=\"$codex_base_url\",wire_api=\"responses\",env_key=\"CODEX_API_KEY\",requires_openai_auth=false,supports_websockets=true}" \
+      --model gpt-5.4 --output-last-message "$results/response.txt" "$prompt" < /dev/null
     ;;
   claude)
     claude --print --dangerously-skip-permissions --model claude-haiku-4-5 \
@@ -58,5 +88,6 @@ case "$agent" in
 esac
 test -f "$results/agent-proof.txt" || fail 'Agent did not write the workspace proof'
 test "$(cat "$results/agent-proof.txt")" = "$marker" || fail 'Agent wrote an incorrect workspace proof'
-grep -Fxq "$marker" "$results/response.txt" || fail 'Inference response did not contain the exact marker'
-echo AWF-REGRESSION-COMPLETE
+test "$(cat "$results/response.txt")" = "$marker" || fail 'Inference response did not contain the exact marker'
+# Keep terminal control output without a trailing newline off the completion line.
+printf '\n%s\n' AWF-REGRESSION-COMPLETE

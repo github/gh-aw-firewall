@@ -94,7 +94,7 @@ export async function runCloudHypervisorBootLoop({
   let bootAttempt = 0;
   let readiness: ReturnType<typeof createPrimaryReadinessReporter> | undefined;
   const publish = (state: 'starting' | 'ready' | 'failed' = 'starting'): void => {
-    readiness?.publish(stage, state, bootAttempt, manager?.paths.runDirectory);
+    readiness?.publish(stage, state, bootAttempt, manager?.paths.runDirectory, manager?.guestIp);
   };
   const publishFailure = (retry = false): void => {
     try {

@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { isIPv4 } from 'node:net';
 import { assertRealDirectory } from '../fs-utils';
 
 export const PRIMARY_READINESS_FILENAME = 'awf-primary-vm-readiness.json';
@@ -34,13 +35,21 @@ export function createPrimaryReadinessReporter(directory: string) {
       state: 'starting' | 'ready' | 'failed',
       bootAttempt: number,
       runDirectory?: string,
+      guestIp?: string,
     ): void {
       const runId = runDirectory ? path.basename(runDirectory) : null;
       if (runId !== null && !/^[A-Za-z0-9_.-]{1,128}$/.test(runId)) {
         throw new Error('Invalid primary VM readiness identity');
       }
+      if (guestIp !== undefined && !isIPv4(guestIp)) {
+        throw new Error('Invalid primary VM guest address');
+      }
+      if (state === 'ready' && guestIp === undefined) {
+        throw new Error('Primary VM readiness requires its guest address');
+      }
       const record = JSON.stringify({
         schemaVersion: 1, ownerPid: process.pid, stage, state, bootAttempt, runId,
+        ...(guestIp === undefined ? {} : { guestIp }),
       }) + '\n';
       fs.ftruncateSync(fd, 0);
       fs.writeSync(fd, record, 0, 'utf8');

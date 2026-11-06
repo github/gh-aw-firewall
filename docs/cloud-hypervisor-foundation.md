@@ -347,6 +347,14 @@ consumers do not need to copy its implementation or duplicate the diagnostic
 schema. Pin the exporter checkout to a reviewed AWF release or full commit SHA
 containing this interface. Pin the AWF execution installation separately.
 
+The daily agent regression also retains `startup.json` in the protected export
+directory before cleanup. This closed, bounded projection records the launch
+stage, exit/signal classification, and startup-record availability even when no
+invocation journal exists. It excludes raw AWF logs, prompts and capabilities.
+If subsequent invocation collection fails, `startup.json` remains separate from
+`collection-status.txt`; successful collection alone does not establish startup
+or inference success.
+
 ```text
 node collector.cjs prepare BACKEND RUN_ID-RUN_ATTEMPT RUNNER_UID RUNNER_GID
 node collector.cjs collect BACKEND RUN_ID-RUN_ATTEMPT RUNNER_UID RUNNER_GID
@@ -383,8 +391,9 @@ public-debug eligibility gate; private, dynamic and unverified scopes cannot
 enable export through CLI arguments. Source directories and files remain
 protected: no symlinks, single-link regular files, owner-only permissions,
 bounded inventories, at most 32 invocation files and at most 1 MiB per stream.
-Publication allows those 32 files, four fixed run-level proxy projections and one
-status file: at most 37 files and 36 MiB plus 4 KiB in total.
+Publication allows those 32 files, four fixed run-level proxy projections, an
+optional 4 KiB startup projection and one status file: at most 38 files and
+36 MiB plus 8 KiB in total.
 Credential-pattern redaction is also applied during export; it is not a
 replacement for AWF's capture-time credential redaction.
 
@@ -2173,6 +2182,12 @@ primary-with-enclave configurations, untrusted pull-request events, mixed
 workload backends, unattested artifacts or model-budget changes. Exact checkout
 and manifest-source checks remain mandatory; release mode also retains its
 reviewed-commit ancestry check.
+
+The separately compiled daily regression profile admits only its exact main
+source SHA and scheduled or manual main-branch workflow identity, with one
+public-only, single-use Copilot, Claude or Codex agent enclave. Its primary and
+enclave both use Cloud Hypervisor. Production builds do not enable this profile;
+artifact attestation, isolation, backend matching and cleanup guards still apply.
 
 The agent-only and combined conformance profiles intentionally omit the optional
 `agent.maxModelRequests` and `agent.maxModelTokens` execution-cost limits. The

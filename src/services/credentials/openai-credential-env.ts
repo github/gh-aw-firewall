@@ -9,11 +9,9 @@ interface OpenAiCredentialEnvParams {
 export function buildOpenAiCredentialEnv(params: OpenAiCredentialEnvParams): Record<string, string> {
   const { config, proxyIp } = params;
   // Inject placeholder API keys for OpenAI/Codex credential isolation.
-  // Codex v0.121+ introduced a CODEX_API_KEY-based WebSocket auth flow: when no
-  // API key is found in the agent env, Codex bypasses OPENAI_BASE_URL and connects
-  // directly to api.openai.com for OAuth, getting a 401. With a placeholder key
-  // present, Codex routes API calls through OPENAI_BASE_URL (the api-proxy sidecar),
-  // which replaces the Authorization header with the real key before forwarding.
+  // Placeholders satisfy client-side key checks, including Codex WebSocket auth.
+  // They do not select a provider or guarantee routing: the pinned Codex regression
+  // explicitly selects a Responses provider using this sidecar's OPENAI_BASE_URL.
   // The real keys are held securely in the sidecar; when requests are routed
   // through api-proxy, these placeholders are expected to be overwritten by the
   // api-proxy's injectHeaders before forwarding upstream.

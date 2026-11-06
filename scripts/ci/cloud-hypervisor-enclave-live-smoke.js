@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const { isDeepStrictEqual } = require('util');
+const { isIPv4 } = require('node:net');
 const conformanceDiagnostics = require('./cloud-hypervisor-enclave-diagnostics');
 const diagnosticCollector = require('./collect-enclave-smoke-debug.cjs');
 const { HOST_EXECUTOR_ID_PATTERN } = require('../../dist/enclave/host-executor-protocol');
@@ -976,11 +977,18 @@ function readPrimaryVmProgress(file, child) {
   } catch {
     return undefined; // A truncated publication is never readiness.
   }
-  if (JSON.stringify(Object.keys(value || {}).sort())
-        !== '["bootAttempt","ownerPid","runId","schemaVersion","stage","state"]'
+  const keys = JSON.stringify(Object.keys(value || {}).sort());
+  if (![
+    '["bootAttempt","ownerPid","runId","schemaVersion","stage","state"]',
+    '["bootAttempt","guestIp","ownerPid","runId","schemaVersion","stage","state"]',
+  ].includes(keys)
       || value.schemaVersion !== 1 || value.ownerPid !== child.pid
       || !PRIMARY_BOOT_STAGES.includes(value.stage)
       || !['starting', 'ready', 'failed'].includes(value.state)
+      || (value.guestIp !== undefined
+        && (typeof value.guestIp !== 'string' || !isIPv4(value.guestIp)))
+      || (value.state === 'ready'
+        && (typeof value.guestIp !== 'string' || !isIPv4(value.guestIp)))
       || !Number.isInteger(value.bootAttempt) || value.bootAttempt < 0
       || value.bootAttempt > CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS
       || !(value.runId === null || (typeof value.runId === 'string'
@@ -1133,7 +1141,10 @@ async function waitForPrimaryVmReadiness(child, deadline, diagnostics, dependenc
         }
         checkChild();
         if (identity === 'mismatch') fail('unexpected-resources');
-        if (identity === 'verified' && now() < deadline) return observed;
+        if (identity === 'verified' && now() < deadline) {
+          dependencies.onReady?.(current.guestIp);
+          return observed;
+        }
       }
     }
     await sleep(Math.max(0, Math.min(250, deadline - now())));
@@ -1845,7 +1856,7 @@ function prepareAcceptanceArtifacts(checkout, directory, environment) {
   };
 }
 
-async function waitForDockerPrimaryReadiness(child, deadline, stdoutFile, readyToken) {
+async function waitForDockerPrimaryReadiness(child, deadline, stdoutFile, readyToken, expectedPrimaryVm) {
   if (!/^AWF_DOCKER_PRIMARY_READY_[a-f0-9]{48}$/.test(readyToken || '')) {
     throw new Error('Invalid live Docker primary readiness token');
   }
@@ -1856,8 +1867,8 @@ async function waitForDockerPrimaryReadiness(child, deadline, stdoutFile, readyT
     // This fresh per-launch token is printed by the actual primary command,
     // after Docker entrypoint/chroot setup, not by a container healthcheck.
     if (readDiagnosticFile(stdoutFile).includes(Buffer.from(`${readyToken}\n`))) {
-      assertNoVmResidue();
-      return undefined; // Docker primary: no baseline VMM/netns/cgroup may remain.
+      assertNoVmResidue(expectedPrimaryVm);
+      return expectedPrimaryVm;
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
