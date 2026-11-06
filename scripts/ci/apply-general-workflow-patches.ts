@@ -905,8 +905,8 @@ export function applyGeneralWorkflowPatches(
     // checksum. Restore the reviewed pin for each acceptance fixture.
     const release = isCloudHypervisorAgentEnclaveSmoke
       ? {
-        version: 'v0.28.62',
-        checksum: '4a4d55b288c6146349cc3d3a5e0f492a5609127393a57f64ce59dcf7e8edd82b',
+        version: 'v0.28.66',
+        checksum: 'f184f3993a1f0c3168d0dd96b01752670a5061c9c9bc1a37e3653fc6b54fba29',
       }
       : {
         version: 'v0.28.66',
