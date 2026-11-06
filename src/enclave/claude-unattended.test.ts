@@ -96,12 +96,11 @@ environment = {
     "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
     "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL": "1",
 }
+if os.environ.get("ALLOW_TOOLS") == "true":
+    os.environ["AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS"] = "none"
+    os.environ["AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS"] = "Bash,Read,Write,Edit,Glob,Grep"
 command = module.build_engine_command("claude", "claude-haiku-4-5",
     "Run the shell diagnostic and write true to " + str(module.OUT_PATH), root)
-if os.environ.get("ALLOW_TOOLS") != "true":
-    for flag in ["--allowedTools", "--permission-mode", "--permission-prompts"]:
-        index = command.index(flag)
-        del command[index:index + 2]
 try:
     process = subprocess.Popen(command, cwd=root / "seed", env=environment,
                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -138,7 +137,7 @@ pinnedTest.each([false, true])('checks pinned Claude shell execution with explic
       'unshare', '--net', '--mount', '--pid', '--fork',
       '--kill-child', '--mount-proc', '/bin/sh', '-c',
       'mount --make-rprivate / && mount --bind / / && mount -o remount,bind,ro /'
-      + ' && mount -o remount,ro /dev/shm'
+      + ' && mount -o remount,bind,ro /dev/shm'
       + ' && mount --bind "$2" "$2" && mount -o remount,bind,rw "$2"'
       + ' && ip link set lo up'
       + ' && exec setpriv --reuid=65534 --regid=65534 --clear-groups --no-new-privs --bounding-set=-all python3 -c "$1"',

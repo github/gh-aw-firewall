@@ -901,8 +901,9 @@ def communicate_claude(process: subprocess.Popen, timeout: float) -> tuple[bytes
     truncated = False
 
     def milestone(stage: str, **metadata) -> None:
-        if stage not in seen:
-            seen.add(stage)
+        key = (stage, metadata.get("toolError")) if stage == "claude-tool-completed" else stage
+        if key not in seen:
+            seen.add(key)
             append_progress(stage, runtimeMs=int((time.monotonic() - started) * 1000), **metadata)
 
     def project(line: bytes) -> None:
@@ -930,7 +931,7 @@ def communicate_claude(process: subprocess.Popen, timeout: float) -> tuple[bytes
                 status = event.get("error_status")
                 milestone("claude-api-retry",
                           httpStatus=status if type(status) is int and status in {
-                              400, 401, 403, 404, 408, 429, 500, 502, 503, 504,
+                              400, 401, 403, 404, 408, 429, 500, 502, 503, 504, 529,
                           } else None)
         elif kind == "stream_event":
             payload = event.get("event")
@@ -1060,10 +1061,16 @@ def build_engine_command(engine: str, model: str, prompt: str, log_dir: Path) ->
             prompt,
         ]
     if engine == "claude":
+        permission_prompts = os.environ.get("AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS", "auto")
+        allowed_tools = os.environ.get("AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS", "Read,Glob,Grep")
+        if permission_prompts not in {"auto", "none"} or not allowed_tools \
+                or any(tool not in {"Bash", "Read", "Write", "Edit", "Glob", "Grep"}
+                       for tool in allowed_tools.split(",")):
+            raise ValueError("invalid Claude tool permission policy")
         return [
             CLAUDE_BIN, "--print", "--bare",
-            "--permission-mode", "default", "--permission-prompts", "none",
-            "--allowedTools", "Bash,Read,Write,Edit,Glob,Grep",
+            "--permission-mode", "default", "--permission-prompts", permission_prompts,
+            "--allowedTools", allowed_tools,
             "--model", model, "--output-format", "stream-json", "--verbose", "--include-partial-messages",
             "--no-session-persistence", "--setting-sources", "",
             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
@@ -1167,7 +1174,11 @@ def main() -> int:
         append_event({"event": "failure", "category": "result-reset-failed"})
         return EXIT_RESULT_RESET_FAILED
 
-    command = build_engine_command(engine, model, build_prompt(task, schema_text), copilot_logs)
+    try:
+        command = build_engine_command(engine, model, build_prompt(task, schema_text), copilot_logs)
+    except ValueError:
+        append_event({"event": "failure", "category": "configuration-invalid"})
+        return EXIT_CONFIGURATION_INVALID
     deadline = time.monotonic() + timeout
     completed = None
     stdout = ""
@@ -1282,7 +1293,7 @@ def main() -> int:
         "event": "output-normalization",
         "inputState": "empty" if not result_bytes else
             "oversized" if len(result_bytes) > max_output else "within-limit",
-        "stdoutState": "present" if stdout else "empty",
+        "stdoutState": "present" if (completed.stdout if engine == "claude" else stdout) else "empty",
     })
     if not result_bytes:
         append_event({"event": "failure", "category": "result-empty"})

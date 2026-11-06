@@ -10,6 +10,7 @@ import {
 } from '../../src/enclave/host-executor-journal';
 import { resolveDockerEnclavePaths } from '../../src/enclave/docker-lifecycle';
 import { resolveDockerPublicEnclaveDebugPaths } from '../../src/enclave/public-debug';
+import { projectEnclaveSessionDiagnostics } from '../../src/cloud-hypervisor/enclave-session-diagnostics';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const collector = require('./collect-enclave-smoke-debug.cjs');
@@ -97,6 +98,7 @@ describe('host-only public enclave debug collector', () => {
           shellAvailable: true, cwd: 'PRIVATE_PATH', headers: 'PRIVATE_HEADER' },
         { event: 'progress', stage: 'claude-permission-denied', input: 'PRIVATE_COMMAND' },
         { event: 'progress', stage: 'claude-api-retry', httpStatus: 403, error: 'PRIVATE_ERROR' },
+        { event: 'progress', stage: 'claude-api-retry', httpStatus: 529, error: 'PRIVATE_OVERLOAD' },
         { event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
           stderrObserved: false, captureTruncated: false, outputState: 'empty', raw: 'PRIVATE_MODEL' },
       ] },
@@ -108,6 +110,7 @@ describe('host-only public enclave debug collector', () => {
       { event: 'progress', stage: 'claude-initialized', permissionMode: 'default', shellAvailable: true },
       { event: 'progress', stage: 'claude-permission-denied' },
       { event: 'progress', stage: 'claude-api-retry', httpStatus: 403 },
+      { event: 'progress', stage: 'claude-api-retry', httpStatus: 529 },
       { event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
         stderrObserved: false, captureTruncated: false, outputState: 'empty' },
     ]);
@@ -115,6 +118,119 @@ describe('host-only public enclave debug collector', () => {
     envelope.session.events[0].permissionMode = 'PRIVATE_MODE';
     expect(() => projectDiagnostics(envelope, { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' }))
       .toThrow(/session-schema/);
+  });
+
+  it('preserves the successful Claude summary after two complete silent startup crash attempts', () => {
+    const snapshots = (stage: string, outputState = 'empty') => [
+      { event: 'resource-snapshot', stage, memory: { currentBytes: 4096, events: { oom_kill: 0 } },
+        filesystems: ['agent-directory', 'temporary-directory', 'shared-memory'].map(identifier => ({
+          path: identifier, capacityBytes: 8192, availableBytes: 4096,
+        })) },
+      { event: 'output-snapshot', stage, uid: 65534, gid: 65534,
+        paths: ['output-parent', 'output-directory', 'output-link', 'output-file'].map(identifier => ({
+          path: identifier, uid: 65534, gid: 65534, mode: 0o700,
+          type: identifier === 'output-link' ? 'symlink' : identifier === 'output-file' ? 'file' : 'directory',
+          readable: true, writable: true, executable: false,
+          ...(identifier === 'output-file' ? { size: outputState } : {}),
+        })) },
+      { event: 'output-verification', stage, symlink: true, targetMatches: true, sameFile: true,
+        directReadable: true, aliasReadable: true, contentsMatch: true,
+        directState: outputState, aliasState: outputState },
+    ];
+    const silentCrash = (attempt: number, signal: number) => [
+      { event: 'progress', stage: 'engine-launch-attempt', attempt },
+      { event: 'progress', stage: 'engine-started', attempt },
+      { event: 'progress', stage: 'claude-stream-summary', stdoutObserved: false,
+        stderrObserved: false, captureTruncated: false, outputState: 'empty' },
+      { event: 'engine-result', exitCode: -signal, signal, stdoutObserved: false, stderrObserved: false },
+      ...snapshots('after-engine'),
+      { event: 'storage-probe', status: 'missing', milestones: [] },
+      { event: 'progress', stage: 'engine-completed', attempt, exitCode: -signal, runtimeMs: 100 },
+      { event: 'engine-retry', category: 'startup-crash', signal },
+    ];
+    const summary = {
+      event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
+      stderrObserved: false, captureTruncated: false, outputState: 'present',
+    };
+    const transcript = [
+      { event: 'progress', stage: 'configuration-accepted', engine: 'claude' },
+      { event: 'progress', stage: 'input-accepted', taskBytes: 123, schemaBytes: 456 },
+      { event: 'progress', stage: 'runtime-paths-ready', paths: ['home-directory', 'claude-log-directory'] },
+      { event: 'session', engine: 'claude', sensitivity: 'redacted' },
+      ...['claude-executable', 'seed-directory', 'task-input', 'schema-input', 'output-file',
+        'session-log', 'agent-directory', 'claude-log-directory'].map(identifier => ({
+        event: 'preflight', path: identifier, exists: true,
+        type: identifier.endsWith('directory') ? 'directory' : 'file', executable: true, writable: true,
+      })),
+      { event: 'progress', stage: 'preflight-completed', valid: true },
+      ...snapshots('before-engine'),
+      ...silentCrash(1, 6),
+      ...silentCrash(2, 11),
+      { event: 'progress', stage: 'engine-launch-attempt', attempt: 3 },
+      { event: 'progress', stage: 'engine-started', attempt: 3 },
+      { event: 'progress', stage: 'claude-first-byte', runtimeMs: 10 },
+      { event: 'progress', stage: 'claude-initialized', permissionMode: 'default', shellAvailable: true },
+      { event: 'progress', stage: 'claude-api-retry', httpStatus: 529 },
+      { event: 'progress', stage: 'claude-response' },
+      { event: 'progress', stage: 'claude-tool-requested' },
+      { event: 'progress', stage: 'claude-tool-completed', toolError: false },
+      { event: 'progress', stage: 'claude-result', resultError: false, outputState: 'present' },
+      { ...summary, raw: 'PRIVATE_STREAM', message: 'PRIVATE_MODEL', sha256: 'PRIVATE_HASH' },
+      { event: 'engine-result', exitCode: 0, stdout: 'PRIVATE_STDOUT' },
+      ...snapshots('after-engine', 'within-limit'),
+      { event: 'storage-probe', status: 'missing', milestones: [] },
+      { event: 'progress', stage: 'engine-completed', attempt: 3, exitCode: 0, runtimeMs: 1000 },
+      { event: 'progress', stage: 'output-normalization-started' },
+      { event: 'output-normalization', inputState: 'within-limit', stdoutState: 'empty' },
+      { event: 'progress', stage: 'output-normalized', outputBytes: 42 },
+      { event: 'progress', stage: 'output-write-attempt' },
+      { event: 'progress', stage: 'output-written', outputBytes: 42 },
+      { event: 'success' },
+    ];
+    const session = projectEnclaveSessionDiagnostics(Buffer.from(
+      transcript.map(event => JSON.stringify(event)).join('\n')));
+    expect(session.events).toHaveLength(32);
+    expect(session.events?.filter(event => event.event === 'engine-retry')).toEqual([
+      { event: 'engine-retry', signal: 6 }, { event: 'engine-retry', signal: 11 },
+    ]);
+    expect(session.events?.some(event => event.httpStatus === 529)).toBe(true);
+    expect(session.events?.some(event => event.stage === 'claude-stream-summary'
+      && event.stdoutObserved === true)).toBe(false);
+    expect(session.claudeStreamSummary).toEqual(summary);
+    expect(session.lastEvent).toEqual({ event: 'success' });
+    expect(session.failure).toBeUndefined();
+    expect(session.dropped).toBeGreaterThan(0);
+    const projected = JSON.parse(projectDiagnostics({ ...commonEnvelope(), session }, {
+      runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor',
+    }).toString());
+    expect(projected.session).toEqual(session);
+    expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+    expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThan(8192);
+  });
+
+  it('projects the independent Claude summary and rejects incorrect summary schema', () => {
+    const envelope = { ...commonEnvelope(), session: {
+      status: 'captured', claudeStreamSummary: {
+        event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
+        httpStatus: 529, raw: 'PRIVATE_STREAM',
+      },
+    } };
+    const identity = { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' };
+    const projected = JSON.parse(projectDiagnostics(envelope, identity).toString());
+    expect(projected.session.claudeStreamSummary).toEqual({
+      event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true, httpStatus: 529,
+    });
+    expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+    for (const malformed of [
+      { event: 'success' },
+      { event: 'progress', stage: 'claude-response' },
+      { event: 'progress', stage: 'claude-stream-summary', httpStatus: 530 },
+      'PRIVATE_SUMMARY',
+    ]) {
+      expect(() => projectDiagnostics({
+        ...envelope, session: { status: 'captured', claudeStreamSummary: malformed },
+      }, identity)).toThrow(/session-schema/);
+    }
   });
 
   it('collects a failed invocation but excludes stale directories and journals', () => {

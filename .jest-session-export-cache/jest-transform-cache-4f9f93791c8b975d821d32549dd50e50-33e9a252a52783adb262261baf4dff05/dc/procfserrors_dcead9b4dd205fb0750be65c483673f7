@@ -1,0 +1,16 @@
+dbf33b97030204b6e0d3e111b7fdcc4d
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.isMissingProcEntryError = isMissingProcEntryError;
+/**
+ * Returns true when `error` is a Node.js `ENOENT` filesystem error, indicating that a
+ * `/proc/<pid>/task/<tid>` entry disappeared because the thread exited. Confinement
+ * verifiers treat this as a benign thread departure rather than a verification failure.
+ */
+function isMissingProcEntryError(error) {
+    return (typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 'ENOENT');
+}
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJmaWxlIjoiL2hvbWUvcnVubmVyL3dvcmsvZ2gtYXctZmlyZXdhbGwvZ2gtYXctZmlyZXdhbGwvc3JjL3Byb2MtZnMtZXJyb3JzLnRzIiwibWFwcGluZ3MiOiI7O0FBS0EsMERBT0M7QUFaRDs7OztHQUlHO0FBQ0gsU0FBZ0IsdUJBQXVCLENBQUMsS0FBYztJQUNwRCxPQUFPLENBQ0wsT0FBTyxLQUFLLEtBQUssUUFBUTtRQUN6QixLQUFLLEtBQUssSUFBSTtRQUNkLE1BQU0sSUFBSSxLQUFLO1FBQ2QsS0FBK0IsQ0FBQyxJQUFJLEtBQUssUUFBUSxDQUNuRCxDQUFDO0FBQ0osQ0FBQyIsIm5hbWVzIjpbXSwic291cmNlcyI6WyIvaG9tZS9ydW5uZXIvd29yay9naC1hdy1maXJld2FsbC9naC1hdy1maXJld2FsbC9zcmMvcHJvYy1mcy1lcnJvcnMudHMiXSwic291cmNlc0NvbnRlbnQiOlsiLyoqXG4gKiBSZXR1cm5zIHRydWUgd2hlbiBgZXJyb3JgIGlzIGEgTm9kZS5qcyBgRU5PRU5UYCBmaWxlc3lzdGVtIGVycm9yLCBpbmRpY2F0aW5nIHRoYXQgYVxuICogYC9wcm9jLzxwaWQ+L3Rhc2svPHRpZD5gIGVudHJ5IGRpc2FwcGVhcmVkIGJlY2F1c2UgdGhlIHRocmVhZCBleGl0ZWQuIENvbmZpbmVtZW50XG4gKiB2ZXJpZmllcnMgdHJlYXQgdGhpcyBhcyBhIGJlbmlnbiB0aHJlYWQgZGVwYXJ0dXJlIHJhdGhlciB0aGFuIGEgdmVyaWZpY2F0aW9uIGZhaWx1cmUuXG4gKi9cbmV4cG9ydCBmdW5jdGlvbiBpc01pc3NpbmdQcm9jRW50cnlFcnJvcihlcnJvcjogdW5rbm93bik6IGJvb2xlYW4ge1xuICByZXR1cm4gKFxuICAgIHR5cGVvZiBlcnJvciA9PT0gJ29iamVjdCcgJiZcbiAgICBlcnJvciAhPT0gbnVsbCAmJlxuICAgICdjb2RlJyBpbiBlcnJvciAmJlxuICAgIChlcnJvciBhcyBOb2RlSlMuRXJybm9FeGNlcHRpb24pLmNvZGUgPT09ICdFTk9FTlQnXG4gICk7XG59XG4iXSwidmVyc2lvbiI6M30=

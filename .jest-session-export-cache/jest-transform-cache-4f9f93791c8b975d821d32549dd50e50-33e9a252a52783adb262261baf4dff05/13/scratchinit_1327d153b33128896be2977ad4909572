@@ -1,0 +1,33 @@
+9a9d7c3c91a4e363e0b193570410c59b
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.MICROVM_SCRATCH_INIT_GUEST_PATH = void 0;
+exports.buildMicrovmScratchInit = buildMicrovmScratchInit;
+exports.MICROVM_SCRATCH_INIT_GUEST_PATH = '/usr/sbin/awf-scratch-init';
+/** Runs as PID 1 before the unchanged, release-verified guest supervisor. */
+function buildMicrovmScratchInit(scratchMib, supervisorGuestPath) {
+    if (!Number.isInteger(scratchMib) || scratchMib < 1 || scratchMib > 0xffffffff) {
+        throw new Error('microVM scratch MiB must be an integer in 1-4294967295');
+    }
+    if (!/^\/[A-Za-z0-9_./-]+$/.test(supervisorGuestPath) || supervisorGuestPath.includes('..')) {
+        throw new Error('Unsafe microVM scratch supervisor path');
+    }
+    const bytes = scratchMib * 1024 * 1024;
+    return [
+        '#!/bin/sh',
+        'set -eu',
+        'PATH=/usr/sbin:/usr/bin:/sbin:/bin',
+        'export PATH',
+        'mkdir -p /proc /tmp',
+        'mount -n -t proc proc /proc',
+        `mount -n -t tmpfs -o size=${bytes},mode=1777,nosuid,nodev awf-scratch /tmp`,
+        "set -- $(stat -f -c '%t %b %S' /tmp)",
+        `[ "$#" -eq 3 ] && [ "$1" = 1021994 ] && [ "$(($2 * $3))" -eq ${bytes} ] || {`,
+        '  echo "AWF scratch filesystem capacity verification failed" >&2',
+        '  exit 1',
+        '}',
+        `exec '${supervisorGuestPath}'`,
+        '',
+    ].join('\n');
+}
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJmaWxlIjoiL2hvbWUvcnVubmVyL3dvcmsvZ2gtYXctZmlyZXdhbGwvZ2gtYXctZmlyZXdhbGwvc3JjL21pY3Jvdm0vc2NyYXRjaC1pbml0LnRzIiwibWFwcGluZ3MiOiI7OztBQUdBLDBEQXdCQztBQTNCWSxRQUFBLCtCQUErQixHQUFHLDRCQUE0QixDQUFDO0FBRTVFLDZFQUE2RTtBQUM3RSxTQUFnQix1QkFBdUIsQ0FBQyxVQUFrQixFQUFFLG1CQUEyQjtJQUNyRixJQUFJLENBQUMsTUFBTSxDQUFDLFNBQVMsQ0FBQyxVQUFVLENBQUMsSUFBSSxVQUFVLEdBQUcsQ0FBQyxJQUFJLFVBQVUsR0FBRyxVQUFVLEVBQUUsQ0FBQztRQUMvRSxNQUFNLElBQUksS0FBSyxDQUFDLHdEQUF3RCxDQUFDLENBQUM7SUFDNUUsQ0FBQztJQUNELElBQUksQ0FBQyxzQkFBc0IsQ0FBQyxJQUFJLENBQUMsbUJBQW1CLENBQUMsSUFBSSxtQkFBbUIsQ0FBQyxRQUFRLENBQUMsSUFBSSxDQUFDLEVBQUUsQ0FBQztRQUM1RixNQUFNLElBQUksS0FBSyxDQUFDLHdDQUF3QyxDQUFDLENBQUM7SUFDNUQsQ0FBQztJQUNELE1BQU0sS0FBSyxHQUFHLFVBQVUsR0FBRyxJQUFJLEdBQUcsSUFBSSxDQUFDO0lBQ3ZDLE9BQU87UUFDTCxXQUFXO1FBQ1gsU0FBUztRQUNULG9DQUFvQztRQUNwQyxhQUFhO1FBQ2IscUJBQXFCO1FBQ3JCLDZCQUE2QjtRQUM3Qiw2QkFBNkIsS0FBSywwQ0FBMEM7UUFDNUUsc0NBQXNDO1FBQ3RDLGdFQUFnRSxLQUFLLFNBQVM7UUFDOUUsa0VBQWtFO1FBQ2xFLFVBQVU7UUFDVixHQUFHO1FBQ0gsU0FBUyxtQkFBbUIsR0FBRztRQUMvQixFQUFFO0tBQ0gsQ0FBQyxJQUFJLENBQUMsSUFBSSxDQUFDLENBQUM7QUFDZixDQUFDIiwibmFtZXMiOltdLCJzb3VyY2VzIjpbIi9ob21lL3J1bm5lci93b3JrL2doLWF3LWZpcmV3YWxsL2doLWF3LWZpcmV3YWxsL3NyYy9taWNyb3ZtL3NjcmF0Y2gtaW5pdC50cyJdLCJzb3VyY2VzQ29udGVudCI6WyJleHBvcnQgY29uc3QgTUlDUk9WTV9TQ1JBVENIX0lOSVRfR1VFU1RfUEFUSCA9ICcvdXNyL3NiaW4vYXdmLXNjcmF0Y2gtaW5pdCc7XG5cbi8qKiBSdW5zIGFzIFBJRCAxIGJlZm9yZSB0aGUgdW5jaGFuZ2VkLCByZWxlYXNlLXZlcmlmaWVkIGd1ZXN0IHN1cGVydmlzb3IuICovXG5leHBvcnQgZnVuY3Rpb24gYnVpbGRNaWNyb3ZtU2NyYXRjaEluaXQoc2NyYXRjaE1pYjogbnVtYmVyLCBzdXBlcnZpc29yR3Vlc3RQYXRoOiBzdHJpbmcpOiBzdHJpbmcge1xuICBpZiAoIU51bWJlci5pc0ludGVnZXIoc2NyYXRjaE1pYikgfHwgc2NyYXRjaE1pYiA8IDEgfHwgc2NyYXRjaE1pYiA+IDB4ZmZmZmZmZmYpIHtcbiAgICB0aHJvdyBuZXcgRXJyb3IoJ21pY3JvVk0gc2NyYXRjaCBNaUIgbXVzdCBiZSBhbiBpbnRlZ2VyIGluIDEtNDI5NDk2NzI5NScpO1xuICB9XG4gIGlmICghL15cXC9bQS1aYS16MC05Xy4vLV0rJC8udGVzdChzdXBlcnZpc29yR3Vlc3RQYXRoKSB8fCBzdXBlcnZpc29yR3Vlc3RQYXRoLmluY2x1ZGVzKCcuLicpKSB7XG4gICAgdGhyb3cgbmV3IEVycm9yKCdVbnNhZmUgbWljcm9WTSBzY3JhdGNoIHN1cGVydmlzb3IgcGF0aCcpO1xuICB9XG4gIGNvbnN0IGJ5dGVzID0gc2NyYXRjaE1pYiAqIDEwMjQgKiAxMDI0O1xuICByZXR1cm4gW1xuICAgICcjIS9iaW4vc2gnLFxuICAgICdzZXQgLWV1JyxcbiAgICAnUEFUSD0vdXNyL3NiaW46L3Vzci9iaW46L3NiaW46L2JpbicsXG4gICAgJ2V4cG9ydCBQQVRIJyxcbiAgICAnbWtkaXIgLXAgL3Byb2MgL3RtcCcsXG4gICAgJ21vdW50IC1uIC10IHByb2MgcHJvYyAvcHJvYycsXG4gICAgYG1vdW50IC1uIC10IHRtcGZzIC1vIHNpemU9JHtieXRlc30sbW9kZT0xNzc3LG5vc3VpZCxub2RldiBhd2Ytc2NyYXRjaCAvdG1wYCxcbiAgICBcInNldCAtLSAkKHN0YXQgLWYgLWMgJyV0ICViICVTJyAvdG1wKVwiLFxuICAgIGBbIFwiJCNcIiAtZXEgMyBdICYmIFsgXCIkMVwiID0gMTAyMTk5NCBdICYmIFsgXCIkKCgkMiAqICQzKSlcIiAtZXEgJHtieXRlc30gXSB8fCB7YCxcbiAgICAnICBlY2hvIFwiQVdGIHNjcmF0Y2ggZmlsZXN5c3RlbSBjYXBhY2l0eSB2ZXJpZmljYXRpb24gZmFpbGVkXCIgPiYyJyxcbiAgICAnICBleGl0IDEnLFxuICAgICd9JyxcbiAgICBgZXhlYyAnJHtzdXBlcnZpc29yR3Vlc3RQYXRofSdgLFxuICAgICcnLFxuICBdLmpvaW4oJ1xcbicpO1xufVxuIl0sInZlcnNpb24iOjN9

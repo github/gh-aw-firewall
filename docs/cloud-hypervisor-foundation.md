@@ -182,8 +182,8 @@ by default after positive repository-visibility verification. Eligible runtimes
 are built-in-image default Docker and attested Cloud Hypervisor; this is not
 permission to use custom images or alternative Docker runtimes. Cloud Hypervisor
 retention includes script stdout/stderr, VM diagnostics, and the agent's
-bounded `enclave-session.log`: Copilot stdout/stderr and failure diagnostics
-captured by the guest entrypoint, with credential redaction. It is captured
+bounded `enclave-session.log`: closed lifecycle and failure metadata projected
+from the untrusted guest session, never raw stdout/stderr or model text. It is captured
 after confirmed VM stop, before invocation storage is removed, including failed
 invocations. The session is limited to 1 MiB and never included in the ordinary
 audit projection. A failed protected write prevents removal of the source
@@ -255,20 +255,15 @@ Pending public diagnostic recovery preserves its source and reports the affected
 run separately without blocking unrelated runs. Reusing the affected Docker run
 still requires trusted recovery with the original credential custody.
 For agents, read the envelope's `streamCoverage` metadata alongside stream
-availability: `enclave-session.log` contains captured Copilot stdout/stderr and
-failure diagnostics. An absent standalone stream does not mean that session
-coverage is absent, nor does session coverage prove that every guest or launcher
-stream was collected.
+availability: `enclave-session.log` contains projected lifecycle and failure
+metadata, not captured engine streams. Session metadata does not prove that
+every guest or launcher stream was collected.
 For each stdout/stderr artifact, `artifactSource` distinguishes a Docker
-`workload-file`, Cloud Hypervisor `backend-stream`, a recovered `agent-session`
-stream, or `unavailable`. The separate `agentSession` field indicates whether the
-session also covers that engine stream; `copilotDiagnostics` identifies session
-failure-diagnostic coverage or explicitly unavailable evidence. Session-derived
-streams are credential-redacted before their retained size is bounded.
-Only missing, unavailable or empty safe standalone streams can recover a bounded
-session-derived artifact. Unsafe or oversized sources remain classified and
-empty; a retained bounded session excerpt can still report engine coverage
-without silently overriding that source failure.
+`workload-file`, Cloud Hypervisor `backend-stream`, or `unavailable`. The separate
+`agentSession` and `copilotDiagnostics` fields report unavailable raw session
+coverage: untrusted session payloads never supply stdout/stderr artifacts, even
+when standalone streams are missing or empty. Unsafe or oversized sources remain
+classified and empty.
 
 Artifacts persist outside the work directory:
 

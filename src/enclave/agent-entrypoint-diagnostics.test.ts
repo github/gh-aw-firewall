@@ -240,9 +240,10 @@ if scenario != "missing-copilot":
                 {"type": "text", "text": "PRIVATE_MODEL"},
             ]}},
             {"type": "user", "message": {"content": [
+                {"type": "tool_result", "content": "PRIVATE_SUCCESS", "is_error": False},
                 {"type": "tool_result", "content": "PRIVATE_REPOSITORY", "is_error": True},
             ]}},
-            {"type": "system", "subtype": "api_retry", "error_status": 403, "error": "PRIVATE_HEADER"},
+            {"type": "system", "subtype": "api_retry", "error_status": 529, "error": "PRIVATE_HEADER"},
             {"type": "result", "is_error": True,
              "permission_denials": [{"tool_name": "Bash", "tool_input": "PRIVATE_COMMAND"}]},
         ]
@@ -425,13 +426,36 @@ describe('enclave agent protected entrypoint diagnostics', () => {
       expect(result.arguments).toContain('--bare');
       expect(result.arguments).not.toContain('--dangerously-skip-permissions');
       expect(result.arguments).toContain('--permission-mode\ndefault\n');
-      expect(result.arguments).toContain('--permission-prompts\nnone\n');
-      expect(result.arguments).toContain('--allowedTools\nBash,Read,Write,Edit,Glob,Grep\n');
+      expect(result.arguments).toContain('--permission-prompts\nauto\n');
+      expect(result.arguments).toContain('--allowedTools\nRead,Glob,Grep\n');
       expect(result.arguments).toContain('--output-format\nstream-json\n');
       expect(result.arguments).toContain('--strict-mcp-config');
       expect(result.arguments).toContain('{"mcpServers":{}}');
       expect(result.arguments).toContain('--no-session-persistence');
     }
+  });
+
+  it('requires explicit opt-in for unattended Claude shell and file writes', () => {
+    const result = runHarness('model-limits', {
+      ...providerEnv('claude'),
+      AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS: 'none',
+      AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS: 'Bash,Read,Write,Edit,Glob,Grep',
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.arguments).toContain('--permission-mode\ndefault\n');
+    expect(result.arguments).toContain('--permission-prompts\nnone\n');
+    expect(result.arguments).toContain('--allowedTools\nBash,Read,Write,Edit,Glob,Grep\n');
+  });
+
+  it.each<Record<string, string>>([
+    { AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS: 'invalid' },
+    { AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS: '--dangerously-skip-permissions' },
+    { AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS: '' },
+  ])('rejects invalid Claude permission policy %j', policy => {
+    const result = runHarness('model-limits', { ...providerEnv('claude'), ...policy });
+    expect(result.exitCode).toBe(10);
+    expect(result.arguments).toBe('');
+    expect(events(result)).toContainEqual({ event: 'failure', category: 'configuration-invalid' });
   });
 
   it.each(['codex', 'claude'])('rejects stdout-only results from %s', engine => {
@@ -478,13 +502,20 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     expect(result.exitCode).toBe(0);
     expect(result.output).toBe('true');
     for (const stage of ['claude-initialized', 'claude-response', 'claude-tool-requested',
-      'claude-tool-completed', 'claude-api-retry', 'claude-permission-denied', 'claude-result']) {
+      'claude-api-retry', 'claude-permission-denied', 'claude-result']) {
       expect(progress.filter(event => event.stage === stage)).toHaveLength(1);
     }
     expect(progress).toContainEqual(expect.objectContaining({
       stage: 'claude-initialized', permissionMode: 'unknown', shellAvailable: true,
     }));
-    expect(progress).toContainEqual(expect.objectContaining({ stage: 'claude-api-retry', httpStatus: 403 }));
+    expect(progress).toContainEqual(expect.objectContaining({ stage: 'claude-api-retry', httpStatus: 529 }));
+    expect(progress.filter(event => event.stage === 'claude-tool-completed')).toEqual([
+      expect.objectContaining({ toolError: false }),
+      expect.objectContaining({ toolError: true }),
+    ]);
+    expect(events(result)).toContainEqual({
+      event: 'output-normalization', inputState: 'within-limit', stdoutState: 'present',
+    });
     expect(result.transcript).not.toContain('PRIVATE_');
     expect(result.transcript).not.toContain('tool_input');
     expect(result.transcript).not.toContain('raw');
@@ -519,6 +550,9 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     const result = runHarness('silent-success', providerEnv('claude'));
     expect(result.exitCode).toBe(33);
     expect(result.output).toBe('');
+    expect(events(result)).toContainEqual({
+      event: 'output-normalization', inputState: 'empty', stdoutState: 'empty',
+    });
     const transcript = events(result);
     expect(transcript[transcript.length - 1]).toEqual({ event: 'failure', category: 'result-empty' });
   });

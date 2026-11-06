@@ -1,6 +1,8 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
+import { randomBytes } from 'crypto';
+import { execFileSync } from 'child_process';
+import { projectEnclaveSessionDiagnostics } from '../cloud-hypervisor/enclave-session-diagnostics';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { preserveInvocationSession } = require('../../containers/enclave/agent-executor/workspace');
@@ -11,7 +13,8 @@ describe('enclave agent session artifact preservation', () => {
   let sessionLogPath: string;
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-enclave-session-artifact-'));
+    root = path.join(process.cwd(), `.enclave-session-artifact-${randomBytes(8).toString('hex')}`);
+    fs.mkdirSync(root, { mode: 0o700 });
     auditDir = path.join(root, 'audit');
     sessionLogPath = path.join(root, 'session.jsonl');
   });
@@ -20,34 +23,72 @@ describe('enclave agent session artifact preservation', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('preserves redacted sessions in the public audit collection', () => {
+  it('preserves only projected metadata in the public audit collection', () => {
     fs.writeFileSync(
       sessionLogPath,
-      '{"event":"session","engine":"copilot","sensitivity":"redacted"}\n',
+      '{"event":"progress","stage":"engine-started","sensitivity":"redacted"}\n',
     );
 
     expect(preserveInvocationSession(sessionLogPath, auditDir, 'redacted')).toBe(true);
     expect(fs.existsSync(path.join(auditDir, 'sessions', 'redacted.jsonl'))).toBe(true);
+    expect(JSON.parse(fs.readFileSync(path.join(auditDir, 'sessions', 'redacted.jsonl'), 'utf8')))
+      .toEqual(projectEnclaveSessionDiagnostics(fs.readFileSync(sessionLogPath)));
   });
 
-  it('segregates raw-debug sessions from the public audit collection', () => {
+  it.each(['raw-debug', 'redacted'])('ignores guest-controlled %s labels and strips private payloads', sensitivity => {
     const privateOutput = 'private repository output';
     fs.writeFileSync(
       sessionLogPath,
       [
-        '{"event":"session","engine":"copilot","sensitivity":"raw-debug"}',
+        JSON.stringify({ event: 'session', engine: 'copilot', sensitivity, privateOutput }),
         JSON.stringify({
           event: 'engine-result',
+          exitCode: 1,
           stdout: { sensitivity: 'raw-debug', raw: privateOutput },
+          stderr: { bytes: privateOutput.length, sha256: privateOutput },
+          [privateOutput]: privateOutput,
         }),
+        JSON.stringify({ event: 'progress', stage: privateOutput }),
+        JSON.stringify({ event: 'failure', category: 'engine-failed', message: privateOutput }),
+        privateOutput,
+        'null',
+        '[]',
         '',
       ].join('\n'),
     );
 
     expect(preserveInvocationSession(sessionLogPath, auditDir, 'debug')).toBe(true);
-    expect(fs.existsSync(path.join(auditDir, 'sessions', 'debug.jsonl'))).toBe(false);
-    expect(
-      fs.readFileSync(path.join(auditDir, 'raw-debug-sessions', 'debug.jsonl'), 'utf8'),
-    ).toContain(privateOutput);
+    const destination = path.join(auditDir, 'sessions', 'debug.jsonl');
+    expect(fs.existsSync(path.join(auditDir, 'raw-debug-sessions'))).toBe(false);
+    const contents = fs.readFileSync(destination, 'utf8');
+    expect(contents).not.toContain(privateOutput);
+    expect(contents).not.toContain('sha256');
+    expect(JSON.parse(contents)).toEqual(projectEnclaveSessionDiagnostics(fs.readFileSync(sessionLogPath)));
+    expect(JSON.parse(contents).events).toEqual([
+      { event: 'engine-result', exitCode: 1 },
+      { event: 'failure', category: 'engine-failed' },
+    ]);
+    expect(fs.statSync(destination).mode & 0o777).toBe(0o600);
+  });
+
+  it.each(['symlink', 'fifo', 'oversized'])('does not export %s sources', kind => {
+    if (kind === 'symlink') {
+      const target = path.join(root, 'private');
+      fs.writeFileSync(target, 'private repository output');
+      fs.symlinkSync(target, sessionLogPath);
+    } else if (kind === 'oversized') {
+      fs.writeFileSync(sessionLogPath, Buffer.alloc(1024 * 1024 + 1));
+    } else {
+      execFileSync('mkfifo', [sessionLogPath]);
+    }
+    expect(preserveInvocationSession(sessionLogPath, auditDir, 'unsafe')).toBe(false);
+    expect(fs.existsSync(auditDir)).toBe(false);
+  });
+
+  it('exports invalid UTF-8 as closed failure metadata', () => {
+    fs.writeFileSync(sessionLogPath, Buffer.from([0xff]));
+    expect(preserveInvocationSession(sessionLogPath, auditDir, 'invalid')).toBe(true);
+    expect(JSON.parse(fs.readFileSync(path.join(auditDir, 'sessions', 'invalid.jsonl'), 'utf8')))
+      .toEqual({ status: 'invalid', bytes: 1 });
   });
 });

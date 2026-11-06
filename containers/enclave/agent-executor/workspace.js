@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { projectEnclaveSessionDiagnostics } = require('./session-diagnostics');
 
 /**
  * Per-invocation private workspace management.
@@ -15,7 +16,7 @@ const path = require('path');
  *  - `schema.json` the caller's finite response schema (read-only in the enclave)
  *  - `out`        a pre-created, size-bounded regular file the enclave writes
  *                 its single JSON answer to
- *  - `session.jsonl` a bounded transcript copied only to broker-private audit
+ *  - `session.jsonl` untrusted input projected to closed metadata before audit
  *  - `agent`      an ephemeral disk-backed runtime directory owned by the
  *                 enclave uid and removed with the invocation workspace
  */
@@ -98,20 +99,11 @@ function preserveInvocationSession(sessionLogPath, auditDir, invocationId) {
     const data = Buffer.alloc(stat.size);
     const bytesRead = fs.readSync(sourceFd, data, 0, stat.size, 0);
     if (bytesRead !== stat.size) return false;
-    const transcript = data.toString('utf8');
-    const rawDebug = transcript.split('\n').some((line) => {
-      if (!line) return false;
-      try {
-        const event = JSON.parse(line);
-        return event.event === 'session' && event.sensitivity === 'raw-debug';
-      } catch {
-        return false;
-      }
-    });
-    const sessionsDir = path.join(auditDir, rawDebug ? 'raw-debug-sessions' : 'sessions');
+    const diagnostics = projectEnclaveSessionDiagnostics(data.subarray(0, bytesRead));
+    const sessionsDir = path.join(auditDir, 'sessions');
     fs.mkdirSync(sessionsDir, { recursive: true, mode: 0o700 });
     const destination = path.join(sessionsDir, `${invocationId}.jsonl`);
-    fs.writeFileSync(destination, data.subarray(0, bytesRead), { mode: 0o600 });
+    fs.writeFileSync(destination, `${JSON.stringify(diagnostics)}\n`, { mode: 0o600 });
     fs.chmodSync(destination, 0o600);
     return true;
   } catch {

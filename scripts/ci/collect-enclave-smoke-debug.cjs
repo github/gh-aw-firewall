@@ -151,7 +151,7 @@ function projectSessionEvent(value) {
           'stderrObserved', 'captureTruncated'].map(key => [key, boolean])),
         permissionMode: member(['default', 'auto', 'acceptEdits', 'bypassPermissions', 'unknown']),
         outputState: member(['present', 'empty', 'unavailable']),
-        httpStatus: member([null, 400, 401, 403, 404, 408, 429, 500, 502, 503, 504]),
+        httpStatus: member([null, 400, 401, 403, 404, 408, 429, 500, 502, 503, 504, 529]),
       }));
     }
   } else if (value.event === 'failure' && categories.includes(value.category)) {
@@ -191,6 +191,11 @@ function projectSession(value) {
       const event = projectSessionEvent(value[key]);
       if (event) result[key] = event;
     }
+  }
+  if (value.claudeStreamSummary !== undefined) {
+    check(object(value.claudeStreamSummary) && value.claudeStreamSummary.event === 'progress'
+      && value.claudeStreamSummary.stage === 'claude-stream-summary', 'session-schema');
+    result.claudeStreamSummary = projectSessionEvent(value.claudeStreamSummary);
   }
   if (value.operationErrors !== undefined) {
     check(Array.isArray(value.operationErrors) && value.operationErrors.length <= 16, 'session-bound');

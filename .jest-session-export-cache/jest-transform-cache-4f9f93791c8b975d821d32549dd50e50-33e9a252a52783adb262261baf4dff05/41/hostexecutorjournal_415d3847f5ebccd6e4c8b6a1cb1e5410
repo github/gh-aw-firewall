@@ -1,0 +1,91 @@
+f40bc44bfd7e1613687304d1feb58bbb
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.reapHostExecutorResources = exports.HostExecutorResourceJournal = exports.readHostExecutorInvocationDiagnostics = exports.persistHostExecutorProxyDebugDiagnostics = exports.persistHostExecutorProxyResponseDiagnostics = exports.persistHostExecutorProxyUsage = exports.HostExecutorInvocationDiagnostics = exports.HostExecutorControlDiagnostics = exports.persist = exports.prepareDirectory = exports.hostExecutorVmRunId = exports.hostExecutorStorageDirectory = exports.hostExecutorJournalDirectory = exports.HOST_EXECUTOR_STORAGE_ROOT = exports.HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY = exports.HostExecutorJournal = void 0;
+const fs = __importStar(require("fs"));
+const path = __importStar(require("path"));
+const host_executor_protocol_1 = require("./host-executor-protocol");
+const host_executor_journal_shared_1 = require("./host-executor-journal-shared");
+/**
+ * Permanent run tombstone and append-only lifecycle log. An existing run is
+ * never resumed, even if its last write was torn or it closed successfully.
+ * No payload, credential, capability or result is persisted.
+ */
+class HostExecutorJournal {
+    constructor(run) {
+        if (!host_executor_protocol_1.HOST_EXECUTOR_ID_PATTERN.test(run.runId))
+            throw new Error('Invalid host executor run identity');
+        const directory = (0, host_executor_journal_shared_1.hostExecutorJournalDirectory)(run);
+        (0, host_executor_journal_shared_1.prepareDirectory)(directory);
+        this.file = path.join(directory, `${run.runId}.journal`);
+        (0, host_executor_journal_shared_1.persist)(this.file, { version: 1, runId: run.runId, state: 'open' }, true);
+    }
+    record(value) {
+        const fd = fs.openSync(this.file, fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW);
+        try {
+            const stat = fs.fstatSync(fd);
+            if (!stat.isFile() || stat.uid !== process.getuid?.() || (stat.mode & 0o777) !== 0o600) {
+                throw new Error('Unsafe host executor tombstone');
+            }
+            fs.writeFileSync(fd, `${JSON.stringify(value)}\n`);
+            fs.fsyncSync(fd);
+        }
+        finally {
+            fs.closeSync(fd);
+        }
+    }
+}
+exports.HostExecutorJournal = HostExecutorJournal;
+// Preserve the original journal module's public API for existing callers.
+var host_executor_journal_shared_2 = require("./host-executor-journal-shared");
+Object.defineProperty(exports, "HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY", { enumerable: true, get: function () { return host_executor_journal_shared_2.HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY; } });
+Object.defineProperty(exports, "HOST_EXECUTOR_STORAGE_ROOT", { enumerable: true, get: function () { return host_executor_journal_shared_2.HOST_EXECUTOR_STORAGE_ROOT; } });
+Object.defineProperty(exports, "hostExecutorJournalDirectory", { enumerable: true, get: function () { return host_executor_journal_shared_2.hostExecutorJournalDirectory; } });
+Object.defineProperty(exports, "hostExecutorStorageDirectory", { enumerable: true, get: function () { return host_executor_journal_shared_2.hostExecutorStorageDirectory; } });
+Object.defineProperty(exports, "hostExecutorVmRunId", { enumerable: true, get: function () { return host_executor_journal_shared_2.hostExecutorVmRunId; } });
+Object.defineProperty(exports, "prepareDirectory", { enumerable: true, get: function () { return host_executor_journal_shared_2.prepareDirectory; } });
+Object.defineProperty(exports, "persist", { enumerable: true, get: function () { return host_executor_journal_shared_2.persist; } });
+var host_executor_diagnostics_1 = require("./host-executor-diagnostics");
+Object.defineProperty(exports, "HostExecutorControlDiagnostics", { enumerable: true, get: function () { return host_executor_diagnostics_1.HostExecutorControlDiagnostics; } });
+Object.defineProperty(exports, "HostExecutorInvocationDiagnostics", { enumerable: true, get: function () { return host_executor_diagnostics_1.HostExecutorInvocationDiagnostics; } });
+Object.defineProperty(exports, "persistHostExecutorProxyUsage", { enumerable: true, get: function () { return host_executor_diagnostics_1.persistHostExecutorProxyUsage; } });
+Object.defineProperty(exports, "persistHostExecutorProxyResponseDiagnostics", { enumerable: true, get: function () { return host_executor_diagnostics_1.persistHostExecutorProxyResponseDiagnostics; } });
+Object.defineProperty(exports, "persistHostExecutorProxyDebugDiagnostics", { enumerable: true, get: function () { return host_executor_diagnostics_1.persistHostExecutorProxyDebugDiagnostics; } });
+Object.defineProperty(exports, "readHostExecutorInvocationDiagnostics", { enumerable: true, get: function () { return host_executor_diagnostics_1.readHostExecutorInvocationDiagnostics; } });
+var host_executor_resource_journal_1 = require("./host-executor-resource-journal");
+Object.defineProperty(exports, "HostExecutorResourceJournal", { enumerable: true, get: function () { return host_executor_resource_journal_1.HostExecutorResourceJournal; } });
+Object.defineProperty(exports, "reapHostExecutorResources", { enumerable: true, get: function () { return host_executor_resource_journal_1.reapHostExecutorResources; } });
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJmaWxlIjoiL2hvbWUvcnVubmVyL3dvcmsvZ2gtYXctZmlyZXdhbGwvZ2gtYXctZmlyZXdhbGwvc3JjL2VuY2xhdmUvaG9zdC1leGVjdXRvci1qb3VybmFsLnRzIiwibWFwcGluZ3MiOiI7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7OztBQUFBLHVDQUF5QjtBQUN6QiwyQ0FBNkI7QUFFN0IscUVBQW9FO0FBQ3BFLGlGQUV3QztBQUV4Qzs7OztHQUlHO0FBQ0gsTUFBYSxtQkFBbUI7SUFHOUIsWUFBWSxHQUF5QjtRQUNuQyxJQUFJLENBQUMsaURBQXdCLENBQUMsSUFBSSxDQUFDLEdBQUcsQ0FBQyxLQUFLLENBQUM7WUFBRSxNQUFNLElBQUksS0FBSyxDQUFDLG9DQUFvQyxDQUFDLENBQUM7UUFDckcsTUFBTSxTQUFTLEdBQUcsSUFBQSwyREFBNEIsRUFBQyxHQUFHLENBQUMsQ0FBQztRQUNwRCxJQUFBLCtDQUFnQixFQUFDLFNBQVMsQ0FBQyxDQUFDO1FBQzVCLElBQUksQ0FBQyxJQUFJLEdBQUcsSUFBSSxDQUFDLElBQUksQ0FBQyxTQUFTLEVBQUUsR0FBRyxHQUFHLENBQUMsS0FBSyxVQUFVLENBQUMsQ0FBQztRQUN6RCxJQUFBLHNDQUFPLEVBQUMsSUFBSSxDQUFDLElBQUksRUFBRSxFQUFFLE9BQU8sRUFBRSxDQUFDLEVBQUUsS0FBSyxFQUFFLEdBQUcsQ0FBQyxLQUFLLEVBQUUsS0FBSyxFQUFFLE1BQU0sRUFBRSxFQUFFLElBQUksQ0FBQyxDQUFDO0lBQzVFLENBQUM7SUFFRCxNQUFNLENBQUMsS0FTTjtRQUNDLE1BQU0sRUFBRSxHQUFHLEVBQUUsQ0FBQyxRQUFRLENBQUMsSUFBSSxDQUFDLElBQUksRUFBRSxFQUFFLENBQUMsU0FBUyxDQUFDLFFBQVEsR0FBRyxFQUFFLENBQUMsU0FBUyxDQUFDLFFBQVEsR0FBRyxFQUFFLENBQUMsU0FBUyxDQUFDLFVBQVUsQ0FBQyxDQUFDO1FBQzNHLElBQUksQ0FBQztZQUNILE1BQU0sSUFBSSxHQUFHLEVBQUUsQ0FBQyxTQUFTLENBQUMsRUFBRSxDQUFDLENBQUM7WUFDOUIsSUFBSSxDQUFDLElBQUksQ0FBQyxNQUFNLEVBQUUsSUFBSSxJQUFJLENBQUMsR0FBRyxLQUFLLE9BQU8sQ0FBQyxNQUFNLEVBQUUsRUFBRSxJQUFJLENBQUMsSUFBSSxDQUFDLElBQUksR0FBRyxLQUFLLENBQUMsS0FBSyxLQUFLLEVBQUUsQ0FBQztnQkFDdkYsTUFBTSxJQUFJLEtBQUssQ0FBQyxnQ0FBZ0MsQ0FBQyxDQUFDO1lBQ3BELENBQUM7WUFDRCxFQUFFLENBQUMsYUFBYSxDQUFDLEVBQUUsRUFBRSxHQUFHLElBQUksQ0FBQyxTQUFTLENBQUMsS0FBSyxDQUFDLElBQUksQ0FBQyxDQUFDO1lBQ25ELEVBQUUsQ0FBQyxTQUFTLENBQUMsRUFBRSxDQUFDLENBQUM7UUFDbkIsQ0FBQztnQkFBUyxDQUFDO1lBQUMsRUFBRSxDQUFDLFNBQVMsQ0FBQyxFQUFFLENBQUMsQ0FBQztRQUFDLENBQUM7SUFDakMsQ0FBQztDQUNGO0FBL0JELGtEQStCQztBQUVELDBFQUEwRTtBQUMxRSwrRUFJd0M7QUFIdEMsdUpBQUEsdUNBQXVDLE9BQUE7QUFBRSwwSUFBQSwwQkFBMEIsT0FBQTtBQUNuRSw0SUFBQSw0QkFBNEIsT0FBQTtBQUFFLDRJQUFBLDRCQUE0QixPQUFBO0FBQUUsbUlBQUEsbUJBQW1CLE9BQUE7QUFDL0UsZ0lBQUEsZ0JBQWdCLE9BQUE7QUFBRSx1SEFBQSxPQUFPLE9BQUE7QUFHM0IseUVBUXFDO0FBTm5DLDJJQUFBLDhCQUE4QixPQUFBO0FBQzlCLDhJQUFBLGlDQUFpQyxPQUFBO0FBQ2pDLDBJQUFBLDZCQUE2QixPQUFBO0FBQzdCLHdKQUFBLDJDQUEyQyxPQUFBO0FBQzNDLHFKQUFBLHdDQUF3QyxPQUFBO0FBQ3hDLGtKQUFBLHFDQUFxQyxPQUFBO0FBRXZDLG1GQUcwQztBQUZ4Qyw2SUFBQSwyQkFBMkIsT0FBQTtBQUMzQiwySUFBQSx5QkFBeUIsT0FBQSIsIm5hbWVzIjpbXSwic291cmNlcyI6WyIvaG9tZS9ydW5uZXIvd29yay9naC1hdy1maXJld2FsbC9naC1hdy1maXJld2FsbC9zcmMvZW5jbGF2ZS9ob3N0LWV4ZWN1dG9yLWpvdXJuYWwudHMiXSwic291cmNlc0NvbnRlbnQiOlsiaW1wb3J0ICogYXMgZnMgZnJvbSAnZnMnO1xuaW1wb3J0ICogYXMgcGF0aCBmcm9tICdwYXRoJztcbmltcG9ydCB0eXBlIHsgSG9zdEV4ZWN1dG9yUnVuU3RhdGUgfSBmcm9tICcuL2hvc3QtZXhlY3V0b3Itc2VydmVyJztcbmltcG9ydCB7IEhPU1RfRVhFQ1VUT1JfSURfUEFUVEVSTiB9IGZyb20gJy4vaG9zdC1leGVjdXRvci1wcm90b2NvbCc7XG5pbXBvcnQge1xuICBob3N0RXhlY3V0b3JKb3VybmFsRGlyZWN0b3J5LCBwcmVwYXJlRGlyZWN0b3J5LCBwZXJzaXN0LFxufSBmcm9tICcuL2hvc3QtZXhlY3V0b3Itam91cm5hbC1zaGFyZWQnO1xuXG4vKipcbiAqIFBlcm1hbmVudCBydW4gdG9tYnN0b25lIGFuZCBhcHBlbmQtb25seSBsaWZlY3ljbGUgbG9nLiBBbiBleGlzdGluZyBydW4gaXNcbiAqIG5ldmVyIHJlc3VtZWQsIGV2ZW4gaWYgaXRzIGxhc3Qgd3JpdGUgd2FzIHRvcm4gb3IgaXQgY2xvc2VkIHN1Y2Nlc3NmdWxseS5cbiAqIE5vIHBheWxvYWQsIGNyZWRlbnRpYWwsIGNhcGFiaWxpdHkgb3IgcmVzdWx0IGlzIHBlcnNpc3RlZC5cbiAqL1xuZXhwb3J0IGNsYXNzIEhvc3RFeGVjdXRvckpvdXJuYWwge1xuICBwcml2YXRlIHJlYWRvbmx5IGZpbGU6IHN0cmluZztcblxuICBjb25zdHJ1Y3RvcihydW46IEhvc3RFeGVjdXRvclJ1blN0YXRlKSB7XG4gICAgaWYgKCFIT1NUX0VYRUNVVE9SX0lEX1BBVFRFUk4udGVzdChydW4ucnVuSWQpKSB0aHJvdyBuZXcgRXJyb3IoJ0ludmFsaWQgaG9zdCBleGVjdXRvciBydW4gaWRlbnRpdHknKTtcbiAgICBjb25zdCBkaXJlY3RvcnkgPSBob3N0RXhlY3V0b3JKb3VybmFsRGlyZWN0b3J5KHJ1bik7XG4gICAgcHJlcGFyZURpcmVjdG9yeShkaXJlY3RvcnkpO1xuICAgIHRoaXMuZmlsZSA9IHBhdGguam9pbihkaXJlY3RvcnksIGAke3J1bi5ydW5JZH0uam91cm5hbGApO1xuICAgIHBlcnNpc3QodGhpcy5maWxlLCB7IHZlcnNpb246IDEsIHJ1bklkOiBydW4ucnVuSWQsIHN0YXRlOiAnb3BlbicgfSwgdHJ1ZSk7XG4gIH1cblxuICByZWNvcmQodmFsdWU6IHtcbiAgICBpbnZvY2F0aW9uSWQ/OiBzdHJpbmc7XG4gICAgZW50cnlJZD86IHN0cmluZztcbiAgICBhZG1pc3Npb25JZD86IHN0cmluZztcbiAgICByZXF1ZXN0SGFzaD86IHN0cmluZztcbiAgICBzdGF0ZTogc3RyaW5nO1xuICAgIGNhbmNlbEdlbmVyYXRpb24/OiBudW1iZXI7XG4gICAgb3V0Y29tZT86IHN0cmluZztcbiAgICByZXN1bHREaWdlc3Q/OiBzdHJpbmc7XG4gIH0pOiB2b2lkIHtcbiAgICBjb25zdCBmZCA9IGZzLm9wZW5TeW5jKHRoaXMuZmlsZSwgZnMuY29uc3RhbnRzLk9fV1JPTkxZIHwgZnMuY29uc3RhbnRzLk9fQVBQRU5EIHwgZnMuY29uc3RhbnRzLk9fTk9GT0xMT1cpO1xuICAgIHRyeSB7XG4gICAgICBjb25zdCBzdGF0ID0gZnMuZnN0YXRTeW5jKGZkKTtcbiAgICAgIGlmICghc3RhdC5pc0ZpbGUoKSB8fCBzdGF0LnVpZCAhPT0gcHJvY2Vzcy5nZXR1aWQ/LigpIHx8IChzdGF0Lm1vZGUgJiAwbzc3NykgIT09IDBvNjAwKSB7XG4gICAgICAgIHRocm93IG5ldyBFcnJvcignVW5zYWZlIGhvc3QgZXhlY3V0b3IgdG9tYnN0b25lJyk7XG4gICAgICB9XG4gICAgICBmcy53cml0ZUZpbGVTeW5jKGZkLCBgJHtKU09OLnN0cmluZ2lmeSh2YWx1ZSl9XFxuYCk7XG4gICAgICBmcy5mc3luY1N5bmMoZmQpO1xuICAgIH0gZmluYWxseSB7IGZzLmNsb3NlU3luYyhmZCk7IH1cbiAgfVxufVxuXG4vLyBQcmVzZXJ2ZSB0aGUgb3JpZ2luYWwgam91cm5hbCBtb2R1bGUncyBwdWJsaWMgQVBJIGZvciBleGlzdGluZyBjYWxsZXJzLlxuZXhwb3J0IHtcbiAgSE9TVF9FWEVDVVRPUl9ERUZBVUxUX0pPVVJOQUxfRElSRUNUT1JZLCBIT1NUX0VYRUNVVE9SX1NUT1JBR0VfUk9PVCxcbiAgaG9zdEV4ZWN1dG9ySm91cm5hbERpcmVjdG9yeSwgaG9zdEV4ZWN1dG9yU3RvcmFnZURpcmVjdG9yeSwgaG9zdEV4ZWN1dG9yVm1SdW5JZCxcbiAgcHJlcGFyZURpcmVjdG9yeSwgcGVyc2lzdCxcbn0gZnJvbSAnLi9ob3N0LWV4ZWN1dG9yLWpvdXJuYWwtc2hhcmVkJztcblxuZXhwb3J0IHtcbiAgdHlwZSBIb3N0RXhlY3V0b3JDb250cm9sUGhhc2UsXG4gIEhvc3RFeGVjdXRvckNvbnRyb2xEaWFnbm9zdGljcyxcbiAgSG9zdEV4ZWN1dG9ySW52b2NhdGlvbkRpYWdub3N0aWNzLFxuICBwZXJzaXN0SG9zdEV4ZWN1dG9yUHJveHlVc2FnZSxcbiAgcGVyc2lzdEhvc3RFeGVjdXRvclByb3h5UmVzcG9uc2VEaWFnbm9zdGljcyxcbiAgcGVyc2lzdEhvc3RFeGVjdXRvclByb3h5RGVidWdEaWFnbm9zdGljcyxcbiAgcmVhZEhvc3RFeGVjdXRvckludm9jYXRpb25EaWFnbm9zdGljcyxcbn0gZnJvbSAnLi9ob3N0LWV4ZWN1dG9yLWRpYWdub3N0aWNzJztcbmV4cG9ydCB7XG4gIEhvc3RFeGVjdXRvclJlc291cmNlSm91cm5hbCxcbiAgcmVhcEhvc3RFeGVjdXRvclJlc291cmNlcyxcbn0gZnJvbSAnLi9ob3N0LWV4ZWN1dG9yLXJlc291cmNlLWpvdXJuYWwnO1xuIl0sInZlcnNpb24iOjN9

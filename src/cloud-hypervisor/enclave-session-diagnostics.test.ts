@@ -74,6 +74,7 @@ describe('bounded guest session evidence', () => {
       { event: 'progress', stage: 'claude-initialized', permissionMode: 'default',
         shellAvailable: true, cwd: 'PRIVATE_PATH', tools: ['PRIVATE_TOOL'], key: 'PRIVATE_KEY' },
       { event: 'progress', stage: 'claude-api-retry', httpStatus: 403, error: 'PRIVATE_ERROR' },
+      { event: 'progress', stage: 'claude-api-retry', httpStatus: 529, error: 'PRIVATE_OVERLOAD' },
       { event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
         stderrObserved: false, captureTruncated: false, outputState: 'empty', raw: 'PRIVATE_MODEL' },
       { event: 'progress', stage: 'claude-result', permissionMode: 'PRIVATE_MODE',
@@ -83,11 +84,34 @@ describe('bounded guest session evidence', () => {
     expect(result.events).toEqual([
       { event: 'progress', stage: 'claude-initialized', permissionMode: 'default', shellAvailable: true },
       { event: 'progress', stage: 'claude-api-retry', httpStatus: 403 },
+      { event: 'progress', stage: 'claude-api-retry', httpStatus: 529 },
       { event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
         stderrObserved: false, captureTruncated: false, outputState: 'empty' },
       { event: 'progress', stage: 'claude-result' },
     ]);
     expect(JSON.stringify(result)).not.toContain('PRIVATE_');
+  });
+
+  it('retains only the latest Claude stream summary independently of capped events and later milestones', async () => {
+    await write([
+      { event: 'progress', stage: 'claude-stream-summary', stdoutObserved: false, outputState: 'empty' },
+      ...Array.from({ length: 40 }, () => ({ event: 'progress', stage: 'claude-response' })),
+      { event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
+        stderrObserved: false, captureTruncated: false, outputState: 'present', raw: 'PRIVATE_STREAM' },
+      { event: 'progress', stage: 'output-written' },
+      { event: 'success' },
+    ]);
+    const result = await read();
+    expect(result.events).toHaveLength(32);
+    expect(result.dropped).toBe(12);
+    expect(result.events![0]).toMatchObject({ stage: 'claude-stream-summary', stdoutObserved: false });
+    expect(result.claudeStreamSummary).toEqual({
+      event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
+      stderrObserved: false, captureTruncated: false, outputState: 'present',
+    });
+    expect(result.lastEvent).toEqual({ event: 'success' });
+    expect(JSON.stringify(result)).not.toContain('PRIVATE_');
+    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(8192);
   });
 
   it('bounds events while retaining the first failure and last milestone independently', async () => {
@@ -276,21 +300,35 @@ describe('bounded guest session evidence', () => {
     }
   });
 
-  it('hands stopped public-session text only to the protected sink, not the audit projection', async () => {
+  it('hands only projected safe metadata to the retention sink, never guest session contents', async () => {
     await write([
-      { event: 'engine-result', exitCode: 1, stderr: { raw: 'PUBLIC_ENGINE_FAILURE' } },
-      { event: 'engine-diagnostics', files: [{ raw: 'PUBLIC_COPILOT_DIAGNOSTICS' }] },
+      { event: 'engine-result', exitCode: 1, stderr: { raw: 'PRIVATE_ENGINE_FAILURE' } },
+      { event: 'engine-diagnostics', files: [{ raw: 'PRIVATE_COPILOT_DIAGNOSTICS' }] },
+      { event: 'progress', stage: 'PRIVATE_STAGE', task: 'PRIVATE_TASK', key: 'PRIVATE_KEY' },
       { event: 'failure', category: 'engine-failed' },
     ]);
     const retain = jest.fn().mockResolvedValue(undefined);
     const result = await readEnclaveSessionDiagnostics(directory, uid, gid, retain);
-    expect(retain).toHaveBeenCalledWith(expect.stringContaining('PUBLIC_ENGINE_FAILURE'));
-    expect(retain).toHaveBeenCalledWith(expect.stringContaining('PUBLIC_COPILOT_DIAGNOSTICS'));
-    expect(JSON.stringify(result)).not.toMatch(/PUBLIC_/);
+    expect(retain).toHaveBeenCalledTimes(1);
+    expect(retain).toHaveBeenCalledWith(JSON.stringify(result));
+    expect(JSON.parse(retain.mock.calls[0][0])).toEqual(result);
+    expect(JSON.stringify(retain.mock.calls)).not.toContain('PRIVATE_');
     expect(result.failure).toEqual({ event: 'failure', category: 'engine-failed' });
     await fs.rm(runtime, { recursive: true });
-    expect(retain.mock.calls[0][0]).toContain('PUBLIC_COPILOT_DIAGNOSTICS');
+    expect(JSON.parse(retain.mock.calls[0][0]).failure).toEqual({ event: 'failure', category: 'engine-failed' });
   });
+
+  it.each([Buffer.alloc(0), Buffer.from([0xff]), Buffer.from('PRIVATE_INVALID_JSON')])(
+    'sends only status metadata for empty or invalid contents to the retention sink', async bytes => {
+      await fs.writeFile(file, bytes, { mode: 0o600 });
+      const retain = jest.fn().mockResolvedValue(undefined);
+      const result = await readEnclaveSessionDiagnostics(directory, uid, gid, retain);
+      expect(retain).toHaveBeenCalledWith(JSON.stringify(result));
+      expect(JSON.parse(retain.mock.calls[0][0])).toEqual(result);
+      expect(result.status).toBe(bytes.length === 0 ? 'empty' : 'invalid');
+      expect(JSON.stringify(retain.mock.calls)).not.toContain('PRIVATE_');
+    },
+  );
 
   it('does not send missing, oversized, or unsafe sessions to the public sink', async () => {
     const retain = jest.fn();
