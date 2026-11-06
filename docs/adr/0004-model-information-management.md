@@ -382,7 +382,14 @@ blocking, not approximation or lower-authority fallback. See
 [exact-decimal accounting](../model-catalogue-publication.md#exact-decimal-accounting)
 for limits, examples and provider-free distributed HTTP/WebSocket coverage.
 This authoritative slice preserves source scopes and leaves #10295 and #10290
-open; no new promotion, successor or generalized tariff behavior is activated.
+open. The bounded Copilot published-price maintenance slice in #11225 additionally
+retains reviewed tariff intervals in the maintained fallback projection. Effective
+starts are inclusive and ends exclusive, as in central-feed selection. Published
+date-only promotion wording is retained with the reviewed boundary interpretation;
+an unknown or ambiguous boundary must be reported rather than guessed. An expired
+promotion without a verified successor follows ordinary lower-authority,
+estimate or unpriced policy; it is not reused as a tariff or median donor.
+This does not complete generalized tariff resolution or activate discovery discounts.
 
 An omitted price is not automatically zero. An unavailable cache-write price is
 different from a published zero-cost cache write.

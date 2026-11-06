@@ -22,7 +22,7 @@ if (sourceArgument && !process.argv.includes('--check')) {
 const sources = sourceArgument
   ? path.resolve(sourceArgument.slice('--source-dir='.length))
   : path.join(root, 'shared/model-information/sources');
-const compilerVersion = 6;
+const compilerVersion = 7;
 const read = file => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
 const json = value => `${JSON.stringify(value, null, 2)}\n`;
@@ -325,23 +325,33 @@ function compile() {
     if (tariffs.some(tariff => tariff.scope.provider !== 'copilot' ||
         tariff.scope.channel !== 'copilot-api' || tariff.scope.deployment !== undefined ||
         tariff.currency !== 'USD' || tariff.unit !== 'USD_PER_1M_TOKENS' ||
-        !['default', 'long_context'].includes(tariff.tier) ||
-        tariff.effectiveFrom || tariff.effectiveUntil ||
+        !['default', 'long_context', 'post_promotion'].includes(tariff.tier) ||
+        (tariff.tier === 'post_promotion' && !tariff.effectiveFrom) ||
         (tariff.tier === 'long_context'
           ? !Number.isSafeInteger(tariff.promptTokensAbove) || tariff.promptTokensAbove <= 0
           : tariff.promptTokensAbove !== undefined) ||
         ['input', 'cachedInput', 'cacheWrite', 'output'].some(field => !tariff.components[field]) ||
         Object.entries(tariff.components).some(([field, item]) => {
+          if (!['input', 'cachedInput', 'cacheWrite', 'output', 'reasoning'].includes(field)) return true;
           if (typeof item.price === 'object') return field !== 'cacheWrite';
           exact.decimal(item.price);
           return false;
         })) ||
-        tariffs.filter(tariff => tariff.tier === 'default').length !== 1 ||
-        tariffs.filter(tariff => tariff.tier === 'long_context').length > 1) {
+        !tariffs.some(tariff => tariff.tier === 'default') ||
+        tariffs.some((tariff, index) => tariffs.slice(index + 1).some(other =>
+          (tariff.tier === 'long_context') === (other.tier === 'long_context') &&
+          Math.max(tariff.effectiveFrom ? Date.parse(tariff.effectiveFrom) : -Infinity,
+            other.effectiveFrom ? Date.parse(other.effectiveFrom) : -Infinity) <
+          Math.min(tariff.effectiveUntil ? Date.parse(tariff.effectiveUntil) : Infinity,
+            other.effectiveUntil ? Date.parse(other.effectiveUntil) : Infinity)))) {
       throw new Error(`Unsupported maintained fallback tariff: ${model.identity.key}`);
     }
     const name = model.identity.rawId.startsWith('claude-')
       ? model.identity.lookupId : model.identity.rawId;
+    if (tariffs.some(tariff => tariff.effectiveFrom || tariff.effectiveUntil ||
+        tariff.tier === 'post_promotion')) {
+      return [[name, { tariffs }]];
+    }
     const convert = tariff => ({
       ...Object.fromEntries(Object.entries(tariff.components).map(([key, item]) =>
         [key, typeof item.price === 'object' ? null : item.price])),
@@ -365,6 +375,7 @@ function compile() {
         }
         referenceNames.add(name);
         const rate = pricing[name];
+        if (rate.tariffs) throw new Error(`pricing-reference.json: dated Copilot tariff cannot author native compatibility: ${name}`);
         const project = values => ({
           ...(values.threshold !== undefined ? { threshold: values.threshold } : {}),
           input: Number(values.input), cachedInput: Number(values.cachedInput),
@@ -420,6 +431,9 @@ function compile() {
       throw new Error(`pricing-reference.json: invalid native compatibility associations for ${provider}`);
     }
     for (const name of names) compatibilityProviders[provider][name] = pricing[name];
+    if (names.some(name => pricing[name].tariffs)) {
+      throw new Error(`pricing-reference.json: dated Copilot tariff cannot author native compatibility: ${provider}`);
+    }
   }
   const fallbackPricing = {
     catalogRevision: revision,

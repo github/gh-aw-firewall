@@ -225,3 +225,156 @@ test('runtime provider freshness uses the pinned runtime capture time, not the f
   expect(fact.metadata.estimate.sources).toContain('provider');
   clearRuntimeModels('copilot');
 });
+
+describe('reviewed Copilot pricing projection', () => {
+  let fixture;
+  let pricing;
+  let contract;
+  let arithmetic;
+
+  function loadProjection(projection) {
+    jest.isolateModules(() => {
+      jest.doMock('./model-information.pricing.generated.json', () => projection);
+      jest.doMock('./model-information.naming.generated.json', () => ({
+        models: [...fixture.reviewed.map(model => ({ identity: model.identity })),
+          ...Object.keys(projection).filter(id => !fixture.ids.includes(id)).map(rawId => ({
+            identity: { provider: 'copilot', rawId, lookupId: rawId.replace(/[._]/g, '-'),
+              key: `copilot/${rawId}` },
+          })), {
+          identity: { provider: 'copilot', rawId: 'missing-model',
+            lookupId: 'missing-model', key: 'copilot/missing-model' },
+        }], rules: [],
+      }));
+      pricing = require('./catalogue-pricing');
+      contract = require('./catalogue-contract/pricing-resolution');
+      arithmetic = require('./catalogue-contract/exact-pricing');
+    });
+  }
+
+  beforeEach(() => {
+    fixture = require('./test-helpers/copilot-pricing-fixture').reviewedCopilotFixture();
+    loadProjection(fixture.projection);
+  });
+
+  afterEach(() => {
+    jest.dontMock('./model-information.pricing.generated.json');
+    jest.dontMock('./model-information.naming.generated.json');
+    jest.restoreAllMocks();
+  });
+
+  test('resolves four maintained Copilot tariffs without cross-backend imports', () => {
+    const time = Date.parse(fixture.capture.retrievedAt);
+    for (const model of fixture.reviewed) {
+      const id = model.identity.rawId;
+      const fact = pricing.getMaintainedPricingFact('copilot', id, { time });
+      const selected = contract.selectPricingFact(fact, 0);
+      const tariff = model.tariffs.find(item => item.tier === 'default');
+      expect(selected).toMatchObject({
+        source: 'curated', tier: 'default',
+        pricing: Object.fromEntries(Object.entries(tariff.components).map(([field, item]) =>
+          [field, typeof item.price === 'object' ? null : Number(item.price)])),
+      });
+      expect(pricing.getImportedPricingFact('copilot', id)).toBeNull();
+      expect(pricing.getImportedPricingFact('copilot', `google/${id}`)).toBeNull();
+    }
+    const terra = pricing.getMaintainedPricingFact('copilot', 'gpt-6.1-terra');
+    expect(contract.selectPricingFact(terra, 272000)).toMatchObject({
+      tier: 'default', pricing: { input: 1, cachedInput: 0.05, cacheWrite: 1.25, output: 5 },
+    });
+    expect(contract.selectPricingFact(terra, 272001)).toMatchObject({
+      tier: 'long_context', pricing: { input: 2, cachedInput: 0.1, cacheWrite: 2.5, output: 7.5 },
+    });
+    expect(pricing.getImportedPricingFact('openrouter', 'google/gemini-3.8-flash')).not.toBeNull();
+  });
+
+  test('does not reuse an expired Copilot promo without a verified successor', () => {
+    for (const id of ['gemini-3.8-flash', 'gemini-4-argon']) {
+      const tariff = fixture.projection[id].tariffs[0];
+      const end = Date.parse(tariff.effectiveUntil);
+      expect(pricing.getMaintainedPricingFact('copilot', id, { time: end - 1 })).toMatchObject({
+        source: 'curated', metadata: { observedAt: fixture.capture.retrievedAt },
+      });
+      for (const time of [end, end + 1]) {
+        expect(pricing.getMaintainedPricingFact('copilot', id, { time })).toBeNull();
+      }
+      loadProjection({ [id]: fixture.projection[id] });
+      expect(pricing.getMedianPricingFact('copilot', 'missing-model', 0, {
+        catalogue: { time: end, maxAge: 86400000 }, runtimeCatalog: {}, centralAllowed: false,
+      })).toBeNull();
+      loadProjection(fixture.projection);
+    }
+  });
+
+  test('selects a reviewed successor only within its effective interval', () => {
+    // Immutable estimated contract tariffs are not successor evidence from the real pricing page.
+    const staged = require('./test-helpers/copilot-pricing-fixture').copilotPromotionContractFixture();
+    const successor = staged.tariffs.find(tariff => tariff.tier === 'post_promotion');
+    const provenance = require('../../shared/model-information/fixtures.v1.json').model.provenance;
+    successor.provenance = provenance;
+    successor.effectiveUntil = '2027-02-01T00:00:00Z';
+    successor.components.input.price = '1.5000000000000000000000000001';
+    for (const component of Object.values(successor.components)) component.provenance = provenance;
+    loadProjection({ 'gemini-3.8-flash': { tariffs: staged.tariffs } });
+    const start = Date.parse(successor.effectiveFrom);
+    expect(pricing.getMaintainedPricingFact('copilot', 'gemini-3.8-flash', { time: start - 1 }))
+      .toMatchObject({ tier: 'default', metadata: { observedAt: staged.tariffs[0].provenance.at } });
+    for (const time of [start, start + 1]) {
+      const fact = pricing.getMaintainedPricingFact('copilot', 'gemini-3.8-flash', { time });
+      expect(fact).toMatchObject({ tier: 'post_promotion', metadata: {
+        observedAt: provenance.at, pricingCatalogId: provenance.source,
+      } });
+      expect(arithmetic.compare(arithmetic.rate(fact.default, 'input'),
+        arithmetic.decimal('1.5000000000000000000000000001'))).toBe(0);
+    }
+    for (const time of [Date.parse(successor.effectiveUntil), Date.parse(successor.effectiveUntil) + 1]) {
+      expect(pricing.getMaintainedPricingFact('copilot', 'gemini-3.8-flash', { time })).toBeNull();
+    }
+    expect(pricing.getMaintainedPricingFact('copilot', 'gemini-3.8-flash', {
+      time: start, scope: { provider: 'copilot', channel: 'copilot-cli' },
+    })).toBeNull();
+  });
+
+  test('selects dated long-context successors and excludes an expired long tier from median donors', () => {
+    // Existing Sol contract rates exercise intervals; these are not new published-price rows.
+    const model = structuredClone(require('../../shared/model-information/sources/copilot-main.json')
+      .models.find(item => item.identity.rawId === 'gpt-6.1-sol'));
+    const boundary = '2027-01-01T00:00:00Z';
+    const until = '2027-02-01T00:00:00Z';
+    const successorProvenance = require('../../shared/model-information/fixtures.v1.json').model.provenance;
+    for (const tariff of model.tariffs) tariff.effectiveUntil = boundary;
+    const successors = model.tariffs.map(tariff => ({
+      ...structuredClone(tariff), tier: tariff.tier === 'default' ? 'post_promotion' : 'long_context',
+      effectiveFrom: boundary, effectiveUntil: until, provenance: successorProvenance,
+      components: Object.fromEntries(Object.entries(tariff.components).map(([field, item]) =>
+        [field, { ...item, provenance: successorProvenance }])),
+    }));
+    loadProjection({ 'gpt-6.1-sol': { tariffs: [...model.tariffs, ...successors] } });
+    const start = Date.parse(boundary);
+    for (const time of [start - 1, start, start + 1]) {
+      for (const inputTokens of [272000, 272001]) {
+        const fact = pricing.getMaintainedPricingFact('copilot', 'gpt-6.1-sol', { time, inputTokens });
+        const selected = contract.selectPricingFact(fact, inputTokens);
+        expect(selected.tier).toBe(inputTokens > 272000 ? 'long_context'
+          : time < start ? 'default' : 'post_promotion');
+        expect(selected.observedAt).toBe(time < start
+          ? model.tariffs[0].provenance.at : successorProvenance.at);
+      }
+    }
+    // A surviving base tier must not donate at long context after its long tariff expires.
+    successors[0].effectiveUntil = '2027-03-01T00:00:00Z';
+    loadProjection({ 'gpt-6.1-sol': { tariffs: [...model.tariffs, ...successors] } });
+    const expired = Date.parse(until);
+    expect(pricing.getMaintainedPricingFact('copilot', 'gpt-6.1-sol', {
+      time: expired, inputTokens: 272001,
+    })).toBeNull();
+    expect(pricing.getMedianPricingFact('copilot', 'missing-model', 272001, {
+      catalogue: { time: expired, maxAge: 86400000 }, runtimeCatalog: {}, centralAllowed: false,
+    })).toBeNull();
+    expect(pricing.getMaintainedPricingFact('copilot', 'gpt-6.1-sol', {
+      time: expired, inputTokens: 272000,
+    })).not.toBeNull();
+    expect(pricing.getMedianPricingFact('copilot', 'missing-model', 272000, {
+      catalogue: { time: expired, maxAge: 86400000 }, runtimeCatalog: {}, centralAllowed: false,
+    })).not.toBeNull();
+  });
+});

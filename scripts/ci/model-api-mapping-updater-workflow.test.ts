@@ -195,11 +195,35 @@ describe('scheduled canonical model source maintenance', () => {
     expect(launch).toContain('shell(/tmp/gh-aw/model-maintenance-command.cjs)');
     const entrypoint = path.resolve(__dirname, '../model-information/maintenance-command.cjs');
     expect(fs.statSync(entrypoint).mode & 0o111).not.toBe(0);
-    for (const command of ['generate', 'report', 'test', 'test-api-proxy', 'check', 'verify']) {
+    for (const command of ['refresh-copilot-pricing', 'generate', 'report', 'test', 'test-api-proxy', 'check', 'verify']) {
       expect(source).toContain(`/tmp/gh-aw/model-maintenance-command.cjs ${command}`);
     }
     expect(source).toContain('exactly one of');
     expect(source).toContain('not inline scripts or unlisted helpers');
+  });
+
+  it('compares Copilot billing evidence without broadening the data-only or network gates', () => {
+    const sources = require('../model-information/maintenance-sources.json');
+    expect(sources.find((entry: any) => entry.id === 'copilot-pricing')).toMatchObject({
+      urls: ['https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing'],
+    });
+    expect(frontmatter.network.allowed.filter((domain: string) => domain === 'docs.github.com')).toHaveLength(1);
+    expect(source).toContain('`copilot-api` billing scope');
+    expect(source).toContain('model/tariff/component provenance');
+    expect(source).toContain('only independently evidenced successors');
+    expect(source).toContain('Explicitly unavailable cache-write');
+    expect(source).toContain('Never infer cached-input prices');
+    expect(source).toContain('preserve all unrelated staged availability, reasoning, routing');
+    expect(source).toContain('catalogue-pricing.test.js guards/ai-credits-guard.test.js');
+    expect(frontmatter['safe-outputs']['create-pull-request']['allowed-files'])
+      .not.toContain('containers/api-proxy/*.js');
+    for (const file of [
+      'containers/api-proxy/model-information.naming.generated.json',
+      'src/model-information.naming.generated.json',
+    ]) {
+      expect(frontmatter['safe-outputs']['create-pull-request']['allowed-files']).toContain(file);
+      expect(frontmatter['safe-outputs']['push-to-pull-request-branch']['allowed-files']).toContain(file);
+    }
   });
 
   it('compiles authoring and no-op tools but not merge or publication', () => {

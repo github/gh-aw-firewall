@@ -239,7 +239,9 @@ function resolveModelPricing(model, state = aiCreditsState, provider = undefined
     central: () => provider && !resolveApiKey(process.env) &&
       isGithubCopilotCatalogTarget(deriveCopilotApiTarget(process.env))
       ? getCentralPricingFact(provider, pricingModel, catalogue, { nativeInput: true }) : null,
-    curated: () => getMaintainedPricingFact(provider, pricingModel),
+    curated: () => getMaintainedPricingFact(provider, pricingModel, {
+      scope, inputTokens, time: catalogue?.time,
+    }),
     imported: () => getImportedPricingFact(provider, pricingModel),
     selector: () => {
       const selector = getDynamicSelectorDescriptor(pricingModel, provider);

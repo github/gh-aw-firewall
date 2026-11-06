@@ -4,13 +4,19 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 const {
-  captureSources, loadCaptures, refreshImport, buildReport, selectPullRequest,
+  captureSources, loadCaptures, refreshImport, proposeCopilotPricing, buildReport, selectPullRequest,
   reviewReasons, differences, inspectCatalogue, documentText, hash, json, facts,
   catalogueFacts, runtimeResolutionFacts, verifyCommittedTree,
+  projections,
 } = require('./maintain.cjs');
 const sources = require('./maintenance-sources.json');
 const { verifyProposal } = require('./verify-proposal.cjs');
+const { sourceFiles: copilotFiles, extractPricingTables } = require('./copilot-pricing.cjs');
 const root = path.resolve(__dirname, '../..');
+const fixtureDirectory = path.join(__dirname, 'fixtures');
+const realPricing = fs.readFileSync(path.join(fixtureDirectory, 'copilot-pricing-2026-11-06.html'));
+const realModels = fs.readFileSync(path.join(fixtureDirectory, 'copilot-models-2026-11-06.html'));
+const negativePricing = JSON.parse(fs.readFileSync(path.join(fixtureDirectory, 'copilot-pricing-negative.v1.json'), 'utf8'));
 const rawFile = 'containers/api-proxy/models.dev.catalog.json';
 const metadataFile = 'shared/model-information/imported/legacy-models-dev.metadata.json';
 const snapshotFile = 'shared/model-information/imported/legacy-models-dev.snapshot.v1.json';
@@ -27,8 +33,9 @@ const write = (cwd: string, file: string, bytes: string | Buffer) => {
 };
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-const fakeFetch = (bytes = catalog()) => async (url: string) => new Response(
-  url.includes('openrouter.ai') ? bytes : `<html><body>${quote}</body></html>`,
+const fakeFetch = (bytes = catalog(), pricing = realPricing) => async (url: string) => new Response(
+  url.includes('openrouter.ai') ? bytes : url.includes('models-and-pricing') ? pricing
+    : url.includes('/supported-models') ? realModels : `<html><body>${quote}</body></html>`,
   { status: 200 },
 );
 
@@ -78,6 +85,240 @@ describe('offline scheduled source maintenance', () => {
       evidence: [{ source: 'openai-models', quote }],
     }] }));
   };
+
+  const seedCopilot = (edit?: (file: string, document: any) => void) => {
+    const proposedIds = new Set(['gpt-6.1-terra', 'gemini-3.8-flash', 'gemini-4-argon', 'mai-code-1.1-flash']);
+    const promotionContract = JSON.parse(fs.readFileSync(
+      path.join(fixtureDirectory, 'copilot-promotion-contract.v1.json'), 'utf8',
+    ));
+    for (const file of [...copilotFiles, targetFile]) {
+      const document = JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
+      if (file === targetFile) {
+        document.tariffs['gemini-3.8-flash'] = structuredClone(promotionContract.tariff);
+      } else {
+        document.models = document.models.filter((model: any) => !proposedIds.has(model.identity.rawId));
+      }
+      edit?.(file, document);
+      write(cwd, file, json(document));
+    }
+    git(cwd, 'add', '.');
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'canonical fixtures');
+    for (const name of ['base-revision', 'review-base-revision']) {
+      fs.writeFileSync(path.join(evidence, name), git(cwd, 'rev-parse', 'HEAD'));
+    }
+  };
+  const copilotModel = (id: string) => copilotFiles.flatMap((file: string) =>
+    JSON.parse(fs.readFileSync(path.join(cwd, file), 'utf8')).models)
+    .find((model: any) => model.identity.rawId === id);
+
+  it('captures Copilot price tables with associated promotion footnotes', () => {
+    const fixture = JSON.parse(fs.readFileSync(path.join(fixtureDirectory, 'copilot-pricing-2026-11-06.capture.json'), 'utf8'));
+    for (const source of fixture.sources) {
+      expect(hash(fs.readFileSync(path.join(fixtureDirectory, source.file)))).toBe(source.fragmentSha256);
+      expect(source.sha256).toMatch(/^[a-f0-9]{64}$/);
+      expect(source.retrievedAt).toMatch(/^2026-11-06T23:27:/);
+    }
+    const capture = loadCaptures(evidence).find((item: any) => item.id === 'copilot-pricing');
+    expect(capture).toMatchObject({
+      url: 'https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing',
+      sha256: hash(realPricing), scope: expect.stringContaining('copilot-api'),
+      retrievedAt: expect.any(String),
+    });
+    const extracted = extractPricingTables(realPricing, documentText);
+    const openai = extracted.tables.find((table: any) => table.owner === 'openai');
+    for (const name of ['GPT-6.1 Terra', 'GPT-6.1 Sol']) {
+      expect(openai.rows.filter((row: any) => row.cells[0] === name)).toHaveLength(2);
+    }
+    const google = extracted.tables.find((table: any) => table.owner === 'google');
+    expect(google.headers).not.toContain('Cache write');
+    expect(google.rows[0].footnotes).toEqual(['user-content-fn-gemini-flash-promo']);
+    expect(extracted.footnotes['user-content-fn-gemini-flash-promo']).toContain('through December 31, 2026.');
+    expect(extracted.footnotes['user-content-fn-gemini-4-argon-promo']).toContain('until December 1, 2026.');
+    expect(Object.values(extracted.footnotes).join(' ')).not.toMatch(/successor|double|January 1/);
+    const microsoft = extracted.tables.find((table: any) => table.owner === 'microsoft');
+    expect(microsoft.rows[0].cells).toEqual(['MAI-Code-1.1-Flash', 'GA', 'Lightweight', '$0.20', '$0.02', '$1.20']);
+    expect(microsoft.headers).not.toContain('Tier');
+    expect(microsoft.headers).not.toContain('Cache write');
+    expect(capture.pricing).toEqual(extracted);
+  });
+
+  it('proposes missing and changed Copilot tariffs from captured evidence', () => {
+    seedCopilot();
+    const unchangedSol = json(copilotModel('gpt-6.1-sol'));
+    const originalTarget = JSON.parse(fs.readFileSync(path.join(cwd, targetFile), 'utf8'));
+    const result = proposeCopilotPricing(cwd, evidence);
+    expect(result.changedModels).toEqual(expect.arrayContaining([
+      'gpt-6.1-terra', 'gemini-3.8-flash', 'gemini-4-argon', 'mai-code-1.1-flash',
+    ]));
+    expect(result.changedModels).not.toContain('gpt-6.1-sol');
+    expect(json(copilotModel('gpt-6.1-sol'))).toBe(unchangedSol);
+    const prices = (id: string) => copilotModel(id).tariffs.map((tariff: any) =>
+      ['input', 'cachedInput', 'cacheWrite', 'output'].map(key => tariff.components[key].price));
+    expect(prices('gpt-6.1-terra')).toEqual([['1', '0.05', '1.25', '5'], ['2', '0.1', '2.5', '7.5']]);
+    expect(copilotModel('gpt-6.1-terra').tariffs[1].promptTokensAbove).toBe(272000);
+    expect(prices('gemini-3.8-flash')).toEqual([['0.75', '0.075', { unavailable: true }, '3.75']]);
+    expect(prices('gemini-4-argon')).toEqual([['2', '0.1', { unavailable: true }, '10']]);
+    expect(prices('mai-code-1.1-flash')).toEqual([['0.2', '0.02', { unavailable: true }, '1.2']]);
+    for (const [id, end] of [['gemini-3.8-flash', '2027-01-01T00:00:00.000Z'], ['gemini-4-argon', '2026-12-01T00:00:00.000Z']]) {
+      expect(copilotModel(id).tariffs[0]).toMatchObject({ effectiveUntil: end, promotion: expect.any(String) });
+      expect(copilotModel(id).tariffs[0].successor).toBeUndefined();
+      expect(copilotModel(id).availability).toBeUndefined();
+    }
+    const target = JSON.parse(fs.readFileSync(path.join(cwd, targetFile), 'utf8'));
+    const expectedTarget = structuredClone(originalTarget);
+    delete expectedTarget.tariffs['gemini-3.8-flash'];
+    expect(target).toEqual(expectedTarget);
+    const capture = loadCaptures(evidence).find((item: any) => item.id === 'copilot-pricing');
+    for (const id of ['gpt-6.1-terra', 'gemini-3.8-flash', 'gemini-4-argon', 'mai-code-1.1-flash']) {
+      const model = copilotModel(id);
+      expect(model.provenance).toMatchObject({
+        source: capture.url, revision: capture.sha256, at: capture.retrievedAt, confidence: 'verified',
+      });
+      for (const tariff of model.tariffs) {
+        expect(tariff.provenance).toEqual(model.provenance);
+        for (const component of Object.values(tariff.components) as any[]) expect(component.provenance).toEqual(model.provenance);
+      }
+    }
+    const report = buildReport(cwd, evidence);
+    expect(report.sourceDiagnostics).toEqual(result.diagnostics);
+    expect(report.changes).toHaveLength(4);
+    const claims = JSON.parse(fs.readFileSync(path.join(evidence, 'proposal.json'), 'utf8')).changes;
+    expect(claims.every((claim: any) => claim.generator === 'copilot-pricing-v1')).toBe(true);
+    expect(claims.flatMap((claim: any) => claim.evidence)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ model: 'gpt-6.1-terra', tariff: 'long_context',
+        components: ['input', 'cachedInput', 'cacheWrite', 'output'], sha256: capture.sha256 }),
+    ]));
+    expect(result.diagnostics.filter((entry: any) => entry.status === 'promotion-without-successor')).toHaveLength(2);
+    expect(result.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: 'copilot-pricing', model: 'gemini-3.8-flash',
+        boundaryInterpretation: expect.objectContaining({
+          publishedCalendarEnd: 'through December 31, 2026', publishedTimezone: 'not specified by source',
+          reviewedPolicy: expect.stringContaining('source does not publish this UTC instant'),
+        }) }),
+    ]));
+  });
+
+  it('updates broader known GA tariffs without hardcoded rates or rewriting unchanged components', () => {
+    seedCopilot((_file, document) => {
+      const sol = document.models?.find((model: any) => model.identity.rawId === 'gpt-6.1-sol');
+      if (sol) sol.tariffs[0].components.input.price = '999';
+    });
+    const previous = structuredClone(copilotModel('gpt-6.1-sol'));
+    expect(proposeCopilotPricing(cwd, evidence).changedModels).toContain('gpt-6.1-sol');
+    const changed = copilotModel('gpt-6.1-sol');
+    expect(changed.tariffs[0].components.input.price).toBe('2');
+    expect(changed.tariffs[0].components.output).toEqual(previous.tariffs[0].components.output);
+    expect(changed.tariffs[0].components.reasoning).toEqual(previous.tariffs[0].components.reasoning);
+    expect(changed.tariffs[1]).toEqual(previous.tariffs[1]);
+  });
+
+  it('unchanged Copilot price evidence does not churn provenance reports or PRs', async () => {
+    for (const directory of ['scripts/model-information', 'shared/model-information']) {
+      fs.cpSync(path.join(root, directory), path.join(cwd, directory), { recursive: true });
+    }
+    write(cwd, rawFile, fs.readFileSync(path.join(root, rawFile)));
+    fs.symlinkSync(path.join(root, 'node_modules'), path.join(cwd, 'node_modules'), 'dir');
+    const compileArgs = [path.join(cwd, 'scripts/model-information/compile.cjs')];
+    seedCopilot();
+    execFileSync(process.execPath, compileArgs, { cwd, stdio: 'pipe' });
+    git(cwd, 'add', '.');
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'compiled baseline fixtures');
+    for (const name of ['base-revision', 'review-base-revision']) {
+      fs.writeFileSync(path.join(evidence, name), git(cwd, 'rev-parse', 'HEAD'));
+    }
+    proposeCopilotPricing(cwd, evidence);
+    execFileSync(process.execPath, compileArgs, { cwd, stdio: 'pipe' });
+    write(cwd, 'shared/model-information/maintenance-report.json', json(buildReport(cwd, evidence)));
+    git(cwd, 'add', '.');
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'reviewed fixture prices');
+    fs.writeFileSync(path.join(evidence, 'base-revision'), git(cwd, 'rev-parse', 'HEAD'));
+    const before = copilotFiles.map((file: string) => fs.readFileSync(path.join(cwd, file)));
+    const oldReport = fs.readFileSync(path.join(cwd, 'shared/model-information/maintenance-report.json'));
+    const oldProjections = projections.map((file: string) => fs.readFileSync(path.join(cwd, file)));
+    const equivalent = realPricing.toString().replace(/\$(\d+\.\d+)/g, (_match, price) => `$${price}00`)
+      .replace(/<tbody>([\s\S]*?)<\/tbody>/g, (_body, content) =>
+        `<tbody>${(content.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/g) || []).reverse().join('')}</tbody>`);
+    await captureSources(evidence, fakeFetch(catalog(), Buffer.from(equivalent)));
+    expect(proposeCopilotPricing(cwd, evidence).changedModels).toEqual([]);
+    execFileSync(process.execPath, [...compileArgs, '--check'], { cwd, stdio: 'pipe' });
+    expect(buildReport(cwd, evidence)).toBeNull();
+    expect(copilotFiles.map((file: string) => fs.readFileSync(path.join(cwd, file)))).toEqual(before);
+    expect(fs.readFileSync(path.join(cwd, 'shared/model-information/maintenance-report.json'))).toEqual(oldReport);
+    expect(projections.map((file: string) => fs.readFileSync(path.join(cwd, file)))).toEqual(oldProjections);
+    expect(git(cwd, 'status', '--porcelain')).toBe('');
+  });
+
+  it('reports incomplete Copilot pricing without inventing components', async () => {
+    seedCopilot();
+    const before = fs.readFileSync(path.join(cwd, copilotFiles[0]));
+    const previousSol = structuredClone(copilotModel('gpt-6.1-sol'));
+    expect(negativePricing.missingComponent.model).toBe('GPT-6.1 Sol');
+    // Negative evidence is derived only by deleting a real captured cached-input component.
+    const incomplete = realPricing.toString().replace(
+      /(<td>GPT-6\.1 Sol<\/td>[\s\S]*?<td[^>]*>\$2\.00<\/td><td[^>]*>)\$0\.10(<\/td>)/, '$1$2',
+    );
+    expect(incomplete).not.toBe(realPricing.toString());
+    await captureSources(evidence, fakeFetch(catalog(), Buffer.from(incomplete)));
+    const result = proposeCopilotPricing(cwd, evidence);
+    expect(result.changedModels).not.toContain('gpt-6.1-sol');
+    expect(copilotModel('gpt-6.1-sol')).toEqual(previousSol);
+    expect(result.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ model: 'gpt-6.1-sol', status: 'retained-prior-facts',
+        message: expect.stringContaining('numeric price') }),
+    ]));
+    const next = JSON.parse(fs.readFileSync(path.join(cwd, copilotFiles[0]), 'utf8'));
+    expect(next.models.filter((model: any) => model.identity.rawId !== 'gpt-6.1-terra'))
+      .toEqual(JSON.parse(before.toString()).models);
+    expect(copilotModel('mai-code-1.1-flash').tariffs[0].components.cacheWrite.price).toEqual({ unavailable: true });
+  });
+
+  it('retains all prior Copilot facts and reports the source when the negative capture fixture fails', async () => {
+    seedCopilot();
+    const before = [...copilotFiles, targetFile].map((file: string) => fs.readFileSync(path.join(cwd, file)));
+    const failure = negativePricing.failedCapture;
+    await captureSources(evidence, async (url: string) => url.includes('models-and-pricing')
+      ? new Response(failure.body, { status: failure.status }) : fakeFetch()(url));
+    const manifest = JSON.parse(fs.readFileSync(path.join(evidence, 'captures.json'), 'utf8'));
+    expect(manifest.sources.find((source: any) => source.id === failure.source)).toMatchObject({
+      status: 'failed', errors: [expect.stringContaining('HTTP 503')],
+    });
+    expect(() => proposeCopilotPricing(cwd, evidence)).toThrow('copilot-pricing');
+    expect([...copilotFiles, targetFile].map((file: string) => fs.readFileSync(path.join(cwd, file)))).toEqual(before);
+    expect(git(cwd, 'status', '--porcelain')).toBe('');
+  });
+
+  it('independently rejects altered Copilot component receipts and generator bypasses', () => {
+    seedCopilot();
+    proposeCopilotPricing(cwd, evidence);
+    const file = copilotFiles[0];
+    const document = JSON.parse(fs.readFileSync(path.join(cwd, file), 'utf8'));
+    document.models.find((model: any) => model.identity.rawId === 'gpt-6.1-terra').tariffs[0].components.input.price = '0';
+    write(cwd, file, json(document));
+    const proposalPath = path.join(evidence, 'proposal.json');
+    const proposal = JSON.parse(fs.readFileSync(proposalPath, 'utf8'));
+    const claim = proposal.changes.find((item: any) => item.file === file);
+    claim.afterSha256 = hash(fs.readFileSync(path.join(cwd, file)));
+    fs.writeFileSync(proposalPath, json(proposal));
+    expect(() => buildReport(cwd, evidence)).toThrow('independently reconstructed');
+    delete claim.generator;
+    fs.writeFileSync(proposalPath, json(proposal));
+    expect(() => buildReport(cwd, evidence)).toThrow('deterministic captured-price receipts');
+  });
+
+  it('reports malformed attached promotion footnotes with model and source while retaining prior facts', async () => {
+    seedCopilot();
+    const malformed = realPricing.toString().replace('through December 31, 2026.', 'through an undocumented date.');
+    await captureSources(evidence, fakeFetch(catalog(), Buffer.from(malformed)));
+    const before = JSON.parse(fs.readFileSync(path.join(cwd, targetFile), 'utf8'));
+    const result = proposeCopilotPricing(cwd, evidence);
+    expect(result.changedModels).not.toContain('gemini-3.8-flash');
+    expect(result.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: 'copilot-pricing', model: 'gemini-3.8-flash',
+        status: 'retained-prior-facts', message: expect.stringContaining('promotion/successor footnote') }),
+    ]));
+    expect(copilotModel('gemini-3.8-flash')).toBeUndefined();
+    expect(JSON.parse(fs.readFileSync(path.join(cwd, targetFile), 'utf8'))).toEqual(before);
+  });
 
   it('captures URL, scope, exact bytes/hash, time and governed import counts', () => {
     const captures = loadCaptures(evidence);
@@ -543,7 +784,7 @@ describe('offline scheduled source maintenance', () => {
   });
 
   it('selects the trusted PR without loading import tooling or requiring installed dependencies', () => {
-    for (const file of ['maintain.cjs', 'maintenance-sources.json']) {
+    for (const file of ['maintain.cjs', 'copilot-pricing.cjs', 'maintenance-sources.json']) {
       write(cwd, `scripts/model-information/${file}`,
         fs.readFileSync(path.join(root, 'scripts/model-information', file)));
     }
@@ -741,7 +982,7 @@ describe('offline scheduled source maintenance', () => {
 
 describe('governed source-to-generated validation', () => {
   it('regenerates a changed import from pinned bytes/metadata and rejects stale or corrupted projections', () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-compiler-'));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-maintenance-compile-'));
     try {
       for (const directory of ['scripts/model-information', 'shared/model-information']) {
         fs.cpSync(path.join(root, directory), path.join(cwd, directory), { recursive: true });

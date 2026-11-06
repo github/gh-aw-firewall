@@ -6,6 +6,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const approvedSources = require('./maintenance-sources.json');
+const copilotPricing = require('./copilot-pricing.cjs');
 
 const root = path.resolve(__dirname, '../..');
 const reportFile = 'shared/model-information/maintenance-report.json';
@@ -17,7 +18,10 @@ const projections = [
   snapshotFile, 'shared/model-information/catalog.generated.json',
   'shared/model-information/manifest.generated.json', 'shared/model-information/target.generated.json',
   'shared/model-information/baseline-to-target.generated.json',
+  'shared/model-information/naming.generated.json',
+  'src/model-information.naming.generated.json',
   'src/model-information.compat.generated.json',
+  'containers/api-proxy/model-information.naming.generated.json',
   'containers/api-proxy/model-information.pricing.generated.json',
   'containers/api-proxy/model-information.fallback-pricing.generated.json',
   'containers/api-proxy/model-information.retired.generated.json',
@@ -176,6 +180,9 @@ async function captureSources(directory, fetcher = fetch, sources = approvedSour
           const { snapshot, excluded } = inspectCatalogue(bytes, captured);
           captured.import = { accepted: snapshot.accepted, rejected: snapshot.rejected, collisions: snapshot.collisions, excluded };
         }
+        if (source.id === 'copilot-pricing') {
+          captured.pricing = copilotPricing.extractPricingTables(bytes, documentText);
+        }
         writeCapture(directory, `${source.id}.raw`, bytes);
         writeCapture(directory, `${source.id}.txt`, text);
         break;
@@ -238,6 +245,53 @@ function refreshImport(cwd, directory) {
   fs.writeFileSync(path.join(cwd, rawImport), bytes);
   fs.writeFileSync(path.join(cwd, metadataFile), json(importMetadata(bytes, capture)));
   return true;
+}
+
+function copilotPlan(cwd, directory, captures, revision) {
+  const documents = Object.fromEntries([...copilotPricing.sourceFiles, copilotPricing.targetFile].map(file => [
+    file, revision
+      ? JSON.parse(git(cwd, 'show', `${revision}:${file}`))
+      : read(path.join(cwd, file)),
+  ]));
+  return copilotPricing.planCopilotPricing(
+    documents, captures.find(item => item.id === 'copilot-pricing'),
+    captures.find(item => item.id === 'copilot-models'),
+    fs.readFileSync(path.join(directory, 'copilot-pricing.raw')),
+    fs.readFileSync(path.join(directory, 'copilot-models.raw')), documentText,
+  );
+}
+
+function proposeCopilotPricing(cwd, directory) {
+  const captures = loadCaptures(directory);
+  const plan = copilotPlan(cwd, directory, captures);
+  const proposalPath = path.join(directory, 'proposal.json');
+  const previous = fs.existsSync(proposalPath) ? read(proposalPath).changes : [];
+  const changes = previous.filter(claim => !plan.updates.has(claim.file));
+  for (const [file, document] of plan.updates) {
+    const before = fs.readFileSync(path.join(cwd, file));
+    const after = json(document);
+    const prior = previous.find(claim => claim.file === file);
+    if (prior && prior.afterSha256 !== hash(before)) {
+      throw new Error(`${file}: existing proposal receipt does not match the current source`);
+    }
+    changes.push({
+      file, generator: 'copilot-pricing-v1', beforeSha256: prior?.beforeSha256 || hash(before), afterSha256: hash(after),
+      scope: 'GitHub Copilot / copilot-api published billing only; no CLI eligibility or native-provider inference',
+      summary: file === copilotPricing.targetFile
+        ? 'Reconcile only fulfilled Gemini Flash pricing correction; discard unverified staged successor'
+        : 'Propose exact GA Copilot token tariffs from captured pricing rows and attached footnotes',
+      evidence: [...(prior?.evidence || []).filter(item =>
+        !plan.receipts.get(file).some(receipt => json(receipt) === json(item))), ...plan.receipts.get(file)],
+      ...(prior ? { previousProposal: prior } : {}),
+    });
+    fs.writeFileSync(path.join(cwd, file), after);
+  }
+  if (plan.updates.size) writeCapture(directory, 'proposal.json', json({ changes }));
+  writeCapture(directory, 'copilot-pricing-diagnostics.json', json({
+    schemaVersion: 1, source: 'copilot-pricing', changedModels: plan.changedModels,
+    diagnostics: plan.diagnostics,
+  }));
+  return { changedModels: plan.changedModels, diagnostics: plan.diagnostics };
 }
 
 function catalogueFacts(bytes) {
@@ -384,6 +438,7 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
   }
   const claimsPath = path.join(directory, 'proposal.json');
   const claims = fs.existsSync(claimsPath) ? read(claimsPath).changes : [];
+  let verifiedCopilotPlan;
   const changes = [];
   for (const file of changed.filter(file => canonical(file) && !ignoredRestored.has(file))) {
     // Canonical inputs must already exist: adding a new source format needs a separate review.
@@ -414,11 +469,28 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
           !claim.summary || !claim.scope || !Array.isArray(claim.evidence) || !claim.evidence.length) {
         throw new Error(`${file}: missing source-aware proposal with exact before/after hashes, scope and summary`);
       }
+      const copilotTariffsChanged = copilotPricing.sourceFiles.includes(file) &&
+        json(facts((before.models || []).map(model => ({ id: model.identity.rawId, tariffs: model.tariffs })))) !==
+        json(facts((after.models || []).map(model => ({ id: model.identity.rawId, tariffs: model.tariffs }))));
+      const flashReconciled = file === copilotPricing.targetFile &&
+        before.tariffs?.['gemini-3.8-flash'] && !after.tariffs?.['gemini-3.8-flash'];
+      if ((copilotTariffsChanged || flashReconciled) && claim.generator !== 'copilot-pricing-v1') {
+        throw new Error(`${file}: Copilot tariff changes require deterministic captured-price receipts`);
+      }
       for (const evidence of claim.evidence) {
         const capture = captures.find(item => item.id === evidence.source);
         if (!capture || typeof evidence.quote !== 'string' || evidence.quote.trim().length < 20 ||
             !fs.readFileSync(path.join(directory, `${capture.id}.txt`), 'utf8').includes(evidence.quote)) {
           throw new Error(`${file}: unsupported evidence quote from ${evidence.source}`);
+        }
+      }
+      if (claim.generator === 'copilot-pricing-v1') {
+        verifiedCopilotPlan ||= copilotPlan(cwd, directory, captures, base);
+        const expected = verifiedCopilotPlan.updates.get(file);
+        const expectedEvidence = verifiedCopilotPlan.receipts.get(file) || [];
+        if (!expected || json(expected) !== afterBytes.toString('utf8') ||
+            expectedEvidence.some(receipt => !claim.evidence.some(item => json(item) === json(receipt)))) {
+          throw new Error(`${file}: Copilot proposal does not match independently reconstructed captured facts`);
         }
       }
     }
@@ -477,6 +549,7 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
     pathFormat: 'JSON Pointer fields; data/models arrays use @id=<escaped exact ID> selectors, not positional indices. Raw import diffs cover governed observations only; exact bytes are pinned separately.',
     roundingTolerance: 'Zero unless a separately reviewed provider-specific tolerance is documented; no guessed tolerance.',
     sources: captures, changes,
+    ...(verifiedCopilotPlan ? { sourceDiagnostics: verifiedCopilotPlan.diagnostics } : {}),
     generatedFiles: projections,
     reviewRequired: ['All model-fact changes require human review; no auto-merge or publication.'],
   };
@@ -517,6 +590,8 @@ async function main() {
     if (captures.some(item => item.status !== 'ok')) throw new Error('Source retrieval failed; see captures.json for affected sources');
   } else if (command === 'refresh-import') {
     console.log(refreshImport(root, directory) ? 'Import source changed; regenerate before review' : 'Import facts unchanged');
+  } else if (command === 'refresh-copilot-pricing') {
+    console.log(json(proposeCopilotPricing(root, directory)));
   } else if (command === 'report') {
     const report = buildReport(root, directory);
     if (report) fs.writeFileSync(path.join(root, reportFile), json(report));
@@ -532,13 +607,14 @@ async function main() {
   } else if (command === 'select-pr') {
     console.log(json(selectPullRequest(read(directory))));
   } else {
-    throw new Error('Expected capture, refresh-import, report, verify, verify-committed or select-pr');
+    throw new Error('Expected capture, refresh-import, refresh-copilot-pricing, report, verify, verify-committed or select-pr');
   }
 }
 
 if (require.main === module) main().catch(error => { console.error(error.message); process.exitCode = 1; });
 module.exports = {
-  captureSources, loadCaptures, refreshImport, buildReport, selectPullRequest,
+  captureSources, loadCaptures, refreshImport, proposeCopilotPricing, buildReport, selectPullRequest,
+  refreshCopilotPricing: proposeCopilotPricing,
   facts, differences, reviewReasons, inspectCatalogue, documentText, hash, json, allowed, projections,
   catalogueFacts, runtimeResolutionFacts, runtimeConsumerEffects, verifyCommittedTree, maintenanceTitle,
 };

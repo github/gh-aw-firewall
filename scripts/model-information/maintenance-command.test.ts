@@ -10,6 +10,7 @@ const maintain = path.join(__dirname, 'maintain.cjs');
 describe('unattended model maintenance command boundary', () => {
   it.each([
     ['refresh-import', process.execPath, [maintain, 'refresh-import']],
+    ['refresh-copilot-pricing', process.execPath, [maintain, 'refresh-copilot-pricing']],
     ['report', process.execPath, [maintain, 'report']],
     ['verify', process.execPath, [maintain, 'verify']],
     ['generate', 'npm', ['run', 'models:generate']],
@@ -18,7 +19,8 @@ describe('unattended model maintenance command boundary', () => {
       'scripts/ci/model-api-mapping-updater-workflow.test.ts',
       'src/copilot-model-catalog-sync.test.ts', 'src/model-information-contract.test.ts']],
     ['test-api-proxy', 'npm', ['--prefix', 'containers/api-proxy', 'test', '--',
-      '--runInBand', 'models-dev-catalog.test.js', 'ai-credits-pricing-reference.test.js']],
+      '--runInBand', 'models-dev-catalog.test.js', 'ai-credits-pricing-reference.test.js',
+      'catalogue-pricing.test.js', 'guards/ai-credits-guard.test.js']],
   ] as [string, string, string[]][])('runs only the fixed %s invocation from the repository root',
     (operation, executable, args) => {
       const spawn = jest.fn().mockReturnValue({ status: 0 });
@@ -31,6 +33,7 @@ describe('unattended model maintenance command boundary', () => {
     for (const args of [
       [], ['capture'], ['select-pr'], ['node'], ['npm'], ['__proto__'], ['constructor'],
       ['refresh-import', '--help'], ['generate', '--script-shell=unapproved'],
+      ['refresh-copilot-pricing', '--source=https://unapproved.example'],
       ['test', '--updateSnapshot'], ['report; echo unapproved'],
     ]) {
       const spawn = jest.fn();

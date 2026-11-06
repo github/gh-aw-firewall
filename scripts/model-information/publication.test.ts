@@ -54,8 +54,14 @@ describe('versioned publication producer', () => {
       expect(model.tariffs).toEqual(original.tariffs);
       expect(model.harnesses).toEqual(original.harnesses);
     }
-    expect(snapshot.models.some((model: { identity: { key: string } }) =>
-      model.identity.key === 'copilot/gemini-3.8-flash')).toBe(false);
+    const maintainedKeys = new Set(catalogue.models.map((model: { identity: { key: string } }) =>
+      model.identity.key));
+    const stagedOnly = require('../../shared/model-information/target.generated.json').models
+      .filter((model: { identity: { key: string } }) => !maintainedKeys.has(model.identity.key));
+    for (const staged of stagedOnly) {
+      expect(snapshot.models.some((model: { identity: { key: string } }) =>
+        model.identity.key === staged.identity.key)).toBe(false);
+    }
     expect(snapshot.models.every((model: { identity: { provider: string } }) =>
       model.identity.provider === 'copilot')).toBe(true);
   });

@@ -44,7 +44,7 @@ function findBundledPrice(provider, model, index, policy = {}) {
   return resolved.matchKind === 'unmatched' ? null : index.records[resolved.identity.rawId];
 }
 
-function getMaintainedPricingFact(provider, model) {
+function getMaintainedPricingFact(provider, model, context = {}) {
   const compatibility = !maintainedPrices.has(provider);
   const index = (compatibility ? compatibilityPrices : maintainedPrices).get(provider);
   if (!index) return null;
@@ -54,6 +54,40 @@ function getMaintainedPricingFact(provider, model) {
     separators: true, stripDate: true,
   });
   if (!pricing) return null;
+  if (pricing.tariffs) {
+    const scope = context.scope || { provider, channel: 'copilot-api' };
+    const time = context.time ?? Date.now();
+    const tokens = context.inputTokens ?? 0;
+    const scoped = pricing.tariffs.filter(tariff =>
+      tariff.scope.provider === scope.provider && tariff.scope.channel === scope.channel &&
+      tariff.scope.deployment === scope.deployment);
+    const effective = tariff => !tariff.effectiveFrom || Date.parse(tariff.effectiveFrom) <= time;
+    // Match the shared resolver: an expired long tier cannot become a base rate.
+    const requiresLong = scoped.some(tariff => tariff.tier === 'long_context' &&
+      tokens > tariff.promptTokensAbove && effective(tariff));
+    const active = scoped.filter(tariff => effective(tariff) &&
+      (!tariff.effectiveUntil || Date.parse(tariff.effectiveUntil) > time));
+    const base = active.filter(tariff => tariff.tier !== 'long_context');
+    const long = active.filter(tariff => tariff.tier === 'long_context');
+    const eligibleLong = long.filter(tariff => tokens > tariff.promptTokensAbove);
+    if ((requiresLong ? eligibleLong : base).length !== 1) return null;
+    const selected = base.length === 1 ? base[0] : eligibleLong[0];
+    const rates = tariff => exact.rates(Object.fromEntries(Object.entries(tariff.components)
+      .map(([field, item]) => [field, typeof item.price === 'object' ? null : item.price])));
+    const metadata = tariff => ({
+      pricingCatalogVersion: fallbackPricing.catalogRevision,
+      pricingCatalogId: tariff.provenance.source,
+      observedAt: tariff.provenance.at,
+    });
+    return {
+      source: 'curated', tier: selected.tier,
+      default: rates(selected), metadata: metadata(selected),
+      ...(base.length === 1 && long.length === 1 ? {
+        longContext: rates(long[0]), threshold: long[0].promptTokensAbove,
+        longMetadata: metadata(long[0]),
+      } : {}),
+    };
+  }
   const { longContext, ...defaultPricing } = pricing;
   const { threshold, ...longPrices } = longContext || {};
   return { source: 'curated', default: exact.rates(defaultPricing),
@@ -233,7 +267,7 @@ function getMedianPricingFact(provider, model, inputTokens, options = {}) {
         central: () => firstSource(id => getCentralPricingFact(provider, id, catalogue, {
           ...scope, nativeInput: true,
         })),
-        curated: () => firstSource(id => getMaintainedPricingFact(provider, id)),
+        curated: () => firstSource(id => getMaintainedPricingFact(provider, id, { scope, time, inputTokens })),
         imported: () => firstSource(id => getImportedPricingFact(provider, id)),
         selector: null, configuredDefault: null, median: null, sentinel: null,
       },

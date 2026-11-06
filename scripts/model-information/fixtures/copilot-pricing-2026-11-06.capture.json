@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "extraction": {
+    "format": "verbatim HTML fragments from successful official-page responses",
+    "selection": "GPT-6.1 Sol and Terra row pairs; Gemini 3.8 Flash and Gemini 4 Argon rows with their complete attached pricing footnotes; MAI-Code-1.1-Flash row; matching supported-model GA rows and MAI footnote",
+    "assembly": "Retain the original h1 and pricing-unit paragraph, original table opening/header/body markup and selected whole tr elements, and whole attached li footnotes. Omit all navigation, scripts, unrelated rows and enclosing page layout; join fragments with newlines. No retained cell or footnote content is rewritten.",
+    "hashes": "sha256 pins the original complete HTTP response at retrievedAt; fragmentSha256 independently pins the retained fixture bytes. The complete response is not retained."
+  },
+  "sources": [
+    {
+      "id": "copilot-pricing",
+      "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+      "finalUrl": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+      "retrievedAt": "2026-11-06T23:27:42Z",
+      "sha256": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+      "fragmentSha256": "47465f7366cf7093f1404b5481a55ddd8a2af38be7c281fc8f19edc4f2aedfe7",
+      "file": "copilot-pricing-2026-11-06.html",
+      "scope": "GitHub Copilot / copilot-api billing, USD per million tokens; no CLI eligibility or native-provider inference"
+    },
+    {
+      "id": "copilot-models",
+      "url": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+      "finalUrl": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+      "retrievedAt": "2026-11-06T23:27:49Z",
+      "sha256": "e48015137b1391a129454b8107cbae4b1a09f33c61a81fa91bed71e7d0982cbe",
+      "fragmentSha256": "bcab27dc4dad2a8a304d1f379872155d98303e9116b67d8ec42a89d011f70121",
+      "file": "copilot-models-2026-11-06.html",
+      "scope": "GitHub Copilot documented model names and GA status; not Copilot CLI eligibility"
+    }
+  ]
+}

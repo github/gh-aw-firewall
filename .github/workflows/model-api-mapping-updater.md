@@ -164,7 +164,7 @@ jobs:
       - name: Check existing runtime catalogue consumers
         run: |
           npm --prefix containers/api-proxy ci --ignore-scripts
-          npm --prefix containers/api-proxy test -- --runInBand models-dev-catalog.test.js ai-credits-pricing-reference.test.js
+          npm --prefix containers/api-proxy test -- --runInBand models-dev-catalog.test.js ai-credits-pricing-reference.test.js catalogue-pricing.test.js guards/ai-credits-guard.test.js
 steps:
   - name: Install pinned model validation dependencies
     run: |
@@ -237,10 +237,12 @@ safe-outputs:
       - containers/api-proxy/model-api-mapping.json
       - containers/api-proxy/ai-credits-pricing-reference.json
       - containers/api-proxy/model-information.pricing.generated.json
+      - containers/api-proxy/model-information.naming.generated.json
       - containers/api-proxy/model-information.fallback-pricing.generated.json
       - containers/api-proxy/model-information.retired.generated.json
       - docs/model-api-mapping.json
       - src/model-information.compat.generated.json
+      - src/model-information.naming.generated.json
   push-to-pull-request-branch:
     target: ${{ needs.select_maintenance_pr.outputs.number }}
     required-title-prefix: "chore: refresh canonical model sources"
@@ -249,7 +251,7 @@ safe-outputs:
     github-token-for-extra-empty-commit: none
     max-patch-size: 10240
     patch-format: bundle
-    allowed-files: ["shared/model-information/sources/*.json", "shared/model-information/imported/legacy-models-dev.metadata.json", "shared/model-information/imported/legacy-models-dev.snapshot.v1.json", "shared/model-information/*.generated.json", "shared/model-information/maintenance-report.json", "containers/api-proxy/models.dev.catalog.json", "containers/api-proxy/model-api-mapping.json", "containers/api-proxy/ai-credits-pricing-reference.json", "containers/api-proxy/model-information.pricing.generated.json", "containers/api-proxy/model-information.fallback-pricing.generated.json", "containers/api-proxy/model-information.retired.generated.json", "docs/model-api-mapping.json", "src/model-information.compat.generated.json"]
+    allowed-files: ["shared/model-information/sources/*.json", "shared/model-information/imported/legacy-models-dev.metadata.json", "shared/model-information/imported/legacy-models-dev.snapshot.v1.json", "shared/model-information/*.generated.json", "shared/model-information/maintenance-report.json", "containers/api-proxy/models.dev.catalog.json", "containers/api-proxy/model-api-mapping.json", "containers/api-proxy/ai-credits-pricing-reference.json", "containers/api-proxy/model-information.pricing.generated.json", "containers/api-proxy/model-information.naming.generated.json", "containers/api-proxy/model-information.fallback-pricing.generated.json", "containers/api-proxy/model-information.retired.generated.json", "docs/model-api-mapping.json", "src/model-information.compat.generated.json", "src/model-information.naming.generated.json"]
   report-failed-jobs: false
   report-failure-as-issue: false
   report-incomplete:
@@ -296,10 +298,31 @@ date. Marketing prose/family names do not verify capabilities, effort sets or
 compatibility. Preserve unknown states, scope and authority. Never invent prices,
 model licenses, source timestamps, deployment mappings or harness floors.
 
+Compare `copilot-pricing` (GitHub's models-and-pricing tables and their attached
+footnotes) with exact GA Copilot completion records, using only Copilot /
+`copilot-api` billing scope. Native-provider and OpenRouter prices cannot verify
+these tariffs. Run `/tmp/gh-aw/model-maintenance-command.cjs refresh-copilot-pricing`
+before other source edits to propose evidence-backed default/long-context prices
+and exact thresholds, with model/tariff/component provenance and ordinary receipts.
+Review its diagnostics and retained prior facts; report missing required components,
+ambiguous model IDs, conflicting successor evidence or partial retrieval with the
+affected model/source via `report_incomplete`. Explicitly unavailable cache-write
+is valid data, not a published zero. Never infer cached-input prices.
+
+Retain documented promotion intervals and only independently evidenced successors.
+Neither Gemini footnote in the November 6 evidence publishes a successor: do not
+activate the estimated doubled Flash rate from the staged correction or a native
+Google/OpenRouter price. A promotion without a verified successor expires into
+ordinary fallback/estimate/unpriced accounting, not an indefinite promotional rate.
+The helper may reconcile only the fulfilled Gemini 3.8 Flash staged **pricing**
+correction; preserve all unrelated staged availability, reasoning, routing and
+Grok corrections. Prices do not establish host-side or Copilot CLI eligibility.
+
 ## Propose and regenerate
 
 Use `/tmp/gh-aw/model-maintenance-command.cjs` with exactly one of
-`refresh-import`, `report`, `verify`, `generate`, `check`, `test` or `test-api-proxy`.
+`refresh-import`, `refresh-copilot-pricing`, `report`, `verify`, `generate`, `check`,
+`test` or `test-api-proxy`.
 This fixed-command entrypoint is preapproved for unattended execution; full
 `node ...` and `npm ...` invocation allow rules do not match Copilot's command
 names. Do not invoke interpreters/package runners directly, add arguments, or
@@ -312,7 +335,8 @@ Edit only canonical `shared/model-information/sources/*.json` records supported
 by actually fetched evidence. Update provenance only for changed facts: record
 the captured URL, its content hash as revision, capture time and justified
 confidence, preserving provider/channel/deployment boundaries. Do not activate
-staged target corrections by copying them into active compatibility sources.
+staged target corrections by copying them into active compatibility sources;
+the narrowly scoped fulfilled Flash pricing reconciliation above is the exception.
 Keep `lifecycle-compatibility.json` suggestion ordering consistent when a
 documented CLI availability change requires it. Do not broaden endpoint family
 patterns based on a single model. Schema/compiler changes need a separate PR.
@@ -360,8 +384,8 @@ field changes, source evidence, runtime lookup resolution changes and explicit
 human-review gates. The bundled OpenRouter catalogue and retired-model
 projection are runtime inputs: their reported lookup/retirement changes can
 affect fallback pricing or request rejection after merge. The generated
-normalized pricing projection is staged and does not replace the legacy runtime
-pricing table here. All changes require review, especially runtime price/lookup
+maintained pricing projection supplies a lower-priority runtime fallback and must
+not override valid provider, central-feed or operator prices. All changes require review, especially runtime price/lookup
 changes, compatibility contraction, retirement, confidence downgrade and
 disappearance. Validation failures must be surfaced, not bypassed by changing
 tests, tooling, schemas or workflow files.
@@ -393,7 +417,8 @@ group deduplicate runs. Never create a second PR while one is open.
 
 In the PR body/commit describe exact changes, evidence, unknowns, source health,
 exclusions/counts/collisions, and review gates; reference the committed machine
-report. No auto-merge, external feed/cache refresh, runtime pricing-table
+report. Link Copilot tariff completion evidence to #11225 and #10029 without closing
+their unrelated work. No auto-merge, external feed/cache refresh, legacy pricing-table
 activation, resolver-code change, unrelated code changes, or new isolation
 architecture. The bundled catalogue and retirement guard can change on merge,
 so human review and merge remain mandatory. GITHUB_TOKEN-created PRs may need a
