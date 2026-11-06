@@ -42,8 +42,12 @@ for an example and fail-closed input verification guidance.
 | `credentials.entries` | deny (files/dirs) | compose + sbx + microVM workspace tests | `credential-hiding.ts`, `sbx-manager.ts`, `microvm/workspace.ts` |
 
 In compose, `~/.gemini` is mounted only when a Gemini or Google API key is
-configured; the other `toolSubdirs` are always bound, and `~/.copilot` is bound
-from the host only when it exists and is readable and writable. Independently,
+configured; the other `toolSubdirs` are always bound (with `.local` replaced by
+its `narrowPaths` descendants), and `~/.copilot` is bound from the host only
+when it exists and is readable and writable. Compose also binds the runner tool
+cache read-only at its host path under `/host` when it resolves to a directory
+(`config.runnerToolCachePath`, `RUNNER_TOOL_CACHE`, or `~/work/_tool`;
+[`runner-tool-cache.ts`](../src/runner-tool-cache.ts)). Independently,
 compose always binds the supplied session-state and agent-log paths beneath
 `~/.copilot/session-state` and `~/.copilot/logs`, even when the host directory
 is absent or inaccessible

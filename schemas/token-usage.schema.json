@@ -353,6 +353,46 @@
       "maximum": 100,
       "description": "Promotional discount percentage applied to this model's pricing, when known. Present only when apiProxy.maxAiCredits is configured and a promotion is active."
     },
+    "ai_credits_pricing_estimate": {
+      "type": "object",
+      "description": "Provenance of an estimated price (median of same-family or same-backend donor models) used when the model had no exact or configured pricing. Present when the price was estimated.",
+      "properties": {
+        "basis": {
+          "type": "string",
+          "enum": ["family", "backend"],
+          "description": "Whether the estimate was derived from same-family or same-backend donor models."
+        },
+        "family": {
+          "type": "string",
+          "description": "Model family used for the estimate, when basis is 'family'."
+        },
+        "donorCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of donor models contributing to the estimate."
+        },
+        "componentDonors": {
+          "type": "object",
+          "description": "Donor count per price component (e.g. input, cachedInput, output).",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "sources": {
+          "type": "array",
+          "description": "Pricing sources of the donor prices.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tariffFingerprint": {
+          "type": "string",
+          "description": "Fingerprint of the tariff used for the estimate, when available."
+        }
+      },
+      "additionalProperties": true
+    },
     "ai_credits_pricing_observed_at": {
       "type": "string",
       "format": "date-time",
