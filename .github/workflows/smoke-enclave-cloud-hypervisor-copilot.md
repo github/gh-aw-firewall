@@ -201,11 +201,12 @@ API proxy; no GitHub MCP access, direct model credentials, primary workspace,
 or safe-output tools are granted to it. The finite result schema, one-invocation
 limit, task/output sizes and execution timeout are enforced independently of the
 model settings. The source-built host enforces the eight-request and
-2,048-token invocation budgets at the dedicated API proxy. Its conservative
+131,072-token invocation budgets at the dedicated API proxy. Its conservative
 input reservation counts serialized request bytes, including Copilot's built-in
-system prompt and tool definitions. Live diagnostics confirmed that even the
-2,048-token fixture can reject input reservation before upstream dispatch;
-live acceptance must still prove the compatibility allowance is sufficient.
+system prompt and tool definitions. Earlier live diagnostics confirmed that
+even the prior 2,048-token fixture could reject input reservation before
+upstream dispatch; live acceptance must still prove the compatibility allowance
+is sufficient.
 The proxy clamps output allowance, accounts cumulative provider usage, and
 fails closed on missing usage. The pinned guest does not itself enforce these
 budgets; request/output limits and proxy credential isolation remain mandatory.
