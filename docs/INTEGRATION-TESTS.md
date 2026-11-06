@@ -538,9 +538,30 @@ Each cell checks allowed and denied HTTPS access, credential isolation, real
 provider inference through the API proxy, and an agent tool writing a unique
 proof file through the live workspace share. Missing credentials, nonzero exits,
 missing proof files, and incorrect model responses fail the job rather than
-merely producing a FAIL summary. Evidence artifacts identify the tested source
-commit and retain logs for seven days. A failed VM artifact build does not
+merely producing a FAIL summary. Primary evidence artifacts identify the tested
+source commit and retain bounded, redacted evidence for seven days, not raw host
+or proxy logs. A failed VM artifact build does not
 suppress Docker jobs or the other VM runtime's jobs.
+
+Primary `marker-check.json` separates proof/response mismatches from missing,
+partial, embedded/decorated, unterminated, or rejected completion evidence.
+Only an exact standalone LF- or CRLF-terminated completion line passes; response
+and proof files allow trailing LF bytes only. NVX console CRLF is not equal to
+the old `grep -Fx` LF-only pattern, even when Actions renders the same text.
+The retained classification distinguishes that case without exposing log bytes;
+rendered historical logs alone cannot establish which private bytes were present.
+
+Codex `codex-routing.json` projects only fixed transport, endpoint and status
+fields from the sidecar's `token-tracker-audit.jsonl`: HTTP `TRACK_START`
+records contain the received upstream status, and `WS_UPSTREAM_RESPONSE`
+records contain the parsed upstream handshake status. HTTP 2xx or WebSocket 101
+is required in addition to the exact inference proof. Token usage is not required
+for routing evidence, and a WebSocket start/close alone cannot pass. The report
+distinguishes unavailable, rejected, empty, failed and successful evidence, with
+bounded counts for malformed/wrong-source/provider/path/status records, no-usage
+finalization and pending requests, plus partial-line and truncation indicators.
+Missing or unflushed telemetry is not a successful route or proof of a routing
+defect. Raw URLs, request IDs, headers, bodies and keys are not projected.
 
 After all builds and matrix jobs finish, a deterministic reporting job creates
 one GitHub issue if any build or regression job failed, without changing the
