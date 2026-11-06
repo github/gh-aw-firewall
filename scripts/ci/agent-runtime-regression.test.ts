@@ -297,9 +297,12 @@ describe('agent regression harness', () => {
       if (process.env.AGENT === 'codex' && process.env.AGENT_MODE !== 'no-routing') {
         const logs = args[args.indexOf('--proxy-logs-dir') + 1] + '/api-proxy-logs';
         fs.mkdirSync(logs, { recursive: true });
-        fs.writeFileSync(logs + '/token-usage.jsonl', JSON.stringify({
-          event: 'token_usage', provider: 'openai', path: '/v1/responses', status: 200,
-        }) + '\\n');
+        const records = process.env.ROUTING_RECORDS ? JSON.parse(process.env.ROUTING_RECORDS) : [
+          { ts: 123, rid: 'http', event: 'TRACK_START', provider: 'openai', path: '/v1/responses', status: 200 },
+          { ts: 124, rid: 'http', event: 'TRACK_END', result: 'no_usage' },
+        ];
+        fs.writeFileSync(logs + '/token-tracker-audit.jsonl', records.map(record => JSON.stringify(record)).join('\\n') + '\\n');
+        fs.writeFileSync(logs + '/token-usage.jsonl', '');
       }
       const result = spawnSync(command, guestArgs, {
         cwd: process.env.TEST_ROOT, env, stdio: ['ignore', 'pipe', 'inherit'],
@@ -307,6 +310,9 @@ describe('agent regression harness', () => {
       let output = result.stdout.toString();
       if (process.env.COMPLETION_OUTPUT !== undefined) {
         output = output.replace('AWF-REGRESSION-COMPLETE', process.env.COMPLETION_OUTPUT);
+      }
+      if (process.env.RUNTIME === 'nvx') {
+        output = output.replace(/\\n/g, '\\r\\n') + 'NVX-SANDBOX-EXIT: status=' + result.status + '\\r\\n';
       }
       process.stdout.write(output);
       for (const [variable, file] of [['HOST_PROOF', 'agent-proof.txt'], ['HOST_RESPONSE', 'response.txt']]) {
@@ -511,7 +517,7 @@ describe('agent regression harness', () => {
         .toContain(`${agent} / ${runtime}: PASS`);
       const staged = path.join(environment.RUNNER_TEMP!, `agent-runtime-evidence-123-1-${agent}-${runtime}`);
       expect(fs.readdirSync(staged).sort()).toEqual([
-        'agent-proof.txt', 'agent-version.txt', 'response.txt', 'source-sha.txt',
+        'agent-proof.txt', 'agent-version.txt', 'response.txt', 'source-sha.txt', 'marker-check.json',
         ...(agent === 'codex' ? ['codex-routing.json'] : []),
       ].sort());
       expect(fs.readFileSync(path.join(staged, 'agent-proof.txt'), 'utf8'))
@@ -528,7 +534,8 @@ describe('agent regression harness', () => {
     const result = runHost({ RUNTIME: runtime, AGENT_TERMINAL_OUTPUT: '\u001b[?25h' });
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain('\u001b[?25h\nAWF-REGRESSION-COMPLETE\n');
+    const newline = runtime === 'nvx' ? '\r\n' : '\n';
+    expect(result.stdout).toContain(`\u001b[?25h${newline}AWF-REGRESSION-COMPLETE${newline}`);
     const staged = path.join(environment.RUNNER_TEMP!, `agent-runtime-evidence-123-1-claude-${runtime}`);
     for (const file of ['agent-proof.txt', 'response.txt']) {
       expect(fs.readFileSync(path.join(staged, file), 'utf8'))
@@ -551,7 +558,12 @@ describe('agent regression harness', () => {
   ])('rejects invalid host completion output %j even with valid proof and response', output => {
     const result = runHost({ COMPLETION_OUTPUT: output });
     expect(result.status).toBe(1);
-    expect(result.stdout).toContain('Missing exact inference response or guest completion marker');
+    expect(result.stderr).toContain('Missing exact inference response or guest completion marker');
+    const staged = path.join(environment.RUNNER_TEMP!, 'agent-runtime-evidence-123-1-claude-nvx');
+    const report = JSON.parse(fs.readFileSync(path.join(staged, 'marker-check.json'), 'utf8'));
+    expect(report.proof).toBe('match');
+    expect(report.response).toBe('match');
+    expect(report.completion).not.toMatch(/^match-/);
     expect(fs.existsSync(path.join(directory, 'summary.md'))).toBe(false);
   });
 
@@ -562,7 +574,7 @@ describe('agent regression harness', () => {
   ))('retains exact host evidence requirements for %s: %j', (variable, value) => {
     const result = runHost({ [variable]: value, AGENT_TERMINAL_OUTPUT: '\u001b[?25h' });
     expect(result.status).toBe(1);
-    expect(result.stdout).toContain(variable === 'HOST_PROOF' ?
+    expect(result.stderr).toContain(variable === 'HOST_PROOF' ?
       'Missing or incorrect agent-written workspace proof' :
       'Missing exact inference response or guest completion marker');
     expect(fs.existsSync(path.join(directory, 'summary.md'))).toBe(false);
@@ -571,7 +583,7 @@ describe('agent regression harness', () => {
   it('rejects a nonzero command exit even with exact evidence and a genuine completion marker', () => {
     const result = runHost({ AWF_EXIT_CODE: '42', AGENT_TERMINAL_OUTPUT: '\u001b[?25h' });
     expect(result.status).toBe(42);
-    expect(result.stdout).toContain('\u001b[?25h\nAWF-REGRESSION-COMPLETE\n');
+    expect(result.stdout).toContain('\u001b[?25h\r\nAWF-REGRESSION-COMPLETE\r\n');
     expect(result.stdout).toContain('failed with exit code 42');
     expect(fs.existsSync(path.join(directory, 'summary.md'))).toBe(false);
   });
@@ -595,6 +607,41 @@ describe('agent regression harness', () => {
       encoding: 'utf8',
     });
     expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('Missing successful Codex inference through api-proxy');
+    expect(fs.existsSync(path.join(directory, 'summary.md'))).toBe(false);
+  });
+
+  it.each([
+    ['copilot', 'nvx'], ['claude', 'nvx'], ['codex', 'nvx'],
+    ['codex', 'docker'], ['codex', 'cloud-hypervisor'],
+  ])('accepts real evidence shapes for the affected %s / %s cell without token usage', (agent, runtime) => {
+    const result = runHost(agent, runtime, { ROUTING_RECORDS: JSON.stringify([
+      { ts: 123, rid: 'ws', event: 'WS_TRACK_START', provider: 'openai', path: '/v1/responses?model=gpt-5.4' },
+      { ts: 124, rid: 'ws', event: 'WS_UPSTREAM_RESPONSE', provider: 'openai', path: '/v1/responses?model=gpt-5.4', status: 101 },
+      { ts: 125, rid: 'ws', event: 'WS_TRACK_END', result: 'no_usage', frames: 3, msgs: 2, bytes: 100 },
+    ]) });
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    const staged = path.join(environment.RUNNER_TEMP!, `agent-runtime-evidence-123-1-${agent}-${runtime}`);
+    expect(JSON.parse(fs.readFileSync(path.join(staged, 'marker-check.json'), 'utf8'))).toEqual({
+      proof: 'match', response: 'match', completion: runtime === 'nvx' ? 'match-crlf' : 'match-lf',
+    });
+    if (agent === 'codex') {
+      const report = JSON.parse(fs.readFileSync(path.join(staged, 'codex-routing.json'), 'utf8'));
+      expect(report.status).toBe('successful');
+      expect(report.diagnostics.noUsage).toBe(1);
+    }
+  });
+
+  it.each([
+    [],
+    [{ ts: 123, rid: 'ws', event: 'WS_TRACK_START', provider: 'openai', path: '/v1/responses' },
+      { ts: 124, rid: 'ws', event: 'WS_TRACK_END', result: 'no_usage' }],
+    [{ ts: 123, rid: 'http', event: 'TRACK_START', provider: 'openai', path: '/v1/responses', status: 401 }],
+    [{ event: 'token_usage', provider: 'openai', path: '/v1/responses', status: 200 }],
+  ].map(records => ({ records })))('rejects incomplete or failed routing even with exact guest evidence: $records', ({ records }) => {
+    const result = runHost('codex', 'nvx', { ROUTING_RECORDS: JSON.stringify(records) });
+    expect(result.status).toBe(1);
     expect(result.stderr).toContain('Missing successful Codex inference through api-proxy');
     expect(fs.existsSync(path.join(directory, 'summary.md'))).toBe(false);
   });

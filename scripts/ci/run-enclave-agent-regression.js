@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { isIPv4 } = require('node:net');
+const { TextDecoder: Utf8Decoder } = require('node:util');
 const live = require('./cloud-hypervisor-enclave-live-smoke');
 const collector = require('./collect-enclave-smoke-debug.cjs');
 const PRIMARY_DOCKER_ADDRESS = '172.30.0.20';
@@ -33,7 +34,7 @@ function configuration(agent, runtime, source, workDir, artifacts) {
       repos: [{ repo: REPOSITORY, sensitivity: 'public' }],
     }],
     apiProxy: { enabled: true },
-    logging: { auditDir: path.join(workDir, 'audit'), proxyLogsDir: path.join(workDir, 'proxy-logs') },
+    logging: { auditDir: path.join(path.dirname(workDir), 'audit'), proxyLogsDir: path.join(workDir, 'proxy-logs') },
   };
   if (runtime === 'cloud-hypervisor') {
     config.cloudHypervisor = {
@@ -113,12 +114,86 @@ function probe(agent, runtime, marker, primaryGuestAddress) {
   };
 }
 
-function assertAudit(file) {
-  const records = fs.readFileSync(file, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+function gateFailure(gate, reason) {
+  const error = new Error(`Enclave regression ${gate} failed (${reason})`);
+  error.gate = gate;
+  error.reason = reason;
+  return error;
+}
+
+function assertAudit(file, passed = () => {}, trustedRoot = path.dirname(file)) {
+  const limit = 1024 * 1024;
+  let bytes;
+  let fd;
+  try {
+    collector.directory(path.dirname(file), process.getuid(), trustedRoot);
+    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid()
+      || ![0o600, 0o644].includes(stat.mode & 0o7777) || stat.size > limit) {
+      throw gateFailure('audit-presence', 'unsafe');
+    }
+    bytes = Buffer.alloc(stat.size + 1);
+    let size = 0;
+    while (size < bytes.length) {
+      const count = fs.readSync(fd, bytes, size, bytes.length - size, null);
+      if (!count) break;
+      size += count;
+    }
+    const after = fs.fstatSync(fd);
+    const current = fs.lstatSync(file);
+    if (size !== stat.size || after.size !== stat.size || after.mtimeMs !== stat.mtimeMs
+      || after.ctimeMs !== stat.ctimeMs || current.dev !== stat.dev || current.ino !== stat.ino
+      || current.isSymbolicLink()) throw gateFailure('audit-presence', 'unsafe');
+    bytes = bytes.subarray(0, size);
+  } catch (error) {
+    if (error.gate) throw error;
+    throw gateFailure('audit-presence', error.code === 'ENOENT' ? 'missing'
+      : ['ELOOP', 'EACCES', 'EPERM'].includes(error.code) || error.failedCheck ? 'unsafe' : 'io-error');
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+  passed('audit-presence');
+  let records;
+  try {
+    const text = new Utf8Decoder('utf-8', { fatal: true }).decode(bytes);
+    records = text.trim().split('\n').map(line => JSON.parse(line));
+    const object = record => record !== null && typeof record === 'object' && !Array.isArray(record);
+    const count = value => Number.isSafeInteger(value) && value >= 0;
+    if (records.length > 256 || records.some(record => !object(record)
+      || !['invocation', 'failure', 'lifecycle'].includes(record.kind)
+      || typeof record.ts !== 'string' || !Number.isFinite(Date.parse(record.ts))
+      || (record.kind === 'invocation' && (typeof record.invocationId !== 'string'
+        || !/^[a-f0-9]{16,64}$/.test(record.invocationId)
+        || typeof record.repo !== 'string' || typeof record.sensitivity !== 'string'
+        || !count(record.bits) || !count(record.bucketMs) || record.bucketMs === 0))
+      || (record.kind === 'failure' && typeof record.reason !== 'string')
+      || (record.kind === 'lifecycle' && typeof record.event !== 'string'))) {
+      throw new Error('Invalid audit contract');
+    }
+  } catch { throw gateFailure('audit-schema', 'invalid'); }
+  passed('audit-schema');
   const invocations = records.filter(record => record.kind === 'invocation');
-  if (records.some(record => record.kind === 'failure') || invocations.length !== 1
-    || invocations[0].repo !== REPOSITORY || invocations[0].sensitivity !== 'public') {
-    throw new Error('Expected exactly one successful public-repository enclave invocation');
+  const reason = records.some(record => record.kind === 'failure' || record.event === 'shutdown-cleanup-failed')
+    ? 'failure-record' : invocations.length !== 1 ? 'count'
+      : invocations[0].repo !== REPOSITORY ? 'repository'
+        : invocations[0].sensitivity !== 'public' ? 'sensitivity' : undefined;
+  if (reason) throw gateFailure('audit-invocation', reason);
+  passed('audit-invocation');
+}
+
+function assertCleanup(workDir, auditDir) {
+  for (const [target, reason] of [
+    [workDir, 'work-dir-present'],
+    [`${workDir}-chroot-home`, 'work-dir-present'],
+    [path.join(auditDir, 'enclave-audit-incomplete.txt'), 'incomplete-audit'],
+  ]) {
+    try { fs.lstatSync(target); }
+    catch (error) {
+      if (error.code === 'ENOENT') continue;
+      throw gateFailure('awf-cleanup', 'io-error');
+    }
+    throw gateFailure('awf-cleanup', reason);
   }
 }
 
@@ -152,6 +227,20 @@ async function main(environment = process.env) {
   let primaryVmResidue;
   let primaryGuestAddress = runtime === 'cloud-hypervisor' ? undefined : PRIMARY_DOCKER_ADDRESS;
   const errors = [];
+  const finalization = {
+    schemaVersion: 1, backend: runtime, agent, resultValidated: false,
+    checks: Object.fromEntries(Object.keys(collector.FINALIZATION_REASONS)
+      .map(gate => [gate, ['not-attempted', 'none']])),
+    primaryFailure: null, secondaryFailures: [],
+  };
+  const passed = gate => { finalization.checks[gate] = ['passed', 'none']; };
+  const failed = (gate, reason, error = gateFailure(gate, reason)) => {
+    errors.push(error);
+    finalization.checks[gate] = ['failed', reason];
+    const classification = { gate, reason };
+    if (!finalization.primaryFailure) finalization.primaryFailure = classification;
+    else finalization.secondaryFailures.push(classification);
+  };
   try {
     const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: workspace, encoding: 'utf8' }).trim();
     if (head !== source) throw new Error('Enclave regression checkout does not match the shared main build');
@@ -228,6 +317,7 @@ async function main(environment = process.env) {
     resultValidated = true;
   } catch (error) {
     failure = error;
+    finalization.primaryFailure = { gate: 'primary', reason: stage };
     const reason = !awf || live.failedSpawns.has(awf) ? 'spawn-failure'
       : awf.signalCode ? 'signal' : awf.exitCode !== null ? 'exit'
         : ['broker', 'gateway-readiness', 'primary-readiness'].includes(stage) ? 'timeout' : 'unknown';
@@ -239,23 +329,56 @@ async function main(environment = process.env) {
         ...live.startupSnapshot(awf, reason, 'initial', 'agent-only', stderr, startupErrorFile),
       });
     } catch {
-      errors.push(new Error('Enclave regression startup diagnostic retention failed'));
+      failed('diagnostic-retention', 'retention-failed');
     }
   } finally {
     if (awf) {
       try {
         fs.writeFileSync(stop, '');
+      } catch { failed('awf-stop', 'stop-request-failed'); }
+      try {
         await live.stopAwf(awf);
-        if (awf.exitCode !== 0) errors.push(new Error('Enclave regression AWF cleanup did not exit successfully'));
-        else if (resultValidated) {
-          assertAudit(path.join(workDir, 'audit/enclave.jsonl'));
+        if (finalization.checks['awf-stop'][0] !== 'failed') passed('awf-stop');
+      } catch { failed('awf-stop', 'stop-failed'); }
+      if (awf.signalCode) failed('awf-exit', 'signal');
+      else if (awf.exitCode === null) failed('awf-exit', 'not-exited');
+      else if (awf.exitCode !== 0) failed('awf-exit', 'nonzero-exit');
+      else passed('awf-exit');
+      if (awf.exitCode !== null || awf.signalCode) {
+        const auditDir = path.join(directory, 'audit');
+        if (resultValidated) {
+          try { assertAudit(path.join(auditDir, 'enclave.jsonl'), passed, directory); }
+          catch (error) { failed(error.gate || 'audit-presence', error.reason || 'io-error'); }
         }
-      } catch (error) { errors.push(error); }
+        try {
+          assertCleanup(workDir, auditDir);
+          passed('awf-cleanup');
+        } catch (error) { failed('awf-cleanup', error.reason || 'io-error'); }
+      }
+    } else {
+      for (const gate of ['awf-stop', 'awf-exit', 'awf-cleanup']) {
+        finalization.checks[gate] = ['not-required', 'none'];
+      }
     }
-    if (gatewayStarted && !live.removeGatewayFixture(identity)) {
-      errors.push(new Error('Enclave regression gateway cleanup failed'));
+    if (gatewayStarted) {
+      try {
+        if (live.removeGatewayFixture(identity)) passed('gateway-cleanup');
+        else failed('gateway-cleanup', 'remove-failed');
+      } catch { failed('gateway-cleanup', 'remove-failed'); }
+    } else finalization.checks['gateway-cleanup'] = ['not-required', 'none'];
+    try {
+      fs.rmSync(stop, { force: true });
+      passed('stop-file-cleanup');
+    } catch { failed('stop-file-cleanup', 'remove-failed'); }
+    finalization.resultValidated = resultValidated;
+    try {
+      if (finalization.checks['diagnostic-retention'][0] !== 'failed') passed('diagnostic-retention');
+      const key = `${environment.GITHUB_RUN_ID}-${environment.GITHUB_RUN_ATTEMPT}`;
+      collector.retainFinalization(path.join('/var/lib/awf-enclave-smoke-export', key), finalization);
+    } catch {
+      failed('diagnostic-retention', 'retention-failed');
     }
-    fs.rmSync(stop, { force: true });
+    process.stderr.write(`AWF_ENCLAVE_REGRESSION_FINALIZATION ${collector.projectFinalization(finalization, runtime)}`);
   }
   if (failure) errors.unshift(failure);
   if (errors.length) throw new AggregateError(errors, 'Enclave regression failed; inspect protected public diagnostics');

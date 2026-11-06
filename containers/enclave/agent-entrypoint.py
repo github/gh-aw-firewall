@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import selectors
 import signal
 import stat
 import subprocess
@@ -867,6 +868,14 @@ def configure_dynamic_github_mcp() -> None:
 
 
 def append_engine_result(completed: subprocess.CompletedProcess) -> tuple[str, str]:
+    if os.environ.get("AWF_ENCLAVE_AGENT_ENGINE") == "claude":
+        # Streaming events include prompts and tool payloads even in public runs.
+        append_event({
+            "event": "engine-result", "exitCode": completed.returncode,
+            "stdout": {"bytes": len(completed.stdout), "sensitivity": "redacted"},
+            "stderr": {"bytes": len(completed.stderr), "sensitivity": "redacted"},
+        })
+        return "", ""
     if PUBLIC_CAPTURE is not None:
         PUBLIC_CAPTURE.append("stdout", completed.stdout)
         PUBLIC_CAPTURE.append("stderr", completed.stderr)
@@ -879,6 +888,126 @@ def append_engine_result(completed: subprocess.CompletedProcess) -> tuple[str, s
         "stderr": summarize_enclave_stream(stderr),
     })
     return stdout, stderr
+
+
+def communicate_claude(process: subprocess.Popen, timeout: float) -> tuple[bytes, bytes]:
+    """Drain streams incrementally, projecting only fixed lifecycle observations."""
+    started = time.monotonic()
+    deadline = started + timeout
+    captured = {"stdout": bytearray(), "stderr": bytearray()}
+    pending = bytearray()
+    discard_line = False
+    seen = set()
+    truncated = False
+
+    def milestone(stage: str, **metadata) -> None:
+        key = (stage, metadata.get("toolError")) if stage == "claude-tool-completed" else stage
+        if key not in seen:
+            seen.add(key)
+            append_progress(stage, runtimeMs=int((time.monotonic() - started) * 1000), **metadata)
+
+    def project(line: bytes) -> None:
+        try:
+            event = json.loads(line)
+        except (ValueError, UnicodeDecodeError, RecursionError):
+            return
+        if not isinstance(event, dict):
+            return
+        kind = event.get("type")
+        if not isinstance(kind, str):
+            return
+        if kind == "system":
+            if event.get("subtype") == "init":
+                mode = event.get("permissionMode")
+                tools = event.get("tools")
+                milestone("claude-initialized",
+                          permissionMode=mode if isinstance(mode, str) and mode in {
+                              "default", "auto", "acceptEdits", "bypassPermissions",
+                          } else "unknown",
+                          shellAvailable=isinstance(tools, list) and "Bash" in tools)
+            elif event.get("subtype") == "permission_denied":
+                milestone("claude-permission-denied")
+            elif event.get("subtype") == "api_retry":
+                status = event.get("error_status")
+                milestone("claude-api-retry",
+                          httpStatus=status if type(status) is int and status in {
+                              400, 401, 403, 404, 408, 429, 500, 502, 503, 504, 529,
+                          } else None)
+        elif kind == "stream_event":
+            payload = event.get("event")
+            if isinstance(payload, dict) and payload.get("type") == "message_start":
+                milestone("claude-response")
+        elif kind in {"assistant", "user"}:
+            message = event.get("message")
+            content = message.get("content") if isinstance(message, dict) else None
+            if kind == "assistant":
+                milestone("claude-response")
+            if isinstance(content, list):
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    if kind == "assistant" and block.get("type") == "tool_use":
+                        milestone("claude-tool-requested")
+                    elif kind == "user" and block.get("type") == "tool_result":
+                        milestone("claude-tool-completed", toolError=block.get("is_error") is True)
+        elif kind == "result":
+            if isinstance(event.get("permission_denials"), list) and event["permission_denials"]:
+                milestone("claude-permission-denied")
+            milestone("claude-result", resultError=event.get("is_error") is True)
+
+    try:
+        with selectors.DefaultSelector() as selector:
+            for name, stream in (("stdout", process.stdout), ("stderr", process.stderr)):
+                selector.register(stream, selectors.EVENT_READ, name)
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(process.args, timeout,
+                                                    bytes(captured["stdout"]), bytes(captured["stderr"]))
+                for key, _ in selector.select(min(remaining, 0.1)):
+                    chunk = os.read(key.fd, 8192)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    name = key.data
+                    milestone("claude-first-byte")
+                    available = MAX_ENGINE_STREAM_BYTES - len(captured[name])
+                    captured[name].extend(chunk[:available])
+                    truncated |= len(chunk) > available
+                    if name != "stdout":
+                        continue
+                    for part in chunk.splitlines(keepends=True):
+                        if not discard_line:
+                            if len(pending) + len(part) <= MAX_ENGINE_STREAM_BYTES:
+                                pending.extend(part)
+                            else:
+                                pending.clear()
+                                discard_line = True
+                        if part.endswith(b"\n"):
+                            if not discard_line:
+                                project(bytes(pending))
+                            pending.clear()
+                            discard_line = False
+            if pending and not discard_line:
+                project(bytes(pending))
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(process.args, timeout,
+                                                bytes(captured["stdout"]), bytes(captured["stderr"]))
+            try:
+                process.wait(timeout=remaining)
+            except subprocess.TimeoutExpired:
+                raise subprocess.TimeoutExpired(process.args, timeout,
+                                                bytes(captured["stdout"]), bytes(captured["stderr"]))
+    finally:
+        try:
+            output_state = "present" if OUT_PATH.stat().st_size else "empty"
+        except OSError:
+            output_state = "unavailable"
+        append_progress("claude-stream-summary",
+                        stdoutObserved=bool(captured["stdout"]), stderrObserved=bool(captured["stderr"]),
+                        captureTruncated=truncated, outputState=output_state)
+    return bytes(captured["stdout"]), bytes(captured["stderr"])
 
 
 def engine_binary(engine: str) -> str:
@@ -934,9 +1063,17 @@ def build_engine_command(engine: str, model: str, prompt: str, log_dir: Path) ->
             prompt,
         ]
     if engine == "claude":
+        permission_prompts = os.environ.get("AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS", "auto")
+        allowed_tools = os.environ.get("AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS", "Read,Glob,Grep")
+        if permission_prompts not in {"auto", "none"} or not allowed_tools \
+                or any(tool not in {"Bash", "Read", "Write", "Edit", "Glob", "Grep"}
+                       for tool in allowed_tools.split(",")):
+            raise ValueError("invalid Claude tool permission policy")
         return [
             CLAUDE_BIN, "--print", "--bare",
-            "--model", model, "--output-format", "text",
+            "--permission-mode", "default", "--permission-prompts", permission_prompts,
+            "--allowedTools", allowed_tools,
+            "--model", model, "--output-format", "stream-json", "--verbose", "--include-partial-messages",
             "--no-session-persistence", "--setting-sources", "",
             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
             "--settings", '{"disableAllHooks":true}',
@@ -1023,12 +1160,12 @@ def main() -> int:
     append_event({
         "event": "session",
         "engine": engine,
-        "sensitivity": "raw-debug" if ALLOW_RAW_SESSION_LOGS else "redacted",
+        "sensitivity": "raw-debug" if ALLOW_RAW_SESSION_LOGS and engine != "claude" else "redacted",
         "taskBytes": len(task.encode("utf-8")),
         "schemaBytes": len(schema_text.encode("utf-8")),
     })
     if not run_preflight(copilot_logs):
-        diagnostics = read_copilot_diagnostics(copilot_logs)
+        diagnostics = "" if engine == "claude" else read_copilot_diagnostics(copilot_logs)
         if diagnostics:
             append_event({"event": "engine-diagnostics", "log": summarize_enclave_stream(diagnostics)})
         append_event({"event": "failure", "category": "engine-failed"})
@@ -1039,7 +1176,11 @@ def main() -> int:
         append_event({"event": "failure", "category": "result-reset-failed"})
         return EXIT_RESULT_RESET_FAILED
 
-    command = build_engine_command(engine, model, build_prompt(task, schema_text), copilot_logs)
+    try:
+        command = build_engine_command(engine, model, build_prompt(task, schema_text), copilot_logs)
+    except ValueError:
+        append_event({"event": "failure", "category": "configuration-invalid"})
+        return EXIT_CONFIGURATION_INVALID
     deadline = time.monotonic() + timeout
     completed = None
     stdout = ""
@@ -1061,27 +1202,36 @@ def main() -> int:
             )
             append_progress("engine-started", attempt=attempt + 1)
             try:
-                process_stdout, process_stderr = process.communicate(timeout=remaining)
-            except subprocess.TimeoutExpired:
+                process_stdout, process_stderr = (
+                    communicate_claude(process, remaining) if engine == "claude"
+                    else process.communicate(timeout=remaining)
+                )
+            except subprocess.TimeoutExpired as error:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
                 process_stdout, process_stderr = process.communicate()
-                if PUBLIC_CAPTURE is not None:
+                if engine == "claude":
+                    process_stdout = ((error.output or b"") + process_stdout)[:MAX_ENGINE_STREAM_BYTES]
+                    process_stderr = ((error.stderr or b"") + process_stderr)[:MAX_ENGINE_STREAM_BYTES]
+                if PUBLIC_CAPTURE is not None and engine != "claude":
                     PUBLIC_CAPTURE.append("stdout", process_stdout)
                     PUBLIC_CAPTURE.append("stderr", process_stderr)
-                append_event({
-                    "event": "engine-result",
-                    "exitCode": None,
-                    "stdout": summarize_enclave_stream(
-                        process_stdout.decode("utf-8", errors="replace").strip()
-                    ),
-                    "stderr": summarize_enclave_stream(
-                        process_stderr.decode("utf-8", errors="replace")
-                    ),
-                })
-                diagnostics = read_copilot_diagnostics(copilot_logs)
+                if engine == "claude":
+                    append_engine_result(subprocess.CompletedProcess(command, None, process_stdout, process_stderr))
+                else:
+                    append_event({
+                        "event": "engine-result",
+                        "exitCode": None,
+                        "stdout": summarize_enclave_stream(
+                            process_stdout.decode("utf-8", errors="replace").strip()
+                        ),
+                        "stderr": summarize_enclave_stream(
+                            process_stderr.decode("utf-8", errors="replace")
+                        ),
+                    })
+                diagnostics = "" if engine == "claude" else read_copilot_diagnostics(copilot_logs)
                 if diagnostics:
                     append_event({"event": "engine-diagnostics", "log": summarize_enclave_stream(diagnostics)})
                 append_resource_snapshot("after-engine", max_output)
@@ -1095,7 +1245,7 @@ def main() -> int:
             )
         except OSError as error:
             safe_os_error(error, "engine-launch")
-            diagnostics = read_copilot_diagnostics(copilot_logs)
+            diagnostics = "" if engine == "claude" else read_copilot_diagnostics(copilot_logs)
             if diagnostics:
                 append_event({"event": "engine-diagnostics", "log": summarize_enclave_stream(diagnostics)})
             append_resource_snapshot("after-engine", max_output)
@@ -1114,7 +1264,7 @@ def main() -> int:
         )
         startup_crash = (
             completed.returncode in {-signal.SIGABRT, -signal.SIGSEGV}
-            and not stdout
+            and not (completed.stdout if engine == "claude" else stdout)
             and runtime < STARTUP_CRASH_WINDOW_SECONDS
         )
         if not startup_crash or attempt == MAX_STARTUP_RETRIES:
@@ -1130,7 +1280,7 @@ def main() -> int:
         return EXIT_DEADLINE_EXCEEDED
 
     if completed.returncode != 0:
-        diagnostics = read_copilot_diagnostics(copilot_logs)
+        diagnostics = "" if engine == "claude" else read_copilot_diagnostics(copilot_logs)
         if diagnostics:
             append_event({"event": "engine-diagnostics", "log": summarize_enclave_stream(diagnostics)})
         append_event({"event": "failure", "category": "engine-failed"})
@@ -1145,7 +1295,7 @@ def main() -> int:
         "event": "output-normalization",
         "inputState": "empty" if not result_bytes else
             "oversized" if len(result_bytes) > max_output else "within-limit",
-        "stdoutState": "present" if stdout else "empty",
+        "stdoutState": "present" if (completed.stdout if engine == "claude" else stdout) else "empty",
     })
     if not result_bytes:
         append_event({"event": "failure", "category": "result-empty"})

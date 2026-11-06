@@ -83,9 +83,9 @@ sudo --preserve-env=COPILOT_GITHUB_TOKEN,OPENAI_API_KEY,ANTHROPIC_API_KEY,AWF_CL
   "$(command -v node)" "$root/dist/cli.js" "${args[@]}" \
   -- bash "$guest_root/scripts/ci/run-agent-regression-guest.sh" "$AGENT" "$marker" \
   2>&1 | tee "$host_logs/awf.log" || status=$?
-evidence_args=("$results" "$staged")
+evidence_args=("$results" "$staged" "$host_logs/awf.log" "$marker")
 if [ "$AGENT" = codex ]; then
-  evidence_args+=("$host_logs/proxy-logs/api-proxy-logs/token-usage.jsonl")
+  evidence_args+=("$host_logs/proxy-logs/api-proxy-logs/token-tracker-audit.jsonl")
 fi
 AWF_COLLECT_AGENT_REGRESSION_EVIDENCE=1 node -e "$collector" "${evidence_args[@]}"
 printf '%s\n' "$SOURCE_SHA" > "$staged/source-sha.txt"
@@ -94,20 +94,24 @@ if [ "$status" -ne 0 ]; then
   exit "$status"
 fi
 # Neither a model's claimed PASS nor a noop can satisfy these checks.
-if [ ! -f "$staged/agent-proof.txt" ] || [ "$(cat "$staged/agent-proof.txt")" != "$marker" ]; then
-  echo "::error::Missing or incorrect agent-written workspace proof"
-  exit 1
-fi
-if [ "$(cat "$staged/response.txt")" != "$marker" ] ||
-   ! grep -Fxq 'AWF-REGRESSION-COMPLETE' "$host_logs/awf.log"; then
-  echo "::error::Missing exact inference response or guest completion marker"
-  exit 1
-fi
+node -e '
+  const report = require(process.argv[1]);
+  console.log("Marker check: " + JSON.stringify(report));
+  if (report.proof !== "match") {
+    console.error("Missing or incorrect agent-written workspace proof");
+    process.exit(1);
+  }
+  if (report.response !== "match" || !["match-lf", "match-crlf"].includes(report.completion)) {
+    console.error("Missing exact inference response or guest completion marker");
+    process.exit(1);
+  }
+' "$staged/marker-check.json"
 if [ "$AGENT" = codex ]; then
   node -e '
     const report = require(process.argv[1]);
-    if (!report.requests.some(request => request.status === 101 || request.status === 200)) {
-      console.error("Missing successful Codex inference through api-proxy");
+    if (report.status !== "successful") {
+      console.error("Missing successful Codex inference through api-proxy: " +
+        report.status + "; " + JSON.stringify(report.diagnostics));
       process.exit(1);
     }
   ' "$staged/codex-routing.json"

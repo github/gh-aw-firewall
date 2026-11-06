@@ -250,7 +250,13 @@ acceptance('Docker enclave pinned Codex shell execution', () => {
         const auditDir = path.join(directory, 'audit');
         expect(preserveInvocationSession(path.join(invocation, 'session.jsonl'), auditDir, invocationId))
           .toBe(true);
-        expect(fs.existsSync(path.join(auditDir, 'sessions'))).toBe(false);
+        expect(fs.existsSync(path.join(auditDir, 'raw-debug-sessions'))).toBe(false);
+        const exportedSession = fs.readFileSync(
+          path.join(auditDir, 'sessions', `${invocationId}.jsonl`), 'utf8',
+        );
+        expect(exportedSession).not.toContain(privateSentinel);
+        expect(exportedSession).not.toContain(JSON.stringify(command).slice(1, -1));
+        expect(exportedSession).not.toContain(task.expected.proof);
         expect(JSON.stringify(events)).not.toContain('bwrap:');
         expect(JSON.stringify(events)).not.toContain(JSON.stringify(command).slice(1, -1));
         expect(JSON.stringify(events)).not.toContain(task.expected.proof);
