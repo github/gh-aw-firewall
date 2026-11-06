@@ -58,7 +58,18 @@ function normalizeCopilotPricing(entry) {
   if (!tokenPrices || typeof tokenPrices !== 'object') return null;
   const batchSize = tokenPrices.batch_size;
   if (batchSize === undefined || batchSize === null) return null;
-  if (exact.compare(exact.decimal(batchSize), exact.ZERO) <= 0) throw new Error('pricing_decimal_invalid_batch');
+  if (exact.compare(exact.decimal(batchSize), exact.ZERO) === 0) {
+    const tiers = [tokenPrices.default ?? tokenPrices];
+    if (tokenPrices.long_context != null) tiers.push(tokenPrices.long_context);
+    // Copilot advertises unavailable tariffs with a zero batch and zero prices.
+    // They are missing pricing, not evidence that the model is free.
+    if (tiers.every(tier => {
+      const normalized = normalizeTier(tier, 1, 'aiu');
+      return normalized && ['input', 'output', 'cachedInput', 'cacheWrite'].every(field =>
+        Object.hasOwn(normalized, field) && exact.compare(exact.rate(normalized, field), exact.ZERO) === 0);
+    })) return null;
+    throw new Error('pricing_decimal_invalid_batch');
+  }
 
   let defaultTier;
   let longContext;

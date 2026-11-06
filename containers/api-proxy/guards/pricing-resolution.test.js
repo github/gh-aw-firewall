@@ -14,7 +14,8 @@ const { applyAiCreditsUsage, resetAiCreditsGuardForTests, getAiCreditsReflectSta
   getAiCreditsBlockState, isModelPriceable, checkModelPricing } = require('./ai-credits-guard');
 const { buildCommonGuardChecks } = require('./common-guard-checks');
 const { collectLogOutput } = require('../test-helpers/log-test-helpers');
-const { clearRuntimeModels, replaceRuntimeModels, captureRuntimePricing } = require('../runtime-model-catalog');
+const { clearRuntimeModels, replaceRuntimeModels, captureRuntimePricing,
+  parseProviderModelMetadata } = require('../runtime-model-catalog');
 
 const at = '2026-11-01T00:00:00Z';
 const rates = { input: 2, cachedInput: 0, cacheWrite: null, output: 4 };
@@ -236,6 +237,29 @@ test('selector/default/sentinel and concrete-unpriced accounting retain warnings
   expect(isModelPriceable('concrete-unpriced', 'copilot', { catalogue: null })).toBe(true);
   expect(getAiCreditsReflectState()).toEqual(before);
 });
+
+test.each(['gpt-4o', 'gpt-4o-mini', 'gpt-4.1'])(
+  'zero-batch Copilot model %s uses fallback accounting without disabling budgets',
+  model => {
+    replaceRuntimeModels('copilot', parseProviderModelMetadata('copilot', { data: [{
+      id: model, billing: { token_prices: { batch_size: 0, default: {
+        input_price: 0, output_price: 0, cache_read_price: 0, cache_write_price: 0,
+      } } },
+    }] }));
+    process.env.AWF_MAX_AI_CREDITS = '1';
+    expect(checkModelPricing(model, 'copilot', { catalogue: null })).toBeNull();
+    const estimated = charge(model);
+    expect(estimated).toMatchObject({
+      pricingSource: 'median_estimate', accountingPolicy: 'backend_median_estimate',
+      fallbackPricingUsed: true,
+    });
+    expect(estimated.aiCreditsThisResponse).toBeGreaterThan(1);
+    expect(getAiCreditsBlockState().maxExceeded).toBe(true);
+    expect(logs.lines.filter(line => line.event === 'estimated_model_ai_credits_pricing')).toHaveLength(1);
+    process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify(rates);
+    expect(charge(model)).toMatchObject({ pricingSource: 'configured_default', aiCreditsThisResponse: 200 });
+  },
+);
 
 test('capture is reused once and immutable request runtime pricing survives replacement', () => {
   replaceRuntimeModels('copilot', runtime().copilot);

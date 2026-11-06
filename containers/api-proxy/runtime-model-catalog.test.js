@@ -122,6 +122,60 @@ describe('runtime model catalog', () => {
     });
   });
 
+  it.each(['tiered', 'legacy', 'long-context'])(
+    'treats a zero-batch all-zero %s tariff as missing pricing, not free',
+    format => {
+      const prices = { input_price: 0, output_price: '0', cache_read_price: '0.0', cache_write_price: 0 };
+      const tokenPrices = format === 'legacy'
+        ? { batch_size: 0, ...prices }
+        : { batch_size: '0', default: prices,
+          ...(format === 'long-context' ? { long_context: prices } : {}) };
+      const records = parseProviderModelMetadata('copilot', {
+        data: [{ id: 'gpt-4o', billing: { token_prices: tokenPrices } }],
+      });
+      expect(records[0]).not.toHaveProperty('pricing');
+      expect(records[0]).not.toHaveProperty('pricingError');
+      replaceRuntimeModels('copilot', records);
+      expect(resolveRuntimePricing('copilot', 'gpt-4o')).toBeNull();
+      expect(getRuntimeCatalogSnapshot().copilot[0]).not.toHaveProperty('pricing_error');
+    },
+  );
+
+  it.each([
+    { batch_size: -1 },
+    { batch_size: 'invalid' },
+    { default: { input_price: '1e-350' } },
+    { default: { output_price: 1 } },
+    { default: { cache_read_price: -1 } },
+    { default: { cache_write_price: 'invalid' } },
+    { default: { input_price: null } },
+    { default: { cache_write_price: undefined } },
+    { long_context: { input_price: 1, output_price: 0 } },
+  ])('keeps malformed zero-batch tariffs fail-closed: %j', overrides => {
+    const prices = { input_price: 0, output_price: 0, cache_read_price: 0, cache_write_price: 0 };
+    const records = parseProviderModelMetadata('copilot', {
+      data: [{ id: 'invalid-tariff', billing: { token_prices: {
+        batch_size: 0, ...overrides, default: { ...prices, ...overrides.default },
+      } } }],
+    });
+    expect(records[0].pricingError).toBe(true);
+    replaceRuntimeModels('copilot', records);
+    expect(() => resolveRuntimePricing('copilot', 'invalid-tariff'))
+      .toThrow('pricing_resolution_invalid_tariff');
+  });
+
+  it('still treats explicit zero prices with a positive batch as a valid free tariff', () => {
+    replaceRuntimeModels('copilot', parseProviderModelMetadata('copilot', {
+      data: [{ id: 'free-model', billing: { token_prices: {
+        batch_size: 1, default: {
+          input_price: 0, output_price: 0, cache_read_price: 0, cache_write_price: 0,
+        },
+      } } }],
+    }));
+    expect(resolveRuntimePricing('copilot', 'free-model').pricing)
+      .toEqual({ input: 0, output: 0, cachedInput: 0, cacheWrite: 0 });
+  });
+
   it('exposes an advertised promotion without applying it to pricing', () => {
     const records = parseProviderModelMetadata('copilot', {
       data: [{

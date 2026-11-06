@@ -185,6 +185,50 @@ describe('getModelPolicyBlockState', () => {
     expect(check.statusCode).toBe(403);
   });
 
+  it.each([
+    ['gpt-4o', 'model_policy_violation', 403, 'disallowed'],
+    ['gpt-4o-mini', 'model_policy_violation', 403, 'not_allowed'],
+    ['gpt-4.1', 'pricing_resolution_error', 500, undefined],
+  ])('preserves the guard decision for %s when pricing fails', (model, eventName, statusCode, reason) => {
+    process.env.AWF_ALLOWED_MODELS = JSON.stringify(['gpt-4o', 'gpt-4.1']);
+    process.env.AWF_DISALLOWED_MODELS = JSON.stringify(['gpt-4o']);
+    const guard = loadGuard();
+    const { buildCommonGuardChecks } = require('./common-guard-checks');
+    const check = buildCommonGuardChecks({
+      ...guard,
+      getMaxRunsBlockState: () => null,
+      getMaxCacheMissesBlockState: () => null,
+      getPermissionDeniedBlockState: () => null,
+      getAiCreditsBlockState: () => null,
+      getModelMultiplierCapBlockState: () => null,
+      getRetiredModelBlockState: () => null,
+      checkModelPricing: () => ({ error: { type: 'pricing_resolution_error' } }),
+    }, model, 'copilot').find(entry => entry.isBlocked(entry.block));
+    expect(check.eventName).toBe(eventName);
+    expect(check.statusCode).toBe(statusCode);
+    expect(check.buildError(check.block).error.type).toBe(eventName);
+    if (reason) expect(check.block.reason).toBe(reason);
+  });
+
+  it.each([
+    ['getModelMultiplierCapBlockState', 'model_multiplier_cap_exceeded', 400],
+    ['getRetiredModelBlockState', 'retired_model', 400],
+  ])('prioritizes %s over pricing failures', (getter, eventName, statusCode) => {
+    const { buildCommonGuardChecks } = require('./common-guard-checks');
+    const deps = Object.fromEntries([
+      'getMaxRunsBlockState', 'getMaxCacheMissesBlockState', 'getPermissionDeniedBlockState',
+      'getAiCreditsBlockState', 'getModelMultiplierCapBlockState', 'getRetiredModelBlockState',
+      'getModelPolicyBlockState',
+    ].map(name => [name, () => null]));
+    const check = buildCommonGuardChecks({
+      ...deps,
+      [getter]: () => ({ model: 'gpt-4o' }),
+      checkModelPricing: () => ({ error: { type: 'pricing_resolution_error' } }),
+    }, 'gpt-4o', 'copilot').find(entry => entry.isBlocked(entry.block));
+    expect(check.eventName).toBe(eventName);
+    expect(check.statusCode).toBe(statusCode);
+  });
+
   describe('no policy configured', () => {
     it('should return null for any model', () => {
       const guard = loadGuard();

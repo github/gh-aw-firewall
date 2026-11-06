@@ -58,8 +58,6 @@ function buildCommonGuardChecks(deps, model, provider = null) {
     buildModelPolicyError,
   } = deps;
 
-  const pricingError = checkModelPricing(model, provider);
-
   return [
     {
       block: getMaxRunsBlockState(),
@@ -111,14 +109,6 @@ function buildCommonGuardChecks(deps, model, provider = null) {
         hard_cap: block.hardCap === true,
       }),
     },
-    {
-      block: pricingError,
-      isBlocked: block => !!block,
-      statusCode: 500,
-      eventName: 'pricing_resolution_error',
-      buildError: block => block,
-      buildLogFields: () => ({ reason: 'accounting_unavailable' }),
-    },
     // Model-specific guards — only active when a model was identified in the request.
     ...(model ? [
       {
@@ -156,6 +146,14 @@ function buildCommonGuardChecks(deps, model, provider = null) {
         }),
       },
     ] : []),
+    {
+      block: checkModelPricing(model, provider),
+      isBlocked: block => !!block,
+      statusCode: 500,
+      eventName: 'pricing_resolution_error',
+      buildError: block => block,
+      buildLogFields: () => ({ reason: 'accounting_unavailable' }),
+    },
   ];
 }
 
