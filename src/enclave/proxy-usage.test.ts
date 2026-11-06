@@ -89,6 +89,23 @@ describe('bounded dedicated enclave proxy usage evidence', () => {
     });
   });
 
+  it.each([101, 401, null])('accepts the WS upstream observation %s without changing usage accounting', async status => {
+    write(audit, [
+      { event: 'WS_TRACK_START' },
+      { event: 'WS_UPSTREAM_RESPONSE', status, path: '/PRIVATE_PATH', rid: 'PRIVATE_ID' },
+      { event: 'WS_TRACK_END', result: 'no_usage' },
+    ]);
+    expect((await read()).requests).toEqual({
+      status: 'captured', records: 3, trackedResponses: 0, websocketSessions: 1,
+      statuses: {}, results: { no_usage: 1 },
+    });
+  });
+
+  it.each([undefined, '101', -1, 999])('rejects malformed WS upstream status %s', async status => {
+    write(audit, [{ event: 'WS_UPSTREAM_RESPONSE', status }]);
+    expect((await read()).requests).toEqual({ status: 'malformed' });
+  });
+
   it.each(['json', 'utf8', 'partial', 'negative', 'fraction', 'overflow', 'unknown-event', 'unknown-result',
     'invalid-status'])('marks %s malformed rather than retaining partial totals', async kind => {
     write(tokens, [usage]);

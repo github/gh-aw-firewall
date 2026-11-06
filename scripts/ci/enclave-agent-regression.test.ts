@@ -8,14 +8,21 @@ import Ajv2020 from 'ajv/dist/2020';
 import { normalizeEnclavesConfig } from '../../src/parsers/enclave-parser';
 import { validateRunSandboxBackend } from '../../src/enclave/run-backend';
 import type { WrapperConfig } from '../../src/types';
+import { removeWorkDirectories } from '../../src/artifact-preservation';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { configuration, probe, assertAudit } = require('./run-enclave-agent-regression');
 const live = require('./cloud-hypervisor-enclave-live-smoke');
+const collector = require('./collect-enclave-smoke-debug.cjs');
+const { createProtectedAuditLog } = require('../../containers/bounded-execution/protected-audit');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const root = path.resolve(__dirname, '../..');
 const source = 'a'.repeat(40);
+const invocation = {
+  ts: '2026-01-01T00:00:00.000Z', kind: 'invocation', invocationId: 'b'.repeat(24),
+  repo: 'github/gh-aw-firewall', sensitivity: 'public', bits: 0, bucketMs: 30_000,
+};
 const agents = ['copilot', 'codex', 'claude'];
 const runtimes = ['docker', 'cloud-hypervisor'];
 const oidcKeys = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -334,19 +341,29 @@ describe.each(agents)('%s launch orchestration', agent => {
     jest.restoreAllMocks();
     fs.rmSync(directory, { recursive: true, force: true });
   });
-  async function launch(runtime: string, failure?: Error) {
+  async function launch(runtime: string, failure?: Error, options: {
+    audit?: string; missingAudit?: boolean; incomplete?: boolean; keepWork?: boolean; keepChrootHome?: boolean;
+    stopFailure?: boolean; exitCode?: number | null; signal?: string;
+    gatewayFailure?: boolean; gatewayThrow?: boolean; retentionFailure?: boolean;
+    stopFileFailure?: boolean; stopRequestFailure?: boolean;
+  } = {}) {
     const child = { exitCode: failure ? 1 : null as number | null, signalCode: null };
     const primaryVm = {
       namespaces: ['awfvm-0123456789ab'], processes: [{ pid: '123', startTime: '456' }],
       cgroups: [{ name: 'primary', device: 1, inode: 789 }],
     };
     const retained = jest.fn();
+    const finalized = jest.fn((_directory: string, _record: ReturnType<typeof JSON.parse>) => {
+      if (options.retentionFailure) throw new Error('PRIVATE_RETENTION');
+    });
     let config: ReturnType<typeof configuration>;
+    let workDirectory: string;
     const fixture = {
       ...live,
       startGatewayFixture: jest.fn(({ onStarted }) => { onStarted(); return { endpoint: 'fixture-only' }; }),
       spawnAwf: jest.fn((args: string[]) => {
         config = JSON.parse(fs.readFileSync(args[args.indexOf('--config') + 1], 'utf8'));
+        workDirectory = args[args.indexOf('--work-dir') + 1];
         return child;
       }),
       waitForBroker: jest.fn(async () => { if (failure) throw failure; }),
@@ -368,21 +385,55 @@ describe.each(agents)('%s launch orchestration', agent => {
       parsePublicToolResult: jest.fn(response => response.result.structuredContent),
       emitStartupDiagnostic: jest.fn(),
       stopAwf: jest.fn(async () => {
-        child.exitCode = 0;
-        fs.mkdirSync(config.logging.auditDir, { recursive: true });
-        fs.writeFileSync(path.join(config.logging.auditDir, 'enclave.jsonl'),
-          JSON.stringify({ kind: 'invocation', repo: 'github/gh-aw-firewall', sensitivity: 'public' }));
+        if (options.stopFailure) throw new Error('PRIVATE_STOP');
+        child.exitCode = options.exitCode === undefined ? 0 : options.exitCode;
+        if (options.signal) (child as { signalCode: string | null }).signalCode = options.signal;
+        fs.mkdirSync(config.logging.auditDir, { recursive: true, mode: 0o700 });
+        if (!options.missingAudit) {
+          const audit = createProtectedAuditLog(config.logging.auditDir);
+          audit.lifecycle('listening', { executors: ['agent'] });
+          audit.invocation(invocation);
+          const file = path.join(config.logging.auditDir, 'enclave.jsonl');
+          if (options.audit !== undefined) fs.writeFileSync(file, options.audit);
+          fs.chmodSync(file, 0o644);
+        }
+        if (options.incomplete) fs.writeFileSync(
+          path.join(config.logging.auditDir, 'enclave-audit-incomplete.txt'), 'PRIVATE_CLEANUP');
+        if (!options.keepWork) removeWorkDirectories(workDirectory);
+        if (options.stopFileFailure) {
+          const stop = path.join(directory, '.awf-enclave-regression-stop');
+          fs.rmSync(stop, { force: true });
+          fs.mkdirSync(stop);
+        }
+        if (options.keepChrootHome) fs.mkdirSync(`${workDirectory}-chroot-home`, { mode: 0o700 });
       }),
-      removeGatewayFixture: jest.fn(() => true),
+      removeGatewayFixture: jest.fn(() => {
+        if (options.gatewayThrow) throw new Error('PRIVATE_GATEWAY');
+        return !options.gatewayFailure;
+      }),
     };
     let main: (environment: Record<string, string>) => Promise<void>;
-    jest.spyOn(process, 'getuid').mockReturnValue(0);
+    jest.spyOn(process, 'getuid').mockReturnValueOnce(0);
+    if (options.stopRequestFailure) {
+      const request = fixture.requestMcp;
+      request.mockImplementation(async (...args: unknown[]) => {
+        const id = args[2];
+        const params = args[4] as { arguments: { schema: { fields: Record<string, { value: unknown }> } } };
+        if (id !== 3) return {};
+        fs.mkdirSync(path.join(directory, '.awf-enclave-regression-stop'));
+        return { result: { structuredContent: { status: 'ok', result: Object.fromEntries(
+          Object.entries(params.arguments.schema.fields).map(([name, field]) =>
+            [name, (field as { value: unknown }).value])) } } };
+      });
+    }
     jest.isolateModules(() => {
       jest.doMock('node:child_process', () => ({
         ...jest.requireActual('node:child_process'), execFileSync: () => source,
       }));
       jest.doMock('./cloud-hypervisor-enclave-live-smoke', () => fixture);
-      jest.doMock('./collect-enclave-smoke-debug.cjs', () => ({ retainStartup: retained }));
+      jest.doMock('./collect-enclave-smoke-debug.cjs', () => ({
+        ...collector, retainStartup: retained, retainFinalization: finalized,
+      }));
       main = require('./run-enclave-agent-regression').main;
     });
     let error: (Error & { errors: unknown[] }) | undefined;
@@ -394,10 +445,10 @@ describe.each(agents)('%s launch orchestration', agent => {
         COPILOT_GITHUB_TOKEN: 'fixture-only', OPENAI_API_KEY: 'fixture-only', ANTHROPIC_API_KEY: 'fixture-only',
       });
     } catch (caught) { error = caught as Error & { errors: unknown[] }; }
-    return { fixture, retained, error };
+    return { fixture, retained, finalized, error };
   }
   it.each(runtimes)('reaches readiness and validates exactly one %s invocation before cleanup', async runtime => {
-    const { fixture, retained, error } = await launch(runtime);
+    const { fixture, retained, finalized, error } = await launch(runtime);
     expect(error).toBeUndefined();
     expect(fixture.waitForBroker).toHaveBeenCalledTimes(1);
     expect(fixture.waitForHostGatewayReadiness).toHaveBeenCalledTimes(1);
@@ -418,6 +469,14 @@ describe.each(agents)('%s launch orchestration', agent => {
     expect(fixture.stopAwf).toHaveBeenCalledTimes(1);
     expect(fixture.removeGatewayFixture).toHaveBeenCalledTimes(1);
     expect(retained).not.toHaveBeenCalled();
+    expect(finalized).toHaveBeenCalledWith('/var/lib/awf-enclave-smoke-export/123-1',
+      expect.objectContaining({ resultValidated: true, primaryFailure: null, secondaryFailures: [] }));
+    expect(Object.values(finalized.mock.calls[0][1].checks)).toEqual(
+      Object.keys(collector.FINALIZATION_REASONS).map(() => ['passed', 'none']));
+    const audit = path.join(path.dirname(fixture.spawnAwf.mock.calls[0][0][
+      fixture.spawnAwf.mock.calls[0][0].indexOf('--config') + 1]), 'audit', 'enclave.jsonl');
+    expect(fs.existsSync(audit)).toBe(true);
+    expect(fs.existsSync(path.join(path.dirname(path.dirname(audit)), 'work'))).toBe(false);
   });
   it('keeps the original launch failure and captures its startup record before cleanup', async () => {
     const failure = new Error('private original launch failure');
@@ -430,19 +489,117 @@ describe.each(agents)('%s launch orchestration', agent => {
     expect(fixture.requestMcp).not.toHaveBeenCalled();
     expect(fixture.stopAwf).toHaveBeenCalledTimes(1);
   });
+  it.each([
+    [{ stopFailure: true }, 'awf-stop', 'stop-failed'],
+    [{ exitCode: 1 }, 'awf-exit', 'nonzero-exit'],
+    [{ exitCode: null }, 'awf-exit', 'not-exited'],
+    [{ exitCode: null, signal: 'SIGTERM' }, 'awf-exit', 'signal'],
+    [{ missingAudit: true }, 'audit-presence', 'missing'],
+    [{ audit: '{"PRIVATE_INVALID":' }, 'audit-schema', 'invalid'],
+    [{ audit: JSON.stringify({ ...invocation, invocationId: 1234567890123456 }) }, 'audit-schema', 'invalid'],
+    [{ audit: JSON.stringify(invocation) + '\n' + JSON.stringify(invocation) }, 'audit-invocation', 'count'],
+    [{ audit: JSON.stringify({ ...invocation, sensitivity: 'internal' }) }, 'audit-invocation', 'sensitivity'],
+    [{ audit: JSON.stringify({ ...invocation, repo: 'private/repository' }) }, 'audit-invocation', 'repository'],
+    [{ audit: JSON.stringify(invocation) + '\n' + JSON.stringify({
+      ts: invocation.ts, kind: 'failure', reason: 'PRIVATE_FAILURE',
+    }) }, 'audit-invocation', 'failure-record'],
+    [{ incomplete: true }, 'awf-cleanup', 'incomplete-audit'],
+    [{ keepWork: true }, 'awf-cleanup', 'work-dir-present'],
+    [{ keepChrootHome: true }, 'awf-cleanup', 'work-dir-present'],
+    [{ gatewayFailure: true }, 'gateway-cleanup', 'remove-failed'],
+    [{ gatewayThrow: true }, 'gateway-cleanup', 'remove-failed'],
+    [{ stopFileFailure: true }, 'stop-file-cleanup', 'remove-failed'],
+    [{ stopRequestFailure: true }, 'awf-stop', 'stop-request-failed'],
+    [{ retentionFailure: true }, 'diagnostic-retention', 'retention-failed'],
+  ] as const)('rejects post-result gate %s', async (options, gate, reason) => {
+    const stderr = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const { fixture, finalized, error } = await launch('docker', undefined, options);
+    expect(error).toBeDefined();
+    expect(fixture.requestMcp).toHaveBeenCalledTimes(3);
+    expect(fixture.removeGatewayFixture).toHaveBeenCalledTimes(1);
+    const record = finalized.mock.calls[0][1];
+    expect(record.resultValidated).toBe(true);
+    expect(record.checks[gate]).toEqual(['failed', reason]);
+    expect(record.primaryFailure).toEqual({ gate, reason });
+    expect(stderr.mock.calls.map(call => call[0]).join('')).not.toMatch(/PRIVATE_|private\/repository/);
+    expect(record.primaryFailure.gate).not.toBe('primary');
+  });
+  it('keeps primary invocation failure separate from all subsequent cleanup failures', async () => {
+    const failure = new Error('PRIVATE_PRIMARY');
+    const { finalized, error } = await launch('docker', failure, { exitCode: 1, gatewayFailure: true });
+    expect(error!.errors[0]).toBe(failure);
+    expect(finalized.mock.calls[0][1]).toMatchObject({
+      primaryFailure: { gate: 'primary', reason: 'broker' },
+      secondaryFailures: [
+        { gate: 'awf-exit', reason: 'nonzero-exit' }, { gate: 'gateway-cleanup', reason: 'remove-failed' },
+      ],
+    });
+  });
+  it('keeps the first post-result failure separate from later gateway cleanup failure', async () => {
+    const { finalized, error } = await launch('docker', undefined, { missingAudit: true, gatewayFailure: true });
+    expect(error).toBeDefined();
+    expect(finalized.mock.calls[0][1]).toMatchObject({
+      resultValidated: true, primaryFailure: { gate: 'audit-presence', reason: 'missing' },
+      secondaryFailures: [{ gate: 'gateway-cleanup', reason: 'remove-failed' }],
+    });
+  });
 });
 
 it('fails unless exactly one audited public invocation succeeds', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-enclave-regression-test-'));
   const file = path.join(directory, 'audit.jsonl');
-  const invocation = { kind: 'invocation', repo: 'github/gh-aw-firewall', sensitivity: 'public' };
   try {
-    fs.writeFileSync(file, JSON.stringify(invocation));
+    fs.writeFileSync(file, JSON.stringify(invocation), { mode: 0o600 });
     expect(() => assertAudit(file)).not.toThrow();
-    for (const records of [[], [invocation, invocation], [invocation, { kind: 'failure' }],
-      [{ ...invocation, sensitivity: 'internal' }]]) {
+    for (const records of [[], [invocation, invocation], [invocation, { ts: invocation.ts, kind: 'failure', reason: 'failed' }],
+      [{ ...invocation, sensitivity: 'internal' }], [{ kind: 'invocation', repo: invocation.repo, sensitivity: 'public' }],
+      [{ ...invocation, invocationId: 1234567890123456 }],
+      [{ ...invocation, invocationId: ['b'.repeat(24)] }],
+      [null], ['invalid'], [{ ...invocation, bits: -1 }], [{ ...invocation, bucketMs: 0 }]]) {
       fs.writeFileSync(file, records.map(record => JSON.stringify(record)).join('\n'));
       expect(() => assertAudit(file)).toThrow();
     }
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
+
+it.each(['symlink', 'hardlink', 'permissions', 'oversize', 'ancestor-symlink', 'owner', 'replacement'])(
+  'rejects unsafe audit %s', kind => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-audit-safety-'));
+    const file = path.join(directory, 'audit.jsonl');
+    try {
+      fs.writeFileSync(file, JSON.stringify(invocation), { mode: 0o600 });
+      let target = file;
+      if (kind === 'symlink') { fs.renameSync(file, file + '.real'); fs.symlinkSync(file + '.real', file); }
+      else if (kind === 'hardlink') fs.linkSync(file, file + '.link');
+      else if (kind === 'permissions') fs.chmodSync(file, 0o666);
+      else if (kind === 'oversize') fs.truncateSync(file, 1024 * 1024 + 1);
+      else if (kind === 'ancestor-symlink') {
+        fs.symlinkSync(directory, directory + '-alias');
+        target = path.join(directory + '-alias', 'audit.jsonl');
+      } else {
+        const mutableFs = require('node:fs');
+        const fstat = mutableFs.fstatSync;
+        jest.spyOn(mutableFs, 'fstatSync').mockImplementation((...args: unknown[]) => {
+          const stat = fstat(...args);
+          return kind === 'owner' ? Object.assign(stat, { uid: stat.uid + 1 }) : stat;
+        });
+        if (kind === 'replacement') {
+          const read = mutableFs.readSync;
+          jest.spyOn(mutableFs, 'readSync').mockImplementation((...args: unknown[]) => {
+            const size = read(...args);
+            fs.renameSync(file, file + '.old');
+            fs.writeFileSync(file, JSON.stringify(invocation), { mode: 0o600 });
+            return size;
+          });
+        }
+      }
+      expect(() => assertAudit(target)).toThrow(expect.objectContaining({
+        gate: 'audit-presence', reason: 'unsafe',
+      }));
+    } finally {
+      jest.restoreAllMocks();
+      fs.rmSync(directory + '-alias', { force: true });
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);

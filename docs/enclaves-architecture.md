@@ -278,6 +278,23 @@ AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave
 
 - **Script executor** — `enclave_run_script` runs a bounded Python script in a no-network, read-only, single-use sandbox.
 - **Agent executor** — `enclave_run_agent` runs pinned Copilot, Codex, or Claude in a bounded single-use enclave. Codex requires the `openai` profile and Claude requires `anthropic`. Its mandatory peer is the dedicated API proxy; only the selected provider route is configured and real credentials remain outside the enclave. Copilot's `agent.tools.github` (or the deprecated legacy `agent.github.cli: issues-read-v1` marker) also permits a direct connection to compiler-owned shared mcpg. GitHub MCP and dynamic repository admission remain Copilot-only and fail closed for the other engines.
+
+Claude defaults to `default` permission mode, `auto` permission prompts, and
+pre-approved read-only Read, Glob, and Grep tools. Trusted launchers can explicitly
+opt in to unattended shell/file writes by setting
+`AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS=none` and
+`AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS=Bash,Read,Write,Edit,Glob,Grep` in the
+enclave entrypoint environment. Allowed tools must be drawn from that native
+tool set; permission mode remains `default`. These approvals do not bypass the
+enclave's filesystem, capability, or network restrictions.
+Its streaming output is projected onto bounded, deduplicated
+`claude-*` lifecycle milestones (initialization, provider response/retry, tool
+request/completion, permission denial, result, and stream/output presence).
+Prompts, headers, tool inputs/results, and model text are never retained in
+Claude diagnostics, including public/raw-debug runs. A provider response is not
+proof of successful tool execution; a result event is not the result channel.
+The unchanged deadline and schema-validated `/awf/out` contract still apply:
+silent exits and no-output timeouts remain explicit failures.
 - **Shared controls** — the `repos` lists of the `enclaves` entries form the only trusted repository catalog; script and agent calls debit the same per-run repository ledger and share one admission lane.
 
 > **Terminology.** *Executor* and *enclave* are distinct, and this document uses
@@ -333,42 +350,26 @@ Every enclave invocation writes a bounded, per-invocation transcript
 (`session.jsonl`) inside the enclave. Host-owned Docker execution keeps this
 file inside the bounded private allocation and destroys it during cleanup;
 it is not returned through the host protocol or exported as an artifact.
-On the legacy container-runner path, the broker copies it verbatim into
-`<auditDir>/enclave-agent-sessions/<invocationId>.jsonl` and the CLI exposes
+On the legacy container-runner path, the broker projects it onto closed metadata
+before writing `<auditDir>/sessions/<invocationId>.jsonl`; the CLI exposes this
 under `sandbox/firewall/audit/enclave-agent-sessions/` when audit artifacts
 are preserved or uploaded. Because the enclave can read confidential
 repository content under the invocation's disclosure budget, this transcript
 crosses the enclave boundary and must never carry that content past it.
 
-The enclave entrypoint (`containers/enclave/agent-entrypoint.py`) enforces
-this by construction:
+The enclave can overwrite its session file, so entrypoint redaction is not a
+trust boundary. The broker and host share
+`containers/enclave/agent-executor/session-diagnostics.js`, which accepts only
+bounded lifecycle metadata with closed event, stage, path, and error vocabularies.
+Unknown fields, arbitrary strings, stream contents, hashes, and stream payload
+sizes are dropped before any export, including public retained-session callbacks
+and `enclave-session.log`. Malformed JSON and invalid UTF-8 yield only closed
+diagnostic status metadata. Reads reject unsafe files and sessions over 1 MiB.
 
-- Lifecycle events (`progress`, `session`, `preflight`, `resource-snapshot`,
-  `operation-error`, `failure`, `success`) only ever contain fixed
-  identifiers, exit codes, byte counts, durations, and sanitized OS error
-  categories — none of these fields carry free-form enclave output.
-- Events that would otherwise carry free-form text — `engine-result`'s
-  `stdout`/`stderr` and `engine-diagnostics`'s `log` (raw Copilot CLI output,
-  which can include tool results, file contents, or model transcripts) — are
-  replaced by default with `{ bytes, sha256, sensitivity: "redacted" }`. The
-  byte count and hash are enough to correlate identical failures across
-  invocations without disclosing their contents.
-- Raw (but still secret-redacted via `redact_diagnostics`) text is restored
-  only when the broker sets the privileged, non-caller-controlled
-  `AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS=true` environment variable on the
-  enclave container. Eligible, positively verified public-only host execution
-  uses this trusted setting for protected retention; private, mixed, dynamic,
-  custom-image and unsupported-runtime scopes cannot enable it. The broker marks
-  these transcripts and segregates them under its private
-  `raw-debug-sessions/` directory instead of `sessions/`; the CLI's audit
-  collector copies only `sessions/`, so raw-debug transcripts are never
-  included in the normal workflow artifact path.
-- This redaction applies uniformly on every exit path: normal completion,
-  timeouts, cancellations, engine failures, malformed output, and
-  configuration errors all route through `append_engine_result`,
-  `read_copilot_diagnostics`, or the fixed `failure`/`operation-error`
-  shapes above. Outside authorized public-only debugging, there is no code path
-  that appends raw enclave text to the transcript.
+Guest-controlled `sensitivity` or `raw-debug` labels cannot bypass projection or
+choose a raw export directory. Public-only debugging may retain independently
+captured, credential-redacted stdout/stderr, but never reconstructs those streams
+from an untrusted session. Projection applies on every exit path.
 
 The only free-form, repository-derived value that is allowed to leave the
 enclave through a different channel is the broker-validated bounded result
@@ -376,9 +377,10 @@ written to `/awf/out`, which is checked against the caller's declared JSON
 schema and disclosure budget before it is returned to the caller — never
 through the audit transcript.
 
-See `src/enclave/agent-entrypoint-diagnostics.test.ts` and
-`src/enclave/agent-session-artifact.test.ts` for coverage of the
-default-redacted, privileged-opt-in, and artifact segregation behaviors.
+See `src/enclave/agent-session-artifact.test.ts`,
+`src/enclave/public-debug-artifacts.test.ts`, and
+`src/cloud-hypervisor/enclave-session-diagnostics.test.ts` for export-boundary
+regressions.
 
 ### Protected public-only diagnostics
 
