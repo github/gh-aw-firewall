@@ -7,7 +7,10 @@ import {
   isCloudHypervisorScriptAcceptanceWorkflow,
 } from '../enclave/cloud-hypervisor-script-acceptance';
 import { validatePublicEnclaveDebug } from '../enclave/public-debug';
-import { isCloudHypervisorConformanceAcceptanceWorkflow } from '../enclave/cloud-hypervisor-conformance-acceptance';
+import {
+  isCloudHypervisorConformanceAcceptanceWorkflow,
+  isCloudHypervisorDailyRegressionWorkflow,
+} from '../enclave/cloud-hypervisor-conformance-acceptance';
 import { validateRunSandboxBackend } from '../enclave/run-backend';
 
 /**
@@ -167,6 +170,7 @@ export function assertCloudHypervisorPreSecurityCompatibility(config: WrapperCon
     && !isCloudHypervisorScriptAcceptanceWorkflow(config)
     && !isCloudHypervisorAgentAcceptanceWorkflow(config)
     && !isCloudHypervisorConformanceAcceptanceWorkflow(config)
+    && !isCloudHypervisorDailyRegressionWorkflow(config)
   ) {
     throw new Error(
       'Cloud Hypervisor primary-agent execution with enclaves is reserved until the '

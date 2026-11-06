@@ -15,6 +15,8 @@ import { resolveDockerPublicEnclaveDebugPaths } from '../../src/enclave/public-d
 const collector = require('./collect-enclave-smoke-debug.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const mutableFs: typeof fs = require('node:fs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const live = require('./cloud-hypervisor-enclave-live-smoke');
 const { prepare, collect, MAX_STREAM_BYTES, MAX_FILES, projectDiagnostics, cliRoots } = collector;
 
 describe('host-only public enclave debug collector', () => {
@@ -46,6 +48,25 @@ describe('host-only public enclave debug collector', () => {
     return source;
   }
   const collectRun = () => collect(run, uid, gid, roots, uid, temp);
+  function retainStartup(structured = false) {
+    const binding = { backend: 'cloud-hypervisor', runnerUid: uid, runnerGid: gid };
+    prepare(run, roots, uid, temp, binding);
+    const stderr = path.join(temp, 'private.stderr');
+    const startup = path.join(temp, 'private-startup.json');
+    fs.writeFileSync(stderr, 'PRIVATE_PROMPT_AND_CREDENTIAL_SENTINEL\n', { mode: 0o600 });
+    if (structured) fs.writeFileSync(startup, JSON.stringify({
+      phase: 'startup', message: 'Trusted enclave MCP gateway container is unavailable',
+      timestamp: '2026-01-01T00:00:00Z',
+    }), { mode: 0o600 });
+    const value = {
+      agent: 'copilot', backend: binding.backend, failureStage: 'broker',
+      ...live.startupSnapshot({ exitCode: 1, signalCode: null }, 'exit',
+        'initial', 'agent-only', stderr, startup),
+      prompt: 'PRIVATE_PROMPT_AND_CREDENTIAL_SENTINEL',
+    };
+    collector.retainStartup(run, value, uid, temp);
+    return value;
+  }
   function absentEvidence() {
     let error: unknown;
     try { collectRun(); } catch (caught) { error = caught; }
@@ -90,6 +111,56 @@ describe('host-only public enclave debug collector', () => {
     expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8'))
       .toContain('category=absent-evidence');
   });
+  it.each([false, true])('exports pre-broker evidence without a journal (startup record=%s)', structured => {
+    retainStartup(structured);
+    expect(collectRun()).toBe(1);
+    const upload = path.join(run, 'upload');
+    expect(fs.readdirSync(upload).sort()).toEqual(['collection-status.txt', 'startup.json']);
+    const text = fs.readFileSync(path.join(upload, 'startup.json'), 'utf8');
+    expect(text).not.toContain('PRIVATE_');
+    expect(JSON.parse(text)).toMatchObject({
+      failureStage: 'broker',
+      diagnostic: { reason: 'exit', exitCode: 1, category: structured ? 'broker' : 'unknown' },
+      evidence: { record: { final: structured ? 'valid' : 'missing' } },
+    });
+    expect(fs.statSync(path.join(upload, 'startup.json')).mode & 0o777).toBe(0o600);
+    expect(Buffer.byteLength(text)).toBeLessThan(collector.MAX_STATUS_BYTES);
+  });
+  it('retains the original startup failure separately when later collection rejects an invocation', () => {
+    retainStartup(true);
+    invocation(false);
+    let failure: unknown;
+    try { collectRun(); } catch (error) { failure = error; }
+    expect(failure).toMatchObject({ failedCheck: 'stop-proof' });
+    collector.publishCollectionFailure(run, uid, gid, failure, uid, temp);
+    expect(fs.readdirSync(path.join(run, 'upload')).sort()).toEqual(['collection-status.txt', 'startup.json']);
+    expect(JSON.parse(fs.readFileSync(path.join(run, 'upload/startup.json'), 'utf8')))
+      .toMatchObject({ diagnostic: { category: 'broker', exitCode: 1 } });
+    expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8')).toContain('failedCheck=stop-proof');
+  });
+  it.each(['symlink', 'hardlink', 'permissions', 'oversized', 'backend', 'category'])(
+    'rejects unsafe startup evidence %s without disclosing raw input', kind => {
+      retainStartup();
+      const file = path.join(run, 'startup.json');
+      if (kind === 'symlink') {
+        fs.unlinkSync(file);
+        fs.symlinkSync(path.join(temp, 'private.stderr'), file);
+      } else if (kind === 'hardlink') fs.linkSync(file, path.join(temp, 'linked-startup'));
+      else if (kind === 'permissions') fs.chmodSync(file, 0o644);
+      else if (kind === 'oversized') fs.writeFileSync(file, Buffer.alloc(collector.MAX_STATUS_BYTES + 1));
+      else {
+        const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (kind === 'backend') value.backend = 'docker';
+        else value.diagnostic.category = 'PRIVATE_PROMPT_AND_CREDENTIAL_SENTINEL';
+        fs.writeFileSync(file, JSON.stringify(value));
+      }
+      let failure: unknown;
+      try { collectRun(); } catch (error) { failure = error; }
+      expect(failure).toBeDefined();
+      collector.publishCollectionFailure(run, uid, gid, failure, uid, temp);
+      expect(fs.readdirSync(path.join(run, 'upload'))).toEqual(['collection-status.txt']);
+      expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8')).not.toContain('PRIVATE_');
+    });
   it('rejects legacy Cloud Hypervisor evidence without a correlated terminal stop record', () => {
     prepareRun();
     invocation(false);
@@ -1184,10 +1255,11 @@ describe('standalone public enclave diagnostics collector', () => {
   });
 
   it('bounds all published files and bytes including the fixed run projection reserve and status', () => {
-    expect(collector.MAX_PUBLISHED_FILES).toBe(MAX_FILES + 4 + 1);
-    expect(collector.MAX_PUBLISHED_BYTES).toBe((MAX_FILES + 4) * MAX_STREAM_BYTES + collector.MAX_STATUS_BYTES);
+    expect(collector.MAX_PUBLISHED_FILES).toBe(MAX_FILES + 4 + 2);
+    expect(collector.MAX_PUBLISHED_BYTES).toBe((MAX_FILES + 4) * MAX_STREAM_BYTES + 2 * collector.MAX_STATUS_BYTES);
     const bytes = Buffer.alloc(MAX_STREAM_BYTES);
-    const files = Array.from({ length: MAX_FILES + 4 }, (_, index) => [`file-${index}`, bytes]);
+    const files = [...Array.from({ length: MAX_FILES + 4 }, (_, index) => [`file-${index}`, bytes]),
+      ['startup.json', Buffer.alloc(collector.MAX_STATUS_BYTES)]];
     const status = 'x'.repeat(collector.MAX_STATUS_BYTES);
     expect(() => collector.assertPublicationBounds(files, status)).not.toThrow();
     expect(() => collector.assertPublicationBounds([...files, ['extra', Buffer.alloc(0)]], status))

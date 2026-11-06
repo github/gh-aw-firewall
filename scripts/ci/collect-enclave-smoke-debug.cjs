@@ -42,8 +42,8 @@ const MAX_STREAM_BYTES = 1024 * 1024;
 const MAX_FILES = 32;
 const MAX_RUN_PROJECTION_FILES = 4;
 const MAX_STATUS_BYTES = 4096;
-const MAX_PUBLISHED_FILES = MAX_FILES + MAX_RUN_PROJECTION_FILES + 1;
-const MAX_PUBLISHED_BYTES = (MAX_FILES + MAX_RUN_PROJECTION_FILES) * MAX_STREAM_BYTES + MAX_STATUS_BYTES;
+const MAX_PUBLISHED_FILES = MAX_FILES + MAX_RUN_PROJECTION_FILES + 2;
+const MAX_PUBLISHED_BYTES = (MAX_FILES + MAX_RUN_PROJECTION_FILES) * MAX_STREAM_BYTES + 2 * MAX_STATUS_BYTES;
 const MAX_DIRECTORY_ENTRIES = 4096;
 const MAX_USAGE_BYTES = 16 * 1024;
 const ID = /^[a-f0-9]{32}$/;
@@ -601,6 +601,90 @@ function prepare(runDirectory, roots = ROOTS, uid = 0, trustedRoot = '/', bindin
     { mode: 0o600, flag: 'wx' });
 }
 
+function projectStartup(value, backend) {
+  check(object(value) && value.backend === backend
+    && ['docker', 'cloud-hypervisor'].includes(backend)
+    && ['copilot', 'claude', 'codex'].includes(value.agent)
+    && ['configuration', 'gateway', 'launch', 'broker', 'gateway-readiness',
+      'primary-readiness', 'invocation', 'result'].includes(value.failureStage)
+    && object(value.diagnostic) && object(value.evidence)
+    && object(value.evidence.record) && object(value.evidence.stderr), 'startup-schema');
+  const stages = ['host-bootstrap', 'runtime-preflight', 'configuration', 'enclave-preflight',
+    'host-preflight', 'artifact-preflight', 'seed-staging', 'storage-preflight', 'recovery',
+    'host-service', 'host-network', 'compose-config', 'containers', 'gateway-attach',
+    'github-readiness', 'gateway-contract', 'initialize', 'initialized', 'tools-list',
+    'delegation', 'primary-agent'];
+  const sizes = [null, 'empty', '<=16KiB', '<=64KiB', '<=1MiB', '<=8MiB', '>8MiB'];
+  const inspections = ['not-attempted', 'ok', 'tail', 'missing', 'oversize', 'not-regular',
+    'io-error', 'unstable', 'replaced', 'parse', 'shape', 'valid'];
+  const diagnostic = fields(value.diagnostic, {
+    schemaVersion: member([1, 2]), phase: member(['pre-broker', 'host-startup']),
+    stage: member(['initial', 'recovery']),
+    reason: member(['exit', 'signal', 'timeout', 'spawn-failure', 'unknown']),
+    category: member(['unknown', 'configuration', 'container-runtime', 'host-preflight',
+      'artifact', 'host-service', 'recovery-state', 'broker', 'unsupported-host',
+      'gateway-auth', 'dns', 'connectivity', 'gateway-readiness', 'gateway-protocol', 'other']),
+    exitCode: value => value === null || (count(value) && value <= 255),
+    signal: member([null, 'SIGTERM', 'SIGKILL', 'SIGINT', 'SIGHUP', 'SIGABRT', 'SIGSEGV', 'SIGBUS']),
+    logInspection: member(['unavailable', 'structured', 'bounded']),
+  });
+  check(Object.keys(diagnostic).length === 8, 'startup-schema');
+  if (value.diagnostic.enclaveStartup !== undefined) {
+    diagnostic.enclaveStartup = fields(value.diagnostic.enclaveStartup, {
+      stage: member(stages), readiness: member(['not-attempted', 'attempted', 'ready']),
+      code: member(['none', 'unknown', 'dns-not-found', 'dns-temporary', 'connection-refused',
+        'connection-timeout', 'request-timeout', 'network-unreachable', 'host-unreachable',
+        'connection-reset', 'transport-other', 'http-auth', 'http-status', 'backend-unavailable',
+        'response-too-large', 'malformed-json', 'malformed-protocol', 'rpc-error',
+        'identity-mismatch', 'tools-mismatch', 'readiness-deadline', 'ready']),
+      attempts: value => count(value) && value <= 1200,
+      httpStatus: value => value === null || (count(value) && value >= 100 && value <= 599),
+    });
+  }
+  const evidence = {
+    record: fields(value.evidence.record, {
+      final: member(inspections), size: member(sizes), source: member(['none', 'final', 'cached']),
+      cachedPolls: value => count(value) && value <= 1_000_000, cachedSize: member(sizes),
+    }),
+    stderr: fields(value.evidence.stderr, {
+      inspection: member(inspections), size: member(sizes), attempts: value => count(value) && value <= 5,
+    }),
+  };
+  if (value.evidence.awfExit !== null && value.evidence.awfExit !== undefined) {
+    evidence.awfExit = fields(value.evidence.awfExit, {
+      exitCode: value => count(value) && value <= 255,
+      path: member(['fatal', 'workflow-return']), stage: member([null, ...stages]),
+      containersStarted: boolean, agentStarted: boolean,
+      cleanup: member(['pending', 'completed', 'failed']),
+      recordAfterCleanup: member(['present', 'missing', 'unknown']),
+      recordWrite: member(['written', 'oversize', 'unsafe-target', 'io-error', 'error', 'not-attempted']),
+    });
+  }
+  return Buffer.from(JSON.stringify({
+    schemaVersion: 1, component: 'enclave-regression-startup', backend, agent: value.agent,
+    failureStage: value.failureStage, diagnostic, evidence,
+  }) + '\n');
+}
+
+function retainStartup(runDirectory, value, uid = 0, trustedRoot = '/') {
+  directory(runDirectory, uid, trustedRoot);
+  const prepared = JSON.parse(readRegular(path.join(runDirectory, 'baseline.json'), MAX_STREAM_BYTES, uid));
+  check(!fs.existsSync(path.join(runDirectory, 'collected')), 'prepared-scope', 'scope-already-collected');
+  const bytes = projectStartup(value, prepared.binding?.backend);
+  check(bytes.length <= MAX_STATUS_BYTES, 'file-size', 'oversized');
+  fs.writeFileSync(path.join(runDirectory, 'startup.json'), bytes, { mode: 0o600, flag: 'wx' });
+}
+
+function startupFiles(runDirectory, backend, uid) {
+  try {
+    const bytes = readRegular(path.join(runDirectory, 'startup.json'), MAX_STATUS_BYTES, uid);
+    return [['startup.json', projectStartup(parseRecord(decodeUtf8(bytes, 'startup-schema')), backend)]];
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
 function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, trustedRoot = '/', binding,
   privilegedUid = 0, stagingTrustedRoot = '/') {
   const stagingUid = binding ? privilegedUid : uid;
@@ -675,9 +759,9 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
   if (debugInvocations.some(name => !INVOCATION_ID.test(name) || name !== invocation)) {
     check(false, 'artifact-invocation-identity');
   }
-  const files = [];
   const runtime = binding?.backend ?? roots.backend ?? 'cloud-hypervisor';
   check(['docker', 'cloud-hypervisor'].includes(runtime), 'prepared-scope');
+  const files = startupFiles(runDirectory, runtime, stagingUid);
   let envelope;
   if (debugInvocations.length) {
     const source = path.join(roots.debug, runId, invocation);
@@ -820,7 +904,8 @@ function assertPublicationBounds(files, status) {
 }
 
 module.exports = {
-  prepare, collect, MAX_STREAM_BYTES, MAX_FILES, MAX_PUBLISHED_FILES, MAX_PUBLISHED_BYTES, MAX_STATUS_BYTES,
+  prepare, collect, retainStartup, projectStartup,
+  MAX_STREAM_BYTES, MAX_FILES, MAX_PUBLISHED_FILES, MAX_PUBLISHED_BYTES, MAX_STATUS_BYTES,
   directory, inventory, readRegular, projectProxyUsage, projectProxyResponse,
   projectProxyEvents, projectProxyContainerLog, isSafeCopilotAuthLogFields,
   projectDiagnostics, cliRoots, cliCandidates, parseArguments, main, publishCollectionFailure,
@@ -936,6 +1021,15 @@ function publishCollectionFailure(runDirectory, runnerUid, runnerGid, error, uid
     fs.rmSync(pending, { recursive: true, force: true });
     const upload = path.join(runDirectory, 'upload');
     fs.mkdirSync(upload, { mode: 0o700 });
+    // Startup evidence is validated independently; a later collection failure
+    // must not erase the original launch failure or publish partial invocation data.
+    let startup = [];
+    try { startup = startupFiles(runDirectory, baseline.binding?.backend, uid); } catch { /* Fail closed. */ }
+    for (const [name, bytes] of startup) {
+      const target = path.join(upload, name);
+      fs.writeFileSync(target, bytes, { mode: 0o600, flag: 'wx' });
+      fs.chownSync(target, runnerUid, runnerGid);
+    }
     const target = path.join(upload, 'collection-status.txt');
     fs.writeFileSync(target, `Collection failed: failedCheck=${failure.failedCheck} category=${failure.category}\n`,
       { mode: 0o600, flag: 'wx' });
@@ -946,7 +1040,7 @@ function publishCollectionFailure(runDirectory, runnerUid, runnerGid, error, uid
 }
 
 function classifyFailure(error) {
-  const checks = ['operation-schema', 'session-schema', 'session-bound', 'stream-bound',
+  const checks = ['startup-schema', 'operation-schema', 'session-schema', 'session-bound', 'stream-bound',
     'diagnostics-schema', 'diagnostics-identity',
     'retention-eligibility', 'stop-proof', 'stream-schema', 'coverage-schema', 'backend-schema', 'docker-stop-proof',
     'prepared-scope', 'run-budget', 'journal-schema', 'journal-identity', 'invocation-budget', 'proxy-run-identity',

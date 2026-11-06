@@ -234,7 +234,7 @@ describe('unified Cloud Hypervisor primary boot and enclave lifecycle', () => {
     const readinessDir = path.join(proxyLogsDir, PRIMARY_READINESS_DIRECTORY);
     try {
       const first = createPrimaryReadinessReporter(readinessDir);
-      first.publish('ready', 'ready', 1, '/private/previous');
+      first.publish('ready', 'ready', 1, '/private/previous', '100.64.0.2');
       first.close();
 
       preserveCleanupArtifacts(directory, { proxyLogsDir });
@@ -278,7 +278,7 @@ describe('unified Cloud Hypervisor primary boot and enclave lifecycle', () => {
     await boot;
     expect(primaryProgress()).toEqual({
       schemaVersion: 1, ownerPid: process.pid, stage: 'ready', state: 'ready',
-      bootAttempt: 1, runId: 'vm',
+      bootAttempt: 1, runId: 'vm', guestIp: '100.64.0.2',
     });
   });
 
