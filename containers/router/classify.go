@@ -84,6 +84,7 @@ const ClassificationContract = "<instructions>\n" +
 	"mode is how costly a wrong result would be if nobody caught it, judged by what this request " +
 	"changes; not difficulty, scope, prompt length, how often it runs, or how sensitive the topic " +
 	"sounds. Take the first that applies:\n" +
+	"unknown = no intelligible request.\n" +
 	"1. robust = this request itself merges, releases, publishes, deploys, deletes or migrates " +
 	"data, or changes permissions, secrets, or authentication settings, with no review before it " +
 	"takes effect. Proposing, reviewing, or auditing these in a pull request, issue, or report is " +
@@ -102,7 +103,7 @@ const ClassificationContract = "<instructions>\n" +
 	"scanner's findings; and contained changes: only tests or test fixtures, docs and their code " +
 	"examples, diagrams, spelling, mechanical renames, formatting, lint autofixes, generated or " +
 	"reference files, dependency or toolchain bumps, changesets, or release notes.\n" +
-	"unknown = no intelligible request. Follow explicit user priorities."
+	"Follow explicit user priorities."
 
 // ClassificationPlan ranks the offered choices by the classifier preference order,
 // keeping the caller's ids. It never infers a default effort.
