@@ -204,6 +204,11 @@ function projectSession(value) {
       && value.claudeStreamSummary.stage === 'claude-stream-summary', 'session-schema');
     result.claudeStreamSummary = projectSessionEvent(value.claudeStreamSummary);
   }
+  if (value.claudeStartupFailure !== undefined) {
+    check(object(value.claudeStartupFailure) && value.claudeStartupFailure.event === 'progress'
+      && value.claudeStartupFailure.stage === 'claude-startup-failure', 'session-schema');
+    result.claudeStartupFailure = projectSessionEvent(value.claudeStartupFailure);
+  }
   if (value.operationErrors !== undefined) {
     check(Array.isArray(value.operationErrors) && value.operationErrors.length <= 16, 'session-bound');
     result.operationErrors = value.operationErrors.map(projectSessionEvent).filter(Boolean);

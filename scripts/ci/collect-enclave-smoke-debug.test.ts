@@ -268,6 +268,44 @@ describe('host-only public enclave debug collector', () => {
     }
   });
 
+  it('retains the final Claude startup failure after event-cap saturation', () => {
+    const startupFailure = {
+      event: 'progress', stage: 'claude-startup-failure', classification: 'invalid-option-value',
+      stderr: 'PRIVATE_STDERR', prompt: 'PRIVATE_PROMPT',
+    };
+    const transcript = [
+      { event: 'engine-retry', signal: 6 },
+      { event: 'engine-retry', signal: 11 },
+      ...Array.from({ length: 30 }, () => ({
+        event: 'operation-error', operation: 'resource-memory.events-read', category: 'os-error',
+        errno: 5, fatal: false, detail: 'PRIVATE_DETAIL',
+      })),
+      startupFailure,
+      { event: 'progress', stage: 'engine-completed', attempt: 3, exitCode: 1 },
+    ];
+    const session = projectEnclaveSessionDiagnostics(Buffer.from(
+      transcript.map(event => JSON.stringify(event)).join('\n')));
+    expect(session.events).toHaveLength(32);
+    expect(session.events?.some(event => event.stage === 'claude-startup-failure')).toBe(false);
+    expect(session.lastEvent).toEqual({ event: 'progress', stage: 'engine-completed', attempt: 3, exitCode: 1 });
+    expect(session.claudeStartupFailure).toEqual({
+      event: 'progress', stage: 'claude-startup-failure', classification: 'invalid-option-value',
+    });
+
+    const projected = JSON.parse(projectDiagnostics({
+      ...commonEnvelope(), session,
+    }, { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' }).toString());
+    expect(projected.session.claudeStartupFailure).toEqual(session.claudeStartupFailure);
+    expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+    expect(() => projectDiagnostics({
+      ...commonEnvelope(), session: {
+        status: 'captured', claudeStartupFailure: {
+          ...session.claudeStartupFailure, classification: 'PRIVATE_CLASS',
+        },
+      },
+    }, { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' })).toThrow(/session-schema/);
+  });
+
   it('collects a failed invocation but excludes stale directories and journals', () => {
     fs.mkdirSync(path.join(roots.debug, 'c'.repeat(32)), { mode: 0o700 });
     fs.writeFileSync(path.join(roots.journal, `${'d'.repeat(32)}.journal`), 'stale', { mode: 0o600 });

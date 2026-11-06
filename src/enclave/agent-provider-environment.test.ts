@@ -62,9 +62,9 @@ describe.each(['docker', 'cloud-hypervisor'])('%s enclave provider environment',
     expect(environment.GITHUB_TOKEN).toBeUndefined();
     expect(environment.GH_TOKEN).toBeUndefined();
     expect(environment.AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS)
-      .toBe(engine === 'claude' ? 'none' : undefined);
+      .toBe(engine === 'claude' ? 'host' : undefined);
     expect(environment.AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS)
-      .toBe(engine === 'claude' ? 'Bash,Read,Write,Edit,Glob,Grep' : undefined);
+      .toBe(engine === 'claude' ? 'Read,Glob,Grep' : undefined);
     for (const [other, , , otherAuth] of cases) {
       if (other !== engine) expect(environment[otherAuth]).toBeUndefined();
     }

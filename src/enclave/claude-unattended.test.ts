@@ -130,7 +130,11 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 environment = json.loads(os.environ["CONTAINER_ENVIRONMENT"])
 environment.update(PATH="/usr/bin:/bin", TMPDIR=str(module.TEMP_DIR))
 legacy = os.environ.get("LEGACY_ARGV") == "true"
-if os.environ.get("ALLOW_TOOLS") != "true":
+if os.environ.get("ALLOW_TOOLS") == "true":
+    environment["AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS"] = "none"
+    environment["AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS"] = "Bash,Read,Write,Edit,Glob,Grep"
+else:
+    environment["AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS"] = "host"
     environment["AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS"] = "Read,Glob,Grep"
 if legacy:
     environment.pop("AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS", None)
@@ -164,7 +168,7 @@ result["streamSummary"] = next(event for event in events if event.get("stage") =
 print(json.dumps(result))
 `;
 
-it('builds unattended Claude arguments from the production container environment', () => {
+it('builds permission-safe Claude arguments from the production container environment', () => {
   const result = spawnSync('python3', ['-c', String.raw`
 import importlib.util, json, os
 from pathlib import Path
@@ -178,8 +182,8 @@ print(json.dumps(module.build_engine_command("claude", "trusted-model", "task", 
   });
   expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
   expect(JSON.parse(result.stdout)).toEqual(expect.arrayContaining([
-    '--permission-mode', 'default', '--permission-prompts', 'none',
-    '--allowedTools', 'Bash,Read,Write,Edit,Glob,Grep',
+    '--permission-mode', 'default', '--permission-prompts', 'host',
+    '--allowedTools', 'Read,Glob,Grep',
   ]));
 });
 

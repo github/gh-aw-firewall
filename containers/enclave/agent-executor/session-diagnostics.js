@@ -260,6 +260,9 @@ function projectEnclaveSessionDiagnostics(bytes) {
     if (event.event === 'progress' && event.stage === 'claude-stream-summary') {
       result.claudeStreamSummary = event;
     }
+    if (event.event === 'progress' && event.stage === 'claude-startup-failure') {
+      result.claudeStartupFailure = event;
+    }
     if (event.event === 'failure' || (event.event === 'operation-error' && event.fatal !== false)) {
       result.failure ??= event;
     }
