@@ -26,6 +26,26 @@ const root = path.resolve(__dirname, '../..');
 const pinnedVersion = '0.159.3';
 const MiB = 1024 ** 2;
 
+// Inspect only policy metadata, never the task-bearing native command line or credentials.
+const nativePolicy = String.raw`
+import json
+from pathlib import Path
+for process in Path("/proc").iterdir():
+    if not process.name.isdecimal(): continue
+    try:
+        argv = (process / "cmdline").read_bytes().split(b"\0")
+        if not argv[0].endswith(b"/codex") or b"exec" not in argv: continue
+        environment = (process / "environ").read_bytes().split(b"\0")
+    except OSError: continue
+    print(json.dumps({
+        "externalSandbox": b"--dangerously-bypass-approvals-and-sandbox" in argv,
+        "sandboxOverride": b"--sandbox" in argv or b"-s" in argv,
+        "trustedPolicy": b"AWF_ENCLAVE_AGENT_CODEX_BYPASS_APPROVALS=true" in environment,
+    }))
+    break
+else: raise RuntimeError("native Codex process not found")
+`;
+
 // No real provider, credentials, or session payloads. Only fixed status metadata is logged.
 const provider = String.raw`
 import json, os, time
@@ -218,6 +238,11 @@ acceptance('Docker enclave pinned Codex shell execution', () => {
         const members = Object.values(JSON.parse(docker(['network', 'inspect', network]))[0].Containers)
           .map((member: unknown) => (member as { Name: string }).Name).sort();
         expect(members).toEqual([proxyName, containerName].sort());
+        const running = JSON.parse(docker(['inspect', containerName]))[0];
+        expect(running.Config.Env).toContain('AWF_ENCLAVE_AGENT_CODEX_BYPASS_APPROVALS=true');
+        expect(JSON.parse(docker([
+          'exec', containerName, '/usr/bin/python3', '-c', nativePolicy,
+        ]))).toEqual({ externalSandbox: true, sandboxOverride: false, trustedPolicy: true });
         docker(['exec', proxyName, '/usr/bin/python3', '-c',
           'from pathlib import Path; Path("/tmp/release").touch()']);
         expect(docker(['wait', containerName])).toBe(diagnosticScenario ? '0' : '33');
