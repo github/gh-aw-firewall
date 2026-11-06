@@ -8,8 +8,9 @@
 // - path may or may not be double-quoted (newer gh-aw compilers quote it)
 // - the version may be followed by trailing flags (e.g. --rootless) that newer
 //   gh-aw compilers append; tolerate anything up to the end of the line
+// - newer compilers may insert an env mapping before the run command
 export const installStepRegex =
-  /^(\s*)- name: Install [Aa][Ww][Ff] binary\n\1\s*run: bash "?(?:\/opt\/gh-aw|\$\{RUNNER_TEMP\}\/gh-aw)\/actions\/install_awf_binary\.sh"? v[0-9.]+[^\n]*\n/m;
+  /^(\s*)- name: Install [Aa][Ww][Ff] binary\n(?:\1  env:\n(?:\1    [^\n]*\n)*)?\1\s*run: bash "?(?:\/opt\/gh-aw|\$\{RUNNER_TEMP\}\/gh-aw)\/actions\/install_awf_binary\.sh"? v[0-9.]+[^\n]*\n/m;
 export const installStepRegexGlobal = new RegExp(installStepRegex.source, 'gm');
 
 // Matches the generated ripgrep installer step with or without the timeout

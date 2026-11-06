@@ -117,6 +117,16 @@ describe('installStepRegex', () => {
     expect(installStepRegex.test(input)).toBe(true);
   });
 
+  it('should match an env mapping before the run command (gh-aw v1.2+)', () => {
+    const input =
+      '      - name: Install AWF binary\n' +
+      '        env:\n' +
+      '          GH_TOKEN: ${{ github.token }}\n' +
+      '          GH_HOST: github.com\n' +
+      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.29.6 --rootless\n';
+    expect(installStepRegex.test(input)).toBe(true);
+  });
+
   it('should not match step with wrong name', () => {
     const input =
       '      - name: Install something else\n' +
