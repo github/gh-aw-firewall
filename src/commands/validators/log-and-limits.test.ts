@@ -91,6 +91,18 @@ describe('validateLogAndLimits – success paths', () => {
     expect(result.maxRuns).toBe(5);
   });
 
+  it.each([-1, '-1', 0, '0'])('normalizes disabled maxAiCredits %s to no cap', (maxAiCredits) => {
+    const exitSpy = spyExit();
+    const result = validateLogAndLimits(minimalOptions({ maxAiCredits }));
+    expect(result.maxAiCredits).toBeUndefined();
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([0.5, '0.5', 100, '100'])('preserves positive maxAiCredits %s', (maxAiCredits) => {
+    const result = validateLogAndLimits(minimalOptions({ maxAiCredits }));
+    expect(result.maxAiCredits).toBe(Number(maxAiCredits));
+  });
+
   it('merges configFile and CLI model multipliers, CLI takes precedence', () => {
     const result = validateLogAndLimits(minimalOptions({
       modelMultipliers: { 'gpt-4': 2 },
@@ -204,15 +216,12 @@ describe('validateLogAndLimits – validation failures', () => {
     expect(() => validateLogAndLimits(minimalOptions({ logLevel: 'verbose' }))).toThrow('process.exit called');
   });
 
-  it('exits when maxAiCredits is zero', () => {
-    spyExit();
-    expect(() => validateLogAndLimits(minimalOptions({ maxAiCredits: 0 }))).toThrow('process.exit called');
-  });
-
-  it('exits when maxAiCredits is negative', () => {
-    spyExit();
-    expect(() => validateLogAndLimits(minimalOptions({ maxAiCredits: -5 }))).toThrow('process.exit called');
-  });
+  it.each([-2, '-2', -0.5, '-0.5', 'abc', '', ' ', NaN, Infinity, 'Infinity', null, true])(
+    'exits when maxAiCredits is invalid (%s)', (maxAiCredits) => {
+      spyExit();
+      expect(() => validateLogAndLimits(minimalOptions({ maxAiCredits }))).toThrow('process.exit called');
+    },
+  );
 
   it('exits when defaultModelMultiplier is zero', () => {
     spyExit();

@@ -35,11 +35,12 @@ ARG GH_SOURCE_DATE_EPOCH=1787263311
 ARG GH_GRPC_VERSION=1.83.2
 ARG GH_X_CRYPTO_VERSION=0.57.0
 ARG GH_X_NET_VERSION=0.60.0
+ARG GH_KLAUSPOST_COMPRESS_VERSION=1.20.2
 RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz" -O /tmp/gh.tar.gz \
     && echo "${GH_SOURCE_SHA256}  /tmp/gh.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/gh.tar.gz -C /tmp \
     && cd "/tmp/cli-${GH_VERSION}" \
-    && go get "google.golang.org/grpc@v${GH_GRPC_VERSION}" "golang.org/x/crypto@v${GH_X_CRYPTO_VERSION}" "golang.org/x/net@v${GH_X_NET_VERSION}" \
+    && go get "google.golang.org/grpc@v${GH_GRPC_VERSION}" "golang.org/x/crypto@v${GH_X_CRYPTO_VERSION}" "golang.org/x/net@v${GH_X_NET_VERSION}" "github.com/klauspost/compress@v${GH_KLAUSPOST_COMPRESS_VERSION}" \
     && CGO_ENABLED=0 GH_VERSION="${GH_VERSION}" SOURCE_DATE_EPOCH="${GH_SOURCE_DATE_EPOCH}" \
          go run ./script/build.go bin/gh \
     && go version -m bin/gh | head -n 1 | grep -Eq ': go1\.27\.3$' \
@@ -49,6 +50,8 @@ RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz"
          '$1 == "dep" && $2 == "golang.org/x/crypto" && $3 == version { found=1 } END { exit !found }' \
     && go version -m bin/gh | awk -v version="v${GH_X_NET_VERSION}" \
          '$1 == "dep" && $2 == "golang.org/x/net" && $3 == version { found=1 } END { exit !found }' \
+    && go version -m bin/gh | awk -v version="v${GH_KLAUSPOST_COMPRESS_VERSION}" \
+         '$1 == "dep" && $2 == "github.com/klauspost/compress" && $3 == version { found=1 } END { exit !found }' \
     && /tmp/cli-${GH_VERSION}/bin/gh --version
 
 FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7

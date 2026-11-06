@@ -833,8 +833,16 @@ describe('ai-credits-guard', () => {
     });
   });
 
-  it('enforces hard cap even when no max is configured', () => {
-    expect(process.env.AWF_MAX_AI_CREDITS).toBeUndefined();
+  it.each([undefined, '-1', '0'])('disables the configured budget but retains the hard cap (%s)', (max) => {
+    if (max !== undefined) process.env.AWF_MAX_AI_CREDITS = max;
+    applyAiCreditsUsage({ input_tokens_include_cache: true, input_tokens: 1000, output_tokens: 0 }, 'gpt-5-mini', 'copilot');
+    expect(getAiCreditsReflectState()).toMatchObject({
+      max_ai_credits: null,
+      effective_max_ai_credits: HARD_CAP_AI_CREDITS,
+    });
+    expect(getAiCreditsBlockState()).toBeNull();
+
+    resetAiCreditsGuardForTests();
     applyAiCreditsUsage({ input_tokens_include_cache: true, input_tokens: 400_000_000, output_tokens: 0 }, 'gpt-5-mini', 'copilot');
     expect(getAiCreditsBlockState()).toEqual({
       maxAiCredits: HARD_CAP_AI_CREDITS,
