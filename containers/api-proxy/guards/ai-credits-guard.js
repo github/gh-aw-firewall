@@ -23,8 +23,17 @@ const CREDIT_DENOMINATOR = TOKENS_PER_MILLION * DOLLARS_PER_CREDIT;
 // Default operator-controlled safety limit, enforced regardless of maxAiCredits.
 const HARD_CAP_AI_CREDITS = 10_000;
 
-function getHardCapAiCredits() {
-  return parsePositiveNumber(process.env.AWF_AI_CREDITS_HARD_CAP) ?? HARD_CAP_AI_CREDITS;
+function getHardCapAiCredits(rawCap = process.env.AWF_AI_CREDITS_HARD_CAP) {
+  const value = Number(rawCap);
+  try {
+    const preciseValue = exact.decimal(rawCap);
+    if (Number.isFinite(value) && exact.compare(preciseValue, exact.ZERO) > 0) {
+      return { value, preciseValue };
+    }
+  } catch {
+    // Invalid operator values retain the mandatory default.
+  }
+  return { value: HARD_CAP_AI_CREDITS, preciseValue: exact.decimal(HARD_CAP_AI_CREDITS) };
 }
 
 // Conservative fallback pricing ($/1M tokens) used when the model is the
@@ -83,7 +92,7 @@ function roundCredits(value) {
 }
 
 function getEffectiveAiCreditsCeiling(config = getAiCreditsConfig()) {
-  return config.exactMax ?? exact.decimal(config.hardCap);
+  return config.exactMax ?? config.preciseHardCap;
 }
 
 function updateAiCreditSteeringThresholds() {
@@ -121,9 +130,10 @@ function createAiCreditsState() {
 let aiCreditsState = createAiCreditsState();
 
 const aiCreditsConfigCache = {
+  initialized: false,
   rawMax: undefined,
   rawDefault: undefined,
-  hardCap: undefined,
+  rawHardCap: undefined,
   parsed: { max: null, defaultPricing: null },
 };
 
@@ -161,11 +171,12 @@ function getAiCreditsConfig() {
 function parseAiCreditsConfig() {
   const rawMax = process.env.AWF_MAX_AI_CREDITS;
   const rawDefault = process.env.AWF_DEFAULT_AI_CREDITS_PRICING;
-  const hardCap = getHardCapAiCredits();
-  if (aiCreditsConfigCache.rawMax === rawMax && aiCreditsConfigCache.rawDefault === rawDefault &&
-      aiCreditsConfigCache.hardCap === hardCap) {
+  const rawHardCap = process.env.AWF_AI_CREDITS_HARD_CAP;
+  if (aiCreditsConfigCache.initialized && aiCreditsConfigCache.rawMax === rawMax &&
+      aiCreditsConfigCache.rawDefault === rawDefault && aiCreditsConfigCache.rawHardCap === rawHardCap) {
     return aiCreditsConfigCache.parsed;
   }
+  const hardCap = getHardCapAiCredits(rawHardCap);
   const parsedMax = parsePositiveNumber(rawMax);
   let exactMax = null;
   // Invalid/nonpositive legacy limits retain their opt-out semantics.
@@ -175,17 +186,19 @@ function parseAiCreditsConfig() {
     if (exact.compare(exactMax, exact.ZERO) === 0) exactMax = null;
   }
   if (exactMax) {
-    if (exact.compare(exactMax, exact.decimal(hardCap)) > 0) {
-      exactMax = exact.decimal(hardCap);
+    if (exact.compare(exactMax, hardCap.preciseValue) > 0) {
+      exactMax = hardCap.preciseValue;
     }
   }
+  aiCreditsConfigCache.initialized = true;
   aiCreditsConfigCache.rawMax = rawMax;
   aiCreditsConfigCache.rawDefault = rawDefault;
-  aiCreditsConfigCache.hardCap = hardCap;
+  aiCreditsConfigCache.rawHardCap = rawHardCap;
   aiCreditsConfigCache.parsed = {
-    max: exactMax ? Math.min(Number(rawMax), hardCap) : null,
+    max: exactMax ? Math.min(Number(rawMax), hardCap.value) : null,
     exactMax,
-    hardCap,
+    hardCap: hardCap.value,
+    preciseHardCap: hardCap.preciseValue,
     get defaultPricing() { return parseDefaultPricing(rawDefault); },
   };
   return aiCreditsConfigCache.parsed;
@@ -592,9 +605,9 @@ function getAiCreditsBlockState() {
   const hardCap = getHardCapAiCredits();
 
   // Hard cap always applies, regardless of config
-  if (exact.compare(aiCreditsState.totalAiCredits, exact.decimal(hardCap)) >= 0) {
+  if (exact.compare(aiCreditsState.totalAiCredits, hardCap.preciseValue) >= 0) {
     return {
-      maxAiCredits: hardCap,
+      maxAiCredits: hardCap.value,
       totalAiCredits: roundedTotalAiCredits,
       maxExceeded: true,
       hardCap: true,
@@ -634,9 +647,10 @@ function buildAiCreditsLimitError(aiCreditsBlockState) {
 
 function resetAiCreditsGuardForTests() {
   aiCreditsState = createAiCreditsState();
+  aiCreditsConfigCache.initialized = false;
   aiCreditsConfigCache.rawMax = undefined;
   aiCreditsConfigCache.rawDefault = undefined;
-  aiCreditsConfigCache.hardCap = undefined;
+  aiCreditsConfigCache.rawHardCap = undefined;
   aiCreditsConfigCache.parsed = { max: null, defaultPricing: null };
   delete process.env.AWF_AI_CREDITS_USED;
 }

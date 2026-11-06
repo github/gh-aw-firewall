@@ -878,6 +878,53 @@ describe('ai-credits-guard', () => {
     },
   );
 
+  it('enforces a tiny positive hard cap instead of restoring the default', () => {
+    process.env.AWF_AI_CREDITS_HARD_CAP = '1e-350';
+
+    applyAiCreditsUsage({ input_tokens: 1 }, 'gpt-5-mini', 'copilot');
+
+    expect(getAiCreditsBlockState()).toMatchObject({
+      maxAiCredits: 0,
+      maxExceeded: true,
+      hardCap: true,
+    });
+  });
+
+  it('preserves exact hard-cap precision when clamping budgets and rejecting usage', () => {
+    process.env.AWF_AI_CREDITS_HARD_CAP = '1.0000000000000000000000000001';
+    process.env.AWF_MAX_AI_CREDITS = '1.0000000000000000000000000002';
+
+    applyAiCreditsUsage({ input_tokens: 40_000 }, 'gpt-5-mini', 'copilot');
+
+    expect(getAiCreditsBlockState()).toMatchObject({
+      maxAiCredits: 1,
+      maxExceeded: false,
+    });
+    expect(getAiCreditsReflectState()).toMatchObject({
+      max_ai_credits: 1,
+      effective_max_ai_credits: 1,
+    });
+
+    applyAiCreditsUsage({ input_tokens: 1 }, 'gpt-5-mini', 'copilot');
+
+    expect(getAiCreditsBlockState()).toMatchObject({
+      maxAiCredits: 1,
+      maxExceeded: true,
+      hardCap: true,
+    });
+  });
+
+  it('invalidates cached steering limits when the raw hard cap changes without changing its number projection', () => {
+    process.env.AWF_AI_CREDITS_HARD_CAP = '1.0000000000000000000000000001';
+    applyAiCreditsUsage({ input_tokens: 32_000 }, 'gpt-5-mini', 'copilot');
+
+    expect(getPendingAiCreditSteeringWarning()).toBeNull();
+
+    process.env.AWF_AI_CREDITS_HARD_CAP = '1';
+
+    expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
+  });
+
   it.each([undefined, '0', '-1'])('enforces a raised hard cap with budget %s', (rawMax) => {
     process.env.AWF_AI_CREDITS_HARD_CAP = '20000';
     if (rawMax !== undefined) process.env.AWF_MAX_AI_CREDITS = rawMax;
