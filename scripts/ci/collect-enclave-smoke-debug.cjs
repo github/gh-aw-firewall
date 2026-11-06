@@ -650,7 +650,12 @@ function projectStartup(value, backend) {
     diagnostic.earlyFailure = fields(value.diagnostic.earlyFailure, {
       schemaVersion: member([1]), phase: member(['configuration', 'validation', 'backend-selection']),
       reason: member(['configuration-rejected', 'validation-rejected', 'backend-selection-rejected',
-        'cloud-hypervisor-enclave-admission']),
+        'cloud-hypervisor-enclave-admission',
+        'cloud-hypervisor-enclave-admission-workflow-source',
+        'cloud-hypervisor-enclave-admission-configuration-profile',
+        'cloud-hypervisor-enclave-admission-token-acquisition',
+        'cloud-hypervisor-enclave-admission-signature',
+        'cloud-hypervisor-enclave-admission-claims']),
     });
     check(Object.keys(diagnostic.earlyFailure).length === 3, 'startup-schema');
   }

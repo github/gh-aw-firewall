@@ -18,9 +18,13 @@ const REGRESSION_WORKFLOW_REF = `${CLOUD_HYPERVISOR_REGRESSION_SIGNER_WORKFLOW}@
 const OIDC_AUDIENCE = 'github/gh-aw-firewall';
 const OIDC_ISSUER = 'https://token.actions.githubusercontent.com';
 const OIDC_JWKS_URL = `${OIDC_ISSUER}/.well-known/jwks`;
-const OIDC_REQUEST_HOST = 'pipelines.actions.githubusercontent.com';
-let regressionIdentityChecked = false;
-let regressionIdentityVerified = false;
+type RegressionRejection =
+  | 'cloud-hypervisor-enclave-admission-workflow-source'
+  | 'cloud-hypervisor-enclave-admission-configuration-profile'
+  | 'cloud-hypervisor-enclave-admission-token-acquisition'
+  | 'cloud-hypervisor-enclave-admission-signature'
+  | 'cloud-hypervisor-enclave-admission-claims';
+let regressionIdentity: RegressionRejection | 'verified' | undefined;
 
 function decodeJwtSegment(segment: string): Record<string, unknown> | undefined {
   if (!/^[A-Za-z0-9_-]+$/.test(segment)) return undefined;
@@ -40,17 +44,22 @@ function fetchGitHubOidcToken(): string | undefined {
       || !/^[A-Za-z0-9._~-]{1,4096}$/.test(requestToken)) return undefined;
   try {
     const url = new URL(requestUrl);
-    if (url.protocol !== 'https:' || url.hostname !== OIDC_REQUEST_HOST
+    // Hosted runners use both pipelines and regional run-actions endpoints.
+    if (!requestUrl.startsWith('https://') || /[\s\\"#]/.test(requestUrl)
+        || requestUrl.slice('https://'.length).split('/')[0].includes('@')
+        || !url.hostname.endsWith('.actions.githubusercontent.com')
+        || url.protocol !== 'https:'
         || url.username || url.password || url.port || url.hash) return undefined;
     url.searchParams.set('audience', OIDC_AUDIENCE);
     const response = execFileSync('curl', [
-      '--config', '-', '--proto', '=https', '--tlsv1.2',
+      '--disable', '--config', '-', '--proto', '=https', '--tlsv1.2',
       '--silent', '--show-error', '--fail', '--max-time', '10',
     ], {
       input: `url = "${url.toString()}"\nheader = "Authorization: bearer ${requestToken}"\n`,
       encoding: 'utf8',
       maxBuffer: 16 * 1024,
       timeout: 12_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
     const parsed: unknown = JSON.parse(response);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
@@ -61,22 +70,23 @@ function fetchGitHubOidcToken(): string | undefined {
   }
 }
 
-function verifyGitHubOidcToken(token: string): Record<string, unknown> | undefined {
+function verifyGitHubOidcToken(token: string): RegressionRejection | 'verified' {
+  const signatureRejected = 'cloud-hypervisor-enclave-admission-signature';
   const parts = token.split('.');
-  if (parts.length !== 3) return undefined;
+  if (parts.length !== 3) return signatureRejected;
   const header = decodeJwtSegment(parts[0]);
   const claims = decodeJwtSegment(parts[1]);
   if (!header || !claims || header.alg !== 'RS256' || typeof header.kid !== 'string'
-      || !/^[A-Za-z0-9_-]+$/.test(parts[2])) return undefined;
+      || !/^[A-Za-z0-9_-]+$/.test(parts[2])) return signatureRejected;
   try {
     const response = execFileSync('curl', [
-      '--proto', '=https', '--tlsv1.2', '--silent', '--show-error', '--fail', '--max-time', '10',
+      '--disable', '--proto', '=https', '--tlsv1.2', '--silent', '--show-error', '--fail', '--max-time', '10',
       OIDC_JWKS_URL,
-    ], { encoding: 'utf8', maxBuffer: 64 * 1024, timeout: 12_000 });
+    ], { encoding: 'utf8', maxBuffer: 64 * 1024, timeout: 12_000, stdio: ['pipe', 'pipe', 'pipe'] });
     const jwks: unknown = JSON.parse(response);
-    if (!jwks || typeof jwks !== 'object' || Array.isArray(jwks)) return undefined;
+    if (!jwks || typeof jwks !== 'object' || Array.isArray(jwks)) return signatureRejected;
     const keys = (jwks as Record<string, unknown>).keys;
-    if (!Array.isArray(keys)) return undefined;
+    if (!Array.isArray(keys)) return signatureRejected;
     const key = keys.find((entry: unknown): entry is Record<string, unknown> => {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
       const candidate = entry as Record<string, unknown>;
@@ -87,9 +97,9 @@ function verifyGitHubOidcToken(token: string): Record<string, unknown> | undefin
     if (!key || !verifySignature('RSA-SHA256', Buffer.from(`${parts[0]}.${parts[1]}`),
       createPublicKey({
         key: key as unknown as import('node:crypto').webcrypto.JsonWebKey, format: 'jwk',
-      }), Buffer.from(parts[2], 'base64url'))) return undefined;
+      }), Buffer.from(parts[2], 'base64url'))) return signatureRejected;
   } catch {
-    return undefined;
+    return signatureRejected;
   }
   const repository = claims.repository;
   const ref = claims.ref;
@@ -110,19 +120,20 @@ function verifyGitHubOidcToken(token: string): Record<string, unknown> | undefin
     && workflowRef === REGRESSION_WORKFLOW_REF
     && claims.workflow_sha === CLOUD_HYPERVISOR_REGRESSION_COMMIT
     && claims.job_workflow_ref === undefined
-    && sha === CLOUD_HYPERVISOR_REGRESSION_COMMIT ? claims : undefined;
+    && sha === CLOUD_HYPERVISOR_REGRESSION_COMMIT
+    ? 'verified' : 'cloud-hypervisor-enclave-admission-claims';
 }
 
-function hasExpectedRegressionWorkflowIdentity(): boolean {
-  if (regressionIdentityChecked) return regressionIdentityVerified;
-  regressionIdentityChecked = true;
+function regressionWorkflowIdentity(): RegressionRejection | 'verified' {
+  if (regressionIdentity !== undefined) return regressionIdentity;
   const token = fetchGitHubOidcToken();
-  regressionIdentityVerified = token !== undefined && verifyGitHubOidcToken(token) !== undefined;
-  return regressionIdentityVerified;
+  regressionIdentity = token === undefined
+    ? 'cloud-hypervisor-enclave-admission-token-acquisition' : verifyGitHubOidcToken(token);
+  return regressionIdentity;
 }
 
-/** Only the source-pinned daily build may exercise these public agent profiles. */
-export function isCloudHypervisorDailyRegressionWorkflow(config: WrapperConfig): boolean {
+/** Closed-vocabulary rejection evidence; never includes token or endpoint data. */
+export function cloudHypervisorDailyRegressionRejection(config: WrapperConfig): RegressionRejection | undefined {
   const commit = CLOUD_HYPERVISOR_REGRESSION_COMMIT;
   const runtime = config.cloudHypervisor;
   const enclaves = config.enclaves;
@@ -133,16 +144,19 @@ export function isCloudHypervisorDailyRegressionWorkflow(config: WrapperConfig):
     || process.env.GITHUB_REF !== 'refs/heads/main'
     || process.env.GITHUB_SHA !== commit
     || process.env.GITHUB_WORKFLOW_SHA !== commit
-    || process.env.GITHUB_WORKFLOW_REF !== REGRESSION_WORKFLOW_REF
-    || !hasExpectedRegressionWorkflowIdentity()
-    || config.containerRuntime !== 'cloud-hypervisor'
+    || process.env.GITHUB_WORKFLOW_REF !== REGRESSION_WORKFLOW_REF) {
+    return 'cloud-hypervisor-enclave-admission-workflow-source';
+  }
+  if (config.containerRuntime !== 'cloud-hypervisor'
     || config.imageTag !== commit
     || config.enableApiProxy === false
     || runtime?.artifactReleaseTag !== `v0.0.0-regression.${commit}`
     || runtime.developmentAllowUnattestedArtifacts
     || runtime.sha256 !== undefined
     || !enclaves?.enabled || enclaves.executors.script.enabled
-    || !isDeepStrictEqual(enclaves.privateRepos, PUBLIC_REPOS)) return false;
+    || !isDeepStrictEqual(enclaves.privateRepos, PUBLIC_REPOS)) {
+    return 'cloud-hypervisor-enclave-admission-configuration-profile';
+  }
   const agent = enclaves.executors.agent;
   const profiles = {
     copilot: ['anthropic', 'claude-sonnet-5'],
@@ -150,7 +164,8 @@ export function isCloudHypervisorDailyRegressionWorkflow(config: WrapperConfig):
     claude: ['anthropic', 'claude-haiku-4-5'],
   };
   const profile = profiles[agent.engine as keyof typeof profiles];
-  return agent.enabled && agent.runtime === 'cloud-hypervisor'
+  const profileMatches = agent.enabled && agent.runtime === 'cloud-hypervisor'
+    && agent.network === 'api-proxy-only'
     && profile !== undefined && agent.profile === profile[0] && agent.model === profile[1]
     && agent.image === undefined && agent.dynamic === undefined
     && agent.github === undefined && agent.tools === undefined
@@ -159,6 +174,14 @@ export function isCloudHypervisorDailyRegressionWorkflow(config: WrapperConfig):
     && agent.memoryLimit === '1g' && agent.tmpfsLimit === '256m'
     && agent.maxModelRequests === undefined && agent.maxModelTokens === undefined
     && isDeepStrictEqual(agent.repos, PUBLIC_REPOS);
+  if (!profileMatches) return 'cloud-hypervisor-enclave-admission-configuration-profile';
+  const identity = regressionWorkflowIdentity();
+  return identity === 'verified' ? undefined : identity;
+}
+
+/** Only the source-pinned daily build may exercise these public agent profiles. */
+export function isCloudHypervisorDailyRegressionWorkflow(config: WrapperConfig): boolean {
+  return cloudHypervisorDailyRegressionRejection(config) === undefined;
 }
 
 /** Admission for pinned native conformance profiles, not general enclave use. */

@@ -13,16 +13,20 @@ const parse = (stderr: string) => stderr.split('\n').filter(line => line.startsW
 
 afterEach(() => jest.restoreAllMocks());
 
-it('emits only an allowlisted reason at the innermost failing phase and preserves the error', () => {
+it.each([
+  'cloud-hypervisor-enclave-admission',
+  ...['workflow-source', 'configuration-profile', 'token-acquisition', 'signature', 'claims']
+    .map(reason => `cloud-hypervisor-enclave-admission-${reason}`),
+])('emits only an allowlisted reason at the innermost failing phase and preserves the error (%s)', code => {
   const write = jest.spyOn(jest.requireActual<typeof fs>('fs'), 'writeSync').mockReturnValue(1);
   const error = Object.assign(new Error('PRIVATE_PROMPT_CREDENTIAL_CAPABILITY'), {
-    code: 'cloud-hypervisor-enclave-admission',
+    code,
   });
   const listeners = process.listenerCount('exit');
   expect(() => withEarlyStartupDiagnostics('validation', () =>
     withEarlyStartupDiagnostics('backend-selection', () => { throw error; }))).toThrow(error);
   expect(parse(String(write.mock.calls[0][1]))).toEqual([{
-    schemaVersion: 1, phase: 'backend-selection', reason: 'cloud-hypervisor-enclave-admission',
+    schemaVersion: 1, phase: 'backend-selection', reason: code,
   }]);
   expect(write).toHaveBeenCalledTimes(1);
   expect(JSON.stringify(write.mock.calls)).not.toContain('PRIVATE_');

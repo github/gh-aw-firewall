@@ -9,6 +9,7 @@ import { normalizeEnclavesConfig } from '../../src/parsers/enclave-parser';
 import { validateRunSandboxBackend } from '../../src/enclave/run-backend';
 import type { WrapperConfig } from '../../src/types';
 import { removeWorkDirectories } from '../../src/artifact-preservation';
+import { buildMinimalBuildConfigInput } from '../../src/test-helpers/build-config.test-utils';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { configuration, probe, assertAudit } = require('./run-enclave-agent-regression');
@@ -32,6 +33,7 @@ const oidcJwk = {
 };
 let oidcClaimsOverride: Record<string, unknown> = {};
 let oidcTokenOverride: string | undefined;
+let oidcFailure: 'token' | 'jwks' | undefined;
 function signedOidcToken(eventName: string) {
   const header = Buffer.from(JSON.stringify({ alg: 'RS256', kid: 'fixture-key', typ: 'JWT' }))
     .toString('base64url');
@@ -239,23 +241,33 @@ describe('source-pinned Cloud Hypervisor regression admission', () => {
       GITHUB_SHA: source, GITHUB_WORKFLOW_SHA: source, GITHUB_WORKFLOW_REF: `${signer}@refs/heads/main`,
       ACTIONS_ID_TOKEN_REQUEST_URL: 'https://pipelines.actions.githubusercontent.com/fixture/_apis/oidc/token',
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'fixture-request-token',
+      RUNNER_ENVIRONMENT: 'github-hosted', ImageOS: 'ubuntu24',
+      COPILOT_GITHUB_TOKEN: 'host-only-fixture', OPENAI_API_KEY: 'host-only-fixture',
+      ANTHROPIC_API_KEY: 'host-only-fixture',
     };
+    oidcFailure = undefined;
   });
   afterEach(() => {
     process.env = originalEnvironment;
     jest.dontMock('../../src/cloud-hypervisor/artifact-compatibility.json');
     jest.dontMock('node:child_process');
+    jest.restoreAllMocks();
   });
-  function check(agent: string, change: (config: WrapperConfig) => void = () => {}) {
+  function check(agent: string, change: (config: WrapperConfig) => void = () => {},
+    reason?: string) {
     let accepted = false;
     jest.isolateModules(() => {
       jest.doMock('node:child_process', () => ({
         ...jest.requireActual('node:child_process'),
-        execFileSync: (_command: string, args: string[], options?: { input?: string }) => {
+        execFileSync: (_command: string, args: string[], options?: { input?: string; stdio?: string[] }) => {
+          expect(args[0]).toBe('--disable');
+          expect(options?.stdio).toEqual(['pipe', 'pipe', 'pipe']);
           if (args.includes('https://token.actions.githubusercontent.com/.well-known/jwks')) {
+            if (oidcFailure === 'jwks') throw new Error('PRIVATE_JWKS_STDERR');
             return JSON.stringify({ keys: [oidcJwk] });
           }
           if (options?.input?.includes('Authorization: bearer fixture-request-token')) {
+            if (oidcFailure === 'token') throw new Error('PRIVATE_TOKEN_STDERR');
             return JSON.stringify({ value: oidcTokenOverride
               ?? signedOidcToken(process.env.GITHUB_EVENT_NAME ?? '') });
           }
@@ -268,22 +280,62 @@ describe('source-pinned Cloud Hypervisor regression admission', () => {
       const { validateEnclavesConfig } = jest.requireActual('../../src/enclave/preflight');
       const { assertCloudHypervisorPreSecurityCompatibility } =
         jest.requireActual('../../src/cloud-hypervisor/runtime-validation');
+      const { cloudHypervisorDailyRegressionRejection } =
+        jest.requireActual('../../src/enclave/cloud-hypervisor-conformance-acceptance');
+      const { loadAwfFileConfig } = jest.requireActual('../../src/config-file');
+      const { mapAwfFileConfigToCliOptions } = jest.requireActual('../../src/config-mapper');
+      const { buildConfig } = jest.requireActual('../../src/commands/build-config');
+      const { assembleAndValidateConfig } = jest.requireActual('../../src/commands/validators/config-assembly');
+      const { program } = jest.requireActual('../../src/cli-options');
       const raw = configuration(agent, 'cloud-hypervisor', source, '/private/work', '/artifacts');
-      const config = {
-        containerRuntime: raw.container.containerRuntime, imageTag: raw.container.imageTag,
-        workDir: '/private/work', networkIsolation: true, enableApiProxy: true,
-        cloudHypervisor: raw.cloudHypervisor,
-        copilotGithubToken: 'host-only-fixture', anthropicApiKey: 'host-only-fixture', openaiApiKey: 'host-only-fixture',
-        enclaves: normalizeEnclavesConfig(raw.enclaves),
-      } as WrapperConfig;
+      program.parse(['node', 'awf', '--image-tag', source, '--skip-pull',
+        '--work-dir', '/private/work', '--log-level', 'error',
+        '--agent-timeout', '15', '--max-num-tool-calls', '1', '--', 'true']);
+      const options = { ...program.opts(),
+        ...Object.fromEntries(Object.entries(mapAwfFileConfigToCliOptions(
+          loadAwfFileConfig('-', () => JSON.stringify(raw)))).filter(([, value]) => value !== undefined)),
+        workDir: '/private/work' };
+      const config = buildConfig(buildMinimalBuildConfigInput({ options })) as WrapperConfig;
       change(config);
-      accepted = validateEnclavesConfig(config).length === 0;
+      accepted = cloudHypervisorDailyRegressionRejection(config) === undefined;
       if (accepted) expect(() => assertCloudHypervisorPreSecurityCompatibility(config)).not.toThrow();
       else expect(() => assertCloudHypervisorPreSecurityCompatibility(config)).toThrow();
+      expect(cloudHypervisorDailyRegressionRejection(config)).toBe(
+        reason && `cloud-hypervisor-enclave-admission-${reason}`);
+      const assemble = () => assembleAndValidateConfig(options, 'true', {
+          logLevel: 'error', modelAliases: {}, modelMultipliers: {},
+        }, {
+          allowedDomains: raw.network.allowDomains, sensitiveAllowedDomains: [], blockedDomains: [],
+          localhostResult: { localhostDetected: false }, dnsServers: ['8.8.8.8'],
+          dockerHostPathPrefixResolution: {},
+        }, { additionalEnv: {}, volumeMounts: [], allowedUrls: [] });
+      if (accepted) {
+        const assembled = assemble();
+        expect(assembled.containerRuntime).toBe('cloud-hypervisor');
+        expect(validateEnclavesConfig(assembled)).toEqual([]);
+      } else if (reason !== 'configuration-profile') {
+        const write = jest.spyOn(jest.requireActual<typeof fs>('fs'), 'writeSync').mockReturnValue(1);
+        const exit = jest.spyOn(process, 'exit').mockImplementation(() => { throw new Error('Rejected'); });
+        expect(assemble).toThrow('Rejected');
+        expect(write).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(String(write.mock.calls[0][1]).split('AWF_EARLY_STARTUP_FAILURE ')[1]))
+          .toEqual({ schemaVersion: 1, phase: 'backend-selection',
+            reason: `cloud-hypervisor-enclave-admission-${reason}` });
+        expect(JSON.stringify(write.mock.calls)).not.toContain('PRIVATE_');
+        write.mockRestore();
+        exit.mockRestore();
+      }
     });
     return accepted;
   }
   it.each(agents)('admits only the matching public single-use %s profile', agent => {
+    expect(check(agent)).toBe(true);
+    process.env.GITHUB_EVENT_NAME = 'workflow_dispatch';
+    expect(check(agent)).toBe(true);
+  });
+  it.each(agents)('admits the production %s configuration with a regional hosted OIDC endpoint', agent => {
+    process.env.ACTIONS_ID_TOKEN_REQUEST_URL =
+      'https://run-actions-2-azure-eastus.actions.githubusercontent.com/fixture/idtoken/job?api-version=2.0';
     expect(check(agent)).toBe(true);
     process.env.GITHUB_EVENT_NAME = 'workflow_dispatch';
     expect(check(agent)).toBe(true);
@@ -294,7 +346,7 @@ describe('source-pinned Cloud Hypervisor regression admission', () => {
     { GITHUB_WORKFLOW_SHA: 'b'.repeat(40) }, { GITHUB_WORKFLOW_REF: 'other/workflow@refs/heads/main' },
   ])('rejects untrusted workflow identity %j', env => {
     Object.assign(process.env, env);
-    expect(check('copilot')).toBe(false);
+    expect(check('copilot', undefined, 'workflow-source')).toBe(false);
   });
   it('rejects a tampered GitHub-issued identity token', () => {
     const token = signedOidcToken('schedule');
@@ -302,11 +354,11 @@ describe('source-pinned Cloud Hypervisor regression admission', () => {
     const signature = Buffer.from(encodedSignature, 'base64url');
     signature[0] ^= 1;
     oidcTokenOverride = `${header}.${payload}.${signature.toString('base64url')}`;
-    expect(check('copilot')).toBe(false);
+    expect(check('copilot', undefined, 'signature')).toBe(false);
   });
   it('requires the full repository claim in the signed identity token', () => {
     oidcClaimsOverride = { repository: 'gh-aw-firewall' };
-    expect(check('copilot')).toBe(false);
+    expect(check('copilot', undefined, 'claims')).toBe(false);
   });
   it.each([
     { workflow_ref: undefined }, { workflow_ref: 'other/workflow@refs/heads/main' },
@@ -315,7 +367,36 @@ describe('source-pinned Cloud Hypervisor regression admission', () => {
     { workflow_ref: undefined, job_workflow_ref: `${signer}@refs/heads/main` },
   ])('rejects missing, mismatched or reusable signed workflow identity (%#)', claims => {
     oidcClaimsOverride = claims;
-    expect(check('copilot')).toBe(false);
+    expect(check('copilot', undefined, 'claims')).toBe(false);
+  });
+  it.each([
+    { iss: 'https://untrusted.invalid' }, { aud: 'other' }, { exp: 0 },
+    { nbf: Math.floor(Date.now() / 1000) + 3600 }, { sha: 'b'.repeat(40) },
+    { repository_owner: 'other' }, { ref: 'refs/heads/other' }, { event_name: 'pull_request' },
+  ])('rejects invalid signed claims (%#)', claims => {
+    oidcClaimsOverride = claims;
+    expect(check('copilot', undefined, 'claims')).toBe(false);
+  });
+  it.each([
+    undefined, 'http://pipelines.actions.githubusercontent.com/idtoken',
+    'https://pipelines.actions.githubusercontent.com.evil.invalid/idtoken',
+    'https://actions.githubusercontent.com/idtoken',
+    'https://user@pipelines.actions.githubusercontent.com/idtoken',
+    'https://pipelines.actions.githubusercontent.com:8443/idtoken',
+    'https://pipelines.actions.githubusercontent.com/idtoken#fragment',
+    'https://pipelines.actions.githubusercontent.com/idtoken\nheader = "PRIVATE"',
+  ])('rejects unsafe or missing token request destinations (%#)', url => {
+    if (url === undefined) delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+    else process.env.ACTIONS_ID_TOKEN_REQUEST_URL = url;
+    expect(check('copilot', undefined, 'token-acquisition')).toBe(false);
+  });
+  it.each(['token', 'jwks'] as const)('classifies %s acquisition failures without provider text', stage => {
+    oidcFailure = stage;
+    expect(check('copilot', undefined, stage === 'token' ? 'token-acquisition' : 'signature')).toBe(false);
+  });
+  it('rejects malformed tokens before claims can be trusted', () => {
+    oidcTokenOverride = 'malformed';
+    expect(check('copilot', undefined, 'signature')).toBe(false);
   });
   it.each([
     (config: WrapperConfig) => { config.enclaves!.privateRepos[0].sensitivity = 'internal'; },
@@ -327,7 +408,7 @@ describe('source-pinned Cloud Hypervisor regression admission', () => {
     (config: WrapperConfig) => { config.cloudHypervisor!.developmentAllowUnattestedArtifacts = true; },
     (config: WrapperConfig) => { config.imageTag = 'latest'; },
   ])('preserves fail-closed admission outside the exact profile (%#)', change => {
-    expect(check('copilot', change)).toBe(false);
+    expect(check('copilot', change, 'configuration-profile')).toBe(false);
   });
 });
 
@@ -345,7 +426,7 @@ describe.each(agents)('%s launch orchestration', agent => {
     audit?: string; missingAudit?: boolean; incomplete?: boolean; keepWork?: boolean; keepChrootHome?: boolean;
     stopFailure?: boolean; exitCode?: number | null; signal?: string;
     gatewayFailure?: boolean; gatewayThrow?: boolean; retentionFailure?: boolean;
-    stopFileFailure?: boolean; stopRequestFailure?: boolean;
+    stopFileFailure?: boolean; stopRequestFailure?: boolean; preStart?: boolean;
   } = {}) {
     const child = { exitCode: failure ? 1 : null as number | null, signalCode: null };
     const primaryVm = {
@@ -364,6 +445,8 @@ describe.each(agents)('%s launch orchestration', agent => {
       spawnAwf: jest.fn((args: string[]) => {
         config = JSON.parse(fs.readFileSync(args[args.indexOf('--config') + 1], 'utf8'));
         workDirectory = args[args.indexOf('--work-dir') + 1];
+        expect(fs.existsSync(workDirectory)).toBe(false);
+        if (!options.preStart) fs.mkdirSync(workDirectory, { mode: 0o700 });
         return child;
       }),
       waitForBroker: jest.fn(async () => { if (failure) throw failure; }),
@@ -388,6 +471,7 @@ describe.each(agents)('%s launch orchestration', agent => {
         if (options.stopFailure) throw new Error('PRIVATE_STOP');
         child.exitCode = options.exitCode === undefined ? 0 : options.exitCode;
         if (options.signal) (child as { signalCode: string | null }).signalCode = options.signal;
+        if (options.preStart) return;
         fs.mkdirSync(config.logging.auditDir, { recursive: true, mode: 0o700 });
         if (!options.missingAudit) {
           const audit = createProtectedAuditLog(config.logging.auditDir);
@@ -477,6 +561,16 @@ describe.each(agents)('%s launch orchestration', agent => {
       fixture.spawnAwf.mock.calls[0][0].indexOf('--config') + 1]), 'audit', 'enclave.jsonl');
     expect(fs.existsSync(audit)).toBe(true);
     expect(fs.existsSync(path.join(path.dirname(path.dirname(audit)), 'work'))).toBe(false);
+  });
+  it('leaves no harness-created work state when admission rejects before startup', async () => {
+    const { fixture, finalized, error } = await launch('cloud-hypervisor',
+      new Error('Admission rejected'), { preStart: true, exitCode: 1 });
+    expect(error).toBeDefined();
+    expect(fixture.requestMcp).not.toHaveBeenCalled();
+    expect(finalized.mock.calls[0][1].checks['awf-cleanup']).toEqual(['passed', 'none']);
+    expect(finalized.mock.calls[0][1].checks['awf-exit']).toEqual(['failed', 'nonzero-exit']);
+    const args = fixture.spawnAwf.mock.calls[0][0];
+    expect(fs.existsSync(args[args.indexOf('--work-dir') + 1])).toBe(false);
   });
   it('keeps the original launch failure and captures its startup record before cleanup', async () => {
     const failure = new Error('private original launch failure');
