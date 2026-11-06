@@ -716,7 +716,8 @@ function projectFinalization(value, backend) {
   const failure = item => {
     check(object(item) && (item.gate === 'primary'
       ? PRIMARY_STAGES.includes(item.reason)
-      : FINALIZATION_REASONS[item.gate]?.includes(item.reason) && item.reason !== 'none'),
+      : typeof item.gate === 'string' && Object.prototype.hasOwnProperty.call(FINALIZATION_REASONS, item.gate)
+        && FINALIZATION_REASONS[item.gate].includes(item.reason) && item.reason !== 'none'),
     'finalization-schema');
     return { gate: item.gate, reason: item.reason };
   };

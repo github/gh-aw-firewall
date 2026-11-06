@@ -163,7 +163,8 @@ function assertAudit(file, passed = () => {}, trustedRoot = path.dirname(file)) 
     if (records.length > 256 || records.some(record => !object(record)
       || !['invocation', 'failure', 'lifecycle'].includes(record.kind)
       || typeof record.ts !== 'string' || !Number.isFinite(Date.parse(record.ts))
-      || (record.kind === 'invocation' && (!/^[a-f0-9]{16,64}$/.test(record.invocationId || '')
+      || (record.kind === 'invocation' && (typeof record.invocationId !== 'string'
+        || !/^[a-f0-9]{16,64}$/.test(record.invocationId)
         || typeof record.repo !== 'string' || typeof record.sensitivity !== 'string'
         || !count(record.bits) || !count(record.bucketMs) || record.bucketMs === 0))
       || (record.kind === 'failure' && typeof record.reason !== 'string')
@@ -184,6 +185,7 @@ function assertAudit(file, passed = () => {}, trustedRoot = path.dirname(file)) 
 function assertCleanup(workDir, auditDir) {
   for (const [target, reason] of [
     [workDir, 'work-dir-present'],
+    [`${workDir}-chroot-home`, 'work-dir-present'],
     [path.join(auditDir, 'enclave-audit-incomplete.txt'), 'incomplete-audit'],
   ]) {
     try { fs.lstatSync(target); }

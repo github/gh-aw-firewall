@@ -332,7 +332,7 @@ describe.each(agents)('%s launch orchestration', agent => {
     fs.rmSync(directory, { recursive: true, force: true });
   });
   async function launch(runtime: string, failure?: Error, options: {
-    audit?: string; missingAudit?: boolean; incomplete?: boolean; keepWork?: boolean;
+    audit?: string; missingAudit?: boolean; incomplete?: boolean; keepWork?: boolean; keepChrootHome?: boolean;
     stopFailure?: boolean; exitCode?: number | null; signal?: string;
     gatewayFailure?: boolean; gatewayThrow?: boolean; retentionFailure?: boolean;
     stopFileFailure?: boolean; stopRequestFailure?: boolean;
@@ -395,6 +395,7 @@ describe.each(agents)('%s launch orchestration', agent => {
           fs.rmSync(stop, { force: true });
           fs.mkdirSync(stop);
         }
+        if (options.keepChrootHome) fs.mkdirSync(`${workDirectory}-chroot-home`, { mode: 0o700 });
       }),
       removeGatewayFixture: jest.fn(() => {
         if (options.gatewayThrow) throw new Error('PRIVATE_GATEWAY');
@@ -485,6 +486,7 @@ describe.each(agents)('%s launch orchestration', agent => {
     [{ exitCode: null, signal: 'SIGTERM' }, 'awf-exit', 'signal'],
     [{ missingAudit: true }, 'audit-presence', 'missing'],
     [{ audit: '{"PRIVATE_INVALID":' }, 'audit-schema', 'invalid'],
+    [{ audit: JSON.stringify({ ...invocation, invocationId: 1234567890123456 }) }, 'audit-schema', 'invalid'],
     [{ audit: JSON.stringify(invocation) + '\n' + JSON.stringify(invocation) }, 'audit-invocation', 'count'],
     [{ audit: JSON.stringify({ ...invocation, sensitivity: 'internal' }) }, 'audit-invocation', 'sensitivity'],
     [{ audit: JSON.stringify({ ...invocation, repo: 'private/repository' }) }, 'audit-invocation', 'repository'],
@@ -493,6 +495,7 @@ describe.each(agents)('%s launch orchestration', agent => {
     }) }, 'audit-invocation', 'failure-record'],
     [{ incomplete: true }, 'awf-cleanup', 'incomplete-audit'],
     [{ keepWork: true }, 'awf-cleanup', 'work-dir-present'],
+    [{ keepChrootHome: true }, 'awf-cleanup', 'work-dir-present'],
     [{ gatewayFailure: true }, 'gateway-cleanup', 'remove-failed'],
     [{ gatewayThrow: true }, 'gateway-cleanup', 'remove-failed'],
     [{ stopFileFailure: true }, 'stop-file-cleanup', 'remove-failed'],
@@ -540,6 +543,8 @@ it('fails unless exactly one audited public invocation succeeds', () => {
     expect(() => assertAudit(file)).not.toThrow();
     for (const records of [[], [invocation, invocation], [invocation, { ts: invocation.ts, kind: 'failure', reason: 'failed' }],
       [{ ...invocation, sensitivity: 'internal' }], [{ kind: 'invocation', repo: invocation.repo, sensitivity: 'public' }],
+      [{ ...invocation, invocationId: 1234567890123456 }],
+      [{ ...invocation, invocationId: ['b'.repeat(24)] }],
       [null], ['invalid'], [{ ...invocation, bits: -1 }], [{ ...invocation, bucketMs: 0 }]]) {
       fs.writeFileSync(file, records.map(record => JSON.stringify(record)).join('\n'));
       expect(() => assertAudit(file)).toThrow();

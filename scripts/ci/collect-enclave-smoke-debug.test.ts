@@ -184,7 +184,7 @@ describe('host-only public enclave debug collector', () => {
     expect(fs.readdirSync(path.join(run, 'upload')).sort())
       .toEqual(['collection-status.txt', 'finalization.json']);
   });
-  it.each(['symlink', 'hardlink', 'permissions', 'oversized', 'backend', 'reason', 'owner', 'ancestor-symlink'])(
+  it.each(['symlink', 'hardlink', 'permissions', 'oversized', 'backend', 'reason', 'inherited-gate', 'owner', 'ancestor-symlink'])(
     'rejects unsafe finalization evidence %s without disclosing input', kind => {
       retainFinalization();
       const file = path.join(run, 'finalization.json');
@@ -204,6 +204,7 @@ describe('host-only public enclave debug collector', () => {
       } else {
         const value = JSON.parse(fs.readFileSync(file, 'utf8'));
         if (kind === 'backend') value.backend = 'docker';
+        else if (kind === 'inherited-gate') value.primaryFailure = { gate: 'constructor', reason: 'invalid' };
         else value.primaryFailure.reason = 'PRIVATE_PROMPT_AND_CREDENTIAL_SENTINEL';
         fs.writeFileSync(file, JSON.stringify(value));
       }
@@ -218,7 +219,11 @@ describe('host-only public enclave debug collector', () => {
       } else if (kind === 'owner') fs.chmodSync(file, 0o644);
       collector.publishCollectionFailure(run, uid, gid, failure, uid, temp);
       expect(fs.readdirSync(path.join(run, 'upload'))).toEqual(['collection-status.txt']);
-      expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8')).not.toContain('PRIVATE_');
+      const status = fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8');
+      expect(status).not.toContain('PRIVATE_');
+      if (kind === 'inherited-gate') {
+        expect(status).toContain('failedCheck=finalization-schema category=invalid-evidence');
+      }
     });
   it.each(['symlink', 'hardlink', 'permissions', 'oversized', 'backend', 'category'])(
     'rejects unsafe startup evidence %s without disclosing raw input', kind => {
