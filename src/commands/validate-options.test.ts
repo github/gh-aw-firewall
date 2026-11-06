@@ -223,12 +223,11 @@ describe('validateOptions', () => {
         consoleSpy.mockRestore();
       });
 
-      it('exits when maxAiCredits is zero', () => {
-        const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-        expect(() =>
-          validateOptions({ logLevel: 'info', maxAiCredits: 0 }, 'echo hi'),
-        ).toThrow('process.exit called');
-        consoleSpy.mockRestore();
+      it.each([-1, '-1', 0, '0'])('accepts a disabled maxAiCredits budget (%s)', (maxAiCredits) => {
+        validateOptions({ logLevel: 'info', maxAiCredits }, 'echo hi');
+        expect(mockedBuildConfig.buildConfig).toHaveBeenCalledWith(
+          expect.objectContaining({ maxAiCredits: undefined }),
+        );
       });
     });
 
