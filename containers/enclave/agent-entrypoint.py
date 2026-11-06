@@ -1047,9 +1047,8 @@ def configure_engine_environment(engine: str) -> None:
 def build_engine_command(engine: str, model: str, prompt: str, log_dir: Path) -> list[str]:
     if engine == "codex":
         # AWF supplies the outer sandbox; nested bubblewrap cannot run with zero capabilities.
-        return [
+        command = [
             CODEX_BIN, "exec", "--skip-git-repo-check",
-            "--dangerously-bypass-approvals-and-sandbox",
             "--ephemeral",
             "--model", model,
             "-c", 'model_provider="awf"',
@@ -1062,6 +1061,9 @@ def build_engine_command(engine: str, model: str, prompt: str, log_dir: Path) ->
             "-c", "project_doc_max_bytes=0",
             prompt,
         ]
+        if os.environ.get("AWF_ENCLAVE_AGENT_CODEX_BYPASS_APPROVALS") == "true":
+            command.insert(3, "--dangerously-bypass-approvals-and-sandbox")
+        return command
     if engine == "claude":
         permission_prompts = os.environ.get("AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS", "auto")
         allowed_tools = os.environ.get("AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS", "Read,Glob,Grep")
