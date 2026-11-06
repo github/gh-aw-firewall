@@ -6,8 +6,20 @@ import compatibilityData from './artifact-compatibility.json';
 import { requireObject } from '../json-validation';
 
 const VIRTIOFSD_RELEASE_VERSION = '1.13.3';
-const compatibility: { releaseTag: string; signerWorkflow?: string } = compatibilityData;
+const compatibility: {
+  releaseTag: string;
+  additionalReleaseTags?: string[];
+  signerWorkflow?: string;
+} = compatibilityData;
 export const CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG = compatibility.releaseTag;
+const compatibleReleaseTags = new Set([
+  compatibility.releaseTag,
+  ...(compatibility.additionalReleaseTags ?? []),
+]);
+
+export function isCloudHypervisorArtifactReleaseTagCompatible(releaseTag: string): boolean {
+  return compatibleReleaseTags.has(releaseTag);
+}
 
 export const CLOUD_HYPERVISOR_ARTIFACT_REPOSITORY = 'github/gh-aw-firewall';
 const signerWorkflow =
@@ -76,10 +88,10 @@ export function parseCloudHypervisorArtifactManifest(
   contents: string,
   expectedReleaseTag: string,
 ): CloudHypervisorArtifactManifest {
-  if (expectedReleaseTag !== CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG) {
+  if (!isCloudHypervisorArtifactReleaseTagCompatible(expectedReleaseTag)) {
     throw new Error(
-      `Cloud Hypervisor artifacts must match this AWF release compatibility pin: expected ${
-        CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG}, got ${expectedReleaseTag}`,
+      `Cloud Hypervisor artifacts must match a supported AWF release compatibility pin: got ${
+        expectedReleaseTag}`,
     );
   }
   let parsed: unknown;

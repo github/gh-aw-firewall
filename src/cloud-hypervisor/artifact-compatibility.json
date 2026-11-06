@@ -1,3 +1,4 @@
 {
-  "releaseTag": "v0.28.66"
+  "releaseTag": "v0.28.66",
+  "additionalReleaseTags": ["v0.28.62"]
 }

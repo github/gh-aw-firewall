@@ -9,34 +9,40 @@ const digest = 'a'.repeat(64);
 
 const releaseTag = CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG;
 
-function manifest(overrides: Record<string, unknown> = {}): string {
+function manifest(overrides: Record<string, unknown> = {}, tag = releaseTag): string {
   return JSON.stringify({
     schemaVersion: 1,
     architecture: 'x86_64',
     release: {
       repository: 'github/gh-aw-firewall',
       workflow: 'github/gh-aw-firewall/.github/workflows/release.yml',
-      tag: releaseTag,
+      tag,
       sourceCommit: 'b'.repeat(40),
     },
     artifacts: {
       cloudHypervisor: { file: 'cloud-hypervisor', version: '53.0', sha256: digest },
       virtiofsd: { file: 'virtiofsd', version: '1.13.3', sha256: digest },
       kernel: { file: 'vmlinux.bin', version: '6.1.141', sha256: digest },
-      rootfs: { file: 'rootfs.ext4', version: releaseTag, sha256: digest },
-      supervisor: { file: 'awf-supervisor', version: releaseTag, sha256: digest },
+      rootfs: { file: 'rootfs.ext4', version: tag, sha256: digest },
+      supervisor: { file: 'awf-supervisor', version: tag, sha256: digest },
     },
     ...overrides,
   });
 }
 
 describe('Cloud Hypervisor artifact manifest', () => {
-  it.each(['v0.28.62', 'v0.28.63', 'v0.28.64', 'v0.28.65', 'v0.28.67', 'latest'])(
+  it.each(['v0.28.61', 'v0.28.63', 'v0.28.64', 'v0.28.65', 'v0.28.67', 'latest'])(
     'rejects a release outside the reviewed v0.28.66 compatibility pin: %s', tag => {
       expect(() => parseCloudHypervisorArtifactManifest(manifest(), tag))
         .toThrow(/compatibility pin/);
     },
   );
+
+  it('validates manifests for both reviewed artifact releases', () => {
+    for (const tag of ['v0.28.62', 'v0.28.66']) {
+      expect(parseCloudHypervisorArtifactManifest(manifest({}, tag), tag).release.tag).toBe(tag);
+    }
+  });
 
   it('uses a reviewed guest compatibility pin independently of the host package identity', () => {
     jest.isolateModules(() => {
@@ -78,7 +84,7 @@ describe('Cloud Hypervisor artifact manifest', () => {
 
   it('rejects a different release, signer metadata, filename, or digest', () => {
     expect(() => parseCloudHypervisorArtifactManifest(manifest(), 'v1.2.4'))
-      .toThrow(/must match this AWF release/);
+      .toThrow(/compatibility pin/);
     expect(() => parseCloudHypervisorArtifactManifest(manifest({
       release: {
         repository: 'attacker/repo',

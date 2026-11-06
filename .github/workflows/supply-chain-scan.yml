@@ -92,13 +92,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           git -C .tmp/gh-aw-compiler apply --unidiff-zero \
-            "${GITHUB_WORKSPACE}/scripts/ci/compiler-agent-acceptance-v0.28.66.patch"
+            "${GITHUB_WORKSPACE}/scripts/ci/compiler-agent-acceptance-v0.28.62.patch"
           go test -C .tmp/gh-aw-compiler ./pkg/workflow ./pkg/parser \
             -run 'TestValidateCloudHypervisorAgentAcceptance|TestCompileCloudHypervisorAgentAcceptance|TestMainWorkflowSchemaOrdinaryEnclaveTokenLimitAndEvals' -count=1
           mkdir -p "$HOME/.local/share/gh/extensions/gh-aw"
           go build \
             -C .tmp/gh-aw-compiler \
-            -ldflags="-X main.version=dev-v1.0.1-agent-acceptance-v0.28.66-budget131072" \
+            -ldflags="-X main.version=dev-v1.0.1-agent-acceptance-v0.28.62-budget131072" \
             -o "$HOME/.local/share/gh/extensions/gh-aw/gh-aw" \
             ./cmd/gh-aw
           rm -rf .tmp/gh-aw-compiler

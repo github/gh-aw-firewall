@@ -413,7 +413,7 @@ describe('bounded immutable enclave preflight', () => {
     { gate: 'version', error: /pinned to v53\.0/ },
     { gate: 'basename', error: /cloudHypervisor artifact basename mismatch/ },
     { gate: 'KVM', error: /KVM unavailable/ },
-    { gate: 'release', error: /must match this AWF release/ },
+    { gate: 'release', error: /compatibility pin/ },
   ])(
     'preserves the existing $gate gate and cleans before rejection', async ({ gate, error }) => {
       let input = config;

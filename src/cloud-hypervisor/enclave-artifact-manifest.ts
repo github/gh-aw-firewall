@@ -2,7 +2,7 @@ import { CLOUD_HYPERVISOR_RELEASE_VERSION } from '../types/runtime-options';
 import {
   CLOUD_HYPERVISOR_ARTIFACT_REPOSITORY,
   CLOUD_HYPERVISOR_ARTIFACT_SIGNER_WORKFLOW,
-  CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG,
+  isCloudHypervisorArtifactReleaseTagCompatible,
   CLOUD_HYPERVISOR_CANDIDATE_COMMIT,
   CLOUD_HYPERVISOR_REGRESSION_COMMIT,
 } from './artifact-manifest';
@@ -206,11 +206,10 @@ export function parseCloudHypervisorEnclaveArtifactManifest(
   contents: string,
   expectedReleaseTag: string,
 ): CloudHypervisorEnclaveArtifactManifest {
-  const runningReleaseTag = CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG;
-  if (expectedReleaseTag !== runningReleaseTag) {
+  if (!isCloudHypervisorArtifactReleaseTagCompatible(expectedReleaseTag)) {
     throw new Error(
-      `Cloud Hypervisor enclave artifacts must match this AWF release compatibility pin: expected ${
-        runningReleaseTag}, got ${expectedReleaseTag}`,
+      `Cloud Hypervisor enclave artifacts must match a supported AWF release compatibility pin: got ${
+        expectedReleaseTag}`,
     );
   }
   let parsed: unknown;

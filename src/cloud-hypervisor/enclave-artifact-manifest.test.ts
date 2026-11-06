@@ -7,11 +7,11 @@ import {
 const digest = 'a'.repeat(64);
 const releaseTag = CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG;
 
-function role(role: 'script' | 'agent'): Record<string, unknown> {
+function role(role: 'script' | 'agent', tag = releaseTag): Record<string, unknown> {
   return {
     file: 'enclave-rootfs.ext4',
     role,
-    version: releaseTag,
+    version: tag,
     sha256: digest,
     sizeBytes: 4096,
     uid: 65534,
@@ -26,7 +26,7 @@ function role(role: 'script' | 'agent'): Record<string, unknown> {
   };
 }
 
-function manifest(overrides: Record<string, unknown> = {}): string {
+function manifest(overrides: Record<string, unknown> = {}, tag = releaseTag): string {
   return JSON.stringify({
     schemaVersion: 1,
     artifactType: 'awf-cloud-hypervisor-enclave-rootfs-set',
@@ -34,21 +34,21 @@ function manifest(overrides: Record<string, unknown> = {}): string {
     release: {
       repository: 'github/gh-aw-firewall',
       workflow: 'github/gh-aw-firewall/.github/workflows/release.yml',
-      tag: releaseTag,
+      tag,
       sourceCommit: 'b'.repeat(40),
     },
     compatibility: {
       cloudHypervisorVersion: '53.0',
       kernelVersion: '6.1.141',
-      supervisorVersion: releaseTag,
+      supervisorVersion: tag,
     },
     guestBase: {
       image: `ghcr.io/github/gh-aw-firewall/cloud-hypervisor-guest-base@sha256:${digest}`,
       imageId: `sha256:${digest}`,
     },
     rootfs: {
-      script: role('script'),
-      agent: role('agent'),
+      script: role('script', tag),
+      agent: role('agent', tag),
     },
     ...overrides,
   });
@@ -74,13 +74,13 @@ function legacyManifest(): string {
   });
 }
 
-function sharedV2(overrides: Record<string, unknown> = {}): string {
-  const old = JSON.parse(manifest());
+function sharedV2(overrides: Record<string, unknown> = {}, tag = releaseTag): string {
+  const old = JSON.parse(manifest({}, tag));
   return JSON.stringify({
     ...old,
     schemaVersion: 2,
     rootfs: {
-      ...role('script'),
+      ...role('script', tag),
       role: undefined,
       entrypoint: undefined,
       sourceImageId: `sha256:${digest}`,
@@ -95,12 +95,19 @@ function sharedV2(overrides: Record<string, unknown> = {}): string {
 }
 
 describe('Cloud Hypervisor enclave artifact manifest', () => {
-  it.each(['v0.28.62', 'v0.28.63', 'v0.28.64', 'v0.28.65', 'v0.28.67', 'latest'])(
+  it.each(['v0.28.61', 'v0.28.63', 'v0.28.64', 'v0.28.65', 'v0.28.67', 'latest'])(
     'rejects a release outside the reviewed v0.28.66 compatibility pin: %s', tag => {
       expect(() => parseCloudHypervisorEnclaveArtifactManifest(manifest(), tag))
         .toThrow(/compatibility pin/);
     },
   );
+
+  it('validates manifests for both reviewed artifact releases', () => {
+    for (const tag of ['v0.28.62', 'v0.28.66']) {
+      expect(parseCloudHypervisorEnclaveArtifactManifest(sharedV2({}, tag), tag).release.tag)
+        .toBe(tag);
+    }
+  });
 
   it('binds both role entrypoints to the same enclave rootfs', () => {
     const parsed = parseCloudHypervisorEnclaveArtifactManifest(manifest(), releaseTag);
@@ -208,7 +215,7 @@ describe('Cloud Hypervisor enclave artifact manifest', () => {
 
   it('rejects stale releases, signer substitution, and unknown metadata', () => {
     expect(() => parseCloudHypervisorEnclaveArtifactManifest(manifest(), 'v0.0.0'))
-      .toThrow(/must match this AWF release/);
+      .toThrow(/compatibility pin/);
     expect(() => parseCloudHypervisorEnclaveArtifactManifest(manifest({
       release: {
         repository: 'attacker/repo',

@@ -74,10 +74,10 @@ timeout-minutes: 20
 sandbox:
   agent:
     id: awf
-    version: v0.28.66
+    version: v0.28.62
     runtime: cloud-hypervisor
-    # checksums.txt verified against github/gh-aw-firewall v0.28.66 release asset metadata.
-    checksums-sha256: f184f3993a1f0c3168d0dd96b01752670a5061c9c9bc1a37e3653fc6b54fba29
+    # checksums.txt verified against github/gh-aw-firewall v0.28.62 release asset metadata.
+    checksums-sha256: 4a4d55b288c6146349cc3d3a5e0f492a5609127393a57f64ce59dcf7e8edd82b
     config:
       filesystem:
         allow-write:
@@ -210,12 +210,13 @@ The proxy clamps output allowance, accounts cumulative provider usage, and
 fails closed on missing usage. The pinned guest does not itself enforce these
 budgets; request/output limits and proxy credential isolation remain mandatory.
 
-AWF and guest assets remain pinned to verified v0.28.66, with the official
+The agent-enclave guest remains pinned to v0.28.62; the host retains the
+reviewed v0.28.66 Cloud Hypervisor artifact pin. The workflow uses the official
 gh-aw v1.2.0 setup, mcpg v0.5.2 and primary Copilot 1.0.96.
 The guest Copilot CLI is the version baked into the attested agent rootfs,
 not installed or upgraded by this workflow.
 Manual branch runs, including main, build source host/infra code and use the
-checked-in v0.28.66 guest artifact pin.
+checked-in v0.28.62 guest artifact pin.
 Tag runs are not admitted.
 The exact-PR unattested supervisor override and its build steps are removed;
 both primary and enclave supervisors must come from verified release artifacts.
@@ -223,12 +224,13 @@ No unattested-artifact flag is enabled.
 
 Compilation uses official `github/gh-aw@v1.2.0`. Its schema exception requires
 the explicit acceptance feature and a Cloud Hypervisor primary. Regeneration
-runs the mandatory smoke postprocessor, which restores the reviewed v0.28.66
+runs the mandatory smoke postprocessor, which restores the reviewed v0.28.62
 checksum that the privileged enclave installer omits. The AWF and compiler
 gates still reject every other token value, topology, or release.
 Under a separate explicit user authorization, the branch-built AWF
-host acceptance gate selects only v0.28.66 for this exact agent fixture;
-v0.28.64 and other releases are rejected. All identity, branch-only, topology,
+host acceptance gate selects only v0.28.62 for this exact agent fixture;
+v0.28.66 remains the host default compatibility pin. All identity, branch-only,
+topology,
 credential-isolation, artifact-attestation and invocation constraints remain
 unchanged. Admission is not evidence that the enclave executes successfully.
 

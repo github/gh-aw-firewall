@@ -368,11 +368,11 @@ echo "$*" >> "$TRACE"
     expect(compile).toBeGreaterThan(install);
     expect(steps[install - 2].name).toBe('Checkout gh-aw v1.0.1');
     expect(steps[install - 2].with?.ref).toBe('0627fdbe4beb5f3b71aa569f8d97150b87f2111a');
-    expect(steps[install].run).toContain('compiler-agent-acceptance-v0.28.66.patch');
+    expect(steps[install].run).toContain('compiler-agent-acceptance-v0.28.62.patch');
     expect(steps[install].run).toContain('go test -C .tmp/gh-aw-compiler ./pkg/workflow');
     expect(steps[install].run).toContain('./pkg/parser');
     expect(steps[install].run).toContain('TestMainWorkflowSchemaOrdinaryEnclaveTokenLimitAndEvals');
-    expect(steps[install].run).toContain('dev-v1.0.1-agent-acceptance-v0.28.66-budget131072');
+    expect(steps[install].run).toContain('dev-v1.0.1-agent-acceptance-v0.28.62-budget131072');
     expect(steps[install].run).toContain('gh aw version');
     expect(steps[install].env?.GH_TOKEN).toBe('${{ github.token }}');
     for (const index of [install, compile]) {
