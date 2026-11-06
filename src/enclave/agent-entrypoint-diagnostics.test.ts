@@ -426,7 +426,7 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     expect(result.arguments).not.toContain('--max-model-requests');
     expect(result.arguments).not.toContain('--max-model-tokens');
     if (engine === 'codex') {
-      expect(result.arguments.split('\n')).toContain('--dangerously-bypass-approvals-and-sandbox');
+      expect(result.arguments.split('\n')).not.toContain('--dangerously-bypass-approvals-and-sandbox');
       expect(result.arguments).not.toContain('--approve-for-me');
       expect(result.arguments).toContain('model_providers.awf.env_key="OPENAI_API_KEY"');
       expect(result.arguments).toContain('--ephemeral');
@@ -442,6 +442,15 @@ describe('enclave agent protected entrypoint diagnostics', () => {
       expect(result.arguments).toContain('{"mcpServers":{}}');
       expect(result.arguments).toContain('--no-session-persistence');
     }
+  });
+
+  it('requires explicit opt-in for Codex approval and sandbox bypass', () => {
+    const result = runHarness('model-limits', {
+      ...providerEnv('codex'),
+      AWF_ENCLAVE_AGENT_CODEX_BYPASS_APPROVALS: 'true',
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.arguments.split('\n')).toContain('--dangerously-bypass-approvals-and-sandbox');
   });
 
   it('requires explicit opt-in for unattended Claude shell and file writes', () => {
