@@ -35,6 +35,23 @@ describe('enclave agent session artifact preservation', () => {
       .toEqual(projectEnclaveSessionDiagnostics(fs.readFileSync(sessionLogPath)));
   });
 
+  it.each([
+    '{"event":"session","sensitivity":"redacted","private":"private seed sentinel"}\n',
+    '{"event":"success","private":"private seed sentinel"}\n',
+    '{"event":"failure","category":"result-schema","private":"private seed sentinel"}\n',
+    'private seed sentinel\n',
+  ])('never trusts workload-controlled transcript classification: %s', transcript => {
+    fs.writeFileSync(sessionLogPath, transcript);
+    expect(preserveInvocationSession(sessionLogPath, auditDir, 'forged')).toBe(true);
+    expect(fs.existsSync(path.join(auditDir, 'raw-debug-sessions'))).toBe(false);
+    const contents = fs.readFileSync(path.join(auditDir, 'sessions', 'forged.jsonl'), 'utf8');
+    expect(contents).not.toContain('private seed sentinel');
+    expect(JSON.parse(contents)).toEqual(projectEnclaveSessionDiagnostics(Buffer.from(transcript)));
+    expect(fs.statSync(path.join(auditDir, 'sessions')).mode & 0o777).toBe(0o700);
+    expect(fs.statSync(path.join(auditDir, 'sessions', 'forged.jsonl')).mode & 0o777)
+      .toBe(0o600);
+  });
+
   it.each(['raw-debug', 'redacted'])('ignores guest-controlled %s labels and strips private payloads', sensitivity => {
     const privateOutput = 'private repository output';
     fs.writeFileSync(

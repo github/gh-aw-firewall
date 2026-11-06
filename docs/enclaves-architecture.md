@@ -297,6 +297,16 @@ The unchanged deadline and schema-validated `/awf/out` contract still apply:
 silent exits and no-output timeouts remain explicit failures.
 - **Shared controls** — the `repos` lists of the `enclaves` entries form the only trusted repository catalog; script and agent calls debit the same per-run repository ledger and share one admission lane.
 
+Codex 0.159.3 uses `exec --dangerously-bypass-approvals-and-sandbox` inside the
+already hardened outer enclave. This supported externally sandboxed mode avoids
+nested bubblewrap and interactive approvals; it does not change AWF's non-root
+identity, zero capabilities, no-new-privileges, read-only root and seed, bounded
+writable paths, or dedicated proxy-only network. Shell tools must write the
+required result to `/awf/out`: an empty file remains a canonical failure even
+when Codex exits zero or prints a conversational answer.
+The dedicated enclave API proxy disables provider-hosted web search and fetch
+independently of the primary agent's policy, including shell-generated requests.
+
 > **Terminology.** *Executor* and *enclave* are distinct, and this document uses
 > both. An **executor** is trusted execution machinery and a configuration kind:
 > `enclaves.executors.{script,agent}`, `executorKind`, and the code under

@@ -292,6 +292,9 @@ function buildAgentApiProxyService(params: {
   const environment = service.environment as Record<string, string>;
   environment.AWF_ENCLAVE_PROXY_DIAGNOSTICS = '1';
   environment.AWF_ENCLAVE_AGENT_PROXY = '1';
+  // Enclave shell requests must not inherit the primary agent's hosted-web access.
+  environment.AWF_CODEX_HOSTED_WEB_POLICY = '{"enabled":false}';
+  environment.AWF_CLAUDE_HOSTED_WEB_POLICY = '{"enabled":false}';
   if (params.modelBudgetSecret !== undefined) {
     environment.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET = params.modelBudgetSecret;
     service.healthcheck = {
