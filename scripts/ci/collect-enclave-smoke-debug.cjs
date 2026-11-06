@@ -133,7 +133,9 @@ function projectSessionEvent(value) {
   const result = {};
   const stages = ['configuration-accepted', 'input-accepted', 'runtime-paths-ready', 'preflight-completed',
     'engine-launch-attempt', 'engine-started', 'engine-completed', 'output-normalization-started',
-    'output-normalized', 'output-write-attempt', 'output-written'];
+    'output-normalized', 'output-write-attempt', 'output-written',
+    'claude-first-byte', 'claude-initialized', 'claude-response', 'claude-tool-requested',
+    'claude-tool-completed', 'claude-permission-denied', 'claude-api-retry', 'claude-result', 'claude-stream-summary'];
   const categories = [...ERROR_CATEGORIES, 'configuration-invalid', 'input-invalid', 'engine-failed',
     'result-write-failed', 'deadline-exceeded', 'result-read-failed', 'result-reset-failed', 'result-empty',
     'result-too-large', 'result-invalid-utf8', 'result-whitespace-only', 'diagnostic-encoding-failed',
@@ -143,6 +145,15 @@ function projectSessionEvent(value) {
     result.stage = value.stage;
     for (const key of ['attempt', 'runtimeMs']) if (count(value[key])) result[key] = value[key];
     if (typeof value.valid === 'boolean') result.valid = value.valid;
+    if (value.stage.startsWith('claude-')) {
+      Object.assign(result, fields(value, {
+        ...Object.fromEntries(['shellAvailable', 'toolError', 'resultError', 'stdoutObserved',
+          'stderrObserved', 'captureTruncated'].map(key => [key, boolean])),
+        permissionMode: member(['default', 'auto', 'acceptEdits', 'bypassPermissions', 'unknown']),
+        outputState: member(['present', 'empty', 'unavailable']),
+        httpStatus: member([null, 400, 401, 403, 404, 408, 429, 500, 502, 503, 504, 529]),
+      }));
+    }
   } else if (value.event === 'failure' && categories.includes(value.category)) {
     result.event = value.event;
     result.category = value.category;
@@ -180,6 +191,11 @@ function projectSession(value) {
       const event = projectSessionEvent(value[key]);
       if (event) result[key] = event;
     }
+  }
+  if (value.claudeStreamSummary !== undefined) {
+    check(object(value.claudeStreamSummary) && value.claudeStreamSummary.event === 'progress'
+      && value.claudeStreamSummary.stage === 'claude-stream-summary', 'session-schema');
+    result.claudeStreamSummary = projectSessionEvent(value.claudeStreamSummary);
   }
   if (value.operationErrors !== undefined) {
     check(Array.isArray(value.operationErrors) && value.operationErrors.length <= 16, 'session-bound');

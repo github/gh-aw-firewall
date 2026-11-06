@@ -18,6 +18,8 @@ import {
 } from './host-enclave-executor';
 import { agentEnvironment, stageInvocationInputs } from './enclave-invocation-staging';
 import { readEnclaveSessionDiagnostics } from './enclave-session-diagnostics';
+import { preservePublicEnclaveSession } from './diagnostics';
+import { preservePublicEnclaveArtifacts } from '../enclave/public-debug-artifacts';
 import { expectPublicEnclaveAdapterConformance } from '../enclave/public-debug-conformance.test-utils';
 import {
   assertEnclaveStartupChecklistComplete, getEnclaveStartupProgress, updateEnclaveStartupProgress,
@@ -40,7 +42,7 @@ import type {
   CloudHypervisorCommonPreflightResult,
   CloudHypervisorHostToolPaths,
 } from './preflight';
-import { cloudHypervisorManagerTestHelpers } from './manager';
+import { cloudHypervisorManagerTestHelpers, resolveCloudHypervisorManagerDependencies } from './manager';
 import type {
   HostEnclaveExecutorDependencies,
   HostEnclaveExecutorManager,
@@ -690,10 +692,13 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             expect(preservePublicSession).toHaveBeenCalledWith(
               expect.stringMatching(/^\/protected\/cloud-hypervisor\/[a-f0-9]+\/[a-f0-9]+$/),
               '/protected',
-              expect.stringContaining('PRIVATE_SESSION_TOKEN'),
+              expect.not.stringContaining('PRIVATE_SESSION_TOKEN'),
               expect.arrayContaining([agentPolicy.githubBearer]),
               expect.anything(),
             );
+            expect(JSON.parse(preservePublicSession.mock.calls[0][2])).toMatchObject({
+              status: 'captured',
+            });
           } else {
             expect(preservePublicSession).not.toHaveBeenCalled();
           }
@@ -740,6 +745,79 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           }
           await expect(fs.stat(invocationHostDir)).rejects.toMatchObject({ code: 'ENOENT' });
           managerExecuteError = false;
+          if (publicDebug) {
+            const publicRoot = path.join(directory, 'public');
+            const publicDirectory = path.join(publicRoot, runState.runId, invocationId);
+            const summary = {
+              event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
+              stderrObserved: false, outputState: 'empty',
+            };
+            const realRetentionBackend = new CloudHypervisorHostEnclaveExecutorBackend({
+              ...backendOptions,
+              publicDebugArtifactDirectory: publicRoot,
+              publicDebugArtifactProtectedRoot: directory,
+              managerDependencies: resolveCloudHypervisorManagerDependencies({
+                resolveIdentity: () => ({ uid: process.getuid!(), gid: process.getgid!() }),
+                // Emulate root ownership only; the retention sinks and file writes are real.
+                lstat: (async (...args: Parameters<typeof fs.lstat>) =>
+                  Object.assign(await fs.lstat(...args), { uid: 0 })) as typeof fs.lstat,
+                open: async (...args: Parameters<typeof fs.open>) => {
+                  const handle = await fs.open(...args);
+                  handle.chown = async () => undefined;
+                  const stat = handle.stat.bind(handle);
+                  handle.stat = (async () => Object.assign(await stat(), { uid: 0 })) as typeof handle.stat;
+                  return handle;
+                },
+              }),
+            }, {
+              ...dependencies,
+              resolveIdentity: () => ({ uid: process.getuid!(), gid: process.getgid!() }),
+              preservePublicSession: preservePublicEnclaveSession,
+              preservePublicArtifacts: preservePublicEnclaveArtifacts,
+              createManager: (...args) => {
+                const manager = dependencies.createManager!(args[0], args[1], args[2], args[3], args[4], {
+                  ...resolveCloudHypervisorManagerDependencies(args[5]),
+                  enclaveDebugArtifactDirectory: `/protected/cloud-hypervisor/${runState.runId}/${invocationId}`,
+                  enclaveDebugArtifactProtectedRoot: '/protected',
+                }, args[6]);
+                return {
+                  ...manager,
+                  execute: async request => {
+                    const result = await manager.execute(request);
+                    await fs.writeFile(path.join(invocationHostDir, 'runtime', 'session.jsonl'), [
+                      ...Array.from({ length: 40 }, () => JSON.stringify({
+                        event: 'progress', stage: 'engine-started', secret: 'PRIVATE_SESSION_TOKEN',
+                      })),
+                      JSON.stringify({ event: 'failure', category: 'result-empty', raw: 'PRIVATE_SESSION_TOKEN' }),
+                      JSON.stringify({ ...summary, raw: 'PRIVATE_SESSION_TOKEN' }),
+                      '',
+                    ].join('\n'));
+                    return result;
+                  },
+                };
+              },
+            });
+            try {
+              await expect(realRetentionBackend.execute(plan, new AbortController().signal))
+                .resolves.toEqual({ outcome: 'success', result: 'true' });
+              const sessionText = await fs.readFile(path.join(publicDirectory, 'enclave-session.log'), 'utf8');
+              const session = JSON.parse(sessionText);
+              const diagnosticsText = await fs.readFile(path.join(publicDirectory, 'diagnostics.json'), 'utf8');
+              const diagnostics = JSON.parse(diagnosticsText);
+              expect(session).toMatchObject({
+                status: 'captured', failure: { event: 'failure', category: 'result-empty' },
+                claudeStreamSummary: summary,
+              });
+              expect(session.events).toHaveLength(32);
+              expect(diagnostics.session).toEqual(session);
+              expect(diagnostics.stages).toContainEqual(expect.objectContaining({
+                stage: 'entrypoint-initialization', status: 'succeeded',
+              }));
+              expect(sessionText + diagnosticsText).not.toContain('PRIVATE_SESSION_TOKEN');
+            } finally {
+              await realRetentionBackend.close();
+            }
+          }
         } else if (expectedOutcome === 'success') {
           stopped = false;
           unmounted = false;
