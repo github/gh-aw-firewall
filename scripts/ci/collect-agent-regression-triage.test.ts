@@ -12,7 +12,8 @@ const repository = 'github/gh-aw-firewall';
 const serverUrl = 'https://github.com';
 const sha = 'a'.repeat(40);
 const workflowPath = '.github/workflows/daily-agent-runtime-regression.yml';
-const jobMarker = '<!-- awf-regression-job:github/gh-aw-firewall:123:456 -->';
+const jobMarker = 'AWF-REGRESSION-JOB:github/gh-aw-firewall:123:456';
+const snapshotMarker = 'AWF-REGRESSION-TRIAGE:github/gh-aw-firewall:123:';
 const reportIssue = () => ({
   number: 10,
   state: 'open',
@@ -20,6 +21,8 @@ const reportIssue = () => ({
   user: { login: 'github-actions[bot]', type: 'Bot' },
   html_url: `${serverUrl}/${repository}/issues/10`,
   body: `<!-- awf-agent-runtime-regression:${repository}:123 -->\n` +
+    `Run: [123, attempt 2](${serverUrl}/${repository}/actions/runs/123/attempts/2)\n` +
+    'Build source job attempt: `1`\n' +
     `Tested source revision: [\`${sha}\`](${serverUrl}/${repository}/commit/${sha})\n`,
 });
 const failedJob = () => ({
@@ -41,7 +44,10 @@ function harness() {
       },
     }),
     listJobsForWorkflowRun: jest.fn().mockResolvedValue({
-      data: { jobs: [failedJob(), {
+      data: { jobs: [{
+        id: 100, name: 'Build AWF and images once from main', run_attempt: 1,
+        status: 'completed', conclusion: 'success',
+      }, failedJob(), {
         ...failedJob(), id: 789, name: 'claude / docker', run_attempt: 2, conclusion: 'success',
       }] },
     }),
@@ -156,7 +162,7 @@ describe('regression triage metadata collection', () => {
   it('recovers partially published remediation issues without a source-report comment', async () => {
     const h = harness();
     h.issues.listForRepo.mockResolvedValue({ data: [reportIssue(), {
-      ...reportIssue(), number: 11, user: { login: 'maintainer', type: 'User' },
+      ...reportIssue(), number: 11,
       html_url: `${serverUrl}/${repository}/issues/11`,
       body: `${jobMarker}\n${'x'.repeat(9000)}`,
     }] });
@@ -175,9 +181,25 @@ describe('regression triage metadata collection', () => {
     });
   });
 
+  it('recovers only trusted, canonical visible markers after publication', () => {
+    const published = { ...reportIssue(), body: `${jobMarker}\n${jobMarker}\n` };
+    expect(collect.remediationJobMarkers(published, repository)).toEqual([jobMarker, jobMarker]);
+    expect(collect.remediationJobMarkers({
+      ...published, user: { login: 'attacker', type: 'User' },
+    }, repository)).toEqual([]);
+    expect(collect.remediationJobMarkers({
+      ...published, body: 'AWF-REGRESSION-JOB:github/other-repo:123:456',
+    }, repository)).toEqual([]);
+    expect(collect.remediationJobMarkers({
+      ...published, body: 'AWF-REGRESSION-JOB:github/gh-aw-firewall:9007199254740993:456',
+    }, repository)).toEqual([]);
+  });
+
   it('makes snapshot identity independent of job order but sensitive to reruns and changed results', async () => {
     const h = harness();
     const first = (await collect(h.options)).reports[0].snapshot_marker;
+    expect(first).toContain(snapshotMarker);
+    expect(first).not.toContain('<!--');
     const jobs = (await h.actions.listJobsForWorkflowRun()).data.jobs;
     h.actions.listJobsForWorkflowRun.mockResolvedValue({ data: { jobs: [...jobs].reverse() } });
     expect((await collect(h.options)).reports[0].snapshot_marker).toBe(first);
@@ -193,7 +215,8 @@ describe('regression triage metadata collection', () => {
   ])('never substitutes the workflow revision for missing or invalid tested source', async source => {
     const h = harness();
     h.issues.listForRepo.mockResolvedValue({
-      data: [{ ...reportIssue(), body: reportIssue().body.split('\n')[0] + `\nTested source revision: ${source}\n` }],
+      data: [{ ...reportIssue(), body: reportIssue().body.split('\n')[0] +
+        `\nRun: [123, attempt 2](url)\nBuild source job attempt: \`1\`\nTested source revision: ${source}\n` }],
     });
     expect((await collect(h.options)).reports[0].tested_sha).toBeNull();
   });
@@ -207,7 +230,24 @@ describe('regression triage metadata collection', () => {
     expect(h.issues.listForRepo).toHaveBeenCalledTimes(2);
   });
 
-  it('fails explicitly instead of presenting a truncated collection as an empty backlog', async () => {
+  it('processes a bounded rotating batch and reports deferred detector reports', async () => {
+    const h = harness();
+    h.issues.listForRepo.mockResolvedValue({ data: Array.from({ length: 21 }, (_, i) => ({
+      ...reportIssue(), number: i + 1,
+      body: reportIssue().body.replace('issues/10', `issues/${i + 1}`),
+    })) });
+    const first = await collect({ ...h.options, now: new Date('2026-11-07T00:00:00Z') });
+    const second = await collect({ ...h.options, now: new Date('2026-11-08T00:00:00Z') });
+    expect(first.reports).toHaveLength(20);
+    expect(first.backlog).toEqual({
+      total_reports: 21, processed_reports: 20, deferred_report_numbers: [21],
+    });
+    expect(second.reports).toHaveLength(1);
+    expect(second.reports[0].number).toBe(21);
+    expect(second.backlog.deferred_report_numbers).toHaveLength(20);
+  });
+
+  it('fails explicitly instead of presenting a truncated job collection as empty', async () => {
     const h = harness();
     h.actions.listJobsForWorkflowRun.mockResolvedValue({
       data: { jobs: Array.from({ length: 100 }, () => failedJob()) },
@@ -216,13 +256,19 @@ describe('regression triage metadata collection', () => {
     expect(h.actions.listJobsForWorkflowRun).toHaveBeenCalledTimes(3);
   });
 
-  it('bounds the number of reports before fetching job evidence', async () => {
+  it('marks tested source unavailable when the report or source-build attempt cannot be reconciled', async () => {
     const h = harness();
-    h.issues.listForRepo.mockResolvedValue({ data: Array.from({ length: 21 }, (_, i) => ({
-      ...reportIssue(), number: i + 1,
-    })) });
-    await expect(collect(h.options)).rejects.toThrow('report limit');
-    expect(h.actions.getWorkflowRun).not.toHaveBeenCalled();
+    const jobs = (await h.actions.listJobsForWorkflowRun()).data.jobs as {
+      name: string; run_attempt: number; status: string; conclusion: string; id: number;
+    }[];
+    h.actions.listJobsForWorkflowRun.mockResolvedValue({ data: { jobs: jobs.map(job =>
+      job.name === 'Build AWF and images once from main' ? { ...job, run_attempt: 2 } : job) } });
+    expect((await collect(h.options)).reports[0].tested_sha).toBeNull();
+    h.actions.listJobsForWorkflowRun.mockResolvedValue({ data: { jobs } });
+    h.issues.listForRepo.mockResolvedValue({
+      data: [{ ...reportIssue(), body: reportIssue().body.replace('attempt 2', 'attempt 1') }],
+    });
+    expect((await collect(h.options)).reports[0].tested_sha).toBeNull();
   });
 
   it.each([404, 410])('warns when run provenance is unavailable (%s)', async status => {
@@ -268,7 +314,18 @@ describe('daily regression triage workflow contract', () => {
     on: Record<string, unknown>;
     permissions: Record<string, string>;
     steps: { with: { script: string } }[];
-    'safe-outputs': Record<string, unknown>;
+    tools: { github: { 'github-token': string; toolsets: string[] } };
+    jobs: Record<string, {
+      needs?: string[]; permissions?: Record<string, string>;
+      steps: { name?: string; with?: { script?: string }; run?: string }[];
+    }>;
+    'safe-outputs': {
+      needs: string[];
+      steps: { run: string }[];
+      'create-issue': Record<string, unknown>;
+      'add-comment': Record<string, unknown>;
+      [key: string]: unknown;
+    };
   };
 
   it('runs daily/manually with read-only collection and safe-output-only bounded writes', () => {
@@ -277,13 +334,24 @@ describe('daily regression triage workflow contract', () => {
     expect(source.permissions).toEqual({
       'copilot-requests': 'write', contents: 'read', issues: 'read', actions: 'read', 'pull-requests': 'read',
     });
+    expect(source.tools.github['github-token']).toBe('${{ secrets.GITHUB_TOKEN }}');
+    expect(source.tools.github.toolsets).toEqual(['actions', 'issues', 'pull_requests', 'repos']);
     expect(source['safe-outputs']['create-issue']).toMatchObject({
       max: 5, 'deduplicate-by-title': true,
     });
     expect(source['safe-outputs']['add-comment']).toMatchObject({
-      max: 20, target: '[runtime-regression] *', 'pull-requests': false,
+      max: 20, target: '*', 'pull-requests': false,
       'required-title-prefix': 'Daily agent/runtime regression failed (run ',
     });
+    expect(source.jobs.writer_validation.needs).toContain('agent');
+    expect(source.jobs.writer_validation.permissions).toEqual({
+      actions: 'read', contents: 'read', issues: 'read',
+    });
+    expect(source.jobs.writer_validation.steps[source.jobs.writer_validation.steps.length - 1]?.with?.script)
+      .toContain('validate-agent-regression-triage-outputs.cjs');
+    expect(source['safe-outputs'].needs).toContain('writer_validation');
+    expect(source['safe-outputs'].steps[0].run)
+      .toBe('test "$WRITER_VALIDATION_RESULT" = success');
     expect(source['safe-outputs']).not.toHaveProperty('close-issue');
     expect(source['safe-outputs']).not.toHaveProperty('update-issue');
     expect(source['safe-outputs']['create-issue']).not.toHaveProperty('expires');
@@ -308,6 +376,8 @@ describe('daily regression triage workflow contract', () => {
       ?.with?.script).toContain('collect-agent-regression-triage.cjs');
     expect(lockText).toContain('start_cli_proxy.sh');
     expect(lockText).toContain('--difc-proxy-host awmg-cli-proxy:18443');
+    expect(lockText).toContain('validate-agent-regression-triage-outputs.cjs');
+    expect(lockText).toContain('GITHUB_MCP_SERVER_TOKEN: ${{ secrets.GITHUB_TOKEN }}');
     expect(lockText).not.toContain('Build local AWF');
     expect(applyGeneralWorkflowPatches(lockText, lockPath).content).toBe(lockText);
   });

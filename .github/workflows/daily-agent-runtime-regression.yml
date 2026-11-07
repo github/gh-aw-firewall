@@ -24,6 +24,7 @@ jobs:
     timeout-minutes: 60
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
+      source_attempt: ${{ steps.source.outputs.attempt }}
     steps:
       - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -32,7 +33,9 @@ jobs:
           persist-credentials: false
       - name: Pin source commit
         id: source
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -624,11 +627,13 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+          SOURCE_ATTEMPT: ${{ needs.build.outputs.source_attempt }}
         with:
           script: |
             const report = require('./scripts/ci/report-agent-regression-failures.cjs');
             await report({
               github, context, core,
               sourceSha: process.env.SOURCE_SHA,
+              sourceAttempt: Number(process.env.SOURCE_ATTEMPT),
               runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
             });

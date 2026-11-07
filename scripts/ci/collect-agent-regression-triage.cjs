@@ -5,10 +5,15 @@
 const { createHash } = require('node:crypto');
 
 const WORKFLOW_PATH = '.github/workflows/daily-agent-runtime-regression.yml';
+const BUILD_JOB_NAME = 'Build AWF and images once from main';
 const FAILURE_CONCLUSIONS = new Set(['failure', 'timed_out', 'startup_failure', 'action_required']);
 const MAX_REPORTS = 20;
 const MAX_ARTIFACT_BYTES = 5 * 1024 * 1024;
 const DIAGNOSTIC_NAME = /^agent-(?:runtime|enclave)-(?:copilot|codex|claude)-(?:docker|cloud-hypervisor|nvx)$/;
+
+function positiveSafeInteger(value) {
+  return /^[1-9][0-9]*$/.test(String(value ?? '')) && Number.isSafeInteger(Number(value));
+}
 
 async function boundedList(endpoint, parameters, field, maxPages = 20) {
   const result = [];
@@ -26,14 +31,55 @@ function reportRunId(issue, repository) {
   if (issue.pull_request || issue.state !== 'open' ||
       issue.user?.login !== 'github-actions[bot]' || issue.user?.type !== 'Bot') return null;
   const match = /^<!-- awf-agent-runtime-regression:([^:\s]+):([1-9][0-9]*) -->\r?\n/.exec(issue.body ?? '');
-  if (!match || match[1] !== repository || !Number.isSafeInteger(Number(match[2]))) return null;
+  if (!match || match[1] !== repository || !positiveSafeInteger(match[2])) return null;
   return Number(match[2]);
 }
 
 function testedSource(body, repository, serverUrl) {
-  const match = /^Tested source revision: \[`([0-9a-f]{40})`\]\(([^)]+)\)\r?$/mi.exec(body);
-  if (!match || match[2] !== `${serverUrl}/${repository}/commit/${match[1]}`) return null;
-  return match[1];
+  const reportAttempt = /^Run: \[(\d+), attempt ([1-9][0-9]*)\]\(/mi.exec(body ?? '');
+  const buildAttempt = /^Build source job attempt: `([1-9][0-9]*)`\r?$/mi.exec(body ?? '');
+  const match = /^Tested source revision: \[`([0-9a-f]{40})`\]\(([^)]+)\)\r?$/mi.exec(body ?? '');
+  if (!reportAttempt || !buildAttempt ||
+      !positiveSafeInteger(reportAttempt[2]) || !positiveSafeInteger(buildAttempt[1])) return null;
+  return {
+    sha: match?.[1] && match[2] === `${serverUrl}/${repository}/commit/${match[1]}` ? match[1] : null,
+    reportAttempt: Number(reportAttempt[2]),
+    buildAttempt: Number(buildAttempt[1]),
+  };
+}
+
+function verifiedTestedSource(body, repository, serverUrl, runAttempt, jobs) {
+  const source = testedSource(body, repository, serverUrl);
+  const buildJobs = jobs.filter(job => job.name === BUILD_JOB_NAME);
+  if (!source || source.reportAttempt !== runAttempt || buildJobs.length !== 1) return null;
+  const [build] = buildJobs;
+  if (build.status !== 'completed' || build.conclusion !== 'success' ||
+      !positiveSafeInteger(build.run_attempt) || source.buildAttempt !== Number(build.run_attempt)) return null;
+  return source.sha;
+}
+
+function selectReportBatch(candidates, date = new Date()) {
+  if (candidates.length <= MAX_REPORTS) return { selected: candidates, deferred: [] };
+  const day = Math.floor(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) / 86_400_000);
+  const batchCount = Math.ceil(candidates.length / MAX_REPORTS);
+  const start = (day % batchCount) * MAX_REPORTS;
+  return {
+    selected: candidates.slice(start, start + MAX_REPORTS),
+    deferred: [...candidates.slice(0, start), ...candidates.slice(start + MAX_REPORTS)],
+  };
+}
+
+function remediationJobMarkers(issue, repository) {
+  if (issue.pull_request || issue.state !== 'open' ||
+      issue.user?.login !== 'github-actions[bot]' || issue.user?.type !== 'Bot' ||
+      typeof issue.body !== 'string') return [];
+  const escapedRepository = repository.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const expression = new RegExp(
+    `^AWF-REGRESSION-JOB:${escapedRepository}:([1-9][0-9]*):([1-9][0-9]*)$`, 'gm',
+  );
+  return [...issue.body.matchAll(expression)]
+    .filter(match => positiveSafeInteger(match[1]) && positiveSafeInteger(match[2]))
+    .map(match => `AWF-REGRESSION-JOB:${repository}:${Number(match[1])}:${Number(match[2])}`);
 }
 
 function artifactMetadata(artifact) {
@@ -52,7 +98,7 @@ function artifactMetadata(artifact) {
   };
 }
 
-module.exports = async function collectAgentRegressionTriage({ github, context, core }) {
+module.exports = async function collectAgentRegressionTriage({ github, context, core, now = new Date() }) {
   const repo = context.repo;
   const repository = `${repo.owner}/${repo.repo}`;
   const serverUrl = context.serverUrl;
@@ -68,20 +114,21 @@ module.exports = async function collectAgentRegressionTriage({ github, context, 
     ...repo, state: 'open', sort: 'created', direction: 'asc',
   });
   const candidates = issues.filter(issue => reportRunId(issue, repository) !== null);
-  if (candidates.length > MAX_REPORTS) {
-    throw new Error(`Regression triage report limit reached (${MAX_REPORTS}); review the open detector backlog`);
-  }
-  const existing = issues.filter(issue => !issue.pull_request &&
-    issue.body?.includes(`<!-- awf-regression-job:${repository}:`)).map(issue => ({
-    number: issue.number,
-    url: issue.html_url,
-    title_present: typeof issue.title === 'string' && issue.title.length > 0,
-    title_length: typeof issue.title === 'string' ? issue.title.length : 0,
-    job_markers: issue.body.match(/<!-- awf-regression-job:[^>\r\n]+ -->/g) ?? [],
-  }));
+  const { selected, deferred } = selectReportBatch(candidates, now);
+  const existing = issues.flatMap(issue => {
+    const jobMarkers = remediationJobMarkers(issue, repository);
+    if (jobMarkers.length === 0) return [];
+    return [{
+      number: issue.number,
+      url: issue.html_url,
+      title_present: typeof issue.title === 'string' && issue.title.length > 0,
+      title_length: typeof issue.title === 'string' ? issue.title.length : 0,
+      job_markers: [...new Set(jobMarkers)],
+    }];
+  });
   const reports = [];
   const unavailableReports = [];
-  for (const issue of candidates) {
+  for (const issue of selected) {
     const runId = reportRunId(issue, repository);
     let run;
     try {
@@ -98,6 +145,9 @@ module.exports = async function collectAgentRegressionTriage({ github, context, 
       core.warning(`Ignoring report #${issue.number}: run ${runId} does not match detector provenance`);
       continue;
     }
+    const jobs = run.status === 'completed' ? await boundedList(github.rest.actions.listJobsForWorkflowRun, {
+      ...repo, run_id: runId, filter: 'latest',
+    }, 'jobs', 3) : [];
     const base = {
       number: issue.number,
       url: issue.html_url,
@@ -105,16 +155,15 @@ module.exports = async function collectAgentRegressionTriage({ github, context, 
       attempt: run.run_attempt,
       run_url: `${serverUrl}/${repository}/actions/runs/${runId}/attempts/${run.run_attempt}`,
       workflow_sha: run.head_sha,
-      tested_sha: testedSource(issue.body, repository, serverUrl),
+      tested_sha: run.status === 'completed'
+        ? verifiedTestedSource(issue.body, repository, serverUrl, run.run_attempt, jobs)
+        : null,
       status: run.status,
     };
     if (run.status !== 'completed') {
       reports.push({ ...base, disposition: 'defer-in-progress' });
       continue;
     }
-    const jobs = await boundedList(github.rest.actions.listJobsForWorkflowRun, {
-      ...repo, run_id: runId, filter: 'latest',
-    }, 'jobs', 3);
     if (jobs.length === 0) {
       core.warning(`Detector report #${issue.number}: no job metadata is available`);
       reports.push({ ...base, disposition: 'evidence-unavailable', reason: 'no-job-metadata' });
@@ -134,7 +183,7 @@ module.exports = async function collectAgentRegressionTriage({ github, context, 
       conclusion: job.conclusion,
       failed_steps: (job.steps ?? []).filter(step => FAILURE_CONCLUSIONS.has(step.conclusion))
         .map(step => ({ number: step.number, name: step.name, conclusion: step.conclusion })),
-      marker: `<!-- awf-regression-job:${repository}:${runId}:${job.id} -->`,
+      marker: `AWF-REGRESSION-JOB:${repository}:${runId}:${job.id}`,
     }));
     const snapshot = createHash('sha256').update(JSON.stringify([
       runId, run.run_attempt, base.tested_sha,
@@ -146,16 +195,21 @@ module.exports = async function collectAgentRegressionTriage({ github, context, 
     reports.push({
       ...base,
       disposition: failures.length ? 'triage' : 'no-current-failures',
-      snapshot_marker: `<!-- awf-regression-triage:${repository}:${runId}:${snapshot} -->`,
+      snapshot_marker: `AWF-REGRESSION-TRIAGE:${repository}:${runId}:${snapshot}`,
       failures,
       artifacts: artifacts.map(artifactMetadata),
     });
   }
-  core.info(`Prepared ${reports.length} verified detector reports and ${existing.length} open remediation issues (metadata only)`);
+  core.info(`Prepared ${reports.length} verified detector reports; ${deferred.length} reports deferred by the per-scan limit`);
   return {
     repository,
-    collected_at: new Date().toISOString(),
+    collected_at: now.toISOString(),
     limits: { reports: MAX_REPORTS, artifact_bytes: MAX_ARTIFACT_BYTES },
+    backlog: {
+      total_reports: candidates.length,
+      processed_reports: selected.length,
+      deferred_report_numbers: deferred.map(issue => issue.number),
+    },
     reports,
     unavailable_reports: unavailableReports,
     existing_remediation_issues: existing,
@@ -164,3 +218,7 @@ module.exports = async function collectAgentRegressionTriage({ github, context, 
 
 module.exports.reportRunId = reportRunId;
 module.exports.artifactMetadata = artifactMetadata;
+module.exports.testedSource = testedSource;
+module.exports.verifiedTestedSource = verifiedTestedSource;
+module.exports.remediationJobMarkers = remediationJobMarkers;
+module.exports.selectReportBatch = selectReportBatch;
