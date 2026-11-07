@@ -8,6 +8,11 @@
     "configuration-rejected": "configuration",
     "validation-rejected": "configuration",
     "backend-selection-rejected": "container-runtime",
-    "cloud-hypervisor-enclave-admission": "configuration"
+    "cloud-hypervisor-enclave-admission": "configuration",
+    "cloud-hypervisor-enclave-admission-workflow-source": "configuration",
+    "cloud-hypervisor-enclave-admission-configuration-profile": "configuration",
+    "cloud-hypervisor-enclave-admission-token-acquisition": "configuration",
+    "cloud-hypervisor-enclave-admission-signature": "configuration",
+    "cloud-hypervisor-enclave-admission-claims": "configuration"
   }
 }

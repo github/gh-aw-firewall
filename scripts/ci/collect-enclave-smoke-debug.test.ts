@@ -355,9 +355,13 @@ describe('host-only public enclave debug collector', () => {
       .toMatchObject({ diagnostic: { category: 'broker', exitCode: 1 } });
     expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8')).toContain('failedCheck=stop-proof');
   });
-  it('exports the allowlisted early admission reason independently of invocation evidence', () => {
+  it.each([
+    'cloud-hypervisor-enclave-admission',
+    ...['workflow-source', 'configuration-profile', 'token-acquisition', 'signature', 'claims']
+      .map(reason => `cloud-hypervisor-enclave-admission-${reason}`),
+  ])('exports the allowlisted early admission reason independently of invocation evidence (%s)', reason => {
     const earlyFailure = {
-      schemaVersion: 1, phase: 'backend-selection', reason: 'cloud-hypervisor-enclave-admission',
+      schemaVersion: 1, phase: 'backend-selection', reason,
     };
     retainStartup(false, earlyFailure);
     expect(collectRun()).toBe(1);

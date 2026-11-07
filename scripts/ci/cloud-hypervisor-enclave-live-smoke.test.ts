@@ -619,6 +619,8 @@ describe('sanitized host startup diagnostics', () => {
     ['validation', 'validation-rejected', 'configuration'],
     ['backend-selection', 'backend-selection-rejected', 'container-runtime'],
     ['backend-selection', 'cloud-hypervisor-enclave-admission', 'configuration'],
+    ...['workflow-source', 'configuration-profile', 'token-acquisition', 'signature', 'claims']
+      .map(reason => ['backend-selection', `cloud-hypervisor-enclave-admission-${reason}`, 'configuration']),
   ])('retains the finite early fatal reason without a startup record (%s/%s)', (phase, reason, category) => {
     const earlyFailure = { schemaVersion: 1, phase, reason };
     fs.writeFileSync(stderrFile, `${sentinel}\nAWF_EARLY_STARTUP_FAILURE ${JSON.stringify(earlyFailure)}\n`);
