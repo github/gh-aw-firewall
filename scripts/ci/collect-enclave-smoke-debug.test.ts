@@ -245,7 +245,11 @@ describe('host-only public enclave debug collector', () => {
     const projected = JSON.parse(projectDiagnostics({ ...commonEnvelope(), session }, {
       runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor',
     }).toString());
-    expect(projected.session).toEqual(session);
+    expect(projected.session).toEqual({
+      ...session,
+      events: session.events?.map(event => Object.fromEntries(
+        Object.entries(event).filter(([key]) => !['attempt', 'runtimeMs'].includes(key)))),
+    });
     expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
     expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThan(8192);
   });
@@ -265,6 +269,8 @@ describe('host-only public enclave debug collector', () => {
     expect(session.lastEvent).toEqual({
       event: 'progress', stage: 'engine-completed', attempt: 3, exitCode: 1, runtimeMs: 100,
     });
+  });
+
   it.each([
     'unknown-option', 'invalid-option-value', 'missing-option-value',
     'invalid-settings', 'invalid-mcp-config', 'unknown',
