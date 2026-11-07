@@ -909,6 +909,16 @@ def classify_claude_startup_failure(stderr: bytes) -> str:
     return "unknown"
 
 
+def claude_tool_class(name, tool_input=None) -> str:
+    if not isinstance(name, str):
+        return "unknown"
+    if name in {"Write", "Edit"}:
+        if isinstance(tool_input, dict) and tool_input.get("file_path") == str(OUT_PATH):
+            return "output-write"
+        return "file-write"
+    return {"Bash": "shell", "Read": "file-read", "Glob": "search", "Grep": "search"}.get(name, "unknown")
+
+
 def communicate_claude(process: subprocess.Popen, timeout: float) -> tuple[bytes, bytes]:
     """Drain streams incrementally, projecting only fixed lifecycle observations."""
     started = time.monotonic()
@@ -917,10 +927,11 @@ def communicate_claude(process: subprocess.Popen, timeout: float) -> tuple[bytes
     pending = bytearray()
     discard_line = False
     seen = set()
+    tool_classes = {}
     truncated = False
 
     def milestone(stage: str, **metadata) -> None:
-        key = (stage, metadata.get("toolError")) if stage == "claude-tool-completed" else stage
+        key = (stage, metadata.get("toolClass"), metadata.get("toolError"))
         if key not in seen:
             seen.add(key)
             append_progress(stage, runtimeMs=int((time.monotonic() - started) * 1000), **metadata)
@@ -945,7 +956,8 @@ def communicate_claude(process: subprocess.Popen, timeout: float) -> tuple[bytes
                           } else "unknown",
                           shellAvailable=isinstance(tools, list) and "Bash" in tools)
             elif event.get("subtype") == "permission_denied":
-                milestone("claude-permission-denied")
+                milestone("claude-permission-denied",
+                          toolClass=claude_tool_class(event.get("tool_name"), event.get("tool_input")))
             elif event.get("subtype") == "api_retry":
                 status = event.get("error_status")
                 milestone("claude-api-retry",
@@ -966,12 +978,23 @@ def communicate_claude(process: subprocess.Popen, timeout: float) -> tuple[bytes
                     if not isinstance(block, dict):
                         continue
                     if kind == "assistant" and block.get("type") == "tool_use":
-                        milestone("claude-tool-requested")
+                        tool_class = claude_tool_class(block.get("name"), block.get("input"))
+                        tool_id = block.get("id")
+                        if isinstance(tool_id, str) and len(tool_id) <= 128:
+                            if len(tool_classes) >= 64:
+                                tool_classes.pop(next(iter(tool_classes)))
+                            tool_classes[tool_id] = tool_class
+                        milestone("claude-tool-requested", toolClass=tool_class)
                     elif kind == "user" and block.get("type") == "tool_result":
-                        milestone("claude-tool-completed", toolError=block.get("is_error") is True)
+                        tool_id = block.get("tool_use_id")
+                        tool_class = tool_classes.pop(tool_id, "unknown") if isinstance(tool_id, str) else "unknown"
+                        milestone("claude-tool-completed", toolClass=tool_class,
+                                  toolError=block.get("is_error") is True)
         elif kind == "result":
             if isinstance(event.get("permission_denials"), list) and event["permission_denials"]:
-                milestone("claude-permission-denied")
+                for denial in event["permission_denials"]:
+                    milestone("claude-permission-denied", toolClass=claude_tool_class(
+                        denial.get("tool_name"), denial.get("tool_input")) if isinstance(denial, dict) else "unknown")
             milestone("claude-result", resultError=event.get("is_error") is True)
 
     try:
@@ -1019,7 +1042,7 @@ def communicate_claude(process: subprocess.Popen, timeout: float) -> tuple[bytes
                 raise subprocess.TimeoutExpired(process.args, timeout,
                                                 bytes(captured["stdout"]), bytes(captured["stderr"]))
     finally:
-        if process.returncode not in {None, 0} and "claude-initialized" not in seen:
+        if process.returncode not in {None, 0} and not any(key[0] == "claude-initialized" for key in seen):
             milestone("claude-startup-failure",
                       classification=classify_claude_startup_failure(bytes(captured["stderr"])))
         try:

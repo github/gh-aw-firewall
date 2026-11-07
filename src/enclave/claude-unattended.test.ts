@@ -33,6 +33,13 @@ function containerEnvironment(root: string): Record<string, string> {
 const binary = process.env.AWF_TEST_CLAUDE_BIN;
 const pinnedTest = binary ? it : it.skip;
 const entrypoint = path.resolve(__dirname, '../../containers/enclave/agent-entrypoint.py');
+pinnedTest('uses the pinned enclave Claude CLI version', () => {
+  const result = spawnSync(binary!, ['--version'], {
+    env: { PATH: '/usr/bin:/bin' }, encoding: 'utf8', timeout: 5000,
+  });
+  expect(result.status).toBe(0);
+  expect(result.stdout.trim()).toBe('2.1.280 (Claude Code)');
+});
 const fixture = String.raw`
 import http.server
 import importlib.util
@@ -75,6 +82,7 @@ diagnostic = (
 )
 shell_command = "python3 -c " + shlex.quote(diagnostic)
 requests = []
+output_failure = os.environ.get("OUTPUT_FAILURE") == "true"
 class Provider(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -87,14 +95,18 @@ class Provider(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b'{"input_tokens":1}')
             return
-        has_result = any(
-            isinstance(message.get("content"), list) and any(
-                block.get("type") == "tool_result" for block in message["content"]
-            ) for message in body.get("messages", [])
+        tool_results = sum(
+            sum(block.get("type") == "tool_result" for block in message["content"])
+            for message in body.get("messages", []) if isinstance(message.get("content"), list)
         )
+        has_result = tool_results >= (2 if output_failure else 1)
+        if output_failure and tool_results == 1:
+            (module.OUTPUT_DIR / "out").chmod(0o444)
         content = [{"type": "text", "text": "done"}] if has_result else [{
-            "type": "tool_use", "id": "tool_fixture", "name": "Bash",
-            "input": {"command": shell_command},
+            "type": "tool_use", "id": "tool_fixture_" + str(tool_results),
+            "name": ("Read" if tool_results == 0 else "Write") if output_failure else "Bash",
+            "input": ({"file_path": str(module.OUT_PATH)} if tool_results == 0 else
+                      {"file_path": str(module.OUT_PATH), "content": "true"}) if output_failure else {"command": shell_command},
         }]
         stop = "end_turn" if has_result else "tool_use"
         message = {
@@ -130,10 +142,8 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 environment = json.loads(os.environ["CONTAINER_ENVIRONMENT"])
 environment.update(PATH="/usr/bin:/bin", TMPDIR=str(module.TEMP_DIR))
 legacy = os.environ.get("LEGACY_ARGV") == "true"
-if os.environ.get("ALLOW_TOOLS") == "true":
-    environment["AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS"] = "none"
-    environment["AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS"] = "Bash,Read,Write,Edit,Glob,Grep"
-else:
+if os.environ.get("DENY_TOOLS") == "true":
+    # Negative fixture only; success uses the production policy unchanged.
     environment["AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS"] = "host"
     environment["AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS"] = "Read,Glob,Grep"
 if legacy:
@@ -164,6 +174,9 @@ result["stages"] = [event["stage"] for event in events if event.get("event") == 
 result["nativeExit"] = next(event["exitCode"] for event in events if event["event"] == "engine-result")
 result["startupFailures"] = [event["classification"] for event in events
                              if event.get("stage") == "claude-startup-failure"]
+result["toolEvents"] = [event for event in events
+                        if event.get("stage") in ("claude-permission-denied", "claude-tool-completed")]
+result["failure"] = next((event["category"] for event in events if event["event"] == "failure"), None)
 result["streamSummary"] = next(event for event in events if event.get("stage") == "claude-stream-summary")
 print(json.dumps(result))
 `;
@@ -182,16 +195,17 @@ print(json.dumps(module.build_engine_command("claude", "trusted-model", "task", 
   });
   expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
   expect(JSON.parse(result.stdout)).toEqual(expect.arrayContaining([
-    '--permission-mode', 'default', '--permission-prompts', 'host',
-    '--allowedTools', 'Read,Glob,Grep',
+    '--permission-mode', 'default', '--permission-prompts', 'none',
+    '--allowedTools', 'Bash,Read,Write,Edit,Glob,Grep',
   ]));
 });
 
 pinnedTest.each([
-  { approved: false, legacy: false },
-  { approved: true, legacy: false },
-  { approved: false, legacy: true },
-])('checks pinned Claude production launch %j', ({ approved, legacy }) => {
+  { denied: false, legacy: false, outputFailure: false },
+  { denied: true, legacy: false, outputFailure: false },
+  { denied: false, legacy: false, outputFailure: true },
+  { denied: false, legacy: true, outputFailure: false },
+])('checks pinned Claude production launch %j', ({ denied, legacy, outputFailure }) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-claude-unattended-'));
   try {
     const stagedEntrypoint = path.join(root, 'entrypoint.py');
@@ -202,7 +216,7 @@ pinnedTest.each([
     fs.writeFileSync(path.join(root, 'task.txt'), 'Run the shell diagnostic and write its boolean result to /awf/out.', { mode: 0o444 });
     fs.writeFileSync(path.join(root, 'schema.json'), '{"type":"boolean"}', { mode: 0o444 });
     fs.chmodSync(root, 0o755);
-    const result = spawnSync('sudo', ['--preserve-env=ENTRYPOINT,FIXTURE_ROOT,CLAUDE_BIN,ALLOW_TOOLS,LEGACY_ARGV,CONTAINER_ENVIRONMENT',
+    const result = spawnSync('sudo', ['--preserve-env=ENTRYPOINT,FIXTURE_ROOT,CLAUDE_BIN,DENY_TOOLS,OUTPUT_FAILURE,LEGACY_ARGV,CONTAINER_ENVIRONMENT',
       'unshare', '--net', '--mount', '--pid', '--fork',
       '--kill-child', '--mount-proc', '/bin/sh', '-c',
       'mount --make-rprivate / && mount --bind / / && mount -o remount,bind,ro /'
@@ -212,7 +226,7 @@ pinnedTest.each([
       + ' && exec setpriv --reuid=65534 --regid=65534 --clear-groups --no-new-privs --bounding-set=-all python3 -c "$1"',
       'fixture', fixture, root], {
       env: { PATH: '/usr/bin:/bin:/usr/local/bin', ENTRYPOINT: stagedEntrypoint,
-        FIXTURE_ROOT: root, CLAUDE_BIN: binary!, ALLOW_TOOLS: String(approved),
+        FIXTURE_ROOT: root, CLAUDE_BIN: binary!, DENY_TOOLS: String(denied), OUTPUT_FAILURE: String(outputFailure),
         LEGACY_ARGV: String(legacy),
         CONTAINER_ENVIRONMENT: JSON.stringify(containerEnvironment(root)) },
       encoding: 'utf8', timeout: 20_000,
@@ -228,15 +242,27 @@ pinnedTest.each([
       expect(observed.stages).not.toContain('claude-initialized');
       return;
     }
+    const success = !denied && !outputFailure;
     expect(observed).toEqual(expect.objectContaining({
-      exitCode: approved ? 0 : 33, nativeExit: 0, output: approved ? 'true' : '',
+      exitCode: success ? 0 : 33, nativeExit: 0, output: success ? 'true' : '',
+      failure: success ? null : 'result-empty',
     }));
     expect(observed.requests.some((route: string) => route.split('?')[0] === '/v1/messages')).toBe(true);
     expect(observed.stages).toEqual(expect.arrayContaining([
       'claude-initialized', 'claude-response', 'claude-tool-requested', 'claude-result',
     ]));
-    expect(observed.stages.includes('claude-permission-denied')).toBe(!approved);
-    if (approved) expect(JSON.parse(observed.output)).toBe(true);
+    expect(observed.stages.includes('claude-permission-denied')).toBe(denied);
+    if (denied) {
+      expect(observed.toolEvents).toContainEqual(expect.objectContaining({
+        stage: 'claude-permission-denied', toolClass: 'shell',
+      }));
+    }
+    if (outputFailure) {
+      expect(observed.toolEvents).toContainEqual(expect.objectContaining({
+        stage: 'claude-tool-completed', toolClass: 'output-write', toolError: true,
+      }));
+    }
+    if (success) expect(JSON.parse(observed.output)).toBe(true);
   } finally {
     spawnSync('sudo', ['rm', '-rf', '--', root]);
   }

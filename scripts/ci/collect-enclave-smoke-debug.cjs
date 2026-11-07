@@ -151,6 +151,7 @@ function projectSessionEvent(value) {
           'stderrObserved', 'captureTruncated'].map(key => [key, boolean])),
         permissionMode: member(['default', 'auto', 'acceptEdits', 'bypassPermissions', 'unknown']),
         outputState: member(['present', 'empty', 'unavailable']),
+        toolClass: member(['shell', 'file-read', 'file-write', 'output-write', 'search', 'unknown']),
         httpStatus: member([null, 400, 401, 403, 404, 408, 429, 500, 502, 503, 504, 529]),
       }));
       if (value.stage === 'claude-startup-failure') {
@@ -207,6 +208,26 @@ function projectSession(value) {
     check(object(value.claudeStartupFailure) && value.claudeStartupFailure.event === 'progress'
       && value.claudeStartupFailure.stage === 'claude-startup-failure', 'session-schema');
     result.claudeStartupFailure = projectSessionEvent(value.claudeStartupFailure);
+  }
+  if (value.claudeResult !== undefined) {
+    check(object(value.claudeResult) && value.claudeResult.event === 'progress'
+      && value.claudeResult.stage === 'claude-result', 'session-schema');
+    result.claudeResult = projectSessionEvent(value.claudeResult);
+  }
+  if (value.claudePermissionDenials !== undefined) {
+    check(Array.isArray(value.claudePermissionDenials) && value.claudePermissionDenials.length <= 7, 'session-schema');
+    result.claudePermissionDenials = value.claudePermissionDenials.map(event => {
+      check(object(event) && event.event === 'progress' && event.stage === 'claude-permission-denied', 'session-schema');
+      return projectSessionEvent(event);
+    });
+  }
+  if (value.claudeToolErrors !== undefined) {
+    check(Array.isArray(value.claudeToolErrors) && value.claudeToolErrors.length <= 7, 'session-schema');
+    result.claudeToolErrors = value.claudeToolErrors.map(event => {
+      check(object(event) && event.event === 'progress' && event.stage === 'claude-tool-completed'
+        && event.toolError === true, 'session-schema');
+      return projectSessionEvent(event);
+    });
   }
   if (value.operationErrors !== undefined) {
     check(Array.isArray(value.operationErrors) && value.operationErrors.length <= 16, 'session-bound');

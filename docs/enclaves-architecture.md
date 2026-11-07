@@ -293,6 +293,17 @@ enclave's filesystem, capability, or network restrictions.
 Its streaming output is projected onto bounded, deduplicated
 `claude-*` lifecycle milestones (initialization, provider response/retry, tool
 request/completion, permission denial, result, and stream/output presence).
+Tool requests, completions, and refusals retain only the finite `toolClass`:
+`shell`, `file-read`, `file-write`, `output-write`, `search`, or `unknown`.
+`output-write` identifies a native Write/Edit request targeting `/awf/out`;
+arbitrary shell commands are not inspected to infer their destination.
+A tool error does not imply a native permission refusal or a filesystem errno.
+Output-path syscall failures retain their separate operation/errno diagnostics.
+Denial/tool-error classes and the final result/stream summary survive the projected event
+limit; stream parsing continues after bounded raw capture fills, including
+resuming after an oversized line. The pinned unattended fixture uses the
+production child policy unchanged for success and substitutes only the provider
+edge, never approvals; negative cases cover refusal and output-write failure.
 Prompts, headers, tool inputs/results, and model text are never retained in
 Claude diagnostics, including public/raw-debug runs. Nonzero exits before
 initialization additionally project one finite startup classification:

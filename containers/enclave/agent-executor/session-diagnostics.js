@@ -85,6 +85,9 @@ function projectEvent(value) {
         result.permissionMode = value.permissionMode;
       }
       if (allowed(value.outputState, ['present', 'empty', 'unavailable'])) result.outputState = value.outputState;
+      if (allowed(value.toolClass, ['shell', 'file-read', 'file-write', 'output-write', 'search', 'unknown'])) {
+        result.toolClass = value.toolClass;
+      }
       if (value.stage === 'claude-startup-failure' && allowed(value.classification, [
         'unknown-option', 'invalid-option-value', 'missing-option-value',
         'invalid-settings', 'invalid-mcp-config', 'unknown',
@@ -261,6 +264,17 @@ function projectEnclaveSessionDiagnostics(bytes) {
     }
     if (event.event === 'progress' && event.stage === 'claude-startup-failure') {
       result.claudeStartupFailure = event;
+    }
+    if (event.event === 'progress' && event.stage === 'claude-result') result.claudeResult = event;
+    if (event.event === 'progress' && event.stage === 'claude-permission-denied') {
+      result.claudePermissionDenials ??= [];
+      result.claudePermissionDenials = result.claudePermissionDenials.filter(item => item.toolClass !== event.toolClass);
+      result.claudePermissionDenials.push(event);
+    }
+    if (event.event === 'progress' && event.stage === 'claude-tool-completed' && event.toolError === true) {
+      result.claudeToolErrors ??= [];
+      result.claudeToolErrors = result.claudeToolErrors.filter(item => item.toolClass !== event.toolClass);
+      result.claudeToolErrors.push(event);
     }
     if (event.event === 'failure' || (event.event === 'operation-error' && event.fatal !== false)) {
       result.failure ??= event;

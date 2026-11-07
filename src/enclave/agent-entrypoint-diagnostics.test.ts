@@ -258,12 +258,18 @@ if scenario != "missing-copilot":
             {"type": "result", "is_error": True,
              "permission_denials": [{"tool_name": "Bash", "tool_input": "PRIVATE_COMMAND"}]},
         ]
+        if "CLAUDE_EVENTS" in os.environ:
+            stream_events = json.loads(os.environ["CLAUDE_EVENTS"].replace(
+                '"/awf/out"', json.dumps(str(module.OUT_PATH))))
         copilot.write_text(
             "#!/usr/bin/python3\nimport json, sys, time\n"
             + ("sys.stdout.write('x' * (512 * 1024) + '\\n'); sys.stdout.flush()\n"
                if scenario == "claude-stream-flood" else "")
+            + ("for _ in range(4096): print(json.dumps({'type': 'assistant', 'message': {'content': 'PRIVATE_MODEL' * 40}}))\n"
+               if scenario == "claude-stream-budget" else "")
             + "for event in " + repr(stream_events * 2) + ": print(json.dumps(event), flush=True)\n"
             + ("time.sleep(30)\n" if scenario == "claude-stream-timeout" else
+               "" if scenario == "claude-stream-no-output" else
                "open(" + repr(str(module.OUT_PATH)) + ", 'w').write('true')\n"),
             encoding="utf-8",
         )
@@ -464,7 +470,7 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     expect(result.arguments.split('\n')).toContain('--dangerously-bypass-approvals-and-sandbox');
   });
 
-  it('requires explicit opt-in for unattended Claude shell and file writes', () => {
+  it('accepts the trusted unattended Claude shell and file policy', () => {
     const result = runHarness('model-limits', {
       ...providerEnv('claude'),
       AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS: 'none',
@@ -635,6 +641,73 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     expect(result.exitCode).toBe(0);
     expect(events(result)).toContainEqual(expect.objectContaining({
       stage: 'claude-stream-summary', captureTruncated: true,
+    }));
+    expect(events(result)).toContainEqual(expect.objectContaining({ stage: 'claude-result' }));
+    expect(result.transcriptBytes).toBeLessThan(16 * 1024);
+    expect(result.transcript).not.toContain('PRIVATE_');
+  });
+
+  it.each([
+    ['Bash', {}, 'shell'],
+    ['Read', {}, 'file-read'],
+    ['Write', {}, 'file-write'],
+    ['Edit', {}, 'file-write'],
+    ['Glob', {}, 'search'],
+    ['Grep', {}, 'search'],
+    ['PRIVATE_TOOL', { command: 'PRIVATE_COMMAND' }, 'unknown'],
+    [['PRIVATE_TOOL'], {}, 'unknown'],
+  ])('classifies denied tools without retaining payloads: %j', (tool, input, toolClass) => {
+    const result = runHarness('claude-stream-no-output', {
+      ...providerEnv('claude'),
+      CLAUDE_EVENTS: JSON.stringify([
+        { type: 'system', subtype: 'init', tools: ['Bash'] },
+        { type: 'system', subtype: 'permission_denied', tool_name: tool, tool_input: input },
+        { type: 'result', is_error: false, permission_denials: [
+          { tool_name: tool, tool_input: input }, null,
+        ] },
+      ]),
+    });
+    expect(result.exitCode).toBe(33);
+    expect(result.output).toBe('');
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-permission-denied', toolClass,
+    }));
+    expect(events(result)).toContainEqual({ event: 'failure', category: 'result-empty' });
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      event: 'engine-result', exitCode: 0,
+    }));
+    expect(result.transcript).not.toContain('PRIVATE_');
+  });
+
+  it('distinguishes an output-file tool error from native tool refusal', () => {
+    const result = runHarness('claude-stream-no-output', {
+      ...providerEnv('claude'),
+      CLAUDE_EVENTS: JSON.stringify([
+        { type: 'assistant', message: { content: [
+          { type: 'tool_use', id: 'output', name: 'Write', input: { file_path: '/awf/out' } },
+        ] } },
+        { type: 'user', message: { content: [
+          { type: 'tool_result', tool_use_id: 'output', is_error: true, content: 'PRIVATE_ERROR' },
+        ] } },
+        { type: 'result', is_error: false },
+      ]),
+    });
+    expect(result.exitCode).toBe(33);
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-tool-completed', toolError: true, toolClass: 'output-write',
+    }));
+    expect(events(result).some(event => event.stage === 'claude-permission-denied')).toBe(false);
+    expect(result.transcript).not.toContain('PRIVATE_');
+  });
+
+  it('retains final denial and result milestones after the cumulative stream byte budget', () => {
+    const result = runHarness('claude-stream-budget', providerEnv('claude'));
+    expect(result.exitCode).toBe(0);
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-stream-summary', captureTruncated: true, outputState: 'present',
+    }));
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-permission-denied', toolClass: 'shell',
     }));
     expect(events(result)).toContainEqual(expect.objectContaining({ stage: 'claude-result' }));
     expect(result.transcriptBytes).toBeLessThan(16 * 1024);
