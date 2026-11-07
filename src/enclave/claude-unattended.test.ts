@@ -242,7 +242,7 @@ print(json.dumps(module.build_engine_command("claude", "trusted-model", "task", 
   expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
   expect(JSON.parse(result.stdout)).toEqual(expect.arrayContaining([
     '--permission-mode', 'default', '--permission-prompts', 'none',
-    '--allowedTools', 'Bash,Read,Write,Edit,Glob,Grep',
+    '--allowedTools', 'Read,Glob,Grep',
   ]));
 });
 
