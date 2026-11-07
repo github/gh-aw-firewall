@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
+import * as http from 'http';
 import { spawnSync } from 'child_process';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import Ajv2020 from 'ajv/dist/2020';
@@ -439,6 +440,7 @@ describe.each(agents)('%s launch orchestration', agent => {
     stopFailure?: boolean; exitCode?: number | null; signal?: string;
     gatewayFailure?: boolean; gatewayThrow?: boolean; retentionFailure?: boolean;
     stopFileFailure?: boolean; stopRequestFailure?: boolean; preStart?: boolean;
+    resultFailure?: string;
   } = {}) {
     const child = { exitCode: failure ? 1 : null as number | null, signalCode: null };
     const primaryVm = {
@@ -470,16 +472,39 @@ describe.each(agents)('%s launch orchestration', agent => {
         return primaryVm;
       }),
       waitForDockerPrimaryReadiness: jest.fn(),
-      requestMcp: jest.fn(async (_endpoint, _key, id, _method, params) => id !== 3 ? {} : {
-        jsonrpc: '2.0', id, result: {
-          structuredContent: { status: 'ok', result: Object.fromEntries(
+      requestMcp: jest.fn(async (_endpoint, _key, id, _method, params) => {
+        if (id !== 3) return {};
+        if (options.resultFailure === 'invalid-json') {
+          const server = http.createServer((_request, response) => {
+            response.writeHead(200);
+            response.end('{"PRIVATE_MALFORMED_RESULT":');
+          });
+          await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+          try {
+            const address = server.address() as { port: number };
+            return await live.requestMcp(`http://127.0.0.1:${address.port}`, 'fixture-only', id, _method, params);
+          } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+        }
+        const structured = { status: 'ok', result: Object.fromEntries(
             Object.entries(params.arguments.schema.fields).map(([name, field]) =>
-              [name, (field as { value: unknown }).value])) },
-          content: [],
-        },
+              [name, (field as { value: unknown }).value])) };
+        if (options.resultFailure === 'request-failed') throw new Error('PRIVATE_TRANSPORT');
+        if (options.resultFailure === 'response-missing') return undefined;
+        if (options.resultFailure === 'result-shape') structured.result.nonRoot = 'PRIVATE_RESULT';
+        if (options.resultFailure === 'probe-mismatch') structured.result.nonRoot = false;
+        const content = options.resultFailure === 'canonical-error' ? { status: 'error' } : structured;
+        return {
+          jsonrpc: '2.0', id: options.resultFailure === 'request-id' ? 4 : id,
+          ...(options.resultFailure === 'jsonrpc-error' ? { error: { code: -32603, message: 'PRIVATE_RPC' } } : {}),
+          result: {
+            ...(options.resultFailure === 'tool-is-error' ? { isError: true } : {}),
+            structuredContent: options.resultFailure === 'structured-content' ? null : content,
+            content: [{ type: 'text', text: options.resultFailure === 'content-mismatch'
+              ? 'PRIVATE_CONTENT' : JSON.stringify(content) }],
+          },
+        };
       }),
       assertProfileInitialize: jest.fn(), assertProfileTools: jest.fn(),
-      parsePublicToolResult: jest.fn(response => response.result.structuredContent),
       emitStartupDiagnostic: jest.fn(),
       stopAwf: jest.fn(async () => {
         if (options.stopFailure) throw new Error('PRIVATE_STOP');
@@ -519,9 +544,12 @@ describe.each(agents)('%s launch orchestration', agent => {
         const params = args[4] as { arguments: { schema: { fields: Record<string, { value: unknown }> } } };
         if (id !== 3) return {};
         fs.mkdirSync(path.join(directory, '.awf-enclave-regression-stop'));
-        return { result: { structuredContent: { status: 'ok', result: Object.fromEntries(
+        const structured = { status: 'ok', result: Object.fromEntries(
           Object.entries(params.arguments.schema.fields).map(([name, field]) =>
-            [name, (field as { value: unknown }).value])) } } };
+            [name, (field as { value: unknown }).value])) };
+        return { jsonrpc: '2.0', id, result: {
+          structuredContent: structured, content: [{ type: 'text', text: JSON.stringify(structured) }],
+        } };
       });
     }
     jest.isolateModules(() => {
@@ -585,6 +613,62 @@ describe.each(agents)('%s launch orchestration', agent => {
     expect(finalized.mock.calls[0][1].checks['awf-exit']).toEqual(['failed', 'nonzero-exit']);
     const args = fixture.spawnAwf.mock.calls[0][0];
     expect(fs.existsSync(args[args.indexOf('--work-dir') + 1])).toBe(false);
+  });
+  describe.each(runtimes)('%s result evidence after host readiness', runtime => {
+    it.each([
+      ['invalid-json', 'parser-protocol'], ['response-missing', 'parser-protocol'], ['request-id', 'parser-protocol'],
+      ['jsonrpc-error', 'parser-protocol'], ['structured-content', 'parser-protocol'],
+      ['content-mismatch', 'parser-protocol'], ['tool-is-error', 'tool-rejected'],
+      ['canonical-error', 'tool-rejected'], ['result-shape', 'schema-validation'],
+      ['probe-mismatch', 'expected-result-mismatch'], ['request-failed', 'unknown'],
+    ])('classifies %s and observes the failure audit without claiming invocation success', async (code, category) => {
+      const stderr = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const audit = JSON.stringify({
+        ts: invocation.ts, kind: 'failure', invocationId: invocation.invocationId,
+        reason: 'non-zero-exit', detail: 'PRIVATE_EXECUTOR_DETAIL',
+      });
+      const { fixture, retained, finalized, error } = await launch(runtime, undefined,
+        { resultFailure: code, audit, gatewayFailure: true });
+      expect(error).toBeDefined();
+      expect(fixture.waitForHostGatewayReadiness).toHaveBeenCalledTimes(1);
+      expect(fixture.waitForDockerPrimaryReadiness).toHaveBeenCalledTimes(1);
+      const expected = { category, code: code === 'request-failed' ? 'unknown' : code, executorOutcome: 'unknown' };
+      expect(retained.mock.calls[0][1]).toMatchObject({ failureStage: 'result', resultFailure: expected });
+      const record = finalized.mock.calls[0][1];
+      expect(record).toMatchObject({
+        resultValidated: false, resultFailure: expected,
+        primaryFailure: { gate: 'result', reason: category },
+        secondaryFailures: [{ gate: 'gateway-cleanup', reason: 'remove-failed' }],
+        auditEvidence: {
+          contract: 'failure-observation', successInvocations: 'none', failureRecords: 'one',
+          invocationIdentity: 'valid', repository: 'not-observed', sensitivity: 'not-observed',
+        },
+      });
+      expect(record.checks.result).toEqual(['failed', category]);
+      for (const gate of ['audit-presence', 'audit-schema', 'audit-invocation']) {
+        expect(record.checks[gate]).toEqual(['passed', 'none']);
+      }
+      expect(JSON.stringify(record) + JSON.stringify(retained.mock.calls)
+        + stderr.mock.calls.map(call => call[0]).join('')).not.toContain('PRIVATE_');
+    });
+    it.each([
+      [{ missingAudit: true }, 'audit-presence', 'missing'],
+      [{ audit: '{"PRIVATE_SCHEMA":' }, 'audit-schema', 'invalid'],
+      [{ audit: JSON.stringify({ ts: invocation.ts, kind: 'lifecycle', event: 'listening' }) },
+        'audit-invocation', 'count'],
+      [{ audit: JSON.stringify({ ts: invocation.ts, kind: 'failure', reason: 'PRIVATE_REASON' }) },
+        'audit-invocation', 'identity'],
+      [{ audit: JSON.stringify(invocation) + '\n' + JSON.stringify({ ...invocation, invocationId: 'c'.repeat(24) }) },
+        'audit-invocation', 'count'],
+    ] as const)('retains rejected-result audit gap %s as secondary evidence', async (options, gate, reason) => {
+      const { finalized, error } = await launch(runtime, undefined, { resultFailure: 'canonical-error', ...options });
+      expect(error).toBeDefined();
+      expect(finalized.mock.calls[0][1]).toMatchObject({
+        resultValidated: false, primaryFailure: { gate: 'result', reason: 'tool-rejected' },
+        secondaryFailures: [{ gate, reason }],
+      });
+      expect(finalized.mock.calls[0][1].checks[gate]).toEqual(['failed', reason]);
+    });
   });
   it('keeps the original launch failure and captures its startup record before cleanup', async () => {
     const failure = new Error('private original launch failure');

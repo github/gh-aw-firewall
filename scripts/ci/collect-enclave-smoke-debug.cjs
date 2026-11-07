@@ -50,7 +50,7 @@ const MAX_USAGE_BYTES = 16 * 1024;
 const ID = /^[a-f0-9]{32}$/;
 const INVOCATION_ID = /^[a-f0-9]{16,64}$/;
 const ENTRY_ID = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
-const LOG_NAME = /^(?:(?:stdout|stderr)\.log|diagnostics\.json|enclave-session\.log|enclave-proxy-events\.jsonl|enclave-proxy-container\.log|launcher-(?:stdout|stderr)\.log|guest-(?:stdout|stderr)\.raw\.log|cloud-hypervisor\.log|serial\.log|network-plan\.json|network-diagnostics\.txt|counters\.json|vm-info\.json|runtime\.json|confinement\.json|virtiofs-[0-9]-enclave-(?:seed|request|output|runtime|session-handoff|session-state)(?:\.log|-confinement\.json))$/;
+const LOG_NAME = /^(?:(?:stdout|stderr)\.log|diagnostics\.json|retention-unavailable\.json|enclave-session\.log|enclave-proxy-events\.jsonl|enclave-proxy-container\.log|launcher-(?:stdout|stderr)\.log|guest-(?:stdout|stderr)\.raw\.log|cloud-hypervisor\.log|serial\.log|network-plan\.json|network-diagnostics\.txt|counters\.json|vm-info\.json|runtime\.json|confinement\.json|virtiofs-[0-9]-enclave-(?:seed|request|output|runtime|session-handoff|session-state)(?:\.log|-confinement\.json))$/;
 const ROOTS = {
   journal: '/var/lib/awf-cloud-hypervisor/host-executor-journal',
   debug: '/var/lib/awf-cloud-hypervisor/debug-artifacts/cloud-hypervisor',
@@ -87,12 +87,16 @@ const SESSION_OPERATIONS = [
   ...['direct', 'alias'].flatMap(id =>
     ['open', 'fstat', 'validate', 'read', 'close'].map(op => `verify-output-${id}-${op}`)),
 ];
-function fields(value, schema) {
-  check(object(value), 'session-schema');
+const ENTRYPOINT_OPERATIONS = SESSION_OPERATIONS.filter(operation =>
+  operation.startsWith('preflight-') || operation.startsWith('runtime-path-creation-')
+  || operation.startsWith('session-log-') || operation === 'engine-launch'
+  || /^(?:task-input-read|schema-input-read|github-agent-id-read|github-bearer-read|github-mcp-config-(?:write|chmod))(?:-open|-close)?$/.test(operation));
+function fields(value, schema, failedCheck = 'session-schema') {
+  check(object(value), failedCheck);
   const result = {};
   for (const [key, validate] of Object.entries(schema)) {
     if (value[key] === undefined) continue;
-    check(validate(value[key]), 'session-schema');
+    check(validate(value[key]), failedCheck);
     result[key] = value[key];
   }
   return result;
@@ -121,10 +125,31 @@ function projectOperation(value, failed = false) {
     && ['started', 'succeeded', 'failed', 'unavailable', 'not-applicable'].includes(value.status)
     && (!failed || (value.status === 'failed' && ERROR_CATEGORIES.includes(value.category)))
     && (value.category === undefined || ERROR_CATEGORIES.includes(value.category))
-    && (value.errno === undefined || [2, 13, 1, 40, 28, 122, 27, 5, 30].includes(value.errno)), 'operation-schema');
+    && (value.errno === undefined || [2, 13, 1, 40, 28, 122, 27, 5, 30].includes(value.errno))
+    && (value.operation === undefined || (value.stage === 'entrypoint-initialization' && value.status === 'failed'
+      && ENTRYPOINT_OPERATIONS.includes(value.operation))), 'operation-schema');
   return { stage: value.stage, status: value.status,
     ...(value.category !== undefined ? { category: value.category } : {}),
-    ...(value.errno !== undefined ? { errno: value.errno } : {}) };
+    ...(value.errno !== undefined ? { errno: value.errno } : {}),
+    ...(value.operation !== undefined ? { operation: value.operation } : {}) };
+}
+
+function projectRetentionUnavailable(value, identity) {
+  check(object(value) && value.version === 1 && value.runtime === 'docker' && identity.runtime === 'docker'
+    && value.runId === identity.runId && value.invocationId === identity.invocationId
+    && value.entryId === identity.entryId && ['agent', 'script'].includes(value.executorKind)
+    && value.stage === 'setup' && value.status === 'unavailable'
+    && value.reason === 'host-reconciliation-incomplete'
+    && Array.isArray(value.stages) && value.stages.length <= 64 && object(value.primaryFailure),
+  'retention-unavailable-schema');
+  return Buffer.from(JSON.stringify({
+    version: 1, runtime: 'docker', runId: identity.runId, invocationId: identity.invocationId,
+    entryId: identity.entryId, executorKind: value.executorKind,
+    stage: 'setup', status: 'unavailable', reason: 'host-reconciliation-incomplete',
+    stages: value.stages.map(event => projectOperation(event)),
+    primaryFailure: projectOperation({ ...value.primaryFailure, status: 'failed' }, true),
+    ...(value.cleanupFailure ? { cleanupFailure: projectOperation({ ...value.cleanupFailure, status: 'failed' }, true) } : {}),
+  }) + '\n');
 }
 
 // The diagnostics envelope keeps only finite operational evidence. Approved
@@ -676,6 +701,38 @@ function projectStartupChecklist(value) {
   return { schemaVersion: 1, ready: value.ready, checks };
 }
 
+const RESULT_REASONS = ['parser-protocol', 'tool-rejected', 'schema-validation', 'expected-result-mismatch', 'unknown'];
+const RESULT_CODES = Object.freeze([
+  'unknown', 'canonical-error', 'result-shape', 'probe-mismatch',
+  'response-missing', 'jsonrpc-version', 'request-id', 'jsonrpc-error', 'result-missing',
+  'tool-is-error', 'structured-content', 'structured-fields', 'content-mismatch',
+  'invalid-json', 'http-status', 'response-too-large', 'response-aborted', 'response-failed',
+  'request-failed', 'request-timeout',
+]);
+const EXECUTOR_OUTCOMES = ['success', 'schema-failure', 'executor-failure', 'timeout', 'cancelled'];
+
+function projectResultFailure(value) {
+  const result = fields(value, {
+    category: member(RESULT_REASONS), code: member(RESULT_CODES),
+    executorOutcome: member(['unknown', ...EXECUTOR_OUTCOMES]),
+  }, 'result-failure-schema');
+  check(Object.keys(result).length === 3, 'result-failure-schema');
+  return result;
+}
+
+function projectAuditEvidence(value) {
+  const result = fields(value, {
+    contract: member(['success', 'failure-observation']),
+    successInvocations: member(['none', 'one', 'multiple']),
+    failureRecords: member(['none', 'one', 'multiple']),
+    invocationIdentity: member(['missing', 'valid', 'invalid', 'multiple']),
+    repository: member(['not-observed', 'matched', 'mismatch']),
+    sensitivity: member(['not-observed', 'public', 'other']),
+  }, 'finalization-schema');
+  check(Object.keys(result).length === 6, 'finalization-schema');
+  return result;
+}
+
 function projectStartup(value, backend) {
   check(object(value) && value.backend === backend
     && ['docker', 'cloud-hypervisor'].includes(backend)
@@ -755,6 +812,7 @@ function projectStartup(value, backend) {
   return Buffer.from(JSON.stringify({
     schemaVersion: 1, component: 'enclave-regression-startup', backend, agent: value.agent,
     failureStage: value.failureStage, diagnostic, evidence,
+    ...(value.resultFailure === undefined ? {} : { resultFailure: projectResultFailure(value.resultFailure) }),
   }) + '\n');
 }
 
@@ -778,11 +836,12 @@ function startupFiles(runDirectory, backend, uid) {
 }
 
 const FINALIZATION_REASONS = Object.freeze({
+  result: ['none', ...RESULT_REASONS],
   'awf-stop': ['none', 'stop-request-failed', 'stop-failed'],
   'awf-exit': ['none', 'nonzero-exit', 'signal', 'not-exited'],
   'audit-presence': ['none', 'missing', 'unsafe', 'io-error'],
   'audit-schema': ['none', 'invalid'],
-  'audit-invocation': ['none', 'count', 'repository', 'sensitivity', 'failure-record'],
+  'audit-invocation': ['none', 'count', 'identity', 'repository', 'sensitivity', 'failure-record'],
   'awf-cleanup': ['none', 'incomplete-audit', 'work-dir-present', 'io-error'],
   'gateway-cleanup': ['none', 'remove-failed'],
   'stop-file-cleanup': ['none', 'remove-failed'],
@@ -798,7 +857,7 @@ function projectFinalization(value, backend) {
     && boolean(value.resultValidated) && object(value.checks), 'finalization-schema');
   const checks = {};
   for (const [gate, reasons] of Object.entries(FINALIZATION_REASONS)) {
-    const entry = value.checks[gate];
+    const entry = value.checks[gate] ?? (gate === 'result' ? ['not-attempted', 'none'] : undefined);
     check(Array.isArray(entry) && entry.length === 2
       && ['passed', 'failed', 'not-attempted', 'not-required'].includes(entry[0])
       && reasons.includes(entry[1]) && (entry[0] === 'failed') === (entry[1] !== 'none'),
@@ -818,6 +877,8 @@ function projectFinalization(value, backend) {
   return Buffer.from(JSON.stringify({
     schemaVersion: 1, component: 'enclave-regression-finalization', backend, agent: value.agent,
     resultValidated: value.resultValidated, checks,
+    ...(value.resultFailure === undefined ? {} : { resultFailure: projectResultFailure(value.resultFailure) }),
+    ...(value.auditEvidence === undefined ? {} : { auditEvidence: projectAuditEvidence(value.auditEvidence) }),
     primaryFailure: value.primaryFailure === null ? null : failure(value.primaryFailure),
     secondaryFailures: value.secondaryFailures.map(failure),
   }) + '\n');
@@ -866,6 +927,7 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
   let invocationEntry;
   let runId;
   let invocationStopped = false;
+  let executorOutcome = 'unknown';
   let nonInvocationRecords = 0;
   let invalidIdentityRecords = 0;
   if (journals.length) {
@@ -895,7 +957,10 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
       }
       invocation = candidate;
       invocationEntry = record.entryId;
-      if (record.state === 'terminal') invocationStopped = true;
+      if (record.state === 'terminal') {
+        invocationStopped = true;
+        executorOutcome = EXECUTOR_OUTCOMES.includes(record.outcome) ? record.outcome : 'unknown';
+      }
     }
   }
   if (proxyDebug.length) {
@@ -919,8 +984,16 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
   const runtime = binding?.backend ?? roots.backend ?? 'cloud-hypervisor';
   check(['docker', 'cloud-hypervisor'].includes(runtime), 'prepared-scope');
   const files = [...startupFiles(runDirectory, runtime, stagingUid),
-    ...finalizationFiles(runDirectory, runtime, stagingUid)];
+    ...finalizationFiles(runDirectory, runtime, stagingUid)].map(([name, bytes]) => {
+    const value = parseRecord(decodeUtf8(bytes, 'result-failure-schema'));
+    if (value.resultFailure) {
+      value.resultFailure.executorOutcome = executorOutcome;
+      bytes = name === 'startup.json' ? projectStartup(value, runtime) : projectFinalization(value, runtime);
+    }
+    return [name, bytes];
+  });
   let envelope;
+  let retentionUnavailable;
   if (debugInvocations.length) {
     const source = path.join(roots.debug, runId, invocation);
     directory(source, uid, trustedRoot);
@@ -936,7 +1009,17 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
         // Pre-shared-envelope CH releases still retain bounded public-only
         // supplemental evidence only after the journal proves backend cleanup.
         envelope = undefined;
-      } else if (error.code === 'ENOENT') check(false, 'diagnostics-envelope', 'absent-evidence');
+      } else if (error.code === 'ENOENT') {
+        try {
+          retentionUnavailable = projectRetentionUnavailable(parseRecord(decodeUtf8(
+            readRegular(path.join(source, 'retention-unavailable.json'), MAX_STARTUP_BYTES, uid),
+            'retention-unavailable-schema')),
+          { runId, invocationId: invocation, entryId: invocationEntry, runtime });
+        } catch (unavailableError) {
+          if (unavailableError.code === 'ENOENT') check(false, 'diagnostics-envelope', 'absent-evidence');
+          throw unavailableError;
+        }
+      }
       else throw error;
     }
   }
@@ -1000,20 +1083,25 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
     directory(source, uid, trustedRoot);
     const names = inventory(source, uid, trustedRoot);
     check(names.length <= MAX_FILES, 'artifact-count', 'oversized');
+    check(!retentionUnavailable || names.every(name => name === 'retention-unavailable.json'),
+      'stop-proof', 'not-stopped');
     const projected = envelope ? JSON.parse(envelope.toString('utf8')) : undefined;
     const sourceStreams = { 'stdout.log': 'stdout', 'stderr.log': 'stderr', 'enclave-session.log': 'session' };
     for (const name of names) {
       check(LOG_NAME.test(name), 'artifact-name');
+      check(name !== 'retention-unavailable.json' || (runtime === 'docker' && retentionUnavailable),
+        'retention-unavailable-schema');
       const bytes = readRegular(path.join(source, name), MAX_STREAM_BYTES, uid);
       check(runtime !== 'docker' || projected || !['stdout.log', 'stderr.log'].includes(name),
         'diagnostics-envelope', 'absent-evidence');
       if (sourceStreams[name] && projected && projected.streams[sourceStreams[name]] !== 'captured') {
         check(bytes.length === 0, 'stream-status');
       }
-      check(runtime !== 'docker' || ['stdout.log', 'stderr.log', 'enclave-session.log', 'diagnostics.json'].includes(name),
+      check(runtime !== 'docker' || ['stdout.log', 'stderr.log', 'enclave-session.log', 'diagnostics.json', 'retention-unavailable.json'].includes(name),
         'artifact-name');
       files.push([name, name === 'diagnostics.json' ? envelope
-        : name === 'enclave-session.log' ? redactCredentials(bytes)
+        : name === 'retention-unavailable.json' ? retentionUnavailable
+          : name === 'enclave-session.log' ? redactCredentials(bytes)
         : name === 'enclave-proxy-events.jsonl' ? projectProxyEvents(bytes)
             : name === 'enclave-proxy-container.log' ? projectProxyContainerLog(bytes) : redactCredentials(bytes)]);
     }
@@ -1030,7 +1118,8 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
     `Non-invocation records: ${nonInvocationRecords}; invalid identity records: ${invalidIdentityRecords}.\n` +
     'Enclave proxy projection scope: run-cumulative.\n' +
     `Shared diagnostics envelope: ${envelope ? 'validated'
-      : debugInvocations.length ? 'absent-legacy-supplemental-only' : 'absent-run-level-only'}.\n` +
+      : retentionUnavailable ? 'unavailable-host-reconciliation-incomplete'
+        : debugInvocations.length ? 'absent-legacy-supplemental-only' : 'absent-run-level-only'}.\n` +
     `Enclave proxy usage (requests/tokens): ${usageStatus}.\n` +
     `Enclave proxy response diagnostics: ${responseStatus}.\n`;
   assertPublicationBounds(files, statusContents);
@@ -1063,6 +1152,7 @@ function assertPublicationBounds(files, status) {
 
 module.exports = {
   prepare, collect, retainStartup, projectStartup, retainFinalization, projectFinalization, FINALIZATION_REASONS,
+  RESULT_CODES,
   projectStartupChecklist,
   MAX_STREAM_BYTES, MAX_FILES, MAX_PUBLISHED_FILES, MAX_PUBLISHED_BYTES, MAX_STATUS_BYTES, MAX_STARTUP_BYTES,
   directory, inventory, readRegular, projectProxyUsage, projectProxyResponse,
@@ -1244,7 +1334,8 @@ function publishCollectionFailure(runDirectory, runnerUid, runnerGid, error, uid
 }
 
 function classifyFailure(error) {
-  const checks = ['startup-schema', 'finalization-schema', 'operation-schema', 'session-schema', 'session-bound', 'stream-bound',
+  const checks = ['startup-schema', 'finalization-schema', 'result-failure-schema', 'retention-unavailable-schema',
+    'operation-schema', 'session-schema', 'session-bound', 'stream-bound',
     'diagnostics-schema', 'diagnostics-identity',
     'retention-eligibility', 'stop-proof', 'stream-schema', 'coverage-schema', 'backend-schema', 'docker-stop-proof',
     'prepared-scope', 'run-budget', 'journal-schema', 'journal-identity', 'invocation-budget', 'proxy-run-identity',

@@ -20,6 +20,7 @@ import { agentEnvironment, stageInvocationInputs } from './enclave-invocation-st
 import { readEnclaveSessionDiagnostics } from './enclave-session-diagnostics';
 import { preservePublicEnclaveSession } from './diagnostics';
 import { preservePublicEnclaveArtifacts } from '../enclave/public-debug-artifacts';
+import * as publicDebugArtifacts from '../enclave/public-debug-artifacts';
 import { expectPublicEnclaveAdapterConformance } from '../enclave/public-debug-conformance.test-utils';
 import {
   assertEnclaveStartupChecklistComplete, getEnclaveStartupProgress, updateEnclaveStartupProgress,
@@ -750,6 +751,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           if (publicDebug) {
             const publicRoot = path.join(directory, 'public');
             const publicDirectory = path.join(publicRoot, runState.runId, invocationId);
+            let fallbackStatus: 'captured' | 'unsafe' | 'oversized' | undefined;
             const summary = {
               event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
               stderrObserved: false, outputState: 'empty',
@@ -786,6 +788,20 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
                   ...manager,
                   execute: async request => {
                     const result = await manager.execute(request);
+                    if (fallbackStatus) {
+                      await fs.rm(path.join(invocationHostDir, 'runtime', 'session.jsonl'));
+                      await fs.mkdir(publicDirectory, { recursive: true, mode: 0o700 });
+                      const stderr = path.join(publicDirectory, 'stderr.log');
+                      await fs.writeFile(stderr, `${JSON.stringify({
+                        event: 'operation-error', operation: 'preflight-session-log',
+                        category: 'permission-denied', errno: 13, path: '/private/session.jsonl',
+                        raw: `PRIVATE_SESSION_TOKEN ${agentPolicy.githubBearer}`,
+                      })}\n`, { mode: 0o600 });
+                      if (fallbackStatus === 'oversized') {
+                        await fs.truncate(stderr, publicDebugArtifacts.PUBLIC_ENCLAVE_CAPTURE_BYTES + 1);
+                      }
+                      return { exitCode: 1, signal: null, timedOut: false };
+                    }
                     await fs.writeFile(path.join(invocationHostDir, 'runtime', 'session.jsonl'), [
                       ...Array.from({ length: 40 }, () => JSON.stringify({
                         event: 'progress', stage: 'engine-started', secret: 'PRIVATE_SESSION_TOKEN',
@@ -816,6 +832,48 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
                 stage: 'entrypoint-initialization', status: 'succeeded',
               }));
               expect(sessionText + diagnosticsText).not.toContain('PRIVATE_SESSION_TOKEN');
+              // Only translate the fixture's mocked root ownership. All fixed-file,
+              // mode, device, link and byte-bound checks use the production reader.
+              const readPublicFile = publicDebugArtifacts.readPublicEnclaveFile;
+              const reader = jest.spyOn(publicDebugArtifacts, 'readPublicEnclaveFile').mockImplementation(
+                (directory, name, expectedUid, expectedGid) => {
+                  expect(expectedUid).toBe(0);
+                  expect(expectedGid).toBe(0);
+                  return readPublicFile(directory, name, process.getuid!(),
+                    fallbackStatus === 'unsafe' && name === 'stderr.log' ? process.getgid!() + 1 : process.getgid!());
+                },
+              );
+              try {
+                for (const status of ['captured', 'unsafe', 'oversized'] as const) {
+                  fallbackStatus = status;
+                  await expect(realRetentionBackend.execute(plan, new AbortController().signal))
+                    .resolves.toEqual({ outcome: 'executor-failure', cleanupComplete: true, recoverableFailure: true });
+                  const text = await fs.readFile(path.join(publicDirectory, 'diagnostics.json'), 'utf8');
+                  const diagnostics = JSON.parse(text);
+                  expect(diagnostics).toMatchObject({
+                    exitCode: 1, failure: 'workload-exit', workloadStopped: true,
+                    streams: { session: 'missing', stderr: status }, session: { status: 'missing' },
+                  });
+                  expect(diagnostics.stages).toContainEqual(status === 'captured' ? {
+                    stage: 'entrypoint-initialization', status: 'failed', category: 'permission-denied', errno: 13,
+                    operation: 'preflight-session-log',
+                  } : { stage: 'entrypoint-initialization', status: 'unavailable' });
+                  expect(diagnostics.primaryFailure).toMatchObject(status === 'captured'
+                    ? {
+                      stage: 'entrypoint-initialization', category: 'permission-denied', errno: 13,
+                      operation: 'preflight-session-log',
+                    }
+                    : { stage: 'workload-exit', category: 'workload-exit' });
+                  const sessionText = await fs.readFile(path.join(publicDirectory, 'enclave-session.log'), 'utf8');
+                  expect(sessionText).toBe('');
+                  const stderrText = await fs.readFile(path.join(publicDirectory, 'stderr.log'), 'utf8');
+                  expect(text + sessionText).not.toContain('/private/session.jsonl');
+                  expect(text + sessionText + stderrText).not.toContain(agentPolicy.githubBearer);
+                  if (status !== 'captured') expect(stderrText).toBe('');
+                }
+              } finally {
+                reader.mockRestore();
+              }
             } finally {
               await realRetentionBackend.close();
             }
