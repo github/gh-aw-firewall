@@ -1,6 +1,11 @@
 # GitHub Enterprise Configuration
 
-This guide explains how to configure AWF for GitHub Enterprise Cloud (GHEC) and GitHub Enterprise Server (GHES) customers.
+This guide explains AWF endpoint and firewall configuration for GitHub Enterprise Cloud (GHEC) and GitHub Enterprise Server (GHES) environments.
+
+> [!IMPORTANT]
+> **Scope: AWF configuration, not upstream product availability.** GHES endpoint handling and the examples below do not establish official end-to-end Agentic Workflows support on GHES or any GHES release. See the [AWF environment/runner applicability summary](compatibility.md#environment-and-runner-applicability) for implemented capabilities, CI coverage, version prerequisites, and unconfirmed details. Consult the upstream-owned [Agentic Workflows enterprise guidance](https://github.github.com/gh-aw/reference/enterprise-configuration/) and [Copilot GHES prerequisites](https://github.github.com/gh-aw/troubleshooting/common-issues/#copilot-engine-prerequisites-on-ghes) for stack-level requirements.
+
+GitHub deployment and runner topology are separate choices. For self-hosted ARC/DinD runners on either GHEC or GHES, also follow [ARC/DinD configuration](arc-dind.md); configuring enterprise endpoints does not satisfy its filesystem, Docker, and tool-staging requirements.
 
 ## Overview
 
@@ -8,7 +13,7 @@ AWF automatically detects your GitHub environment and configures the appropriate
 
 ## GitHub Enterprise Cloud (*.ghe.com)
 
-GitHub Enterprise Cloud customers use domains like `https://mycompany.ghe.com`. AWF automatically detects GHEC domains and routes traffic to the tenant-specific API endpoint.
+GHEC organizations can use github.com; GHEC with data residency uses domains like `https://mycompany.ghe.com`. This section describes AWF's tenant-specific endpoint handling for `*.ghe.com`, not a requirement that every GHEC organization use that domain.
 
 ### Automatic Configuration
 
@@ -130,7 +135,7 @@ sudo -E awf \
 
 ## GitHub Enterprise Server (GHES)
 
-GitHub Enterprise Server customers host their own GitHub instance on a custom domain (e.g., `github.company.com`). AWF automatically routes Copilot API traffic to the enterprise endpoint.
+GitHub Enterprise Server customers host their own GitHub instance on a custom domain (e.g., `github.company.com`). AWF selects the enterprise **cloud** Copilot API endpoint for this hostname pattern; it does not deploy Copilot on the server or verify licensing, policy, or upstream Agentic Workflows support.
 
 ### Automatic Configuration
 
@@ -191,6 +196,8 @@ sudo -E awf \
 - `api.enterprise.githubcopilot.com` - Enterprise Copilot API endpoint (used for all GHES instances)
 
 ### GitHub Actions (GHES)
+
+This is an AWF invocation example, not evidence that a compiled Agentic Workflow is available on a particular GHES release. Confirm upstream compiler, engine, artifact-action, MCP gateway, and runner requirements first. The runner must be compatible Linux with Docker/Compose; for ARC/DinD also apply the [topology-specific requirements](arc-dind.md).
 
 ```yaml
 jobs:
@@ -396,6 +403,8 @@ sudo -E awf \
 
 ## See Also
 
+- [AWF applicability and compatibility](compatibility.md#environment-and-runner-applicability) - Capability, CI coverage, and upstream support boundaries
+- [ARC/DinD configuration](arc-dind.md) - Independent runner topology and split-filesystem requirements
 - [API Proxy Sidecar](api-proxy-sidecar.md) - Secure credential management architecture
 - [GitHub Actions Integration](github_actions.md) - CI/CD setup with AWF
 - [Environment Variables](environment.md) - Environment variable configuration
