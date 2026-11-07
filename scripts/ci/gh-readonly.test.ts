@@ -57,6 +57,9 @@ describe('shared authenticated gh command', () => {
     'api repos/octo/repo/issues --field=state=open',
     'api repos/octo/repo/issues -H X-HTTP-Method-Override:DELETE',
     'api repos/octo/repo/issues --hostname attacker.example',
+    'pr list --hostname attacker.example',
+    'pr list --hostname=attacker.example',
+    'status --hostname attacker.example',
     'pr list; touch ignored',
   ])('rejects a write-capable or shell-interpreted request: %s', args => {
     const result = run(args);

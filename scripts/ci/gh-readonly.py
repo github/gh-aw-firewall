@@ -30,6 +30,8 @@ def validate_arguments(arguments):
 
     if any(argument in BLOCKED_FLAGS for argument in arguments):
         raise ValueError("Mutating gh flags are not allowed.")
+    if any(argument == "--hostname" or argument.startswith("--hostname=") for argument in arguments):
+        raise ValueError("The gh --hostname flag is not allowed.")
 
     command = arguments[0]
     if command == "status":

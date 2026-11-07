@@ -39,7 +39,7 @@ for an example and fail-closed input verification guidance.
 | `home.toolSubdirs` | allow (dirs) | compose + sbx + microVM workspace tests | `home-strategy.ts`, `sbx-manager.ts`, `microvm/workspace.ts` |
 | `home.narrowPaths` | narrow allow override | compose + sbx + microVM workspace tests | `home-strategy.ts`, `sbx-manager.ts`, `microvm/workspace.ts` |
 | `home.forbiddenSubdirs` | deny guard | compose + sbx | invariant tests |
-| `credentials.entries` | deny (files/dirs) | compose + sbx + microVM workspace tests | `credential-hiding.ts`, `sbx-manager.ts`, `microvm/workspace.ts` |
+| `credentials.entries` | deny (files/dirs) | compose + sbx; microVM workspace tests only | `credential-hiding.ts`, `sbx-manager.ts`, `microvm/workspace.ts` |
 
 In compose, `~/.gemini` is mounted only when a Gemini or Google API key is
 configured; the other `toolSubdirs` are always bound (with `.local` replaced by
@@ -84,7 +84,15 @@ mechanisms, but from the **same list**:
 - **Compose (Docker / gVisor)** mounts an empty `$HOME` plus the `toolSubdirs`,
   then blanks each credential **file** with a `/dev/null` bind overlay
   (`credential-hiding.ts`). For a `dir` entry it masks the enumerated `files`;
-  for a `file` entry it masks the path itself.
+  for a `file` entry it masks the path itself. A `dir` entry with no `files`
+  list (currently `.config/heroku`, `.config/hub`, `.config/op`, and
+  `.local/state/sandboxes`) is **not** masked in compose, because compose cannot
+  overlay a whole directory
+  ([`credentialFilesToHide()`](../src/config/mount-policy.ts)). Such files stay
+  readable when their parent (for example `~/.config`) is mounted. Sbx moves
+  those `.config` directories aside when their parent is mounted;
+  `.local/state/sandboxes` is instead protected because `.local/state` is never
+  mounted.
 - **Compose (Docker / gVisor)** and the **sbx microVM** replace parents listed in
   `narrowPaths` with their explicit descendants. In particular, they mount
   rootless tool directories under `~/.local` but never `~/.local` or

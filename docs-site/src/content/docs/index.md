@@ -36,6 +36,12 @@ When AI agents like GitHub Copilot CLI run with access to tools and MCP servers,
 
 ## Quick Start
 
+### Check environment applicability
+
+Before choosing a GitHub deployment or runner, read the [AWF environment/runner applicability summary](https://github.com/github/gh-aw-firewall/blob/main/docs/compatibility.md#environment-and-runner-applicability). It separates github.com, GHEC (including `*.ghe.com`), and GHES from hosted Linux, self-hosted Linux, and ARC/DinD topologies, and distinguishes implemented capabilities, CI coverage, and upstream product support.
+
+**AWF GHES endpoint routing and ARC/DinD execution do not establish official Agentic Workflows support on GHES.** Use the upstream-owned [enterprise guidance](https://github.github.com/gh-aw/reference/enterprise-configuration/) and [self-hosted/ARC runner reference](https://github.github.com/gh-aw/reference/self-hosted-runners/) for stack-level applicability. For AWF-specific setup, see [Enterprise configuration](https://github.com/github/gh-aw-firewall/blob/main/docs/enterprise-configuration.md) and [ARC/DinD configuration](https://github.com/github/gh-aw-firewall/blob/main/docs/arc-dind.md).
+
 ### Installation
 
 For CI, use the setup action pinned to a reviewed commit. For local use, obtain

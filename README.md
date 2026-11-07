@@ -22,7 +22,7 @@ A network firewall for agentic workflows that restricts outbound HTTP/HTTPS to a
 - **Node.js**: 20.19.0+ (for building from source)
 - **OS**: Ubuntu 22.04+ or compatible Linux distribution (x86_64 and arm64)
 
-See [Compatibility](docs/compatibility.md) for full details on supported versions and tested configurations.
+See the [AWF environment/runner applicability summary](docs/compatibility.md#environment-and-runner-applicability) for GitHub deployment (github.com, GHEC, GHES), hosted/self-hosted/ARC runners, version prerequisites, and CI coverage. AWF endpoint routing and ARC/DinD execution do not establish official upstream Agentic Workflows support on GHES.
 
 ## Get started fast
 
@@ -97,7 +97,8 @@ See [GitHub Actions](docs/github_actions.md) for advanced setup and `awf logs su
 - [Audit log schema](schemas/audit.schema.json) — JSON Schema for L7 traffic audit records (`audit.jsonl`)
 - [Token usage schema](schemas/token-usage.schema.json) — JSON Schema for per-call token usage records (`token-usage.jsonl`)
 - [Schemas README](schemas/README.md) — versioning policy, record identification, and validation examples
-- [Enterprise configuration](docs/enterprise-configuration.md) — GitHub Enterprise Cloud and Server setup
+- [Enterprise configuration](docs/enterprise-configuration.md) — AWF endpoint configuration for GHEC and GHES, not a product availability statement
+- [ARC/DinD configuration](docs/arc-dind.md) — split-filesystem runner prerequisites and execution limitations
 - [Chroot mode](docs/chroot-mode.md) — use host binaries with network isolation (glibc-based daemon hosts)
 - [API proxy sidecar](docs/api-proxy-sidecar.md) — secure credential management for LLM APIs
 - [Authentication architecture](docs/authentication-architecture.md) — deep dive into token handling and credential isolation
@@ -111,7 +112,7 @@ See [GitHub Actions](docs/github_actions.md) for advanced setup and `awf logs su
 - [Emergency CA distrust](docs/security-ca-trust.md) — compromised CA mitigations, rollout, and runtime trust boundaries
 - [Architecture](docs/architecture.md) — how Squid, Docker, and iptables fit together
 - [Filesystem Sharing Contract](docs/filesystem-sharing-contract.md) — component identities, host permissions, generated access inventory, and runtime verification
-- [Compatibility](docs/compatibility.md) — supported Node.js, OS, and Docker versions
+- [Compatibility and applicability](docs/compatibility.md) — deployment/runner distinctions, runtime prerequisites, and CI evidence
 - [Troubleshooting](docs/troubleshooting.md) — common issues and fixes
 - [Diagnosing AWF failures](docs/diagnosing-awf-failures.md) — use the Self-Hosted Runner Doctor agent to triage self-hosted/ARC/GHES/GHEC failures
 - [Diagnosis registry](docs/diagnostics/README.md) — canonical, machine-readable AWF diagnosis findings and the `diagnose-awf` agent entry point

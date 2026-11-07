@@ -134,6 +134,138 @@
     "cacheWrite": null,
     "output": "9"
   },
+  "gemini-3.8-flash": {
+    "tariffs": [
+      {
+        "scope": {
+          "provider": "copilot",
+          "channel": "copilot-api"
+        },
+        "currency": "USD",
+        "unit": "USD_PER_1M_TOKENS",
+        "tier": "default",
+        "effectiveUntil": "2027-01-01T00:00:00.000Z",
+        "promotion": "Gemini 3.8 Flash published promotional pricing",
+        "components": {
+          "input": {
+            "price": "0.75",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          },
+          "cachedInput": {
+            "price": "0.075",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          },
+          "cacheWrite": {
+            "price": {
+              "unavailable": true
+            },
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          },
+          "output": {
+            "price": "3.75",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        "provenance": {
+          "authority": "maintained",
+          "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+          "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+          "at": "2026-11-07T12:52:50.618Z",
+          "confidence": "verified"
+        }
+      }
+    ]
+  },
+  "gemini-4-argon": {
+    "tariffs": [
+      {
+        "scope": {
+          "provider": "copilot",
+          "channel": "copilot-api"
+        },
+        "currency": "USD",
+        "unit": "USD_PER_1M_TOKENS",
+        "tier": "default",
+        "effectiveUntil": "2026-12-01T00:00:00.000Z",
+        "promotion": "Gemini 4 Argon published promotional pricing",
+        "components": {
+          "input": {
+            "price": "2",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          },
+          "cachedInput": {
+            "price": "0.1",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          },
+          "cacheWrite": {
+            "price": {
+              "unavailable": true
+            },
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          },
+          "output": {
+            "price": "10",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        "provenance": {
+          "authority": "maintained",
+          "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+          "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+          "at": "2026-11-07T12:52:50.618Z",
+          "confidence": "verified"
+        }
+      }
+    ]
+  },
   "gpt-5-codex-mini": {
     "input": "0.25",
     "cachedInput": "0.025",
@@ -192,37 +324,79 @@
     "input": "0.2",
     "cachedInput": "0.02",
     "cacheWrite": "0.25",
-    "output": "1.2"
+    "output": "1.2",
+    "longContext": {
+      "input": "0.4",
+      "cachedInput": "0.04",
+      "cacheWrite": "0.5",
+      "output": "1.8",
+      "threshold": 200000
+    }
   },
   "gpt-5.6-sol": {
     "input": "4",
     "cachedInput": "0.4",
     "cacheWrite": "5",
-    "output": "20"
+    "output": "20",
+    "longContext": {
+      "input": "8",
+      "cachedInput": "0.8",
+      "cacheWrite": "10",
+      "output": "30",
+      "threshold": 272000
+    }
   },
   "gpt-5.6-terra": {
     "input": "2",
     "cachedInput": "0.2",
     "cacheWrite": "2.5",
-    "output": "12"
+    "output": "12",
+    "longContext": {
+      "input": "4",
+      "cachedInput": "0.4",
+      "cacheWrite": "5",
+      "output": "18",
+      "threshold": 272000
+    }
   },
   "gpt-6-astra": {
     "input": "10",
     "cachedInput": "1",
     "cacheWrite": "12.5",
-    "output": "50"
+    "output": "50",
+    "longContext": {
+      "input": "20",
+      "cachedInput": "2",
+      "cacheWrite": "25",
+      "output": "75",
+      "threshold": 272000
+    }
   },
   "gpt-6-luna": {
     "input": "0.1",
     "cachedInput": "0.01",
     "cacheWrite": "0.125",
-    "output": "0.5"
+    "output": "0.5",
+    "longContext": {
+      "input": "0.2",
+      "cachedInput": "0.02",
+      "cacheWrite": "0.25",
+      "output": "0.75",
+      "threshold": 272000
+    }
   },
   "gpt-6-sol": {
     "input": "2",
     "cachedInput": "0.2",
     "cacheWrite": "2.5",
-    "output": "10"
+    "output": "10",
+    "longContext": {
+      "input": "4",
+      "cachedInput": "0.4",
+      "cacheWrite": "5",
+      "output": "15",
+      "threshold": 272000
+    }
   },
   "gpt-6.1-sol": {
     "input": "2",
@@ -239,11 +413,30 @@
       "threshold": 272000
     }
   },
+  "gpt-6.1-terra": {
+    "input": "1",
+    "cachedInput": "0.05",
+    "cacheWrite": "1.25",
+    "output": "5",
+    "longContext": {
+      "input": "2",
+      "cachedInput": "0.1",
+      "cacheWrite": "2.5",
+      "output": "7.5",
+      "threshold": 272000
+    }
+  },
   "mai-code-1-flash": {
     "input": "0.75",
     "cachedInput": "0.075",
     "cacheWrite": null,
     "output": "4.5"
+  },
+  "mai-code-1.1-flash": {
+    "input": "0.2",
+    "cachedInput": "0.02",
+    "cacheWrite": null,
+    "output": "1.2"
   },
   "raptor-mini": {
     "input": "0.25",
