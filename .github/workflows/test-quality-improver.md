@@ -37,12 +37,17 @@ safe-outputs:
     expires: 30d
     github-token-for-extra-empty-commit: none
     allowed-files:
+      - "src/*.test.ts"
       - "src/**/*.test.ts"
+      - "src/*.test-utils.ts"
       - "src/**/*.test-utils.ts"
+      - "scripts/*.test.ts"
       - "scripts/**/*.test.ts"
       - "tests/**"
+      - "containers/api-proxy/*.test.js"
       - "containers/api-proxy/**/*.test.js"
       - "containers/api-proxy/test-helpers/**"
+      - "containers/cli-proxy/*.test.js"
       - "containers/cli-proxy/**/*.test.js"
       - "docs/INTEGRATION-TESTS.md"
       - "docs/test-analysis/**"
