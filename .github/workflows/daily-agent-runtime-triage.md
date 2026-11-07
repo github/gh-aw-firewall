@@ -34,7 +34,7 @@ safe-outputs:
     max: 5
     deduplicate-by-title: true
   add-comment:
-    target: "*"
+    target: "[runtime-regression] *"
     required-title-prefix: "Daily agent/runtime regression failed (run "
     pull-requests: false
     max: 20
