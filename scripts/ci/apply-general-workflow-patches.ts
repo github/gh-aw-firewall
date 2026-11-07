@@ -902,12 +902,25 @@ export function applyGeneralWorkflowPatches(
   );
 
   if (isCloudHypervisorEnclaveSmoke || isCloudHypervisorAgentEnclaveSmoke) {
-    // gh-aw v1.0.1 discards agentConfig to force a privileged enclave install,
-    // also dropping its manifest pin. Restore only this reviewed release pair.
-    const unpinnedEnclaveInstall =
-      /(^[ \t]*run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/install_awf_binary\.sh" v0\.28\.66)(?=\r?$)/gm;
-    content = content.replace(unpinnedEnclaveInstall,
-      '$1 --checksums-sha256 f184f3993a1f0c3168d0dd96b01752670a5061c9c9bc1a37e3653fc6b54fba29');
+    // The compiler's privileged enclave install omits the authored binary
+    // checksum. Restore only the reviewed release pair for each acceptance fixture.
+    const enclaveRelease = isCloudHypervisorAgentEnclaveSmoke
+      ? {
+          version: 'v0.28.62',
+          checksum: '4a4d55b288c6146349cc3d3a5e0f492a5609127393a57f64ce59dcf7e8edd82b',
+        }
+      : {
+          version: 'v0.28.66',
+          checksum: 'f184f3993a1f0c3168d0dd96b01752670a5061c9c9bc1a37e3653fc6b54fba29',
+        };
+    const unpinnedEnclaveInstall = new RegExp(
+      `(^[ \\t]*run: bash "\\$\\{RUNNER_TEMP\\}/gh-aw/actions/install_awf_binary\\.sh" ${enclaveRelease.version.replace(/\./g, '\\.')})(?=\\r?$)`,
+      'gm',
+    );
+    content = content.replace(
+      unpinnedEnclaveInstall,
+      `$1 --checksums-sha256 ${enclaveRelease.checksum}`,
+    );
     if (!content.includes('exec "${NODE_BIN}" "${WORKSPACE_PATH}/dist/cli.js" --build-local')) {
       installStepRegexGlobal.lastIndex = 0;
       if (!installStepRegexGlobal.test(content)) throw new Error('Missing released AWF install anchor for branch diagnostics');

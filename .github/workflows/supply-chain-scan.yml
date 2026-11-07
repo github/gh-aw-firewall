@@ -73,11 +73,11 @@ jobs:
       - name: Configure Docker Hub cache
         run: bash scripts/ci/configure-docker-mirror.sh
 
-      - name: Checkout gh-aw v1.0.1
+      - name: Checkout gh-aw v1.2.1
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: github/gh-aw
-          ref: 0627fdbe4beb5f3b71aa569f8d97150b87f2111a
+          ref: 8f3224323bdfd3ae8574c99c5da8a65d450577bb
           path: .tmp/gh-aw-compiler
           persist-credentials: false
 
@@ -87,18 +87,14 @@ jobs:
           go-version-file: .tmp/gh-aw-compiler/go.mod
           cache: false
 
-      - name: Install patched gh-aw v1.0.1
+      - name: Install gh-aw v1.2.1
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git -C .tmp/gh-aw-compiler apply --unidiff-zero \
-            "${GITHUB_WORKSPACE}/scripts/ci/compiler-agent-acceptance-v0.28.66.patch"
-          go test -C .tmp/gh-aw-compiler ./pkg/workflow ./pkg/parser \
-            -run 'TestValidateCloudHypervisorAgentAcceptance|TestCompileCloudHypervisorAgentAcceptance|TestMainWorkflowSchemaOrdinaryEnclaveTokenLimitAndEvals' -count=1
           mkdir -p "$HOME/.local/share/gh/extensions/gh-aw"
           go build \
             -C .tmp/gh-aw-compiler \
-            -ldflags="-X main.version=dev-v1.0.1-agent-acceptance-v0.28.66-budget131072" \
+            -ldflags="-X main.version=v1.2.1" \
             -o "$HOME/.local/share/gh/extensions/gh-aw/gh-aw" \
             ./cmd/gh-aw
           rm -rf .tmp/gh-aw-compiler
@@ -113,7 +109,7 @@ jobs:
       - name: Compile + generate SBOMs (Syft)
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh aw compile --syft --action-mode action --action-tag v1.0.1 .github/workflows/*.md
+        run: gh aw compile --syft --action-mode action --action-tag v1.2.1 .github/workflows/*.md
 
       - name: Export compiled image inventory
         id: inventory

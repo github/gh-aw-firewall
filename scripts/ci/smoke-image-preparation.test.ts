@@ -178,6 +178,8 @@ ${preparation.run}
       const input = '      - name: Checkout PR branch\n        id: checkout-pr\n' +
         `      - name: ${preparation.name}\n        run: echo prepare\n` +
         '      - name: Install AWF binary\n' +
+        '        env:\n' +
+        '          GH_TOKEN: ${{ github.token }}\n' +
         '        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.29.0 --rootless\n' +
         `      - name: Execute ${engine} CLI\n        run: awf ${flags} -- echo smoke\n`;
       const first = applyGeneralWorkflowPatches(input, workflowPath).content;

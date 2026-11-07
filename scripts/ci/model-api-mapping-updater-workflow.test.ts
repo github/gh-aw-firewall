@@ -24,7 +24,7 @@ describe('scheduled canonical model source maintenance', () => {
         step.name === 'Install GitHub Copilot CLI');
       expect(installers).toHaveLength(1);
       expect(installers[0].run).toBe(
-        `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" ${version} --checksums-sha256 ${checksumsSha256}`,
+        `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" ${version} --checksums-sha256 ${checksumsSha256} --cooldown-days 3`,
       );
       expect(installers[0]['continue-on-error']).toBeUndefined();
       expect(installers[0].if).toBeUndefined();
@@ -237,7 +237,7 @@ describe('scheduled canonical model source maintenance', () => {
     expect(safeTools).not.toContain('create_release');
     expect(safeTools).not.toContain('create_issue');
     expect(lockText).not.toContain('GH_AW_CI_TRIGGER_TOKEN');
-    expect(lockText.split('\n')[0]).toContain('"compiler_version":"v1.0.1"');
+    expect(lockText.split('\n')[0]).toContain('"compiler_version":"v1.2.1"');
   });
 
   it('creates maintenance PR titles accepted by the existing repository title gate', () => {
