@@ -180,9 +180,15 @@ function planCopilotPricing(documents, pricingCapture, modelsCapture, pricingByt
     if (!groups.has(name)) groups.set(name, []);
     groups.get(name).push({ table, row });
   }
+  const sanitizeReceiptQuote = value => String(value ?? '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+    .replace(/```/g, '`\\`\\`')
+    .replace(/^\s*(system|assistant|developer|user|tool)\s*:/gim, '[redacted-role]:')
+    .replace(/\s+/g, ' ')
+    .trim();
   const receipt = (capture, quote, fields) => ({
     source: capture.id, url: capture.url, sha256: capture.sha256,
-    retrievedAt: capture.retrievedAt, quote, ...fields,
+    retrievedAt: capture.retrievedAt, quote: sanitizeReceiptQuote(quote), ...fields,
   });
   for (const [name, rows] of [...groups.entries()].sort(([a], [b]) => compare(a, b))) {
     const matches = allModels.filter(({ model }) => normalizeName(model.identity.rawId) === normalizeName(name));
