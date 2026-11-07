@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "testOnly": true,
+  "description": "Explicit negative test scenarios, not observations of the official site and never positive price evidence.",
+  "derivedFrom": "copilot-pricing-2026-11-06.capture.json",
+  "failedCapture": {
+    "source": "copilot-pricing",
+    "status": 503,
+    "body": "Simulated unavailable upstream for the failed-capture regression."
+  },
+  "missingComponent": {
+    "source": "copilot-pricing",
+    "model": "GPT-6.1 Sol",
+    "tier": "Default",
+    "component": "Cached input",
+    "derivation": "Delete the captured $0.10 cell text from the existing real GPT-6.1 Sol default row, retaining all other captured markup and cells."
+  }
+}

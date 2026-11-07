@@ -11,6 +11,7 @@ import {
 import { resolveDockerEnclavePaths } from '../../src/enclave/docker-lifecycle';
 import { resolveDockerPublicEnclaveDebugPaths } from '../../src/enclave/public-debug';
 import { projectEnclaveSessionDiagnostics } from '../../src/cloud-hypervisor/enclave-session-diagnostics';
+import { schema as preflightSchema } from '../../src/cloud-hypervisor/host-preflight-schema';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const collector = require('./collect-enclave-smoke-debug.cjs');
@@ -49,7 +50,7 @@ describe('host-only public enclave debug collector', () => {
     return source;
   }
   const collectRun = () => collect(run, uid, gid, roots, uid, temp);
-  function retainStartup(structured = false, earlyFailure?: Record<string, unknown>) {
+  function retainStartup(structured = false, earlyFailure?: Record<string, unknown>, startupChecks?: object) {
     const binding = { backend: 'cloud-hypervisor', runnerUid: uid, runnerGid: gid };
     prepare(run, roots, uid, temp, binding);
     const stderr = path.join(temp, 'private.stderr');
@@ -59,6 +60,10 @@ describe('host-only public enclave debug collector', () => {
     if (structured) fs.writeFileSync(startup, JSON.stringify({
       phase: 'startup', message: 'Trusted enclave MCP gateway container is unavailable',
       timestamp: '2026-01-01T00:00:00Z',
+      ...(startupChecks ? { enclaveStartup: {
+        schemaVersion: 1, perspective: 'awf-host', stage: 'artifact-preflight',
+        readiness: 'not-attempted', code: 'none', attempts: 0, httpStatus: null, startupChecks,
+      } } : {}),
     }), { mode: 0o600 });
     const value = {
       agent: 'copilot', backend: binding.backend, failureStage: 'broker',
@@ -245,9 +250,28 @@ describe('host-only public enclave debug collector', () => {
     const projected = JSON.parse(projectDiagnostics({ ...commonEnvelope(), session }, {
       runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor',
     }).toString());
-    expect(projected.session).toEqual(session);
+    expect(projected.session).toEqual({
+      ...session,
+      events: session.events?.map(event => Object.fromEntries(
+        Object.entries(event).filter(([key]) => !['attempt', 'runtimeMs'].includes(key)))),
+    });
     expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
     expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThan(8192);
+  });
+
+  it('retains the final event after the event cap without exporting progress integers', () => {
+    const transcript = [
+      ...Array.from({ length: 32 }, (_, index) => ({
+        event: 'progress', stage: 'engine-started', attempt: index + 1,
+      })),
+      { event: 'progress', stage: 'engine-completed', attempt: 3, exitCode: 1, runtimeMs: 100 },
+    ];
+    const session = projectEnclaveSessionDiagnostics(Buffer.from(
+      transcript.map(event => JSON.stringify(event)).join('\n')));
+
+    expect(session.events).toHaveLength(32);
+    expect(session.dropped).toBe(1);
+    expect(session.lastEvent).toEqual({ event: 'progress', stage: 'engine-completed', exitCode: 1 });
   });
 
   it.each([
@@ -295,6 +319,42 @@ describe('host-only public enclave debug collector', () => {
     }
   });
 
+  it('retains finite Claude denial classes and the final result after event-cap saturation', () => {
+    const denials = ['shell', 'file-read', 'file-write', 'output-write', 'search', 'unknown'].map(toolClass => ({
+      event: 'progress', stage: 'claude-permission-denied', toolClass,
+      input: 'PRIVATE_COMMAND', tool_name: 'PRIVATE_TOOL', prompt: 'PRIVATE_PROMPT',
+    }));
+    const result = { event: 'progress', stage: 'claude-result', resultError: false };
+    const writeError = {
+      event: 'progress', stage: 'claude-tool-completed', toolClass: 'output-write', toolError: true,
+    };
+    const session = projectEnclaveSessionDiagnostics(Buffer.from([
+      ...Array.from({ length: 32 }, () => ({ event: 'progress', stage: 'claude-response' })),
+      ...denials, ...denials, writeError, writeError, result,
+    ].map(event => JSON.stringify(event)).join('\n')));
+    const identity = { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' };
+    const projected = JSON.parse(projectDiagnostics({ ...commonEnvelope(), session }, identity).toString());
+    expect(projected.session.claudePermissionDenials).toEqual(denials.map(({ toolClass }) => ({
+      event: 'progress', stage: 'claude-permission-denied', toolClass,
+    })));
+    expect(projected.session.claudeResult).toEqual(result);
+    expect(projected.session.claudeToolErrors).toEqual([writeError]);
+    expect(projected.session.events).toHaveLength(32);
+    expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+    for (const invalid of [
+      { claudeResult: { event: 'success' } },
+      { claudePermissionDenials: [{ event: 'success' }] },
+      { claudePermissionDenials: Array(8).fill(denials[0]) },
+      { claudePermissionDenials: [{ ...denials[0], toolClass: 'PRIVATE_CLASS' }] },
+      { claudeToolErrors: [{ ...writeError, toolError: false }] },
+      { claudeToolErrors: Array(8).fill(writeError) },
+    ]) {
+      expect(() => projectDiagnostics({
+        ...commonEnvelope(), session: { status: 'captured', ...invalid },
+      }, identity)).toThrow(/session-schema/);
+    }
+  });
+
   it('retains the final Claude startup failure after event-cap saturation', () => {
     const startupFailure = {
       event: 'progress', stage: 'claude-startup-failure', classification: 'invalid-option-value',
@@ -323,7 +383,11 @@ describe('host-only public enclave debug collector', () => {
       ...commonEnvelope(), session,
     }, { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' }).toString());
     expect(projected.session.claudeStartupFailure).toEqual(session.claudeStartupFailure);
+    expect(projected.session.lastEvent).toEqual(session.lastEvent);
     expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+    expect(projectEnclaveSessionDiagnostics(Buffer.from(JSON.stringify({
+      event: 'progress', stage: 'engine-completed', attempt: 4,
+    }))).lastEvent).toEqual({ event: 'progress', stage: 'engine-completed' });
     expect(() => projectDiagnostics({
       ...commonEnvelope(), session: {
         status: 'captured', claudeStartupFailure: {
@@ -381,6 +445,27 @@ describe('host-only public enclave debug collector', () => {
     expect(JSON.parse(fs.readFileSync(path.join(run, 'upload/startup.json'), 'utf8')))
       .toMatchObject({ diagnostic: { category: 'broker', exitCode: 1 } });
     expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8')).toContain('failedCheck=stop-proof');
+  });
+  it('retains the closed copy checklist and independent bounded cleanup without an invocation', () => {
+    const checks = Object.fromEntries(Object.entries(preflightSchema.scopes).flatMap(([scope, catalog]) =>
+      Object.keys(catalog).map(id => [`${scope}/${id}`, ['not-attempted', 'none']])));
+    checks['bounded-artifacts/rootfs-copy'] = ['failed', 'ENOSPC'];
+    checks['bounded-artifacts/rootfs-trust'] = ['passed', 'none'];
+    for (const id of Object.keys(preflightSchema.scopes['bounded-cleanup'])) {
+      checks[`bounded-cleanup/${id}`] = ['passed', 'none'];
+    }
+    const value = retainStartup(true, undefined, { schemaVersion: 1, ready: false, checks });
+    expect(Buffer.byteLength(JSON.stringify(checks))).toBeGreaterThan(collector.MAX_STATUS_BYTES);
+    expect(collectRun()).toBe(1);
+    const text = fs.readFileSync(path.join(run, 'upload/startup.json'), 'utf8');
+    expect(JSON.parse(text).diagnostic.enclaveStartup.startupChecks.checks).toEqual(checks);
+    expect(text).not.toContain('PRIVATE_');
+    const projected = JSON.parse(text);
+    projected.diagnostic.enclaveStartup.startupChecks.checks['private/SECRET'] = ['failed', 'ENOSPC'];
+    expect(() => collector.projectStartup(projected, 'cloud-hypervisor')).toThrow(/startup-schema/);
+    const invalid = structuredClone(value);
+    invalid.diagnostic.enclaveStartup.startupChecks.checks['bounded-artifacts/rootfs-copy'] = ['failed', 'PRIVATE_REASON'];
+    expect(() => collector.projectStartup(invalid, 'cloud-hypervisor')).toThrow(/startup-schema/);
   });
   it.each([
     'cloud-hypervisor-enclave-admission',
@@ -605,11 +690,24 @@ describe('host-only public enclave debug collector', () => {
       expect(collectRun).toThrow();
       expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
     });
-  it('loads as a relocated standalone collector and matches the auth-fields validator', () => {
+  it('loads standalone with synchronized startup and auth-fields validators', () => {
     const stagedPath = path.join(temp, 'collector.cjs');
     fs.copyFileSync(path.join(__dirname, 'collect-enclave-smoke-debug.cjs'), stagedPath);
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const staged = require(stagedPath);
+    const checks = Object.fromEntries(Object.entries(preflightSchema.scopes).flatMap(([scope, catalog]) =>
+      Object.keys(catalog).map(id => [`${scope}/${id}`, ['not-attempted', 'none']])));
+    for (const id of preflightSchema.optionalChecks) checks[id] = ['not-required', 'none'];
+    const checklist = { schemaVersion: 1, ready: false, checks };
+    expect(staged.projectStartupChecklist(checklist)).toEqual(checklist);
+    for (const reason of Object.keys(preflightSchema.reasons).filter(reason => reason !== 'none')) {
+      expect(staged.projectStartupChecklist({
+        ...checklist, checks: { ...checks, 'startup/configuration': ['failed', reason] },
+      }).checks['startup/configuration']).toEqual(['failed', reason]);
+    }
+    expect(() => staged.projectStartupChecklist({
+      ...checklist, checks: { ...checks, 'private/SECRET': ['failed', 'ENOSPC'] },
+    })).toThrow(/startup-schema/);
     const canonical = projectCopilotAuthLogFields({});
     const cases = [
       canonical, `${canonical} extra=field`,
@@ -1592,10 +1690,11 @@ describe('standalone public enclave diagnostics collector', () => {
 
   it('bounds all published files and bytes including the fixed run projection reserve and status', () => {
     expect(collector.MAX_PUBLISHED_FILES).toBe(MAX_FILES + 4 + 3);
-    expect(collector.MAX_PUBLISHED_BYTES).toBe((MAX_FILES + 4) * MAX_STREAM_BYTES + 3 * collector.MAX_STATUS_BYTES);
+    expect(collector.MAX_PUBLISHED_BYTES).toBe((MAX_FILES + 4) * MAX_STREAM_BYTES
+      + 2 * collector.MAX_STATUS_BYTES + collector.MAX_STARTUP_BYTES);
     const bytes = Buffer.alloc(MAX_STREAM_BYTES);
     const files = [...Array.from({ length: MAX_FILES + 4 }, (_, index) => [`file-${index}`, bytes]),
-      ['startup.json', Buffer.alloc(collector.MAX_STATUS_BYTES)],
+      ['startup.json', Buffer.alloc(collector.MAX_STARTUP_BYTES)],
       ['finalization.json', Buffer.alloc(collector.MAX_STATUS_BYTES)]];
     const status = 'x'.repeat(collector.MAX_STATUS_BYTES);
     expect(() => collector.assertPublicationBounds(files, status)).not.toThrow();

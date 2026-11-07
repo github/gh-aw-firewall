@@ -8,6 +8,7 @@ const root = process.env.GITHUB_WORKSPACE || path.resolve(__dirname, '../..');
 const maintain = path.join(root, 'scripts/model-information/maintain.cjs');
 const commands = {
   'refresh-import': [process.execPath, maintain, 'refresh-import'],
+  'refresh-copilot-pricing': [process.execPath, maintain, 'refresh-copilot-pricing'],
   report: [process.execPath, maintain, 'report'],
   verify: [process.execPath, maintain, 'verify'],
   generate: ['npm', 'run', 'models:generate'],
@@ -16,7 +17,8 @@ const commands = {
     'scripts/ci/model-api-mapping-updater-workflow.test.ts',
     'src/copilot-model-catalog-sync.test.ts', 'src/model-information-contract.test.ts'],
   'test-api-proxy': ['npm', '--prefix', 'containers/api-proxy', 'test', '--',
-    '--runInBand', 'models-dev-catalog.test.js', 'ai-credits-pricing-reference.test.js'],
+    '--runInBand', 'models-dev-catalog.test.js', 'ai-credits-pricing-reference.test.js',
+    'catalogue-pricing.test.js', 'guards/ai-credits-guard.test.js'],
 };
 
 function runMaintenanceCommand(args, spawn = spawnSync) {

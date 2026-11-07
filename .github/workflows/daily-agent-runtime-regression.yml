@@ -556,6 +556,7 @@ jobs:
         run: |
           sudo install -d -m 0711 -o root -g root /var/lib/awf-enclave-smoke-export
           sudo install -m 0600 -o root -g root scripts/ci/collect-enclave-smoke-debug.cjs /var/lib/awf-enclave-smoke-export/collector.cjs
+          sudo install -m 0600 -o root -g root dist/cloud-hypervisor/host-preflight-schema.js /var/lib/awf-enclave-smoke-export/host-preflight-schema.cjs
           sudo node /var/lib/awf-enclave-smoke-export/collector.cjs prepare "$RUNTIME" "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "$(id -u)" "$(id -g)"
       - name: Run real coding agent inside enclave
         env:

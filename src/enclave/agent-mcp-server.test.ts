@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+jest.mock('fs', () => ({ ...jest.requireActual('fs'), chownSync: jest.fn() }));
+
 /* eslint-disable @typescript-eslint/no-require-imports */
 const root = path.join(__dirname, '..', '..', 'containers');
 const {
@@ -504,8 +506,8 @@ describe('broker-generated GitHub repository scope', () => {
 
   const baseConfig = () => ({
     workDir,
-    enclaveUid: process.getuid?.() ?? 0,
-    enclaveGid: process.getgid?.() ?? 0,
+    enclaveUid: 65534,
+    enclaveGid: 65534,
     githubEnabled: false,
     dynamicEnabled: false,
   });

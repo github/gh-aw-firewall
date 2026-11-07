@@ -3,6 +3,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { GITHUB_TOKEN_ENV_VARS } from '../services/agent-environment/github-token-isolation';
 
+jest.mock('fs', () => ({ ...jest.requireActual('fs'), chownSync: jest.fn() }));
+
 /* eslint-disable @typescript-eslint/no-require-imports */
 const containersRoot = path.join(__dirname, '..', '..', 'containers');
 const {
@@ -98,12 +100,27 @@ describe('unified enclave agent runner specification', () => {
     expect(spec.invocationListArgs).toContain('label=awf.enclave.invocation=0123456789abcdef');
   });
 
+  it.each(['claude', 'codex'])('rejects GitHub credential mounts for %s before launch', engine => {
+    for (const github of [{ githubEnabled: true }, { dynamicEnabled: true }]) {
+      expect(() => deriveEnclaveContainerSpec({
+        config: { ...trustedConfig, engine, ...github },
+        runId: 'abcdef1234567890',
+        invocationId: '0123456789abcdef',
+        seedId: 'b'.repeat(32),
+      })).toThrow(/require the Copilot enclave engine/);
+    }
+  });
+
   it('preserves every mandatory single-use isolation control', () => {
     expect(spec.launchArgs).toEqual(expect.arrayContaining([
       '--network', 'awf-enclave-agent',
       '--read-only',
-      '--user', '65534:65534',
+      '--user', '0:0',
       '--cap-drop', 'ALL',
+      '--cap-add', 'CHOWN',
+      '--cap-add', 'DAC_OVERRIDE',
+      '--cap-add', 'SETGID',
+      '--cap-add', 'SETUID',
       '--security-opt', 'no-new-privileges:true',
       '--security-opt', 'seccomp=/opt/awf/enclave-seccomp.json',
       '--memory', '768m',
@@ -113,6 +130,10 @@ describe('unified enclave agent runner specification', () => {
       '--ulimit', `fsize=${ENCLAVE_MAX_FILE_BYTES}`,
       '--shm-size', '96m',
       '--pull', 'never',
+    ]));
+    expect(spec.launchArgs).toEqual(expect.arrayContaining([
+      '--env', 'AWF_ENCLAVE_AGENT_UID=65534',
+      '--env', 'AWF_ENCLAVE_AGENT_GID=65534',
     ]));
     expect(spec.launchArgs).toContain('/tmp:rw,noexec,nosuid,nodev,size=96m');
     expect(spec.launchArgs.join(' ')).not.toMatch(/--tmpfs \/agent:/);
@@ -376,8 +397,8 @@ describe('unified enclave agent runner specification', () => {
           config: {
             workDir,
             auditDir: path.join(workDir, 'audit'),
-            enclaveUid: process.getuid?.() ?? 0,
-            enclaveGid: process.getgid?.() ?? 0,
+            enclaveUid: 65534,
+            enclaveGid: 65534,
             timeoutSeconds: 120,
             githubEnabled: true,
             githubAgentId,
