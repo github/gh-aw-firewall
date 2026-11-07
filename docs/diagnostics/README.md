@@ -124,6 +124,16 @@ private, mixed, dynamic, custom-image and unsupported-runtime scopes cannot opt
 in. See [protected paths and controlled sharing](../cloud-hypervisor-foundation.md#public-fixture-enclave-debugging);
 never upload the whole host-state, work, journal, or proxy-log tree.
 
+When Docker cleanup cannot prove removal, the protected envelope may retain
+host-only operation metadata with `workloadStopped: false`,
+`stopProof: unavailable`, and all streams `unavailable`. This is not a workload-stop or
+cleanup proof: source storage and recovery journals remain protected, and AWF
+must still fail finalization. Read `primaryFailure` separately from
+`cleanupFailure`; neither absent streams nor a created container's default exit
+status identifies the workload outcome. Docker verification requires the exact
+audited supervisor capability set; coding engines still run non-root without
+capabilities.
+
 For an eligible attested, static public-only Cloud Hypervisor enclave, additionally inspect
 the protected run-cumulative `enclave-proxy-events.jsonl` and closed-vocabulary
 `enclave-proxy-container.log`, separately from per-invocation `enclave-session.log`.
