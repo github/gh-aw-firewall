@@ -592,7 +592,8 @@ describe('maintained model compilation', () => {
         'model-information.naming.generated.json', 'model-identity.js', 'model-utils.js',
         'model-eligibility.js', 'harness-observation.js', 'model-information.eligibility.generated.json',
         'provider-pricing-overlays.js',
-        'guards/retired-model-guard.js', 'guards/model-policy-guard.js', 'guards/guard-utils.js', 'logging.js']) {
+        'guards/retired-model-guard.js', 'guards/model-policy-guard.js', 'guards/guard-utils.js',
+        'logging.js', 'body-utils.js']) {
         fs.copyFileSync(path.join(root, 'containers/api-proxy', file), path.join(temp, file));
       }
       fs.cpSync(path.join(root, 'containers/api-proxy/catalogue-contract'),
