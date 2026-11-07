@@ -210,9 +210,12 @@ jobs:
       - name: Run Copilot with GHES
         env:
           GITHUB_TOKEN: ${{ secrets.COPILOT_CLI_TOKEN }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
         run: |
+          GHES_HOST="${GITHUB_SERVER_URL#*://}"
+          GHES_HOST="${GHES_HOST%%/*}"
           sudo -E awf \
-            --allow-domains ${{ github.server_url_hostname }},api.enterprise.githubcopilot.com \
+            --allow-domains "$GHES_HOST",api.enterprise.githubcopilot.com \
             --enable-api-proxy \
             -- npx @github/copilot@latest --prompt "generate tests"
 ```
