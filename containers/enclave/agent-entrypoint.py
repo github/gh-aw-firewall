@@ -165,7 +165,11 @@ def failed_session_preflight(metadata: dict, check: str, error: OSError) -> OSEr
     try:
         sys.stderr.write(encoded + "\n")
     except OSError:
-        pass
+        # Best-effort diagnostics only: preserve original preflight failure.
+        try:
+            sys.__stderr__.write('{"event":"failure","category":"preflight-diagnostic-write-failed"}\n')
+        except OSError:
+            pass
     return error
 
 
