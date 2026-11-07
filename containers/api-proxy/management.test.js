@@ -3,6 +3,51 @@
 const { buildRoutingModelMetadata, createManagementHandlers } = require('./management');
 const { normalizeModel } = require('./routing-catalogue');
 const { buildRoutingCandidates } = require('./routing-candidates');
+const { createCopilotAdapter } = require('./providers/copilot');
+
+describe('Copilot native Auto launch capability', () => {
+  it.each([
+    {},
+    { COPILOT_GITHUB_TOKEN: 'test-token' },
+    { COPILOT_GITHUB_TOKEN: 'test-token', COPILOT_API_TARGET: 'copilot.enterprise.example' },
+    { COPILOT_PROVIDER_API_KEY: 'test-key', COPILOT_API_TARGET: 'router.example.com' },
+  ])('does not advertise native CLI Auto support with %p', env => {
+    const copilot = createCopilotAdapter(env);
+    const openai = {
+      name: 'openai',
+      getReflectionInfo: () => ({
+        provider: 'openai', port: 10000, configured: false, models_cache_key: 'openai',
+      }),
+    };
+    const result = createManagementHandlers({
+      getAdapters: () => [copilot, openai],
+      getCachedModels: () => ({ copilot: ['auto', 'gpt-5.4'] }),
+      isModelFetchComplete: () => true,
+      getModelAliases: () => ({ models: { auto: ['copilot/gpt-5.4'] } }),
+      getModelFallback: () => null,
+      getEffectiveModelFallback: () => ({}),
+      getAiCreditsUsage: () => ({}),
+      getMaxRunsUsage: () => ({}),
+      getMaxCacheMissesUsage: () => ({}),
+      getPermissionDeniedUsage: () => ({}),
+    }).reflectEndpoints();
+
+    expect(result.endpoints[0].copilot_native_auto).toEqual({
+      supported: false,
+      reason: 'native_launch_contract_unavailable',
+      message: expect.stringContaining('offline/BYOK'),
+    });
+    expect(result.endpoints[0].copilot_native_auto.message).toContain('engine.model-routing');
+    expect(result.endpoints[0].copilot_native_auto.message).toContain('without --auto-tier');
+    expect(result.endpoints[0].copilot_native_auto.message).toContain('github/gh-aw/issues/74970');
+    expect(result.endpoints[0].models).toEqual(['auto', 'gpt-5.4']);
+    expect(result.model_aliases).toEqual({ auto: ['copilot/gpt-5.4'] });
+    expect(result.endpoints[0].automatic_model_selection).toMatchObject({ model: 'auto' });
+    expect(result.endpoints[1]).not.toHaveProperty('copilot_native_auto');
+    expect(JSON.stringify(result)).not.toContain('test-token');
+    expect(JSON.stringify(result)).not.toContain('test-key');
+  });
+});
 
 describe('model-budget health capability', () => {
   it('advertises enforcement only when the dedicated proxy is configured to enforce budgets', () => {

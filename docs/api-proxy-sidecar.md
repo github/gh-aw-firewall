@@ -174,13 +174,15 @@ remote model/plugin metadata resolution; API-key based proxy routing cannot use
 that catalog even when `chatgpt.com` is allowed, so `auto` can fail with
 `The requested model is not supported`.
 
-This OpenAI-native `auto` limitation does not apply to Copilot's own `auto`
-model selector. Pi's Chat Completions requests continue to forward `auto`
-unchanged. For native GitHub Copilot Responses requests, including Codex's
+This OpenAI-native `auto` limitation is separate from Copilot API-level `auto`
+selectors. For Pi's Chat Completions requests to GitHub Copilot, the sidecar
+omits the unsupported `model: "auto"` field, leaving selection to the upstream.
+For GitHub Copilot Responses requests, including Codex's
 `copilot/auto`, the sidecar selects the highest-version Codex model in the live
 Copilot inventory that advertises Responses support. It keeps the Copilot
 provider and credentials; if the inventory has no eligible model, the sidecar
 returns an explicit error. Custom Copilot/BYOK targets are not rewritten.
+Neither behavior provides [Copilot CLI native Auto routing](#copilot-cli-native-auto-routing-not-supported).
 
 Since [PR #9005](https://github.com/github/gh-aw-firewall/pull/9005), the
 redundant `<provider>/` prefix strip applied above is unconditional for every
@@ -664,6 +666,78 @@ The sidecar container:
 - **Ports**: 10000 (OpenAI), 10001 (Anthropic), 10002 (GitHub Copilot), 10003 (Google Gemini), 10004 (Google Vertex AI)
 - **Proxy**: Routes via Squid at `http://172.30.0.10:3128`
 
+## Copilot CLI native Auto routing (not supported)
+
+Copilot CLI's `model: auto` with an explicit `--auto-tier=balance` or
+`--auto-tier balance` requests a **native routing profile**, not an AWF model
+alias or gh-aw per-run model routing. Native CLI Auto is not currently supported
+through AWF's credential-isolating proxy launch.
+
+AWF sets `COPILOT_OFFLINE=true` and `COPILOT_PROVIDER_BASE_URL` to the sidecar,
+even when the trusted sidecar authenticates with a GitHub token. This puts the
+CLI in generic offline/BYOK mode. The gh-aw harness resolves model aliases and
+chooses `COPILOT_PROVIDER_WIRE_API` before launch; that session-wide API cannot
+be assumed to follow native Auto's runtime selection across model families.
+Preserving the `auto` string alone does not establish native Auto support.
+
+For automatic model choice, use gh-aw `engine.model-routing`, for example
+`goal: cost`, `mode: economy`, or choose a concrete model and omit `--auto-tier`.
+See the [troubleshooting example](troubleshooting.md#copilot-cli-native-auto-tier-fails-before-inference)
+and [gh-aw model-routing reference](https://github.github.com/gh-aw/reference/model-routing/).
+Bare `model: auto` without a tier retains its existing alias behavior.
+
+The Copilot entry in `/reflect` exposes `copilot_native_auto` separately from
+`automatic_model_selection`:
+
+```json
+{
+  "supported": false,
+  "reason": "native_launch_contract_unavailable",
+  "message": "Copilot CLI --auto-tier is not supported by AWF's offline/BYOK launch. Use gh-aw engine.model-routing or a concrete model without --auto-tier. See https://github.com/github/gh-aw/issues/74970."
+}
+```
+
+This is a launch-compatibility diagnostic, not an inference rejection or a new
+launch mode. It remains unsupported for enterprise/custom BYOK targets and
+unconfigured providers too; a catalog entry named `auto` does not change it.
+Launchers should fail closed for native Auto when this capability is absent
+or unsupported. The compiler/harness's pre-spawn diagnostic is tracked in
+[github/gh-aw#74970](https://github.com/github/gh-aw/issues/74970).
+AWF does not parse tier flags out of arbitrary shell commands.
+
+### Gate for future native support
+
+[github/gh-aw-firewall#11269](https://github.com/github/gh-aw-firewall/issues/11269)
+tracks coordination on an explicit, opt-in native-Copilot launch mode, separate
+from direct BYOK, aliases, and per-run routing. No native mode or authenticated
+end-to-end validation is claimed here. Before advertising support:
+
+- **Credential/endpoint contract (AWF + gh-aw):** establish a supported CLI
+  authentication and endpoint override contract with real credentials only in
+  trusted proxy components. Preserve direct BYOK and enterprise/custom-provider
+  behavior; do not send native control requests to arbitrary BYOK providers.
+- **Protocol (AWF):** validate `/models/session`, `/models/session/intent`,
+  `/auto`, concrete-model inference endpoints, and streaming/transport behavior.
+  Existing control-request forwarding and API-version compatibility are building
+  blocks, not a native CLI integration test. Audit model rewrites so native
+  selection is not silently replaced by AWF's Responses/Codex `auto` rewrite.
+- **Launch/observation (gh-aw):** validate both tier flag forms before CLI spawn
+  and inference retries, skipping prompt values and everything after `--`.
+  Diagnose empty/conflicting profiles and fixed-model, SDK, or AWF-routing
+  conflicts. Preserve selector/tier only in the gated native mode; record the
+  configured selector, profile, concrete effective model, and subsequent changes.
+- **Policy/spend (AWF):** enforce concrete-model policy and multiplier caps before
+  inference wherever selection is exposed. Reject unverifiable combinations:
+  permitting an `auto` selector is not proof that its selected model meets a
+  denylist or multiplier cap. Maintain usage/credit accounting across selections,
+  using concrete pricing where available and explicit conservative fallback
+  otherwise. Never disable guards, the proxy, or the firewall or expose credentials.
+- **Evidence (AWF + gh-aw):** add offline regressions for tier parsing, unchanged
+  bare-auto/fixed-model/BYOK behavior, conflicts, credential isolation, control
+  forwarding, endpoint compatibility, policy rejection, and dynamic accounting.
+  Then complete a bounded authenticated CLI-through-AWF test with concrete-model
+  observation and spend controls before changing `supported` to `true`.
+
 ## Provider-scoped automatic model selection
 
 On JSON inference requests, combine `model: "auto"` with the AWF-only
@@ -1055,6 +1129,7 @@ Fields:
 - `models` — list of model IDs fetched from the provider at startup; `null` if the provider is not configured or model fetch failed
 - `model_metadata` — sanitized provider metadata, including pricing and provenance when the provider supplies it; currently Copilot supplies runtime pricing
 - `routing_models` — per-discovered-model endpoint, reasoning-effort, and context metadata used by task routing. `source` identifies provider-supplied or maintained fields; `candidate_metadata_complete: false` means the model cannot be offered as a route. `candidate_metadata_reason` explains known exclusions, such as a Copilot model not enabled in the model picker
+- `copilot_native_auto` — Copilot-only CLI launch compatibility diagnostic, separate from API-level `automatic_model_selection`; currently `supported: false`. See [native Auto limitations](#copilot-cli-native-auto-routing-not-supported)
 - `model_api_mapping` — maintained endpoint and routing metadata, with source references, for model families where provider `/models` APIs do not publish those limits
 - `models_fetch_complete` — `true` once the startup model-fetch pass has finished
 - `models_url` — URL to query for the live model list
