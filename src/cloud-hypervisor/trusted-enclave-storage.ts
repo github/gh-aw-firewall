@@ -159,12 +159,12 @@ export class ProductionTrustedCloudHypervisorEnclaveStorageProvider implements T
   }
 }
 
-// Cover one full (not necessarily sparse) release image plus tools, kernel,
+// Cover the shared release image (over 3 GiB, even with rsync --sparse) plus tools, kernel,
 // manifest, attestation and SBOM bytes. Invocation snapshot, preparation and
 // final run staging each need an independent copy-sized host allocation.
 // This host-only budget must never change the guest invocation profiles.
 export const ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE = Object.freeze({
-  writableStorageBytes: 2 * 1024 * 1024 * 1024,
+  writableStorageBytes: 4 * 1024 * 1024 * 1024,
   uid: 0,
   gid: 0,
 });

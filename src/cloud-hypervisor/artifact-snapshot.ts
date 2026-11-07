@@ -8,7 +8,7 @@ import {
   type CloudHypervisorMountDescription,
 } from './preflight-diagnostics';
 import {
-  HostPreflightCleanupError, markHostPreflightError,
+  HostPreflightCleanupError, markHostPreflightError, type HostPreflightReason,
   type HostPreflightReporter,
 } from './host-preflight-progress';
 
@@ -231,12 +231,32 @@ export async function copySparseFileWithRsync(
   const result = await execa(rsyncBinaryPath, ['--sparse', '--', source, destination], {
     reject: false,
     stdio: ['ignore', 'pipe', 'pipe'],
+    env: { LC_ALL: 'C' },
   });
   if (result.exitCode !== 0) {
-    throw markHostPreflightError(new Error(
-      `sparse artifact copy failed with code ${result.exitCode}: ${result.stderr.trim()}`,
-    ), result.exitCode === 11 ? 'rsync-file-io' :
+    let reason: HostPreflightReason = result.exitCode === 11 ? 'rsync-file-io' :
       result.exitCode === 23 ? 'rsync-partial-transfer' :
-        result.exitCode === 24 ? 'rsync-source-vanished' : 'command-failed');
+        result.exitCode === 24 ? 'rsync-source-vanished' : 'command-failed';
+    // Only rsync's fixed C-locale operation/errno grammar is evidence. Never
+    // publish stderr: it includes private source and destination paths.
+    for (const line of result.stderr.split('\n')) {
+      const failure = /^rsync: \[(sender|receiver|generator)\] (.+) \((\d+)\)$/.exec(line);
+      if (!failure) continue;
+      const [, actor, operation, errno] = failure;
+      if (actor !== 'sender' && ['28', '122'].includes(errno)) {
+        reason = errno === '28' ? 'ENOSPC' : 'EDQUOT';
+        break;
+      }
+      if (['13', '1'].includes(errno)) reason = errno === '13' ? 'EACCES' : 'EPERM';
+      else if (actor !== 'sender' && errno === '30') reason = 'EROFS';
+      else if (actor === 'sender' && /^(?:read errors mapping|read failed|send_files failed to open) /.test(operation)) {
+        reason = 'rsync-source-read';
+      } else if (actor !== 'sender' && /^(?:write failed|write error|mkstemp|open|ftruncate|close failed)[: ]/.test(operation)) {
+        reason = 'rsync-destination-write';
+      }
+    }
+    throw markHostPreflightError(new Error(
+      `sparse artifact copy failed (${reason})`,
+    ), reason);
   }
 }

@@ -458,6 +458,8 @@ describe.each(agents)('%s launch orchestration', agent => {
         config = JSON.parse(fs.readFileSync(args[args.indexOf('--config') + 1], 'utf8'));
         workDirectory = args[args.indexOf('--work-dir') + 1];
         expect(fs.existsSync(workDirectory)).toBe(false);
+        expect(config.logging.proxyLogsDir).toBe(path.join(path.dirname(workDirectory), 'proxy-logs'));
+        expect(config.logging.proxyLogsDir.startsWith(workDirectory + path.sep)).toBe(false);
         if (!options.preStart) fs.mkdirSync(workDirectory, { mode: 0o700 });
         return child;
       }),
