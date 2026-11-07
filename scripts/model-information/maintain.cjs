@@ -245,17 +245,33 @@ function sanitizeForAgentContext(value) {
         if (source.id === 'copilot-pricing') {
           const extractedPricing = copilotPricing.extractPricingTables(bytes, documentText);
           const safePricing = toSafePricingData(extractedPricing);
-          const sanitizePricingForAgent = (value) => {
-            if (typeof value === 'string') return sanitizeForAgentContext(value);
-            if (Array.isArray(value)) return value.map(sanitizePricingForAgent);
-            if (value && typeof value === 'object') {
-              return Object.fromEntries(
-                Object.entries(value).map(([key, nested]) => [key, sanitizePricingForAgent(nested)]),
-              );
+          const normalizePricingForAgent = (value, depth = 0) => {
+            if (depth > 8) return null;
+            if (value == null) return null;
+            if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+            if (typeof value === 'boolean') return value;
+            if (typeof value === 'string') {
+              const compact = value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+              // Data-only boundary: keep short label-like strings; replace rich/free-form text.
+              if (compact.length === 0) return '';
+              if (compact.length > 120) return '[redacted]';
+              if (!/^[\w\s.,:/%+()#&'"$*\-–—]+$/u.test(compact)) return '[redacted]';
+              return compact;
             }
-            return value;
+            if (Array.isArray(value)) {
+              return value.slice(0, 100).map((item) => normalizePricingForAgent(item, depth + 1));
+            }
+            if (typeof value === 'object') {
+              const out = {};
+              for (const [key, nested] of Object.entries(value).slice(0, 100)) {
+                if (!/^[A-Za-z0-9_.-]{1,64}$/.test(key)) continue;
+                out[key] = normalizePricingForAgent(nested, depth + 1);
+              }
+              return out;
+            }
+            return null;
           };
-          captured.pricing = sanitizePricingForAgent(safePricing);
+          captured.pricing = normalizePricingForAgent(safePricing);
         }
         writeCapture(directory, `${source.id}.raw`, bytes);
         writeCapture(directory, `${source.id}.txt`, text);
