@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { execFileSync } from 'child_process';
 
-const { budget, classify, fetchQueue, formatSummary, inspect, pages, verifyTarget } = require('./pr-sous-chef.cjs');
+const { budget, classify, fetchQueue, formatSummary, inspect, pages, prefilterQueue, pruneFailures, verifyTarget } = require('./pr-sous-chef.cjs');
 const NOW = Date.parse('2026-10-30T12:00:00Z');
 const OLD = '2026-10-30T11:00:00Z';
 const HEAD = 'a'.repeat(40);
@@ -52,7 +52,7 @@ function apiFixture() {
     };
     if (endpoint.includes('/pulls?')) return [[{
       number: 42, draft: false, updated_at: OLD, labels: [],
-      author_association: 'NONE', head: { repo: { full_name: repo } },
+      author_association: 'NONE', head: { sha: HEAD, repo: { full_name: repo } },
     }]];
     if (endpoint.includes('/comments?') || endpoint.includes('/statuses?')) return [[]];
     if (endpoint.includes('/check-runs?')) return [{ check_runs: [], total_count: 0 }];
@@ -347,6 +347,20 @@ describe('PR sous-chef reads, configuration and queue gates', () => {
     expect(result.statuses[0].status).toBe('changed_during_refresh');
   });
 
+  it.each(['CLOSED', 'MERGED'])('skips %s PRs with deleted branches before requiring open-PR metadata', async state => {
+    const api = jest.fn(async () => ({ data: { repository: { pullRequest: {
+      ...pr(), state, headRefName: null, mergeable: null, headRepository: null,
+    } } } }));
+    await expect(inspect(repo, 42, api, NOW, '')).resolves.toEqual({ number: 42, status: 'closed_or_draft' });
+    expect(api).toHaveBeenCalledTimes(1);
+  });
+
+  it('still rejects incomplete open-PR metadata', async () => {
+    await expect(inspect(repo, 42, async () => ({ data: { repository: { pullRequest: {
+      ...pr(), mergeable: null,
+    } } } }), NOW, '')).rejects.toThrow('Incomplete PR #42 metadata');
+  });
+
   it.each(['ready-for-aw', 'sous-chef-skip', 'broccoli'])('preserves final-refresh stop label %s without opt-in labels', async name => {
     const api = apiFixture();
     const base = api.getMockImplementation()!;
@@ -554,6 +568,36 @@ describe('PR sous-chef reads, configuration and queue gates', () => {
       expect(JSON.parse(output).prs).toHaveLength(1);
       expect(JSON.parse(output).prs[0].body).toContain('@copilot');
       expect(JSON.parse(fs.readFileSync(queuePath, 'utf8'))).toEqual(expected);
+      const outputPath = path.join(directory, 'prefilter', 'pr-sous-chef-queue.json');
+      const failurePath = path.join(directory, 'state', 'failures.json');
+      const outputsPath = path.join(directory, 'outputs');
+      const summaryPath = path.join(directory, 'summary');
+      // The trusted prefilter emits its gate only after the same full refresh.
+      const originalPreload = fs.readFileSync(preloadPath, 'utf8');
+      fs.appendFileSync(preloadPath, `
+        const api = require('node:child_process').execFileSync;
+        let reads = 0;
+        require('node:child_process').execFileSync = (command, args) => {
+          if (args[1] === 'graphql' && ++reads === 2) return JSON.stringify({ data: {} });
+          return api(command, args);
+        };
+      `);
+      execFileSync(process.execPath, ['--require', preloadPath, path.join(__dirname, 'pr-sous-chef.cjs')], {
+        encoding: 'utf8', timeout: 10_000,
+        env: {
+          PR_SOUS_CHEF_REPOSITORY: repo, PR_SOUS_CHEF_MODE: 'pilot',
+          PR_SOUS_CHEF_WRITER_LOGIN: 'sous-chef', PR_SOUS_CHEF_WRITER_CONFIGURED: 'true',
+          PR_SOUS_CHEF_NUMBER: '42', PR_SOUS_CHEF_OUTPUT_DIR: path.dirname(outputPath),
+          PR_SOUS_CHEF_FAILURE_STATE_PATH: failurePath, GITHUB_OUTPUT: outputsPath,
+          GITHUB_STEP_SUMMARY: summaryPath,
+        },
+      });
+      expect(JSON.parse(fs.readFileSync(outputPath, 'utf8')).prs).toEqual([]);
+      expect(fs.readFileSync(outputsPath, 'utf8')).toBe('eligible_count=0\ntarget_number=\n');
+      expect(fs.readFileSync(summaryPath, 'utf8')).toContain('incomplete_pr_metadata');
+      expect(JSON.parse(fs.readFileSync(failurePath, 'utf8'))[0]).toMatchObject({ pr: 42, headSha: HEAD });
+      // Keep the standalone refresh checks independent of the prefilter failure fixture.
+      fs.writeFileSync(preloadPath, originalPreload);
       const runEntrypoint = (args: string[] = []) => execFileSync(
         path.join(__dirname, 'pr-sous-chef-refresh'), args, {
           cwd: directory,
@@ -594,6 +638,150 @@ describe('PR sous-chef reads, configuration and queue gates', () => {
   });
 });
 
+describe('PR sous-chef pre-agent refresh and failure backoff', () => {
+  const options = { repo, mode: 'pilot', writer: 'sous-chef', writerConfigured: true, now: NOW };
+  function failingRefresh() {
+    const api = apiFixture();
+    const base = api.getMockImplementation()!;
+    let reads = 0;
+    api.mockImplementation(async args => args[1] === 'graphql' && ++reads === 2
+      ? { data: { repository: { pullRequest: { ...pr(), mergeable: null } } } }
+      : base(args));
+    return api;
+  }
+
+  it('refreshes pilot targets before launch but keeps dry-run agent-free', async () => {
+    const api = apiFixture();
+    const queue = await prefilterQueue(options, [], api);
+    expect(queue.prs).toHaveLength(1);
+    expect(api.mock.calls.filter(([args]) => args[1] === 'graphql')).toHaveLength(2);
+    const preview = apiFixture();
+    await prefilterQueue({ ...options, mode: 'dry-run' }, [], preview);
+    expect(preview.mock.calls.filter(([args]) => args[1] === 'graphql')).toHaveLength(1);
+  });
+
+  it('suppresses startup on refresh failure and exponentially backs off the same PR/HEAD', async () => {
+    const state: Record<string, unknown>[] = [];
+    const first = await prefilterQueue(options, state, failingRefresh());
+    expect(first.prs).toEqual([]);
+    expect(formatSummary(first)).toContain('refresh_incomplete (incomplete_pr_metadata)');
+    expect(state[0]).toEqual({
+      pr: 42, headSha: HEAD, failureReason: 'incomplete_pr_metadata', count: 1,
+      failedAt: NOW, retryAt: NOW + 30 * 60_000,
+    });
+    const api = apiFixture();
+    const backedOff = await prefilterQueue({ ...options, now: NOW + 15 * 60_000 }, state, api);
+    expect(backedOff.prs).toEqual([]);
+    expect(backedOff.statuses).toContainEqual({ number: 42, status: 'failure_backoff', reason: 'incomplete_pr_metadata' });
+    expect(api.mock.calls.some(([args]) => args[1] === 'graphql')).toBe(false);
+    await prefilterQueue({ ...options, now: NOW + 30 * 60_000 }, state, failingRefresh());
+    expect(state[0].count).toBe(2);
+    expect(state[0].retryAt).toBe(NOW + 90 * 60_000);
+    await prefilterQueue({ ...options, now: NOW + 90 * 60_000 }, state, apiFixture());
+    expect(state).toEqual([]);
+  });
+
+  it('skips incomplete candidates and rotates to a healthy PR during backoff', async () => {
+    const state: Record<string, unknown>[] = [];
+    const api = apiFixture();
+    const base = api.getMockImplementation()!;
+    api.mockImplementation(async args => {
+      if (args[1].includes('/pulls?')) return [[42, 43].map(number => ({
+        number, draft: false, updated_at: OLD, labels: [], head: { sha: HEAD, repo: { full_name: repo } },
+      }))];
+      if (args[1] === 'graphql') {
+        const number = Number(args[args.length - 1].split('=')[1]);
+        const data = { ...pr(), number };
+        if (number === 42) data.reviewThreads.nodes[0].comments.pageInfo.hasNextPage = true;
+        return { data: { repository: { pullRequest: data } } };
+      }
+      if (args[1] === `repos/${repo}/pulls/43`) return {
+        state: 'open', draft: false, head: { sha: HEAD }, updated_at: OLD, labels: [],
+      };
+      return base(args);
+    });
+    expect((await prefilterQueue(options, state, api)).prs[0].number).toBe(43);
+    expect(state[0].failureReason).toBe('incomplete_thread_comments');
+    api.mockClear();
+    const next = await prefilterQueue({ ...options, now: NOW + 15 * 60_000 }, state, api);
+    expect(next.prs[0].number).toBe(43);
+    expect(api.mock.calls.filter(([args]) => args[1] === 'graphql').every(([args]) => args[args.length - 1] === 'number=43')).toBe(true);
+  });
+
+  it('reconsiders a changed HEAD immediately, including explicitly scoped requests', async () => {
+    const state: Record<string, unknown>[] = [];
+    await prefilterQueue(options, state, failingRefresh());
+    const api = apiFixture();
+    const base = api.getMockImplementation()!;
+    const head = 'b'.repeat(40);
+    api.mockImplementation(async args => {
+      if (args[1] === 'graphql') return { data: { repository: { pullRequest: { ...pr(), headRefOid: head } } } };
+      if (args[1] === `repos/${repo}/pulls/42`) return {
+        state: 'open', draft: false, head: { sha: head }, updated_at: OLD, labels: [],
+      };
+      return base(args);
+    });
+    const queue = await prefilterQueue({ ...options, number: 42, now: NOW + 15 * 60_000 }, state, api);
+    expect(queue.prs[0].head).toBe(head);
+    expect(state).toEqual([]);
+  });
+
+  it('does not hide API/auth failures or permit startup when the refresh budget is low', async () => {
+    const api = apiFixture();
+    const base = api.getMockImplementation()!;
+    let reads = 0;
+    api.mockImplementation(async args => {
+      if (args[1] === 'graphql' && ++reads === 2) throw new Error('HTTP 401 Bad credentials');
+      return base(args);
+    });
+    await expect(prefilterQueue(options, [], api)).rejects.toThrow('401');
+    let budgets = 0;
+    api.mockImplementation(async args => {
+      if (args[1] === 'rate_limit' && ++budgets === 4) {
+        const response = healthy();
+        response.resources.graphql.remaining = 1;
+        return response;
+      }
+      return base(args);
+    });
+    const queue = await prefilterQueue(options, [], api);
+    expect(queue.rate_limit.low).toBe(true);
+    expect(queue.prs).toEqual([]);
+  });
+
+  it('expires and bounds persisted state without retaining malformed records', () => {
+    const entry = {
+      pr: 42, headSha: HEAD, failureReason: 'incomplete_pr_metadata', count: 1,
+      failedAt: NOW - 60_000, retryAt: NOW + 60_000,
+    };
+    expect(pruneFailures([null, {}, entry, { ...entry, failedAt: NOW - 24 * 60 * 60_000 },
+      { ...entry, failedAt: NOW + 1 }, { ...entry, retryAt: NOW + 24 * 60 * 60_000 }], NOW)).toEqual([entry]);
+    expect(pruneFailures(Array.from({ length: 101 }, (_, index) => ({ ...entry, pr: index + 1 })), NOW)).toHaveLength(100);
+  });
+
+  it('caps repeated failures at four hours and never backs off on an unknown HEAD', async () => {
+    const state: Record<string, unknown>[] = [{
+      pr: 42, headSha: HEAD, failureReason: 'incomplete_pr_metadata', count: 8,
+      failedAt: NOW - 4 * 60 * 60_000, retryAt: NOW,
+    }];
+    await prefilterQueue(options, state, failingRefresh());
+    expect(state[0].count).toBe(8);
+    expect(state[0].retryAt).toBe(NOW + 4 * 60 * 60_000);
+    const api = apiFixture();
+    const base = api.getMockImplementation()!;
+    api.mockImplementation(async args => {
+      if (args[1].includes('/pulls?')) return [[{
+        number: 42, draft: false, updated_at: OLD, labels: [], head: { repo: { full_name: repo } },
+      }]];
+      if (args[1] === 'graphql') return { data: {} };
+      return base(args);
+    });
+    const unknown: Record<string, unknown>[] = [];
+    expect((await prefilterQueue(options, unknown, api)).prs).toEqual([]);
+    expect(unknown).toEqual([]);
+  });
+});
+
 describe('PR sous-chef workflow safety contract', () => {
   const root = path.resolve(__dirname, '../..');
   const source = fs.readFileSync(path.join(root, '.github/workflows/pr-sous-chef.md'), 'utf8');
@@ -603,29 +791,24 @@ describe('PR sous-chef workflow safety contract', () => {
     'safe-outputs': Record<string, unknown>;
     if: string;
     checkout: { ref: string; 'pull-request': boolean };
-    jobs: { prefilter: { if: string } };
+    jobs: { prefilter: { if: string; steps: { name: string; uses?: string; env?: Record<string, string>; with?: Record<string, string> }[] } };
     env: { PR_SOUS_CHEF_MODE: string };
     tools: { edit: boolean; bash: string[] };
   };
 
-  it('authorizes only the exact queued refresh command in noninteractive Copilot', () => {
-    const refreshCommand = 'scripts/ci/pr-sous-chef-refresh';
-    expect(config.tools.bash).toEqual([
-      refreshCommand,
-      'cat /tmp/gh-aw/agent/pr-sous-chef-queue.json',
-    ]);
+  it('authorizes only queue reads in noninteractive Copilot, with API work on the host', () => {
+    expect(config.tools.bash).toEqual(['cat /tmp/gh-aw/agent/pr-sous-chef-queue.json']);
+    expect(config.tools).toHaveProperty('github', false);
+    expect(config.tools).not.toHaveProperty('cli-proxy');
     const lock = yaml.load(fs.readFileSync(path.join(root, '.github/workflows/pr-sous-chef.lock.yml'), 'utf8')) as {
       jobs: { agent: { steps: { run?: string }[] } };
     };
     const invocation = lock.jobs.agent.steps.find(step => step.run?.includes('copilot_harness.cjs'))!.run!;
     const permissions = [...invocation.matchAll(/shell\(([^)]+)\)/g)].map(match => match[1]);
-    expect(permissions.filter(permission => permission.includes('scripts/ci/pr-sous-chef'))).toEqual([
-      refreshCommand,
-    ]);
-    expect(source).toContain('`scripts/ci/pr-sous-chef-refresh` to refresh the single original queued PR');
-    expect(source).toContain('Pass exactly that command string to the shell tool, with no wrappers, redirection,\npipelines, or extra arguments.');
-    expect(source).toContain('Do not append `2>&1` or pipe to `head`');
-    expect(source).toContain('only the exact command is authorized');
+    expect(permissions.some(permission => permission.includes('scripts/ci/pr-sous-chef'))).toBe(false);
+    expect(invocation).not.toContain('--allow-tool github');
+    expect(invocation).not.toContain('shell(github:*)');
+    expect(source).toContain('Do not run the refresh helper or call GitHub APIs');
     expect(source).not.toContain('`node scripts/ci/pr-sous-chef.cjs NUMBER`');
     expect(permissions).not.toContain('node:*');
     expect(permissions).not.toContain('node scripts/ci/pr-sous-chef.cjs:*');
@@ -647,10 +830,25 @@ describe('PR sous-chef workflow safety contract', () => {
     expect(lock).not.toContain('SESSION_STATE_SRC=');
   });
 
+  it('keeps failure persistence and read credentials outside the agent sandbox', () => {
+    const steps = config.jobs.prefilter.steps;
+    const cachePath = '/tmp/gh-aw/pr-sous-chef-state/failures.json';
+    expect(steps.find(step => step.uses?.startsWith('actions/cache/restore'))!.with).toMatchObject({
+      path: cachePath, key: 'pr-sous-chef-failures-v1-${{ github.run_id }}',
+      'restore-keys': 'pr-sous-chef-failures-v1-',
+    });
+    expect(steps.find(step => step.uses?.startsWith('actions/cache/save'))!.with!.path).toBe(cachePath);
+    const queue = steps.find(step => step.name === 'Build bounded read-only queue')!;
+    expect(queue.env!.PR_SOUS_CHEF_FAILURE_STATE_PATH).toBe(cachePath);
+    expect(queue.env!.GH_TOKEN).toBe('${{ github.token }}');
+    expect(source.split('---')[2]).not.toContain('failures.json');
+    expect(source.split('---')[2]).not.toContain('Operator setup');
+  });
+
   it('keeps the coordinator read-only with one bounded comment-only write path', () => {
     expect(config.on.schedule).toBe('every 15m');
     expect(config.on).not.toHaveProperty('slash_command');
-    expect(config.permissions).toEqual({ contents: 'read', issues: 'read', 'pull-requests': 'read', actions: 'read', 'copilot-requests': 'write' });
+    expect(config.permissions).toEqual({ contents: 'read', 'copilot-requests': 'write' });
     expect(config['safe-outputs']['add-comment']).toEqual({
       max: 1, target: '${{ needs.prefilter.outputs.target_number }}', discussions: false, issues: false,
       'github-token': '${{ secrets.PR_SOUS_CHEF_WRITER_TOKEN }}',
@@ -683,7 +881,9 @@ describe('PR sous-chef workflow safety contract', () => {
     expect(source).toContain('fixed first-line `@copilot` trigger');
     expect(source).not.toContain('copy the refreshed entry\'s `body` **exactly**');
     expect(source).toContain('report_incomplete');
-    expect(source).toContain('Immediately before each comment');
+    expect(source).toContain('before allowing agent startup');
+    expect(source.split('---')[2]).not.toContain('Operator setup and rollout');
+    expect(source.split('---')[2].length).toBeLessThan(4000);
     const skill = fs.readFileSync(path.join(root, '.github/skills/pr-finisher/SKILL.md'), 'utf8');
     expect(skill).toContain('Ready-for-aw preparation mode');
     expect(skill).toContain('containers/api-proxy');
@@ -699,7 +899,11 @@ describe('PR sous-chef workflow safety contract', () => {
     const agent = compiled.jobs.agent;
     const safeOutputs = compiled.jobs.safe_outputs;
     expect(agent.if).toContain('needs.prefilter.outputs.eligible_count > 0');
-    expect(agent.permissions['pull-requests']).toBe('read');
+    expect(agent.permissions['pull-requests']).toBeUndefined();
+    expect(agent.permissions.issues).toBeUndefined();
+    expect(agent.permissions.actions).toBeUndefined();
+    expect(agent.steps.some(step => step.name.includes('GitHub MCP'))).toBe(false);
+    expect(agent.steps.some(step => step.env?.GH_AW_GITHUB_MCP_SERVER_TOKEN)).toBe(false);
     expect(compiled.jobs.writer_validation.needs).toContain('agent');
     expect(compiled.jobs.writer_validation.needs).toContain('prefilter');
     expect(compiled.jobs.safe_outputs.needs).toContain('writer_validation');
