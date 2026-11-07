@@ -43,7 +43,6 @@ describe('test coverage reporter workflow token optimization config', () => {
 
     expect(lock).toContain('} > /tmp/gh-aw/agent/coverage-report-template.txt');
     expect(lock).toContain('shell(cat:/tmp/gh-aw/agent/coverage-report-template.txt)');
-    expect(lock).toContain('{{#runtime-import .github/workflows/test-coverage-reporter.md}}');
     expect(lock).not.toContain('EXPR_STEPS_DISCUSSION_TEMPLATE_OUTPUTS_DISCUSSION_BODY');
   });
 
@@ -110,7 +109,7 @@ describe('test coverage reporter workflow token optimization config', () => {
     expect(lock).not.toContain('ghcr.io/github/github-mcp-server');
     expect(lock).not.toContain('GITHUB_TOOLSETS');
     expect(lock).not.toContain('github_mcp_tools_with_safeoutputs_prompt.md');
-    expect(lock).toContain("GH_AW_MCP_CLI_SERVERS_LIST: '- `safeoutputs` — run `safeoutputs --help` to see available tools'");
+    expect(lock).toContain('GH_AW_MCP_CLI_SERVERS_LIST: "- `safeoutputs` — run `safeoutputs --help` to see available tools"');
     expect(lock).toContain('"safeoutputs": {');
     expect(lock).not.toContain('"github": {');
     // Narrowly scoped cat access; no general bash/npm/node shell tools

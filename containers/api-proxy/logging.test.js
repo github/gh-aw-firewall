@@ -1,6 +1,6 @@
 'use strict';
 
-const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
+const { generateRequestId, sanitizeForLog, logRequest, logRequestShape } = require('./logging');
 
 describe('logging', () => {
   describe('generateRequestId', () => {
@@ -121,7 +121,7 @@ describe('logging', () => {
     });
 
     it('should support all log levels', () => {
-      for (const level of ['info', 'warn', 'error']) {
+      for (const level of ['debug', 'info', 'warn', 'error']) {
         stdoutSpy.mockClear();
         logRequest(level, 'test');
         const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
@@ -137,6 +137,87 @@ describe('logging', () => {
         const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
         expect(parsed.event).toBe(event);
       }
+    });
+
+    describe('logRequestShape', () => {
+      let stdoutSpy;
+
+      beforeEach(() => {
+        stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+      });
+
+      afterEach(() => {
+        stdoutSpy.mockRestore();
+      });
+
+      it('counts Responses message and tool-output parts without payloads', () => {
+        const body = Buffer.from(JSON.stringify({
+          model: 'private-model',
+          instructions: 'private instructions',
+          input: [
+            { role: 'user', content: [
+              { type: 'input_text', text: 'private prompt' },
+              { type: 'input_image', image_url: 'data:image/png;base64,cHJpdmF0ZQ==' },
+            ] },
+            { type: 'function_call', name: 'private tool', arguments: 'private arguments' },
+            { type: 'function_call_output', call_id: 'private call', output: [
+              { type: 'input_text', text: 'private result' },
+              { type: 'input_image', image_url: 'https://private.example/image.png' },
+            ] },
+          ],
+        }));
+        const original = Buffer.from(body);
+        logRequestShape(body, 'copilot', 'req-shape', 'inbound');
+        const output = stdoutSpy.mock.calls[0][0];
+        expect(JSON.parse(output)).toEqual({
+          timestamp: expect.any(String), level: 'debug', event: 'request_shape',
+          request_id: 'req-shape', provider: 'copilot', stage: 'inbound', body_bytes: body.length,
+          input_item_types: { message: 1, function_call: 1, function_call_output: 1 },
+          content_part_types: { input_text: 1, input_image: 1 },
+          tool_output_part_types: { input_text: 1, input_image: 1 },
+        });
+        expect(output).not.toMatch(/private|cHJpdmF0ZQ==|image_url|arguments|instructions/);
+        expect(body).toEqual(original);
+      });
+
+      it('distinguishes string tool outputs and supports Chat Completions content', () => {
+        logRequestShape(Buffer.from(JSON.stringify({
+          input: [{ type: 'function_call_output', output: 'Viewed image file successfully.' }],
+        })), 'copilot', 'req-text', 'inbound');
+        expect(JSON.parse(stdoutSpy.mock.calls[0][0]).tool_output_part_types).toEqual({ text: 1 });
+        expect(stdoutSpy.mock.calls[0][0]).not.toContain('Viewed image');
+        logRequestShape(Buffer.from(JSON.stringify({
+          messages: [{ role: 'user', content: [
+            { type: 'text', text: 'private' }, { type: 'image_url', image_url: { url: 'private' } },
+          ] }],
+        })), 'copilot', 'req-chat', 'upstream');
+        expect(JSON.parse(stdoutSpy.mock.calls[1][0]).content_part_types).toEqual({ text: 1, image_url: 1 });
+      });
+
+      it('buckets unknown or malformed types without logging arbitrary labels', () => {
+        logRequestShape(Buffer.from(JSON.stringify({
+          input: [
+            { type: 'private\nlabel', content: [null, { type: '__proto__' }, { type: 'private secret' }] },
+            null,
+          ],
+        })), 'copilot', 'req-unknown', 'inbound');
+        expect(JSON.parse(stdoutSpy.mock.calls[0][0])).toMatchObject({
+          input_item_types: { unknown: 2 }, content_part_types: { unknown: 3 },
+        });
+        expect(stdoutSpy.mock.calls[0][0]).not.toMatch(/private|__proto__/);
+      });
+
+      it.each(['invalid JSON', 'null', '[]'])('handles unrecognized body %s without throwing', value => {
+        logRequestShape(Buffer.from(value), 'copilot', 'req-invalid', 'inbound');
+        expect(JSON.parse(stdoutSpy.mock.calls[0][0])).toMatchObject({ body_format: 'unrecognized' });
+        expect(stdoutSpy.mock.calls[0][0]).not.toContain(value);
+      });
+
+      it('skips empty bodies and other providers', () => {
+        logRequestShape(Buffer.alloc(0), 'copilot', 'req-empty', 'inbound');
+        logRequestShape(Buffer.from('{}'), 'openai', 'req-other', 'inbound');
+        expect(stdoutSpy).not.toHaveBeenCalled();
+      });
     });
   });
 });

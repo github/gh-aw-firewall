@@ -201,49 +201,31 @@ API proxy; no GitHub MCP access, direct model credentials, primary workspace,
 or safe-output tools are granted to it. The finite result schema, one-invocation
 limit, task/output sizes and execution timeout are enforced independently of the
 model settings. The source-built host enforces the eight-request and
-131,072-token invocation budgets at the dedicated API proxy. Its conservative
-input reservation counts serialized request bytes, including Copilot's built-in
-system prompt and tool definitions. Live diagnostics confirmed that even the
-32,768-token fixture rejected input reservation before upstream dispatch.
-The larger, still finite fixture allowance leaves more room for that overhead
-without changing production accounting or defaults; live acceptance must still
-prove it sufficient.
+131,072-token advisory invocation budgets at the dedicated API proxy.
 The proxy clamps output allowance, accounts cumulative provider usage, and
 fails closed on missing usage. The pinned guest does not itself enforce these
 budgets; request/output limits and proxy credential isolation remain mandatory.
 
-AWF and guest assets remain pinned to verified v0.28.66, with the official
-gh-aw v1.0.1 setup, mcpg v0.5.0 and primary Copilot 1.0.96.
+AWF and guest assets remain pinned to the verified v0.28.66 acceptance fixture,
+with a scoped compiler backport based on gh-aw v1.2.1, mcpg v0.5.4 and
+primary Copilot 1.0.96.
 The guest Copilot CLI is the version baked into the attested agent rootfs,
 not installed or upgraded by this workflow.
 Manual branch runs, including main, build source host/infra code and use the
-checked-in v0.28.66 guest artifact pin, including the merged bounded-verification
-storage and unprivileged enclave vsock-port fixes (#10181).
+checked-in v0.28.66 guest artifact pin.
 Tag runs are not admitted.
-Compilation additionally uses a narrow acceptance patch for the official
-v1.0.1 compiler. Generated compiler provenance identifies that patched build.
-The verified v0.28.66 release includes #10189's enclave cwd correction.
 The exact-PR unattested supervisor override and its build steps are removed;
 both primary and enclave supervisors must come from verified release artifacts.
 No unattested-artifact flag is enabled.
 
-Compilation uses official `github/gh-aw@v1.0.1` plus
-`scripts/ci/compiler-agent-acceptance-v0.28.66.patch` to align the exact release
-and token budget. Its schema exception requires the explicit acceptance feature
-and a Cloud Hypervisor primary; ordinary workflows retain the 32,768 ceiling.
-The generated development-compiler metadata identifies this patched build;
-action/runtime pins remain on the reviewed releases.
-The unpatched official v1.0.1 fixture remains pinned to v0.28.62 and 2,048
-tokens, so it rejects this repository's reviewed acceptance parameters.
-Regeneration runs the mandatory smoke postprocessor.
-The postprocessor preserves the reviewed v0.28.66 AWF manifest pin that v1.0.1
-drops when selecting the privileged enclave installer.
-The supply-chain scan uses the same exact v1.0.1 patch and verifies its
-acceptance tests before building. The AWF and compiler gates still reject every
-other token value, topology, or release.
+Compilation uses `github/gh-aw@v1.2.1` with a narrow acceptance-fixture
+backport that preserves the 32,768-token ceiling for ordinary workflows while
+allowing this exact fixture's 131,072-token budget and v0.28.66 guest release.
+Regeneration runs the mandatory smoke postprocessor. The AWF and compiler gates
+still reject every other token value, topology, or release.
 Under a separate explicit user authorization, the branch-built AWF
 host acceptance gate selects only v0.28.66 for this exact agent fixture;
-v0.28.64 and other releases are rejected. All identity, branch-only, topology,
+other releases are rejected. All identity, branch-only, topology,
 credential-isolation, artifact-attestation and invocation constraints remain
 unchanged. Admission is not evidence that the enclave executes successfully.
 

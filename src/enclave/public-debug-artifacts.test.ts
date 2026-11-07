@@ -156,6 +156,39 @@ describe('shared public enclave diagnostic conformance', () => {
     })).rejects.toThrow(/identity or stop proof/);
     expect(fs.readdirSync(root)).toEqual([]);
   });
+  it('retains only host metadata when Docker stop proof is unavailable', async () => {
+    const input = {
+      ...options('docker'),
+      envelope: {
+        ...envelope('docker'), workloadStopped: false, workloadLaunched: false,
+        cleanupFailure: { stage: 'cleanup' as const, category: 'cleanup-failed' as const },
+        primaryFailure: { stage: 'storage-probe' as const, category: 'host-exception' as const },
+      },
+      stdout: { status: 'unavailable' as const }, stderr: { status: 'unavailable' as const },
+      session: { status: 'unavailable' as const },
+    };
+    await preservePublicEnclaveArtifacts(input);
+    const result = JSON.parse(readArtifact(path.join(input.directory, 'diagnostics.json')).contents);
+    expect(result).toMatchObject({
+      workloadStopped: false, stopProof: 'unavailable', exitCode: null,
+      primaryFailure: { stage: 'storage-probe' }, cleanupFailure: { stage: 'cleanup' },
+      streams: { stdout: 'unavailable', stderr: 'unavailable', session: 'unavailable' },
+    });
+    for (const name of ['stdout.log', 'stderr.log', 'enclave-session.log']) {
+      expect(readArtifact(path.join(input.directory, name)).contents).toBe('');
+    }
+    for (const name of ['stdout', 'stderr', 'session']) {
+      await expect(preservePublicEnclaveArtifacts({
+        ...input, [name]: { status: 'captured', contents: Buffer.from('PRIVATE_STREAM') },
+      })).rejects.toThrow(/stop proof/);
+    }
+    await expect(preservePublicEnclaveArtifacts({
+      ...input, sessionMetadata: { status: 'captured', events: [] },
+    })).rejects.toThrow(/stop proof/);
+    await expect(preservePublicEnclaveArtifacts({
+      ...input, envelope: { ...input.envelope, runtime: 'cloud-hypervisor' },
+    })).rejects.toThrow(/stop proof/);
+  });
   it('redacts encoded credentials inside JSON session strings without invalidating records', () => {
     const secret = 'synthetic-token:"quoted"/value';
     const forms = [secret, JSON.stringify(secret).slice(1, -1), encodeURIComponent(secret), Buffer.from(secret).toString('base64')];

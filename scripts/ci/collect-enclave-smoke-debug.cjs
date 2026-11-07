@@ -341,16 +341,22 @@ function projectDiagnostics(value, identity) {
     && ['setup', 'execution', 'result', 'stop', 'retention', 'complete'].includes(value.stage)
     && ['setup-failed', 'execution-exception', 'workload-exit', 'result-invalid', 'cancelled', 'timeout',
       'retention-failed', 'none'].includes(value.failure) && exitCode(value.exitCode), 'diagnostics-schema');
-  check(value.workloadStopped === true && typeof value.workloadLaunched === 'boolean'
-    && value.stopProof === (value.workloadLaunched ? 'verified' : 'not-launched')
+  const metadataOnly = identity.runtime === 'docker' && value.workloadStopped === false
+    && value.stopProof === 'unavailable' && value.cleanupFailure !== undefined;
+  check(typeof value.workloadLaunched === 'boolean'
     && (value.workloadLaunched || (value.exitCode === null
       && ((['setup-failed', 'cancelled', 'timeout'].includes(value.failure) && value.stage === 'setup')
-        || (value.failure === 'retention-failed' && value.stage === 'retention')))),
+        || (value.failure === 'retention-failed' && value.stage === 'retention'))))
+    && (metadataOnly || (value.workloadStopped === true
+      && value.stopProof === (value.workloadLaunched ? 'verified' : 'not-launched'))),
   'stop-proof', 'not-stopped');
   check(Array.isArray(value.stages) && value.stages.length <= 64, 'operation-schema');
   check(object(value.streams) && ['stdout', 'stderr', 'session'].every(key =>
     STREAM_STATUSES.includes(value.streams[key])), 'stream-schema');
   const streams = Object.fromEntries(['stdout', 'stderr', 'session'].map(key => [key, value.streams[key]]));
+  check(!metadataOnly || (Object.values(streams).every(status => status === 'unavailable')
+    && object(value.session) && value.session.status === 'unavailable'
+    && Object.keys(value.session).length === 1), 'stop-proof', 'not-stopped');
   const coverage = value.streamCoverage;
   check(object(coverage), 'coverage-schema');
   const streamCoverage = {};
@@ -362,6 +368,9 @@ function projectDiagnostics(value, identity) {
     streamCoverage[key] = { artifactSource: source.artifactSource, agentSession: source.agentSession };
   }
   check(['agent-session', 'unavailable'].includes(coverage.copilotDiagnostics), 'coverage-schema');
+  check(!metadataOnly || (coverage.copilotDiagnostics === 'unavailable'
+    && ['stdout', 'stderr'].every(key => streamCoverage[key].agentSession === 'unavailable')),
+  'stop-proof', 'not-stopped');
   streamCoverage.copilotDiagnostics = coverage.copilotDiagnostics;
   if (coverage.captureErrors !== undefined) {
     check(object(coverage.captureErrors) && Object.keys(coverage.captureErrors).every(key =>
@@ -393,7 +402,8 @@ function projectDiagnostics(value, identity) {
   }
   const projection = {
     version: 1, ...identity, executorKind: value.executorKind, stage: value.stage, failure: value.failure,
-    exitCode: value.exitCode, workloadStopped: true, workloadLaunched: value.workloadLaunched, stopProof: value.stopProof,
+    exitCode: value.exitCode, workloadStopped: value.workloadStopped,
+    workloadLaunched: value.workloadLaunched, stopProof: value.stopProof,
     ...(value.retentionEligibility !== undefined ? {
       retentionEligibility: { publicDebug: true, repositoryVisibility: 'all-public-verified' },
     } : {}),

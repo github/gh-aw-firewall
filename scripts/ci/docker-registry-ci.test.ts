@@ -357,28 +357,39 @@ echo "$*" >> "$TRACE"
     expect(steps.find((step) => step.run?.includes(`'${grant}'`))?.run).toContain(grant);
   });
 
-  it('builds the reviewed patched compiler before scanning', () => {
+  it('builds the reviewed prerelease compiler before scanning', () => {
     const steps = jobs('supply-chain-scan.yml').compile.steps;
     const install = steps.findIndex(
-      (step) => step.name === 'Install patched gh-aw v1.0.1',
+      (step) => step.name === 'Build gh-aw v1.2.1 and scoped acceptance compiler',
     );
     const compile = steps.findIndex((step) =>
-      step.run === 'gh aw compile --syft --action-mode action --action-tag v1.0.1 .github/workflows/*.md');
+      step.name === 'Compile + generate SBOMs (Syft)');
+    const acceptanceCompile = steps.findIndex((step) =>
+      step.name === 'Compile Copilot acceptance with scoped backport');
     expect(install).toBeGreaterThanOrEqual(0);
     expect(compile).toBeGreaterThan(install);
-    expect(steps[install - 2].name).toBe('Checkout gh-aw v1.0.1');
-    expect(steps[install - 2].with?.ref).toBe('0627fdbe4beb5f3b71aa569f8d97150b87f2111a');
+    expect(steps[install - 2].name).toBe('Checkout gh-aw v1.2.1');
+    expect(steps[install - 2].with?.ref).toBe('8f3224323bdfd3ae8574c99c5da8a65d450577bb');
     expect(steps[install].run).toContain('compiler-agent-acceptance-v0.28.66.patch');
     expect(steps[install].run).toContain('go test -C .tmp/gh-aw-compiler ./pkg/workflow');
     expect(steps[install].run).toContain('./pkg/parser');
-    expect(steps[install].run).toContain('TestMainWorkflowSchemaOrdinaryEnclaveTokenLimitAndEvals');
-    expect(steps[install].run).toContain('dev-v1.0.1-agent-acceptance-v0.28.66-budget131072');
+    expect(steps[install].run).toContain('dev-v1.2.1-agent-acceptance-v0.28.66-budget131072');
+    expect(steps[install].run).toContain('-ldflags="-X main.version=v1.2.1"');
     expect(steps[install].run).toContain('gh aw version');
     expect(steps[install].env?.GH_TOKEN).toBe('${{ github.token }}');
+    expect(steps[compile].run).toContain("find .github/workflows -maxdepth 1 -type f -name '*.md'");
+    expect(steps[compile].run)
+      .toContain("! -name 'smoke-enclave-cloud-hypervisor-copilot.md'");
+    expect(steps[compile].run)
+      .toContain('gh aw compile --syft --action-mode action --action-tag v1.2.1 "${workflows[@]}"');
     for (const index of [install, compile]) {
       expect(steps[index].if).toBeUndefined();
       expect(steps[index]['continue-on-error']).toBeUndefined();
     }
+    expect(acceptanceCompile).toBeGreaterThan(compile);
+    expect(steps[acceptanceCompile].run).toContain('$RUNNER_TEMP/gh-aw-agent-acceptance" compile --syft');
+    expect(steps[acceptanceCompile].run)
+      .toContain('.github/workflows/smoke-enclave-cloud-hypervisor-copilot.md');
   });
 
   it('fans scans out after one compilation without cancelling sibling scans', () => {

@@ -37,7 +37,7 @@ timeout-minutes: 20
 strict: true
 steps:
   - name: Find source audit and existing recommendations
-    uses: actions/github-script@v9
+    uses: actions/github-script@v9.0.0
     with:
       script: |
         const fs = require('fs');

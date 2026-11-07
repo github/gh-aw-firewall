@@ -53,7 +53,7 @@ describe('copilot token usage analyzer workflow prompt', () => {
     expect(frontmatter.engine).toEqual({ id: 'copilot', version: '1.0.98' });
     expect(metadata.engine_versions.copilot).toBe(frontmatter.engine.version);
     expect(installStep?.run).toBe(
-      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" ${frontmatter.engine.version}`,
+      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" ${frontmatter.engine.version} --cooldown-days 3`,
     );
   });
 

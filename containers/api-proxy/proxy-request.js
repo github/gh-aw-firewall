@@ -14,7 +14,7 @@ const { captureRuntimePricing } = require('./runtime-model-catalog');
 const { pinRequestEligibility } = require('./model-eligibility');
 const { HTTPS_PROXY, proxyAgent } = require('./http-client');
 const { createBodyHandler, sleep, _setSleepForTests, _resetSleepForTests } = require('./body-handler');
-const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
+const { generateRequestId, sanitizeForLog, logRequest, logRequestShape } = require('./logging');
 const { isValidRequestId, buildRequestHeaders } = require('./request-headers');
 const { createSendUpstreamRequest } = require('./upstream-http');
 const metrics = require('./metrics');
@@ -290,6 +290,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
   // Step 1: collect body (enforces 10 MB limit; returns null if already rejected)
   collectRequestBody(req, provider, requestId, res, span, startTime, targetHost).then(async (rawBody) => {
     if (rawBody === null) return;
+    logRequestShape(rawBody, provider, requestId, 'inbound');
 
     // Step 2: apply transform pipeline
     const inboundBytes = rawBody.length;

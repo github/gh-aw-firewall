@@ -58,6 +58,7 @@ export interface DockerHostExpectedContainer {
   image: string;
   entrypoint: string;
   user: string;
+  capAdd?: string[];
   network: string;
   runtime?: string;
   labels: Record<string, string>;
@@ -106,6 +107,9 @@ export interface DockerHostRecoveryRecord {
 
 function digest(value: string): string { return createHash('sha256').update(value).digest('hex'); }
 function sorted(values: readonly string[] | null | undefined): string { return JSON.stringify([...(values || [])].sort()); }
+function capabilities(values: readonly string[] | null | undefined): string {
+  return sorted((values || []).map(value => value.replace(/^CAP_/, '')));
+}
 function securityOption(value: string): string {
   if (!value.startsWith('seccomp=')) return value;
   const profile = value.slice(8);
@@ -128,7 +132,8 @@ export function expectedDockerHostContainer(args: readonly string[]): DockerHost
   }));
   return {
     name: one('--name'), image: args[args.length - 1], entrypoint: one('--entrypoint'),
-    user: one('--user'), network: one('--network'), runtime: one('--runtime') || undefined,
+    user: one('--user'), capAdd: values.get('--cap-add') || [],
+    network: one('--network'), runtime: one('--runtime') || undefined,
     labels: map('--label'), env: map('--env', true), binds: values.get('-v') || [],
     tmpfs: Object.fromEntries((values.get('--tmpfs') || []).map((v) => [v.slice(0, v.indexOf(':')), v.slice(v.indexOf(':') + 1)])),
     memory: dockerMemoryBytes(one('--memory')), cpus: Math.round(Number(one('--cpus')) * 1e9),
@@ -151,6 +156,11 @@ export function assertDockerHostContainer(
   const h = c?.HostConfig;
   const config = c?.Config;
   const fail = () => { throw new Error('Docker enclave immutable identity or configuration mismatch'); };
+  // Older journals predate the supervisor capability field. Only the audited
+  // root agent/probe entrypoints can use its fixed capability set.
+  const capAdd = expected.capAdd ?? (expected.user === '0:0' && expected.name.startsWith('awf-enclave-agent-')
+    && ['/usr/local/bin/run-enclave-agent', '/usr/bin/env'].includes(expected.entrypoint)
+    ? ['CHOWN', 'DAC_OVERRIDE', 'SETGID', 'SETUID'] : []);
   if (!c || !h || !config || !/^[0-9a-f]{64}$/.test(c.Id)
     || (immutableId !== undefined && c.Id !== immutableId)
     || c.Name !== `/${expected.name}` || config.Image !== expected.image
@@ -158,7 +168,7 @@ export function assertDockerHostContainer(
     || JSON.stringify(config.Cmd || []) !== JSON.stringify(expected.command || []) || config.User !== expected.user
     || config.WorkingDir !== expected.workdir || config.Hostname !== expected.hostname
     || h.NetworkMode !== expected.network || !h.ReadonlyRootfs || h.Privileged
-    || sorted(h.CapDrop) !== '["ALL"]' || (h.CapAdd?.length || 0) !== 0
+    || sorted(h.CapDrop) !== '["ALL"]' || capabilities(h.CapAdd) !== capabilities(capAdd)
     || sorted((h.SecurityOpt || []).map(securityOption)) !== sorted(expected.security)
     || h.Memory !== expected.memory || h.MemorySwap !== expected.memory
     || h.NanoCpus !== expected.cpus || h.PidsLimit !== expected.pids || h.ShmSize !== expected.shm
