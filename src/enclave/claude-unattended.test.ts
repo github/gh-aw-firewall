@@ -51,13 +51,15 @@ import threading
 
 staged = Path(os.environ["FIXTURE_ROOT"])
 root = staged / "runtime"
+root.chmod(0o755)
 spec = importlib.util.spec_from_file_location("entrypoint", os.environ["ENTRYPOINT"])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 module.CLAUDE_BIN = os.environ["CLAUDE_BIN"]
 module.AGENT_DIR = root / "agent"
 module.OUT_PATH = root / "out"
-module.OUTPUT_DIR = root / "output"
+module.OUTPUT_DIR = staged / "output"
+module.OUTPUT_DIR.chmod(0o755)
 module.SEED_DIR = staged / "seed"
 module.TASK_PATH = staged / "task.txt"
 module.SCHEMA_PATH = staged / "schema.json"
@@ -66,19 +68,31 @@ module.SHARED_MEMORY_DIR = Path("/dev/shm")
 module.STORAGE_PROBE_PATH = module.TEMP_DIR / ".awf-enclave-storage-probe.jsonl"
 module.SESSION_LOG_PATH = root / "session.jsonl"
 module.SESSION_LOG_PATH.touch()
+module.SESSION_LOG_PATH.chmod(0o644)
 module.AGENT_DIR.mkdir()
-(root / "output").mkdir()
-(root / "output" / "out").touch()
-module.OUT_PATH.symlink_to(root / "output" / "out")
+(module.OUTPUT_DIR / "out").touch()
+(module.OUTPUT_DIR / "out").chmod(0o666)
+module.OUT_PATH.symlink_to(module.OUTPUT_DIR / "out")
 (root / "tmp").mkdir()
+os.chown(root / "tmp", 65534, 65534)
+(root / "tmp").chmod(0o700)
 diagnostic = (
-    "import json, os; from pathlib import Path; "
-    "status = Path('/proc/self/status').read_text(); "
-    "valid = os.geteuid() == 65534 and os.getegid() == 65534 "
-    "and int(next(line.split()[1] for line in status.splitlines() if line.startswith('CapEff:')), 16) == 0 "
-    "and 'NoNewPrivs:\\t1' in status "
-    "and bool(os.statvfs(" + repr(str(module.SEED_DIR)) + ").f_flag & os.ST_RDONLY); "
-    "Path(" + repr(str(module.OUT_PATH)) + ").write_text(json.dumps(valid))"
+    "import json, os\n"
+    "from pathlib import Path\n"
+    "status = Path('/proc/self/status').read_text()\n"
+    "session_write_denied = False\n"
+    "try:\n"
+    "    Path(" + repr(str(module.SESSION_LOG_PATH)) + ").write_text('caller data')\n"
+    "except PermissionError:\n"
+    "    session_write_denied = True\n"
+    "valid = (\n"
+    "    os.geteuid() == 65534 and os.getegid() == 65534\n"
+    "    and int(next(line.split()[1] for line in status.splitlines() if line.startswith('CapEff:')), 16) == 0\n"
+    "    and 'NoNewPrivs:\\t1' in status\n"
+    "    and session_write_denied\n"
+    "    and bool(os.statvfs(" + repr(str(module.SEED_DIR)) + ").f_flag & os.ST_RDONLY)\n"
+    ")\n"
+    "Path(" + repr(str(module.OUT_PATH)) + ").write_text(json.dumps(valid))\n"
 )
 shell_command = "python3 -c " + shlex.quote(diagnostic)
 requests = []
@@ -212,6 +226,7 @@ pinnedTest.each([
     fs.copyFileSync(entrypoint, stagedEntrypoint);
     fs.chmodSync(stagedEntrypoint, 0o444);
     fs.mkdirSync(path.join(root, 'runtime'));
+    fs.mkdirSync(path.join(root, 'output'));
     fs.mkdirSync(path.join(root, 'seed'), { mode: 0o555 });
     fs.writeFileSync(path.join(root, 'task.txt'), 'Run the shell diagnostic and write its boolean result to /awf/out.', { mode: 0o444 });
     fs.writeFileSync(path.join(root, 'schema.json'), '{"type":"boolean"}', { mode: 0o444 });
@@ -222,8 +237,9 @@ pinnedTest.each([
       'mount --make-rprivate / && mount --bind / / && mount -o remount,bind,ro /'
       + ' && mount -o remount,bind,ro /dev/shm'
       + ' && mount -t tmpfs -o rw,noexec,nosuid,nodev,size=96m,uid=65534,gid=65534 tmpfs "$2/runtime"'
+      + ' && mount -t tmpfs -o rw,noexec,nosuid,nodev,size=16m,uid=65534,gid=65534 tmpfs "$2/output"'
       + ' && ip link set lo up'
-      + ' && exec setpriv --reuid=65534 --regid=65534 --clear-groups --no-new-privs --bounding-set=-all python3 -c "$1"',
+      + ' && exec setpriv --no-new-privs python3 -c "$1"',
       'fixture', fixture, root], {
       env: { PATH: '/usr/bin:/bin:/usr/local/bin', ENTRYPOINT: stagedEntrypoint,
         FIXTURE_ROOT: root, CLAUDE_BIN: binary!, DENY_TOOLS: String(denied), OUTPUT_FAILURE: String(outputFailure),

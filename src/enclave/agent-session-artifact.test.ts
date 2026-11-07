@@ -4,8 +4,13 @@ import { randomBytes } from 'crypto';
 import { execFileSync } from 'child_process';
 import { projectEnclaveSessionDiagnostics } from '../cloud-hypervisor/enclave-session-diagnostics';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { preserveInvocationSession } = require('../../containers/enclave/agent-executor/workspace');
+jest.mock('fs', () => ({ ...jest.requireActual('fs'), chownSync: jest.fn() }));
+
+/* eslint-disable @typescript-eslint/no-require-imports */
+const {
+  preserveInvocationSession, createInvocationWorkspace,
+} = require('../../containers/enclave/agent-executor/workspace');
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 describe('enclave agent session artifact preservation', () => {
   let root: string;
@@ -21,6 +26,17 @@ describe('enclave agent session artifact preservation', () => {
 
   afterEach(() => {
     fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('keeps the writable transcript owned by the trusted supervisor', () => {
+    const workspace = createInvocationWorkspace({
+      config: { workDir: root, enclaveUid: 65534, enclaveGid: 65534 },
+      invocationId: 'a'.repeat(32), task: 'task', schema: { type: 'boolean' },
+    });
+    const info = fs.statSync(workspace.sessionLogPath);
+    expect(info.uid).toBe(process.getuid?.() ?? 0);
+    expect(info.uid).not.toBe(65534);
+    expect(info.mode & 0o777).toBe(0o644);
   });
 
   it('preserves only projected metadata in the public audit collection', () => {

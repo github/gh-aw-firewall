@@ -124,6 +124,24 @@ def append_event(event: dict) -> None:
         sys.stderr.write('{"event":"failure","category":"diagnostic-encoding-failed"}\n')
 
 
+def agent_identity() -> tuple[int, int]:
+    try:
+        uid = int(os.environ["AWF_ENCLAVE_AGENT_UID"])
+        gid = int(os.environ["AWF_ENCLAVE_AGENT_GID"])
+    except (KeyError, ValueError):
+        raise ValueError("invalid unprivileged agent identity") from None
+    if uid <= 0 or gid <= 0:
+        raise ValueError("invalid unprivileged agent identity")
+    return uid, gid
+
+
+def drop_agent_privileges() -> None:
+    uid, gid = agent_identity()
+    os.setgroups([])
+    os.setgid(gid)
+    os.setuid(uid)
+
+
 def file_operation(operation: str, action, *, fatal: bool = True):
     try:
         return action()
@@ -803,6 +821,8 @@ def configure_github_mcp() -> None:
     }
     write_file(GITHUB_MCP_CONFIG_PATH, json.dumps(config, separators=(",", ":")), "github-mcp-config-write")
     file_operation("github-mcp-config-chmod", lambda: GITHUB_MCP_CONFIG_PATH.chmod(0o600))
+    if os.geteuid() == 0:
+        file_operation("github-mcp-config-chown", lambda: os.chown(GITHUB_MCP_CONFIG_PATH, *agent_identity()))
 
 
 def configure_scoped_github_mcp() -> None:
@@ -833,6 +853,8 @@ def configure_scoped_github_mcp() -> None:
     }
     write_file(GITHUB_MCP_CONFIG_PATH, json.dumps(config, separators=(",", ":")), "github-mcp-config-write")
     file_operation("github-mcp-config-chmod", lambda: GITHUB_MCP_CONFIG_PATH.chmod(0o600))
+    if os.geteuid() == 0:
+        file_operation("github-mcp-config-chown", lambda: os.chown(GITHUB_MCP_CONFIG_PATH, *agent_identity()))
 
 
 def configure_dynamic_github_mcp() -> None:
@@ -865,6 +887,8 @@ def configure_dynamic_github_mcp() -> None:
     }
     write_file(GITHUB_MCP_CONFIG_PATH, json.dumps(config, separators=(",", ":")), "github-mcp-config-write")
     file_operation("github-mcp-config-chmod", lambda: GITHUB_MCP_CONFIG_PATH.chmod(0o600))
+    if os.geteuid() == 0:
+        file_operation("github-mcp-config-chown", lambda: os.chown(GITHUB_MCP_CONFIG_PATH, *agent_identity()))
 
 
 def append_engine_result(completed: subprocess.CompletedProcess) -> tuple[str, str]:
@@ -1060,10 +1084,10 @@ def engine_binary(engine: str) -> str:
 
 
 def configure_engine_environment(engine: str) -> None:
+    if os.geteuid() == 0:
+        agent_identity()
     if engine == "copilot":
         return
-    if os.geteuid() == 0:
-        raise ValueError("coding engines must run as the unprivileged enclave user")
     endpoint = os.environ.get("AWF_ENCLAVE_AGENT_API_ENDPOINT", "")
     port = {"codex": 10000, "claude": 10001}[engine]
     if endpoint != f"http://172.31.0.30:{port}":
@@ -1190,6 +1214,11 @@ def main() -> int:
     for identifier, path in runtime_paths:
         try:
             path.mkdir(mode=0o700, exist_ok=True)
+            if os.geteuid() == 0:
+                file_operation(
+                    f"runtime-path-ownership-{identifier}",
+                    lambda: os.chown(path, *agent_identity()),
+                )
         except OSError as error:
             safe_os_error(error, f"runtime-path-creation-{identifier}")
             append_event({"event": "failure", "category": "engine-failed"})
@@ -1246,6 +1275,7 @@ def main() -> int:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 start_new_session=True,
+                preexec_fn=drop_agent_privileges if os.geteuid() == 0 else None,
             )
             append_progress("engine-started", attempt=attempt + 1)
             try:

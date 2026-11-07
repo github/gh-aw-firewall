@@ -279,6 +279,13 @@ AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave
 - **Script executor** — `enclave_run_script` runs a bounded Python script in a no-network, read-only, single-use sandbox.
 - **Agent executor** — `enclave_run_agent` runs pinned Copilot, Codex, or Claude in a bounded single-use enclave. Codex requires the `openai` profile and Claude requires `anthropic`. Its mandatory peer is the dedicated API proxy; only the selected provider route is configured and real credentials remain outside the enclave. Copilot's `agent.tools.github` (or the deprecated legacy `agent.github.cli: issues-read-v1` marker) also permits a direct connection to compiler-owned shared mcpg. GitHub MCP and dynamic repository admission remain Copilot-only and fail closed for the other engines.
 
+The Docker/gVisor enclave entrypoint is a trusted supervisor with only the
+capabilities needed to write its host-owned session transcript, prepare private
+agent paths, and drop the coding engine to its fixed non-root identity. The
+engine and all its tools run without capabilities. The transcript is not
+writable by the engine process, preventing caller-directed shell commands from
+forging broker-audited diagnostic events.
+
 Claude's command builder defaults to `default` permission mode, `host` permission
 prompts, and pre-approved read-only Read, Glob, and Grep tools. The trusted AWF
 child-environment builder explicitly selects unattended shell/file writes for
