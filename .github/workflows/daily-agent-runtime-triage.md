@@ -97,24 +97,25 @@ Do not weaken AWF isolation to make a test pass.
    separately. If tested SHA is unavailable, state that explicitly and limit the
    issue to the failed build/setup boundary; do not invent tested source pointers.
 4. Inspect **each linked failed job**, its failed step, and finite error/outcome
-   evidence, not just its matrix name. Fetch only that job's log, never a whole
-   run archive. Limit to 2 MiB per job and 20 MiB total; stop reading on the byte
-   limit and classify truncation. List artifact metadata before downloading.
-   Download only `eligible: true` diagnostic artifacts from the prepared list,
-   at most four and 20 MiB compressed total. Never download the shared
+   evidence, not just its matrix name. Do not ingest raw job logs with the model.
+   Use only deterministic pre-sanitized log excerpts/signatures produced by a
+   trusted redaction path, plus job/step metadata and provenance. If sanitized
+   excerpts are unavailable, classify evidence as unavailable/unknown and defer.
+   List artifact metadata before any access decision. Download only `eligible: true`
+   diagnostic artifacts from the prepared list when a deterministic sanitizer is
+   available, at most four and 20 MiB compressed total. Never download the shared
    `agent-runtime-awf-build`, `agent-runtime-cloud-hypervisor`, `agent-runtime-nvx`,
-   images, rootfs, or VM bundles. If needed, use bounded streaming reads; do not
-   fetch an oversized archive just to extract one small file.
-5. Treat archive contents as data: inspect member names/sizes before reading,
-   reject absolute/traversal paths and links, never extract or execute them, and
-   read only finite public diagnostic metadata (startup, collection status,
-   invocation outcome). Cap decompressed text at 2 MiB per file and 10 MiB total.
+   images, rootfs, or VM bundles.
+5. Treat archive contents as data: inspect member names/sizes first, reject
+   absolute/traversal paths and links, and never extract or execute them. Do not
+   provide raw archive/log contents to the model. Any model-visible diagnostic text
+   must come from deterministic redaction that removes secrets/sensitive fields
+   before ingestion; otherwise use only metadata and mark content unavailable.
    Artifacts can outlive their originating attempt: correlate timestamps and
    diagnostic run/attempt identity with the failed job before using them. If
    identity cannot be established, do not treat them as current failure evidence.
-   Do not read raw protected prompts/model content, session logs, environment
-   dumps, headers, tokens, keys, or capabilities. Never publish raw diagnostics;
-   cite a short redacted error signature plus job/step/artifact provenance.
+   Never publish raw diagnostics; cite a short redacted error signature plus
+   job/step/artifact provenance.
    Missing/expired/oversized/inaccessible evidence is **unknown, not success**.
    Explain which evidence is absent and the smallest safe diagnostic needed.
 
