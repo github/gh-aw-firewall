@@ -204,7 +204,7 @@ func TestCreateEnclaveCompatibilityLinks(t *testing.T) {
 			} else {
 				expected["awf/task.txt"] = "/input-request/task.txt"
 				expected["awf/schema.json"] = "/input-request/schema.json"
-				expected["awf/session.jsonl"] = "/runtime/session.jsonl"
+				expected["awf/session.jsonl"] = "/session-state/session.jsonl"
 				expected["run/awf-enclave-github/agent-id"] = "/session-handoff/github-agent-id"
 				expected["run/awf-enclave-github/bearer"] = "/session-handoff/github-bearer"
 			}
