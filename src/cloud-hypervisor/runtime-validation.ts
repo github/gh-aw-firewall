@@ -9,6 +9,7 @@ import {
 import { validatePublicEnclaveDebug } from '../enclave/public-debug';
 import {
   isCloudHypervisorConformanceAcceptanceWorkflow,
+  isCloudHypervisorDailyRegressionWorkflow,
   cloudHypervisorDailyRegressionRejection,
 } from '../enclave/cloud-hypervisor-conformance-acceptance';
 import { validateRunSandboxBackend } from '../enclave/run-backend';
@@ -170,14 +171,15 @@ export function assertCloudHypervisorPreSecurityCompatibility(config: WrapperCon
     && !isCloudHypervisorScriptAcceptanceWorkflow(config)
     && !isCloudHypervisorAgentAcceptanceWorkflow(config)
     && !isCloudHypervisorConformanceAcceptanceWorkflow(config)
+    && !isCloudHypervisorDailyRegressionWorkflow(config)
   ) {
     const rejection = cloudHypervisorDailyRegressionRejection(config);
-    if (rejection) {
-      throw Object.assign(new Error(
-        'Cloud Hypervisor primary-agent execution with enclaves is reserved until the '
-        + 'real end-to-end isolation acceptance completes; no runtime fallback is permitted',
-      ), { code: rejection });
-    }
+    const error = new Error(
+      'Cloud Hypervisor primary-agent execution with enclaves is reserved until the '
+      + 'real end-to-end isolation acceptance completes; no runtime fallback is permitted',
+    );
+    if (rejection) Object.assign(error, { code: rejection });
+    throw error;
   }
   if (primaryCloudHypervisor && config.dnsOverHttps) {
     throw new Error('Cloud Hypervisor preview does not support DNS-over-HTTPS');

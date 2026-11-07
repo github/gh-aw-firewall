@@ -327,6 +327,7 @@ describe('Cloud Hypervisor runtime validation', () => {
       error = caught as Error & { code?: string };
     }
 
+    expect(error).toBeDefined();
     expect(error?.message).toContain('real end-to-end isolation acceptance');
     expect(error?.code).toBeUndefined();
   });
