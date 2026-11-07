@@ -1123,6 +1123,13 @@ describe('standalone public enclave diagnostics collector', () => {
       ...value, session: { status: 'unavailable', events: [{ event: 'progress', stage: 'engine-started' }] },
     }, identity())).toThrow(/stop-proof/);
     expect(() => projectDiagnostics({ ...value, cleanupFailure: undefined }, identity())).toThrow(/stop-proof/);
+    for (const patch of [
+      { exitCode: 17 },
+      { stage: 'execution' },
+      { failure: 'workload-exit' },
+    ]) {
+      expect(() => projectDiagnostics({ ...value, ...patch }, identity())).toThrow(/stop-proof/);
+    }
   });
 
   it.each(['docker', 'cloud-hypervisor'])('preserves %s nonzero workload and setup outcomes without synthetic exit codes', backend => {

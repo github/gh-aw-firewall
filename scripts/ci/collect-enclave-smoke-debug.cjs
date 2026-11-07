@@ -318,11 +318,12 @@ function projectDiagnostics(value, identity) {
       'retention-failed', 'none'].includes(value.failure) && exitCode(value.exitCode), 'diagnostics-schema');
   const metadataOnly = identity.runtime === 'docker' && value.workloadStopped === false
     && value.stopProof === 'unavailable' && value.cleanupFailure !== undefined;
-  check(typeof value.workloadLaunched === 'boolean' && (metadataOnly || (value.workloadStopped === true
-    && value.stopProof === (value.workloadLaunched ? 'verified' : 'not-launched')
+  check(typeof value.workloadLaunched === 'boolean'
     && (value.workloadLaunched || (value.exitCode === null
       && ((['setup-failed', 'cancelled', 'timeout'].includes(value.failure) && value.stage === 'setup')
-        || (value.failure === 'retention-failed' && value.stage === 'retention')))))),
+        || (value.failure === 'retention-failed' && value.stage === 'retention'))))
+    && (metadataOnly || (value.workloadStopped === true
+      && value.stopProof === (value.workloadLaunched ? 'verified' : 'not-launched'))),
   'stop-proof', 'not-stopped');
   check(Array.isArray(value.stages) && value.stages.length <= 64, 'operation-schema');
   check(object(value.streams) && ['stdout', 'stderr', 'session'].every(key =>
