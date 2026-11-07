@@ -363,7 +363,7 @@ echo "$*" >> "$TRACE"
       (step) => step.name === 'Build gh-aw v1.2.1 and scoped acceptance compiler',
     );
     const compile = steps.findIndex((step) =>
-      step.run?.startsWith('gh aw compile --syft --action-mode action --action-tag v1.2.1 .github/workflows/*.md'));
+      step.name === 'Compile + generate SBOMs (Syft)');
     const acceptanceCompile = steps.findIndex((step) =>
       step.name === 'Compile Copilot acceptance with scoped backport');
     expect(install).toBeGreaterThanOrEqual(0);
@@ -377,6 +377,11 @@ echo "$*" >> "$TRACE"
     expect(steps[install].run).toContain('-ldflags="-X main.version=v1.2.1"');
     expect(steps[install].run).toContain('gh aw version');
     expect(steps[install].env?.GH_TOKEN).toBe('${{ github.token }}');
+    expect(steps[compile].run).toContain("find .github/workflows -maxdepth 1 -type f -name '*.md'");
+    expect(steps[compile].run)
+      .toContain("! -name 'smoke-enclave-cloud-hypervisor-copilot.md'");
+    expect(steps[compile].run)
+      .toContain('gh aw compile --syft --action-mode action --action-tag v1.2.1 "${workflows[@]}"');
     for (const index of [install, compile]) {
       expect(steps[index].if).toBeUndefined();
       expect(steps[index]['continue-on-error']).toBeUndefined();

@@ -119,7 +119,16 @@ jobs:
       - name: Compile + generate SBOMs (Syft)
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh aw compile --syft --action-mode action --action-tag v1.2.1 .github/workflows/*.md
+        run: |
+          workflows=()
+          while IFS= read -r workflow; do
+            workflows+=("$workflow")
+          done < <(
+            find .github/workflows -maxdepth 1 -type f -name '*.md' \
+              ! -name 'smoke-enclave-cloud-hypervisor-copilot.md' \
+              -print | sort
+          )
+          gh aw compile --syft --action-mode action --action-tag v1.2.1 "${workflows[@]}"
 
       - name: Compile Copilot acceptance with scoped backport
         env:
