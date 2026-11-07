@@ -1195,6 +1195,44 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     expect(result.transcript).not.toContain('"result":"true"');
   });
 
+  it.each(['github-mcp-config-chown', 'runtime-path-ownership-home-directory'])(
+    'preserves ownership-operation diagnostics for %s without returning a resource',
+    operation => {
+      const result = spawnSync('python3', ['-c', String.raw`
+import errno, importlib.util, io, json, os
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("entrypoint", os.environ["ENTRYPOINT"])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.agent_identity = lambda: (65534, 65534)
+calls = []
+module.os.chown = lambda path, uid, gid: calls.append([str(path), uid, gid])
+result = module.chown_runtime_path(Path("/fixture"), os.environ["OPERATION"])
+captured = io.StringIO()
+module.append_event = lambda event: captured.write(json.dumps(event))
+def fail(*args):
+    raise OSError(errno.EACCES, "private error detail", "/private/path")
+module.os.chown = fail
+try:
+    module.chown_runtime_path(Path("/fixture"), os.environ["OPERATION"])
+except OSError as error:
+    failure = error.errno
+print(json.dumps({"result": result, "calls": calls, "failure": failure,
+                 "transcript": captured.getvalue()}))
+`], {
+        env: { PATH: process.env.PATH, ENTRYPOINT: entrypoint, OPERATION: operation },
+        encoding: 'utf8',
+      });
+      expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
+      const observed = JSON.parse(result.stdout);
+      expect(observed).toMatchObject({ result: null, calls: [['/fixture', 65534, 65534]], failure: 13 });
+      expect(JSON.parse(observed.transcript)).toMatchObject({
+        event: 'operation-error', operation, category: 'permission-denied', errno: 13, fatal: true,
+      });
+      expect(observed.transcript).not.toContain('private');
+    },
+  );
+
   it.each(['stat', 'open', 'write', 'close'])(
     'reports session-log %s failures through safe stderr without recursion',
     operation => {

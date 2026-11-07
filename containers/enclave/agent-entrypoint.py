@@ -139,6 +139,14 @@ def file_operation(operation: str, action, *, fatal: bool = True):
         raise
 
 
+def chown_runtime_path(path: Path, operation: str) -> None:
+    try:
+        os.chown(path, *agent_identity())
+    except OSError as error:
+        safe_os_error(error, operation)
+        raise
+
+
 @contextmanager
 def managed_file(handle, operation: str, *, fatal: bool = True):
     pending_error = False
@@ -808,7 +816,7 @@ def configure_github_mcp() -> None:
     write_file(GITHUB_MCP_CONFIG_PATH, json.dumps(config, separators=(",", ":")), "github-mcp-config-write")
     file_operation("github-mcp-config-chmod", lambda: GITHUB_MCP_CONFIG_PATH.chmod(0o600))
     if os.geteuid() == 0:
-        file_operation("github-mcp-config-chown", lambda: os.chown(GITHUB_MCP_CONFIG_PATH, *agent_identity()))
+        chown_runtime_path(GITHUB_MCP_CONFIG_PATH, "github-mcp-config-chown")
 
 
 def configure_scoped_github_mcp() -> None:
@@ -840,7 +848,7 @@ def configure_scoped_github_mcp() -> None:
     write_file(GITHUB_MCP_CONFIG_PATH, json.dumps(config, separators=(",", ":")), "github-mcp-config-write")
     file_operation("github-mcp-config-chmod", lambda: GITHUB_MCP_CONFIG_PATH.chmod(0o600))
     if os.geteuid() == 0:
-        file_operation("github-mcp-config-chown", lambda: os.chown(GITHUB_MCP_CONFIG_PATH, *agent_identity()))
+        chown_runtime_path(GITHUB_MCP_CONFIG_PATH, "github-mcp-config-chown")
 
 
 def configure_dynamic_github_mcp() -> None:
@@ -874,7 +882,7 @@ def configure_dynamic_github_mcp() -> None:
     write_file(GITHUB_MCP_CONFIG_PATH, json.dumps(config, separators=(",", ":")), "github-mcp-config-write")
     file_operation("github-mcp-config-chmod", lambda: GITHUB_MCP_CONFIG_PATH.chmod(0o600))
     if os.geteuid() == 0:
-        file_operation("github-mcp-config-chown", lambda: os.chown(GITHUB_MCP_CONFIG_PATH, *agent_identity()))
+        chown_runtime_path(GITHUB_MCP_CONFIG_PATH, "github-mcp-config-chown")
 
 
 def append_engine_result(completed: subprocess.CompletedProcess) -> tuple[str, str]:
@@ -1201,10 +1209,7 @@ def main() -> int:
         try:
             path.mkdir(mode=0o700, exist_ok=True)
             if os.geteuid() == 0:
-                file_operation(
-                    f"runtime-path-ownership-{identifier}",
-                    lambda: os.chown(path, *agent_identity()),
-                )
+                chown_runtime_path(path, f"runtime-path-ownership-{identifier}")
         except OSError as error:
             safe_os_error(error, f"runtime-path-creation-{identifier}")
             append_event({"event": "failure", "category": "engine-failed"})

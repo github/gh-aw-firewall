@@ -56,9 +56,15 @@ it('stages a regular executable outside a private CLI install, following its bin
     expect(fs.statSync(install).mode & 0o001).toBe(0);
     expect(path.dirname(stagedBinary)).toBe(root);
     expect(fs.statSync(root).mode & 0o001).toBe(0o001);
-    expect(fs.lstatSync(stagedBinary).isFile()).toBe(true);
-    expect(fs.statSync(stagedBinary).mode & 0o777).toBe(0o555);
-    expect(fs.readFileSync(stagedBinary)).toEqual(contents);
+    const descriptor = fs.openSync(stagedBinary, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      const metadata = fs.fstatSync(descriptor);
+      expect(metadata.isFile()).toBe(true);
+      expect(metadata.mode & 0o777).toBe(0o555);
+      expect(fs.readFileSync(descriptor)).toEqual(contents);
+    } finally {
+      fs.closeSync(descriptor);
+    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -242,7 +248,7 @@ print(json.dumps(module.build_engine_command("claude", "trusted-model", "task", 
   expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
   expect(JSON.parse(result.stdout)).toEqual(expect.arrayContaining([
     '--permission-mode', 'default', '--permission-prompts', 'none',
-    '--allowedTools', 'Read,Glob,Grep',
+    '--allowedTools', 'Bash,Read,Write,Edit,Glob,Grep',
   ]));
 });
 
