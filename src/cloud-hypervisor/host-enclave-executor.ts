@@ -27,7 +27,9 @@ import { Writable } from 'stream';
 import { preservePublicEnclaveSession } from './diagnostics';
 import { preservePublicEnclaveArtifacts, readPublicEnclaveFile, type PublicEnclaveFailure,
   type PublicEnclaveStage, type PublicEnclaveStream } from '../enclave/public-debug-artifacts';
-import { PublicEnclaveOperationRecorder, type PublicEnclaveOperationStage } from '../enclave/public-debug-events';
+import {
+  projectPublicEnclaveEntrypointEvent, PublicEnclaveOperationRecorder, type PublicEnclaveOperationStage,
+} from '../enclave/public-debug-events';
 import { DurableCloudHypervisorCleanupRegistry } from './cleanup-registry';
 import {
   assertBoundedEnclaveStorage, mountBoundedEnclaveStorage, unmountBoundedEnclaveStorage,
@@ -778,7 +780,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
             diagnostic.guestFileOperations(projectEnclaveSessionDiagnostics(Buffer.concat(stderrChunks)));
           }
           await resourceJournal?.verifyMount();
-          diagnostic.guestSession(await (dependencies.readSessionDiagnostics ?? readEnclaveSessionDiagnostics)(
+          const sessionMetadata = await (dependencies.readSessionDiagnostics ?? readEnclaveSessionDiagnostics)(
             plan.invocationHostDir,
             undefined,
             undefined,
@@ -799,7 +801,9 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
                 );
               }
               : undefined,
-          ));
+          );
+          diagnostic.guestSession(sessionMetadata);
+          if (this.options.publicDebugArtifactDirectory) publicSessionMetadata = sessionMetadata;
         } catch (error) {
           publicOperations?.fail('cleanup', error, true, 'retention-failed');
           diagnostic.guestSession({ status: 'read-failed' });
@@ -815,23 +819,25 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
           const [stdout, stderr, session] = await Promise.all([
             readPublicEnclaveFile(directory, 'stdout.log', 0, 0),
             readPublicEnclaveFile(directory, 'stderr.log', 0, 0),
-            publicSessionMetadata ? Promise.resolve<PublicEnclaveStream>({ status: 'captured' })
+            publicSessionMetadata ? Promise.resolve<PublicEnclaveStream>({
+              status: publicSessionMetadata.status === 'captured' || publicSessionMetadata.status === 'empty'
+                || publicSessionMetadata.status === 'invalid' ? 'captured'
+                : publicSessionMetadata.status === 'not-stopped' ? 'unavailable' : publicSessionMetadata.status,
+            })
               : role === 'agent' ? readPublicEnclaveFile(directory, 'enclave-session.log', 0, 0)
               : Promise.resolve({ status: 'not-applicable' as const }),
           ]);
-          const entrypoint = publicSessionMetadata ?? (session.status === 'captured' && session.contents
-            ? projectEnclaveSessionDiagnostics(session.contents)
-            : stderr.status === 'captured' && stderr.contents ? projectEnclaveSessionDiagnostics(stderr.contents) : undefined);
-          publicOperations?.event('entrypoint-initialization', entrypoint?.events?.some(event =>
-            event.event === 'progress' && ['runtime-paths-ready', 'preflight-completed', 'engine-started'].includes(String(event.stage)))
-            ? 'succeeded' : 'unavailable');
+          const secrets = policy ? [
+            policy.githubBearer ?? '', policy.githubAgentId ?? '', policy.modelBudgetSecret ?? '',
+            ...agentEnvironmentSecrets(policy, plan),
+          ] : [];
+          publicOperations?.record(projectPublicEnclaveEntrypointEvent({
+            sessionMetadata: publicSessionMetadata, session, stderr, secrets,
+          }));
           publicArtifact = {
             directory, protectedRoot: this.options.publicDebugArtifactProtectedRoot!,
             stdout, stderr, session, sessionMetadata: publicSessionMetadata,
-            secrets: policy ? [
-              policy.githubBearer ?? '', policy.githubAgentId ?? '', policy.modelBudgetSecret ?? '',
-              ...agentEnvironmentSecrets(policy, plan),
-            ] : [],
+            secrets,
             envelope: {
               version: 1, runId: plan.runId, invocationId: plan.invocationId, entryId: plan.entryId,
               executorKind: role, runtime: 'cloud-hypervisor', workloadStopped: true,

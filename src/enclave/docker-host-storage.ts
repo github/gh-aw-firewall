@@ -190,7 +190,10 @@ export async function ownDockerHostStorageFile(
     const result = await runDockerStorageHelper([
       ...dockerStorageHelperArguments(reclaim ? 'reclaim' : 'own', identity.target, identity.source, identity.bytes),
       name, ...(reclaim ? [] : [String(uid), String(gid)]),
-    ]) as { owned?: boolean };
+    ]) as { owned?: boolean; missing?: boolean };
+    if (reclaim && result.missing === true) {
+      throw Object.assign(new Error('Docker enclave capture file is missing'), { code: 'ENOENT' });
+    }
     if (result.owned !== true) throw new Error('Docker enclave ownership was not proven');
   } else {
     const filename = path.join(identity.target, name);

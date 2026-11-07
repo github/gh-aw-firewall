@@ -377,6 +377,31 @@ After finalization, the daily regression also emits
 It records result validation separately from AWF stop/exit, audit presence,
 schema/invocation validation, cleanup, and diagnostic retention, preserving the
 first failure and subsequent failures without exception text or audit payloads.
+Post-readiness failures also retain a closed `resultFailure` in both harness
+records: parser/protocol failure, tool rejection, result shape/type validation,
+probe-value mismatch, or unknown. Its code is allowlisted; no result payload or
+exception message is retained. Collection adds an allowlisted terminal
+`executorOutcome` only from the identity-checked invocation journal; absent or
+unrecognized outcomes remain unknown. Startup readiness is context, not a
+classification of result failure.
+For eligible stopped public workloads, bounded, identity-checked, redacted stderr
+can supply a common failed `entrypoint-initialization` record with an allowlisted
+operation, category and errno (for example, `preflight-session-log` permission
+denial). A missing or unusable session transcript does not hide that fallback or
+become a captured transcript; its status remains explicit.
+Docker also retains eligible host setup evidence before releasing invocation
+storage. If capture custody or retention fails, recoverable source storage stays
+protected and cleanup remains failed. When host reconciliation itself cannot
+establish safe workload state, `retention-unavailable.json` records only closed
+host metadata with reason `host-reconciliation-incomplete`. The exporter accepts
+no workload streams alongside that record and reports the shared envelope as
+unavailable; it makes no launch, stop, exit-code, or success claim.
+Audit presence, schema, and invocation metadata are inspected on failed results
+too. `auditEvidence.contract: failure-observation` distinguishes that inspection
+from the successful invocation contract; failure records never count as successful
+invocations. Missing or invalid evidence and cleanup errors remain secondary to
+the original result failure. Success still requires the exact approved probe,
+one intended public success audit, verified stop/exit, and complete cleanup.
 Both harness records are validated independently when invocation collection fails.
 The harness keeps its audit directory outside `workDir`, which AWF removes on
 shutdown; valid invocation output alone cannot override missing audit or incomplete

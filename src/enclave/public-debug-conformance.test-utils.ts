@@ -1,5 +1,5 @@
 import {
-  PUBLIC_ENCLAVE_OPERATION_STAGES, PUBLIC_ENCLAVE_ERROR_CATEGORIES,
+  PUBLIC_ENCLAVE_OPERATION_STAGES, PUBLIC_ENCLAVE_ERROR_CATEGORIES, PUBLIC_ENCLAVE_ENTRYPOINT_OPERATIONS,
 } from './public-debug-events';
 import type { PublicEnclaveArtifactEnvelope } from './public-debug-artifacts';
 
@@ -20,7 +20,12 @@ export function expectPublicEnclaveAdapterConformance(
     expect(PUBLIC_ENCLAVE_OPERATION_STAGES).toContain(event.stage);
     expect(['started', 'succeeded', 'failed', 'unavailable', 'not-applicable']).toContain(event.status);
     if (event.category) expect(PUBLIC_ENCLAVE_ERROR_CATEGORIES).toContain(event.category);
-    expect(Object.keys(event).every(key => ['stage', 'status', 'category', 'errno'].includes(key))).toBe(true);
+    if (event.operation) {
+      expect(event.stage).toBe('entrypoint-initialization');
+      expect(event.status).toBe('failed');
+      expect(PUBLIC_ENCLAVE_ENTRYPOINT_OPERATIONS).toContain(event.operation);
+    }
+    expect(Object.keys(event).every(key => ['stage', 'status', 'category', 'errno', 'operation'].includes(key))).toBe(true);
   }
   if (envelope.primaryFailure) expect(envelope.primaryFailure).not.toHaveProperty('message');
   if (envelope.cleanupFailure) expect(envelope.cleanupFailure).not.toHaveProperty('message');

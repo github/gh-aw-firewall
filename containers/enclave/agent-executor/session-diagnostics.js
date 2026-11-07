@@ -309,4 +309,4 @@ function projectEnclaveSessionDiagnostics(bytes) {
   return result;
 }
 
-module.exports = { projectEnclaveSessionDiagnostics };
+module.exports = { projectEnclaveSessionDiagnostics, OPERATIONS };

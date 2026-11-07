@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { isIPv4 } = require('node:net');
-const { TextDecoder: Utf8Decoder } = require('node:util');
+const { TextDecoder: Utf8Decoder, isDeepStrictEqual } = require('node:util');
 const live = require('./cloud-hypervisor-enclave-live-smoke');
 const collector = require('./collect-enclave-smoke-debug.cjs');
 const PRIMARY_DOCKER_ADDRESS = '172.30.0.20';
@@ -121,7 +121,37 @@ function gateFailure(gate, reason) {
   return error;
 }
 
-function assertAudit(file, passed = () => {}, trustedRoot = path.dirname(file)) {
+function validateResult(response, expected) {
+  let parsed;
+  try { parsed = live.parsePublicToolResult(response, 3); }
+  catch (error) {
+    const code = live.publicMcpFailureReason(error);
+    const failure = gateFailure('result', code === 'tool-is-error' ? 'tool-rejected' : 'parser-protocol');
+    failure.resultCode = collector.RESULT_CODES.includes(code) ? code : 'unknown';
+    throw failure;
+  }
+  if (parsed.status !== 'ok') {
+    const error = gateFailure('result', 'tool-rejected');
+    error.resultCode = 'canonical-error';
+    throw error;
+  }
+  const result = parsed.result;
+  if (!result || typeof result !== 'object' || Array.isArray(result)
+    || !isDeepStrictEqual(Object.keys(result).sort(), Object.keys(expected).sort())
+    || Object.keys(expected).some(key => typeof result[key] !== typeof expected[key])) {
+    const error = gateFailure('result', 'schema-validation');
+    error.resultCode = 'result-shape';
+    throw error;
+  }
+  if (!isDeepStrictEqual(result, expected)) {
+    const error = gateFailure('result', 'expected-result-mismatch');
+    error.resultCode = 'probe-mismatch';
+    throw error;
+  }
+}
+
+function assertAudit(file, passed = () => {}, trustedRoot = path.dirname(file),
+  { requireSuccess = true, observed = () => {} } = {}) {
   const limit = 1024 * 1024;
   let bytes;
   let fd;
@@ -174,11 +204,31 @@ function assertAudit(file, passed = () => {}, trustedRoot = path.dirname(file)) 
   } catch { throw gateFailure('audit-schema', 'invalid'); }
   passed('audit-schema');
   const invocations = records.filter(record => record.kind === 'invocation');
-  const reason = records.some(record => record.kind === 'failure' || record.event === 'shutdown-cleanup-failed')
+  const failures = records.filter(record => record.kind === 'failure');
+  const bucket = values => values.length === 0 ? 'none' : values.length === 1 ? 'one' : 'multiple';
+  const metadata = requireSuccess ? invocations : [...invocations, ...failures];
+  const ids = [...new Set(metadata.map(record => record.invocationId))];
+  observed({
+    contract: requireSuccess ? 'success' : 'failure-observation',
+    successInvocations: bucket(invocations), failureRecords: bucket(failures),
+    invocationIdentity: ids.length === 0 ? 'missing' : ids.length > 1 ? 'multiple'
+      : typeof ids[0] === 'string' && /^[a-f0-9]{16,64}$/.test(ids[0]) ? 'valid' : 'invalid',
+    repository: invocations.length === 0 ? 'not-observed'
+      : invocations.every(record => record.repo === REPOSITORY) ? 'matched' : 'mismatch',
+    sensitivity: invocations.length === 0 ? 'not-observed'
+      : invocations.every(record => record.sensitivity === 'public') ? 'public' : 'other',
+  });
+  const reason = requireSuccess && records.some(record => record.kind === 'failure' || record.event === 'shutdown-cleanup-failed')
     ? 'failure-record' : invocations.length !== 1 ? 'count'
       : invocations[0].repo !== REPOSITORY ? 'repository'
         : invocations[0].sensitivity !== 'public' ? 'sensitivity' : undefined;
-  if (reason) throw gateFailure('audit-invocation', reason);
+  const failureReason = ids.length !== 1 ? 'count'
+    : typeof ids[0] !== 'string' || !/^[a-f0-9]{16,64}$/.test(ids[0]) ? 'identity'
+      : invocations.some(record => record.repo !== REPOSITORY) ? 'repository'
+        : invocations.some(record => record.sensitivity !== 'public') ? 'sensitivity' : undefined;
+  if (requireSuccess ? reason : failureReason) {
+    throw gateFailure('audit-invocation', requireSuccess ? reason : failureReason);
+  }
   passed('audit-invocation');
 }
 
@@ -304,19 +354,26 @@ async function main(environment = process.env) {
     const tools = await live.requestMcp(handoff.endpoint, gatewayKey, 2, 'tools/list', {});
     live.assertProfileTools(tools, 'agent-only', 2);
     const task = probe(agent, runtime, randomBytes(24).toString('hex'), primaryGuestAddress);
+    stage = 'result';
     const response = await live.requestMcp(handoff.endpoint, gatewayKey, 3, 'tools/call', {
       name: 'enclave_run_agent',
       arguments: { privateRepo: REPOSITORY, schema: task.schema, prompt: task.prompt },
     });
-    stage = 'result';
-    const parsed = live.parsePublicToolResult(response, 3);
-    if (parsed.status !== 'ok') throw new Error('Enclave agent did not produce an approved result');
-    const result = parsed.result;
-    require('node:assert/strict').deepEqual(result, task.expected);
+    validateResult(response, task.expected);
+    passed('result');
     resultValidated = true;
   } catch (error) {
     failure = error;
-    finalization.primaryFailure = { gate: 'primary', reason: stage };
+    if (stage === 'result') {
+      const code = error.resultCode || live.publicMcpFailureReason(error);
+      const category = error.gate === 'result' ? error.reason
+        : collector.RESULT_CODES.includes(code) ? 'parser-protocol' : 'unknown';
+      finalization.resultFailure = {
+        category, code: collector.RESULT_CODES.includes(code) ? code : 'unknown', executorOutcome: 'unknown',
+      };
+      finalization.checks.result = ['failed', category];
+      finalization.primaryFailure = { gate: 'result', reason: category };
+    } else finalization.primaryFailure = { gate: 'primary', reason: stage };
     const reason = !awf || live.failedSpawns.has(awf) ? 'spawn-failure'
       : awf.signalCode ? 'signal' : awf.exitCode !== null ? 'exit'
         : ['broker', 'gateway-readiness', 'primary-readiness'].includes(stage) ? 'timeout' : 'unknown';
@@ -325,6 +382,7 @@ async function main(environment = process.env) {
       const key = `${environment.GITHUB_RUN_ID}-${environment.GITHUB_RUN_ATTEMPT}`;
       collector.retainStartup(path.join('/var/lib/awf-enclave-smoke-export', key), {
         agent, backend: runtime, failureStage: stage,
+        ...(finalization.resultFailure ? { resultFailure: finalization.resultFailure } : {}),
         ...live.startupSnapshot(awf, reason, 'initial', 'agent-only', stderr, startupErrorFile),
       });
     } catch {
@@ -345,9 +403,13 @@ async function main(environment = process.env) {
       else passed('awf-exit');
       if (awf.exitCode !== null || awf.signalCode) {
         const auditDir = path.join(directory, 'audit');
-        if (resultValidated) {
-          try { assertAudit(path.join(auditDir, 'enclave.jsonl'), passed, directory); }
-          catch (error) { failed(error.gate || 'audit-presence', error.reason || 'io-error'); }
+        if (stage === 'result') {
+          try {
+            assertAudit(path.join(auditDir, 'enclave.jsonl'), passed, directory, {
+              requireSuccess: resultValidated,
+              observed: evidence => { finalization.auditEvidence = evidence; },
+            });
+          } catch (error) { failed(error.gate || 'audit-presence', error.reason || 'io-error'); }
         }
         try {
           assertCleanup(workDir, auditDir);
@@ -388,4 +450,4 @@ if (require.main === module) main().catch(error => {
   process.exitCode = 1;
 });
 
-module.exports = { ENGINES, configuration, probe, assertAudit, main };
+module.exports = { ENGINES, configuration, probe, validateResult, assertAudit, main };
