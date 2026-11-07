@@ -681,6 +681,16 @@ describe.each(agents)('%s launch orchestration', agent => {
     expect(fixture.requestMcp).not.toHaveBeenCalled();
     expect(fixture.stopAwf).toHaveBeenCalledTimes(1);
   });
+  it('does not inspect invocation audits when failure occurs before the result stage', async () => {
+    const { finalized, error } = await launch('docker', new Error('Admission rejected'), { exitCode: 1 });
+    expect(error).toBeDefined();
+    const record = finalized.mock.calls[0][1];
+    for (const gate of ['audit-presence', 'audit-schema', 'audit-invocation']) {
+      expect(record.checks[gate]).toEqual(['not-attempted', 'none']);
+    }
+    expect(record.secondaryFailures).not.toContainEqual(expect.objectContaining({ gate: expect.stringMatching(/^audit-/) }));
+    expect(record.checks['awf-cleanup']).toEqual(['passed', 'none']);
+  });
   it.each([
     [{ stopFailure: true }, 'awf-stop', 'stop-failed'],
     [{ exitCode: 1 }, 'awf-exit', 'nonzero-exit'],

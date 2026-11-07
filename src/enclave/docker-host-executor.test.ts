@@ -7,10 +7,10 @@ import {
   removeDockerHostContainer, assertDockerHostOwnerStopped, captureDockerHostOwner,
   type DockerHostCommand, type DockerHostRecoveryRecord,
 } from './docker-host-recovery';
-import { mountDockerHostStorage, cleanupDockerHostStorage } from './docker-host-storage';
+import { mountDockerHostStorage, cleanupDockerHostStorage, ownDockerHostStorageFile } from './docker-host-storage';
 import type { HostExecutorInvocationPlan } from './host-executor-server';
 import { validateSchema } from '../bounded-execution/finite-schema';
-import { hasDockerHostMountCapability } from './docker-storage-helper';
+import { dockerHelperStorageTarget, hasDockerHostMountCapability } from './docker-storage-helper';
 import { preservePublicEnclaveArtifacts } from './public-debug-artifacts';
 import { resolveDockerPublicEnclaveDebugPaths } from './public-debug';
 import { expectPublicEnclaveAdapterConformance } from './public-debug-conformance.test-utils';
@@ -26,11 +26,17 @@ jest.mock('./docker-host-storage', () => ({
   ...jest.requireActual('./docker-host-storage'),
   mountDockerHostStorage: jest.fn(),
   cleanupDockerHostStorage: jest.fn(),
+  ownDockerHostStorageFile: jest.fn(),
 }));
 jest.mock('./docker-storage-helper', () => ({
   ...jest.requireActual('./docker-storage-helper'),
   hasDockerHostMountCapability: jest.fn(() => true),
+  dockerHelperStorageTarget: jest.fn((...args: string[]) =>
+    jest.requireActual('./docker-storage-helper').dockerHelperStorageTarget(...args)),
 }));
+
+const realOwnDockerHostStorageFile = jest.requireActual<typeof import('./docker-host-storage')>('./docker-host-storage')
+  .ownDockerHostStorageFile;
 
 const runId = 'a'.repeat(32);
 const invocationId = 'b'.repeat(32);
@@ -144,6 +150,7 @@ describeLinux('host-owned Docker enclave executor', () => {
     jest.clearAllMocks();
     jest.mocked(preservePublicEnclaveArtifacts).mockReset().mockResolvedValue();
     jest.mocked(hasDockerHostMountCapability).mockReturnValue(true);
+    jest.mocked(ownDockerHostStorageFile).mockReset().mockImplementation(realOwnDockerHostStorageFile);
     root = path.join(process.cwd(), `.docker-host-executor-${randomBytes(8).toString('hex')}`);
     fs.mkdirSync(root, { mode: 0o700 });
     jest.mocked(resolveDockerPublicEnclaveDebugPaths).mockReturnValue({
@@ -274,6 +281,26 @@ describeLinux('host-owned Docker enclave executor', () => {
     expect(envelope.primaryFailure).toMatchObject({
       stage: failure === 'exit' ? 'workload-exit' : failure === 'exception' ? 'workload-start' : 'storage-probe',
     });
+  });
+
+  test('cleans helper-backed storage after a setup failure with missing capture files', async () => {
+    jest.mocked(hasDockerHostMountCapability).mockReturnValue(false);
+    jest.mocked(dockerHelperStorageTarget).mockReturnValue(plan.invocationHostDir);
+    jest.mocked(ownDockerHostStorageFile).mockImplementation(async (_identity, name, _uid, _gid, reclaim) => {
+      if (reclaim && ['stdout.log', 'stderr.log', 'session.jsonl'].includes(name)) {
+        throw Object.assign(new Error('missing helper capture'), { code: 'ENOENT' });
+      }
+    });
+    docker.failProbe = true;
+
+    await expect(backend([script], { publicDebug: true }).execute(plan, new AbortController().signal))
+      .resolves.toEqual({ outcome: 'executor-failure' });
+
+    expect(cleanupDockerHostStorage).toHaveBeenCalledTimes(1);
+    expect(preservePublicEnclaveArtifacts).toHaveBeenCalledWith(expect.objectContaining({
+      stdout: { status: 'missing' }, stderr: { status: 'missing' },
+    }));
+    expect(new DockerHostRecoveryJournal(path.join(root, 'journal'), runId).records()).toEqual([]);
   });
 
   test('successful retention retry records custody while preserving cleanup failure for recovery', async () => {

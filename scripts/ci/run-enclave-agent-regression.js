@@ -403,12 +403,14 @@ async function main(environment = process.env) {
       else passed('awf-exit');
       if (awf.exitCode !== null || awf.signalCode) {
         const auditDir = path.join(directory, 'audit');
-        try {
-          assertAudit(path.join(auditDir, 'enclave.jsonl'), passed, directory, {
-            requireSuccess: resultValidated,
-            observed: evidence => { finalization.auditEvidence = evidence; },
-          });
-        } catch (error) { failed(error.gate || 'audit-presence', error.reason || 'io-error'); }
+        if (stage === 'result') {
+          try {
+            assertAudit(path.join(auditDir, 'enclave.jsonl'), passed, directory, {
+              requireSuccess: resultValidated,
+              observed: evidence => { finalization.auditEvidence = evidence; },
+            });
+          } catch (error) { failed(error.gate || 'audit-presence', error.reason || 'io-error'); }
+        }
         try {
           assertCleanup(workDir, auditDir);
           passed('awf-cleanup');
