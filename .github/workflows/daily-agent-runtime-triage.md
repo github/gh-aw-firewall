@@ -63,7 +63,7 @@ timeout-minutes: 30
 max-turns: 8
 steps:
   - name: Collect verified regression report metadata
-    uses: actions/github-script@v9
+    uses: actions/github-script@v9.0.0
     with:
       script: |
         const fs = require('node:fs');

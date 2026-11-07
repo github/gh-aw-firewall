@@ -1,11 +1,11 @@
 diff --git a/pkg/parser/schemas/main_workflow_schema.json b/pkg/parser/schemas/main_workflow_schema.json
-index d85ee50..68869fe 100644
+index 24061ac..0000000 100644
 --- a/pkg/parser/schemas/main_workflow_schema.json
 +++ b/pkg/parser/schemas/main_workflow_schema.json
-@@ -4079 +4079 @@
+@@ -4140 +4140 @@
 -                  "max-model-tokens": { "type": "integer", "minimum": 1, "maximum": 32768, "default": 1024 },
 +                  "max-model-tokens": { "type": "integer", "minimum": 1, "maximum": 131072, "default": 1024 },
-@@ -14650,0 +14651,36 @@
+@@ -14842,0 +14843,36 @@
 +    {
 +      "if": {
 +        "required": ["features", "sandbox"],
@@ -43,7 +43,7 @@ index d85ee50..68869fe 100644
 +      }
 +    },
 diff --git a/pkg/workflow/enclaves_agent_acceptance_test.go b/pkg/workflow/enclaves_agent_acceptance_test.go
-index c25f783..02529cd 100644
+index c25f783..0000000 100644
 --- a/pkg/workflow/enclaves_agent_acceptance_test.go
 +++ b/pkg/workflow/enclaves_agent_acceptance_test.go
 @@ -81,4 +81,9 @@ func TestValidateCloudHypervisorAgentAcceptance(t *testing.T) {
@@ -67,7 +67,7 @@ index c25f783..02529cd 100644
 -		`GH_AW_AWF_VERSION: v0.28.62`,
 +		`GH_AW_AWF_VERSION: v0.28.66`,
 diff --git a/pkg/workflow/enclaves_runtime.go b/pkg/workflow/enclaves_runtime.go
-index a90b666..49789b1 100644
+index 982101b..0000000 100644
 --- a/pkg/workflow/enclaves_runtime.go
 +++ b/pkg/workflow/enclaves_runtime.go
 @@ -106 +106 @@ const (
@@ -76,11 +76,10 @@ index a90b666..49789b1 100644
 @@ -112 +112 @@ const (
 -	cloudHypervisorAgentAcceptanceMaxModelTokens   = 2048
 +	cloudHypervisorAgentAcceptanceMaxModelTokens   = 131072
-
 diff --git a/pkg/parser/schema_test.go b/pkg/parser/schema_test.go
 --- a/pkg/parser/schema_test.go
 +++ b/pkg/parser/schema_test.go
-@@ -3844,0 +3845,44 @@
+@@ -3954,0 +3955,44 @@
 +
 +func TestMainWorkflowSchemaOrdinaryEnclaveTokenLimitAndEvals(t *testing.T) {
 +	question := map[string]any{"id": "review", "question": "Did the workflow complete?"}

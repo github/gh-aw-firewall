@@ -80,7 +80,7 @@ describe('doc maintainer workflow optimization config', () => {
     expect(lock).toContain('GH_AW_MAX_TURNS: 60');
     expect(lock).toContain("(needs.check_relevant_changes.outputs.has_changes == 'true' && needs.check_relevant_changes.outputs.skip_agent != 'true')");
     expect(lock).toContain('Build documentation maintainer context');
-    expect(lock).toContain('skip_agent: ${{ steps.check.outputs.skip_agent }}');
+    expect(lock).toContain('skip_agent: "${{ steps.check.outputs.skip_agent }}"');
     expect(lock).toContain('--stat -- src/ containers/ scripts/ docs/ \'*.md\' | head -30');
     expect(lock).toContain('--since=\\"48 hours ago\\" --format=\\"=== Commit %H: %s ===\\" --stat -- src/ containers/ scripts/ docs/ \'*.md\' | head -20');
     expect(lock).toContain('head -3 > \\"$AFFECTED\\" || true');
