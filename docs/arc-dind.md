@@ -1,6 +1,20 @@
 # ARC + DinD Configuration
 
-AWF supports ARC runners where the runner filesystem and Docker daemon filesystem are split (DinD sidecar patterns).
+AWF implements split-filesystem execution for ARC runners with a Docker-in-Docker (DinD) sidecar.
+
+> [!IMPORTANT]
+> **Scope: AWF execution capability, not upstream product support.** ARC/DinD execution and GHES endpoint routing alone do not establish official Agentic Workflows support on GHES or any particular GHES release. See the [AWF environment/runner applicability summary](compatibility.md#environment-and-runner-applicability) for prerequisites, CI evidence, and version boundaries. Live split-DinD CI in this repository is explicitly not Kubernetes ARC validation.
+
+Runner topology is independent of GitHub deployment: use [Enterprise configuration](enterprise-configuration.md) for GHEC (`github.com` or `*.ghe.com`) and GHES endpoints. For the compiler, engine, MCP gateway, and Actions runner stack, follow the upstream-owned [self-hosted runner reference](https://github.github.com/gh-aw/reference/self-hosted-runners/) and [ARC/DinD walkthrough](https://github.github.com/gh-aw/reference/arc-dind-copilot-agent/), including its version-specific requirements. AWF does not establish a minimum ARC chart or GHES version.
+
+## Prerequisites and boundaries
+
+- A Linux Docker daemon reachable from the runner through `DOCKER_HOST`; ARC DinD normally requires a privileged daemon sidecar, not a privileged runner container. Kubernetes mode without a Docker daemon does not satisfy this requirement.
+- Workspace, tool cache, staged tools, and output paths visible to both the runner and daemon. Merely creating a path in the runner container does not make it daemon-visible.
+- Compatible sysroot tooling and matching AWF images. Use `runner.topology: arc-dind` for sysroot staging, and explicitly configure other AWF fields as needed; compiler-generated defaults are a separate upstream contract.
+- Default Docker network-isolation mode needs neither host iptables nor runner `NET_ADMIN`; legacy iptables mode has different privilege requirements. Kubernetes network policies, DNS, and registry/upstream connectivity still need to permit the intended traffic.
+
+See the [version-specific prerequisites](compatibility.md#version-specific-prerequisites-and-optional-runtimes) before reusing older examples. Validate the actual pod, chart, daemon, and upstream component versions rather than treating hosted DinD checks as certification of your cluster.
 
 ## Runner topology selector
 
@@ -25,7 +39,7 @@ Other ARC/DinD settings (for example `network.isolation` and `dind.preStageDirs`
 
 ## Build-tools sysroot image
 
-On ARC/DinD, the standard system mounts (`/usr:/host/usr:ro`, etc.) resolve to the runner container's filesystem, which is invisible to the Docker daemon's split filesystem. The `build-tools` sysroot image solves this by providing a pre-built Ubuntu 22.04 image containing system-level build infrastructure:
+On ARC/DinD, the standard system mounts (`/usr:/host/usr:ro`, etc.) resolve to the runner container's filesystem, which is invisible to the Docker daemon's split filesystem. The `build-tools` sysroot image solves this by providing a pre-built Ubuntu image containing system-level build infrastructure. Its base depends on the selected release/image (see the [Dockerfile](../containers/build-tools/Dockerfile)):
 
 - **Compilers & linkers**: gcc, g++, make, cmake, autoconf, binutils
 - **Dev libraries**: libssl-dev, libc6-dev, libicu-dev, zlib1g-dev
@@ -36,7 +50,7 @@ On ARC/DinD, the standard system mounts (`/usr:/host/usr:ro`, etc.) resolve to t
 
 1. AWF emits a `sysroot-stage` init service in the compose file
 2. The init container copies the build-tools image FS into a named `sysroot` volume
-3. The agent mounts the `sysroot` volume read-only at `/host`
+3. The agent mounts the `sysroot` volume read-write at `/host` for runtime initialization
 4. `entrypoint.sh` finds `/host/bin/sh` and `capsh`, chroots successfully
 
 ```yaml
