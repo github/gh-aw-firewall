@@ -1,323 +1,250 @@
 {
   "schemaVersion": 1,
   "status": "proposed-awaiting-human-review",
-  "baseRevision": "edd8ed420b602ce79f7f58c0ca435fb33413a789",
-  "reviewBaseRevision": "edd8ed420b602ce79f7f58c0ca435fb33413a789",
+  "baseRevision": "fb4f8de77083b4a00b26fdb16af2cc731ed8c0e6",
+  "reviewBaseRevision": "fb4f8de77083b4a00b26fdb16af2cc731ed8c0e6",
   "runtimeConsumerEffects": [
     {
       "file": "containers/api-proxy/models.dev.catalog.json",
       "changes": [
         {
-          "pointer": "/runtimeResolution/@lookup=auto-code",
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-0731/pricing/input",
+          "before": 0.059,
+          "after": 0.0487
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-0731:batch",
           "before": null,
           "after": {
             "exists": true,
-            "pricing": null
+            "pricing": {
+              "modelId": "deepseek/deepseek-v4-flash-0731:batch",
+              "alias": "deepseek/deepseek-v4-flash-0731:batch",
+              "input": 0.048,
+              "cachedInput": 0.012,
+              "cacheWrite": null,
+              "output": 0.144
+            }
           }
         },
         {
-          "pointer": "/runtimeResolution/@lookup=beam-1-0-501b-a23b/pricing/cachedInput",
-          "before": 0.049999999999999996,
-          "after": 0.04
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-latest/pricing/cachedInput",
+          "before": 0.035,
+          "after": 0.0015400000000000001
         },
         {
-          "pointer": "/runtimeResolution/@lookup=beam-1-0-501b-a23b/pricing/input",
-          "before": 0.25,
-          "after": 0.3
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-latest/pricing/input",
+          "before": 0.059,
+          "after": 0.048400000000000006
         },
         {
-          "pointer": "/runtimeResolution/@lookup=deepseek-chat/pricing/cachedInput",
-          "before": 0.025740000000000002,
-          "after": 0.032
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-chat/pricing/input",
-          "before": 0.2574,
-          "after": 0.32
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-chat/pricing/output",
-          "before": 1.0287,
-          "after": 0.8899999999999999
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-chat-v3/pricing/cachedInput",
-          "before": 0.025740000000000002,
-          "after": 0.032
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-chat-v3/pricing/input",
-          "before": 0.2574,
-          "after": 0.32
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-chat-v3/pricing/output",
-          "before": 1.0287,
-          "after": 0.8899999999999999
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-pro-latest/pricing/cachedInput",
-          "before": 0.0927,
-          "after": 0.0999
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-pro-latest/pricing/input",
-          "before": 0.0927,
-          "after": 0.0999
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-1-flash/pricing/input",
-          "before": 0.045,
-          "after": 0.051
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-1-flash/pricing/output",
-          "before": 0.5,
-          "after": 0.5670000000000001
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-vision-exp/pricing/cachedInput",
-          "before": 0.00686,
-          "after": 0.014
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-vision-exp/pricing/input",
-          "before": 0.21559999999999999,
-          "after": 0.44
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-vision-exp/pricing/output",
-          "before": 0.6468,
-          "after": 1.32
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-latest/pricing/output",
+          "before": 0.3,
+          "after": 0.1452
         },
         {
           "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro/pricing/cachedInput",
-          "before": 0.135,
-          "after": 0.0747765
+          "before": 0.0747765,
+          "after": 0.059827
         },
         {
           "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro/pricing/input",
-          "before": 1.5999999999999999,
-          "after": 0.8973180000000001
+          "before": 0.8973180000000001,
+          "after": 0.717924
         },
         {
           "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro/pricing/output",
-          "before": 3.1999999999999997,
-          "after": 1.7946360000000001
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro-0813/pricing/cachedInput",
-          "before": 0.098,
-          "after": 0.111
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro-0813/pricing/input",
-          "before": 0.103,
-          "after": 0.1165
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro-0813/pricing/output",
-          "before": 4.109999999999999,
-          "after": 4.66
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=gemini-omni-1-1-flash",
-          "before": null,
-          "after": {
-            "exists": true,
-            "pricing": {
-              "modelId": "google/gemini-omni-1.1-flash",
-              "alias": "google/gemini-omni-1.1-flash",
-              "input": 1.5,
-              "cachedInput": 0.15000000000000002,
-              "cacheWrite": null,
-              "output": 9
-            }
-          }
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=gemini-omni-1-2-flash",
-          "before": null,
-          "after": {
-            "exists": true,
-            "pricing": {
-              "modelId": "google/gemini-omni-1.2-flash",
-              "alias": "google/gemini-omni-1.2-flash",
-              "input": 1.5,
-              "cachedInput": 0.15000000000000002,
-              "cacheWrite": null,
-              "output": 9
-            }
-          }
+          "before": 1.7946360000000001,
+          "after": 1.435848
         },
         {
           "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/cachedInput",
-          "before": 0.019000000000000003,
-          "after": 0.049999999999999996
+          "before": 0.049999999999999996,
+          "after": 0.0375
         },
         {
           "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/input",
-          "before": 0.038000000000000006,
-          "after": 0.09
+          "before": 0.09,
+          "after": 0.0675
         },
         {
           "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/output",
-          "before": 0.113,
-          "after": 0.3
+          "before": 0.3,
+          "after": 0.22499999999999998
         },
         {
           "pointer": "/runtimeResolution/@lookup=glm-flash-latest/pricing/cachedInput",
-          "before": 0.0285,
-          "after": 0.028399999999999998
+          "before": 0.028399999999999998,
+          "after": 0.0285
         },
         {
           "pointer": "/runtimeResolution/@lookup=glm-flash-latest/pricing/input",
-          "before": 0.0285,
-          "after": 0.028399999999999998
+          "before": 0.028399999999999998,
+          "after": 0.0285
         },
         {
           "pointer": "/runtimeResolution/@lookup=gpt-oss-120b/pricing/cachedInput",
-          "before": 0.075,
-          "after": 0.022
+          "before": 0.022,
+          "after": 0.016
         },
         {
           "pointer": "/runtimeResolution/@lookup=gpt-oss-120b/pricing/input",
-          "before": 0.15,
-          "after": 0.024999999999999998
+          "before": 0.024999999999999998,
+          "after": 0.018
         },
         {
           "pointer": "/runtimeResolution/@lookup=gpt-oss-120b/pricing/output",
-          "before": 0.6,
-          "after": 0.092
+          "before": 0.092,
+          "after": 0.065
         },
         {
-          "pointer": "/runtimeResolution/@lookup=kimi-k2-7-code/pricing/cachedInput",
-          "before": 0.15,
-          "after": 0.16
+          "pointer": "/runtimeResolution/@lookup=inkling-small:batch",
+          "before": null,
+          "after": {
+            "exists": true,
+            "pricing": {
+              "modelId": "thinkingmachines/inkling-small:batch",
+              "alias": "thinkingmachines/inkling-small:batch",
+              "input": 0.36,
+              "cachedInput": 0.08,
+              "cacheWrite": null,
+              "output": 0.96
+            }
+          }
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=kimi-latest/pricing/cachedInput",
+          "before": 0.18,
+          "after": 0.16999999999999998
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=kimi-latest/pricing/input",
+          "before": 0.18239999999999998,
+          "after": 0.1719
         },
         {
           "pointer": "/runtimeResolution/@lookup=kimi-latest/pricing/output",
-          "before": 9.338799999999999,
-          "after": 10.1522
+          "before": 10.1522,
+          "after": 9.338799999999999
         },
         {
-          "pointer": "/runtimeResolution/@lookup=llama-3-3-70b-instruct/pricing/cachedInput",
-          "before": 0.09999999999999999,
-          "after": 0.295
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=llama-3-3-70b-instruct/pricing/input",
-          "before": 0.19999999999999998,
-          "after": 0.59
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=llama-3-3-70b-instruct/pricing/output",
-          "before": 0.52,
-          "after": 0.7899999999999999
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=minimax-01",
-          "before": {
+          "pointer": "/runtimeResolution/@lookup=lfm-3-1-7b",
+          "before": null,
+          "after": {
             "exists": true,
             "pricing": {
-              "modelId": "minimax/minimax-01",
-              "alias": "minimax/minimax-01",
-              "input": 0.19999999999999998,
+              "modelId": "liquid/lfm-3-1.7b",
+              "alias": "liquid/lfm-3-1.7b",
+              "input": 0.08,
               "cachedInput": 0.02,
               "cacheWrite": null,
-              "output": 1.1
+              "output": 0.19999999999999998
             }
-          },
-          "after": null
+          }
         },
         {
-          "pointer": "/runtimeResolution/@lookup=minimax-m2",
-          "before": {
+          "pointer": "/runtimeResolution/@lookup=lfm-3-1-7b:free",
+          "before": null,
+          "after": {
             "exists": true,
             "pricing": {
-              "modelId": "minimax/minimax-m2",
-              "alias": "minimax/minimax-m2",
-              "input": 0.255,
-              "cachedInput": 0.025500000000000002,
-              "cacheWrite": null,
-              "output": 1.02
-            }
-          },
-          "after": null
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=minimax-m2-1",
-          "before": {
-            "exists": true,
-            "pricing": {
-              "modelId": "minimax/minimax-m2.1",
-              "alias": "minimax/minimax-m2.1",
-              "input": 0.3,
-              "cachedInput": 0.03,
-              "cacheWrite": null,
-              "output": 1.2
-            }
-          },
-          "after": null
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=minimax-m2-7/pricing/cachedInput",
-          "before": 0.06,
-          "after": 0.041999999999999996
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=minimax-m2-7/pricing/input",
-          "before": 0.3,
-          "after": 0.21
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=minimax-m2-7/pricing/output",
-          "before": 1.2,
-          "after": 0.84
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=minimax-m2-her",
-          "before": {
-            "exists": true,
-            "pricing": {
-              "modelId": "minimax/minimax-m2-her",
-              "alias": "minimax/minimax-m2-her",
-              "input": 0.3,
-              "cachedInput": 0.03,
-              "cacheWrite": null,
-              "output": 1.2
-            }
-          },
-          "after": null
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=nemotron-3-5-content-safety:free",
-          "before": {
-            "exists": true,
-            "pricing": {
-              "modelId": "nvidia/nemotron-3.5-content-safety:free",
-              "alias": "nvidia/nemotron-3.5-content-safety:free",
+              "modelId": "liquid/lfm-3-1.7b:free",
+              "alias": "liquid/lfm-3-1.7b:free",
               "input": 0,
               "cachedInput": 0,
               "cacheWrite": null,
               "output": 0
             }
-          },
-          "after": null
+          }
         },
         {
-          "pointer": "/runtimeResolution/@lookup=nemotron-3-super-120b-a12b/pricing/cachedInput",
-          "before": 0.15,
-          "after": 0.0075
+          "pointer": "/runtimeResolution/@lookup=ling-3-1-flash/pricing/cachedInput",
+          "before": 0.015,
+          "after": 0.009
         },
         {
-          "pointer": "/runtimeResolution/@lookup=nemotron-3-super-120b-a12b/pricing/input",
-          "before": 0.3,
-          "after": 0.075
+          "pointer": "/runtimeResolution/@lookup=ling-3-1-flash/pricing/input",
+          "before": 0.075,
+          "after": 0.045
         },
         {
-          "pointer": "/runtimeResolution/@lookup=nemotron-3-super-120b-a12b/pricing/output",
-          "before": 2.4,
+          "pointer": "/runtimeResolution/@lookup=ling-3-1-flash/pricing/output",
+          "before": 0.22499999999999998,
+          "after": 0.135
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=magnum-v4-72b/pricing/cachedInput",
+          "before": 0.25,
+          "after": 2.5
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=minimax-m2-5/pricing/cachedInput",
+          "before": 0.03,
+          "after": 0.06
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=minimax-m2-5/pricing/input",
+          "before": 0.27,
+          "after": 0.3
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=minimax-m2-5/pricing/output",
+          "before": 0.95,
+          "after": 1.2
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=minimax-m3:batch",
+          "before": null,
+          "after": {
+            "exists": true,
+            "pricing": {
+              "modelId": "minimax/minimax-m3:batch",
+              "alias": "minimax/minimax-m3:batch",
+              "input": 0.224,
+              "cachedInput": 0.0448,
+              "cacheWrite": null,
+              "output": 0.88
+            }
+          }
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=muse-glimmer-30b:batch",
+          "before": null,
+          "after": {
+            "exists": true,
+            "pricing": {
+              "modelId": "meta/muse-glimmer-30b:batch",
+              "alias": "meta/muse-glimmer-30b:batch",
+              "input": 0.24,
+              "cachedInput": 0.032,
+              "cacheWrite": null,
+              "output": 0.96
+            }
+          }
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=qwen3-8-27b:batch",
+          "before": null,
+          "after": {
+            "exists": true,
+            "pricing": {
+              "modelId": "qwen/qwen3.8-27b:batch",
+              "alias": "qwen/qwen3.8-27b:batch",
+              "input": 0.16,
+              "cachedInput": 0.04,
+              "cacheWrite": null,
+              "output": 2
+            }
+          }
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=remm-slerp-l2-13b/pricing/cachedInput",
+          "before": 0.034999999999999996,
+          "after": 0.35
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=weaver/pricing/cachedInput",
+          "before": 0.04,
           "after": 0.39999999999999997
         }
       ]
@@ -332,10 +259,734 @@
       "kind": "documentation",
       "url": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
       "finalUrl": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
-      "sha256": "9324a4577cbaaffc182c94cd4619e88de94025cb47a3ec0d5f617edbc5242bd7",
+      "sha256": "e48015137b1391a129454b8107cbae4b1a09f33c61a81fa91bed71e7d0982cbe",
       "textSha256": "939f043efd90e282dc512d4f593387a4d260e23c2ed4ed80b8632ded343993eb",
-      "retrievedAt": "2026-11-06T12:53:12.543Z",
+      "retrievedAt": "2026-11-07T12:52:50.538Z",
       "status": "ok"
+    },
+    {
+      "id": "copilot-pricing",
+      "scope": "GitHub Copilot / copilot-api published billing tariffs in USD per million tokens, including table-associated footnotes; not native API prices or Copilot CLI eligibility",
+      "kind": "documentation",
+      "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+      "finalUrl": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+      "sha256": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+      "textSha256": "880dffc4311494f542f6cb38477683de893fc216c047aa97d6ae634abbb78076",
+      "retrievedAt": "2026-11-07T12:52:50.618Z",
+      "status": "ok",
+      "pricing": {
+        "tables": [
+          {
+            "owner": "openai",
+            "headers": [
+              "Model",
+              "Release status",
+              "Category",
+              "Tier",
+              "Threshold (input tokens)",
+              "Input",
+              "Cached input",
+              "Cache write",
+              "Output"
+            ],
+            "rows": [
+              {
+                "cells": [
+                  "GPT-5.3-Codex",
+                  "GA",
+                  "Powerful",
+                  "Default",
+                  "Not applicable",
+                  "$1.75",
+                  "$0.175",
+                  "Not applicable",
+                  "$14.00"
+                ],
+                "footnotes": [],
+                "quote": "GPT-5.3-Codex GA Powerful Default Not applicable $1.75 $0.175 Not applicable $14.00"
+              },
+              {
+                "cells": [
+                  "GPT-5.4 nano",
+                  "GA",
+                  "Lightweight",
+                  "Default",
+                  "Not applicable",
+                  "$0.20",
+                  "$0.02",
+                  "Not applicable",
+                  "$1.25"
+                ],
+                "footnotes": [],
+                "quote": "GPT-5.4 nano GA Lightweight Default Not applicable $0.20 $0.02 Not applicable $1.25"
+              },
+              {
+                "cells": [
+                  "GPT-5.6 Luna",
+                  "GA",
+                  "Lightweight",
+                  "Default",
+                  "[redacted]",
+                  "$0.20",
+                  "$0.02",
+                  "$0.25",
+                  "$1.20"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "GPT-5.6 Luna",
+                  "GA",
+                  "Lightweight",
+                  "Long context",
+                  "[redacted]",
+                  "$0.40",
+                  "$0.04",
+                  "$0.50",
+                  "$1.80"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "GPT-5.6 Sol",
+                  "GA",
+                  "Powerful",
+                  "Default",
+                  "[redacted]",
+                  "$4.00",
+                  "$0.40",
+                  "$5.00",
+                  "$20.00"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "GPT-5.6 Sol",
+                  "GA",
+                  "Powerful",
+                  "Long context",
+                  "[redacted]",
+                  "$8.00",
+                  "$0.80",
+                  "$10.00",
+                  "$30.00"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "GPT-5.6 Terra",
+                  "GA",
+                  "Versatile",
+                  "Default",
+                  "[redacted]",
+                  "$2.00",
+                  "$0.20",
+                  "$2.50",
+                  "$12.00"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "GPT-5.6 Terra",
+                  "GA",
+                  "Versatile",
+                  "Long context",
+                  "[redacted]",
+                  "$4.00",
+                  "$0.40",
+                  "$5.00",
+                  "$18.00"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "GPT-6 Astra",
+                  "GA",
+                  "Powerful",
+                  "Default",
+                  "[redacted]",
+                  "$10.00",
+                  "$1.00",
+                  "$12.50",
+                  "$50.00"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "GPT-6 Astra",
+                  "GA",
+                  "Powerful",
+                  "Long context",
+                  "[redacted]",
+                  "$20.00",
+                  "$2.00",
+                  "$25.00",
+                  "$75.00"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "GPT-6 Luna",
+                  "GA",
+                  "Lightweight",
+                  "Default",
+                  "[redacted]",
+                  "$0.10",
+                  "$0.01",
+                  "$0.125",
+                  "$0.50"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "GPT-6 Luna",
+                  "GA",
+                  "Lightweight",
+                  "Long context",
+                  "[redacted]",
+                  "$0.20",
+                  "$0.02",
+                  "$0.25",
+                  "$0.75"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "GPT-6 Sol",
+                  "GA",
+                  "Powerful",
+                  "Default",
+                  "[redacted]",
+                  "$2.00",
+                  "$0.20",
+                  "$2.50",
+                  "$10.00"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "GPT-6 Sol",
+                  "GA",
+                  "Powerful",
+                  "Long context",
+                  "[redacted]",
+                  "$4.00",
+                  "$0.40",
+                  "$5.00",
+                  "$15.00"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "GPT-6.1 Sol",
+                  "GA",
+                  "Powerful",
+                  "Default",
+                  "[redacted]",
+                  "$2.00",
+                  "$0.10",
+                  "$2.50",
+                  "$10.00"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "GPT-6.1 Sol",
+                  "GA",
+                  "Powerful",
+                  "Long context",
+                  "[redacted]",
+                  "$4.00",
+                  "$0.20",
+                  "$5.00",
+                  "$15.00"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "GPT-6.1 Terra",
+                  "GA",
+                  "Versatile",
+                  "Default",
+                  "[redacted]",
+                  "$1.00",
+                  "$0.05",
+                  "$1.25",
+                  "$5.00"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "GPT-6.1 Terra",
+                  "GA",
+                  "Versatile",
+                  "Long context",
+                  "[redacted]",
+                  "$2.00",
+                  "$0.10",
+                  "$2.50",
+                  "$7.50"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              }
+            ]
+          },
+          {
+            "owner": "anthropic",
+            "headers": [
+              "Model",
+              "Release status",
+              "Category",
+              "Tier",
+              "Threshold (input tokens)",
+              "Input",
+              "Cached input",
+              "Cache write",
+              "Output"
+            ],
+            "rows": [
+              {
+                "cells": [
+                  "Claude Haiku 4.5",
+                  "GA",
+                  "Versatile",
+                  "Default",
+                  "Not applicable",
+                  "$1.00",
+                  "$0.10",
+                  "$1.25",
+                  "$5.00"
+                ],
+                "footnotes": [],
+                "quote": "Claude Haiku 4.5 GA Versatile Default Not applicable $1.00 $0.10 $1.25 $5.00"
+              },
+              {
+                "cells": [
+                  "Claude Haiku 5.5",
+                  "GA",
+                  "Lightweight",
+                  "Default",
+                  "[redacted]",
+                  "$0.10",
+                  "$0.01",
+                  "$0.125",
+                  "$0.50"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "Claude Haiku 5.5",
+                  "GA",
+                  "Lightweight",
+                  "Long context",
+                  "[redacted]",
+                  "$0.50",
+                  "$0.05",
+                  "$0.625",
+                  "$2.50"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "Claude Sonnet 4",
+                  "GA",
+                  "Versatile",
+                  "Default",
+                  "Not applicable",
+                  "$3.00",
+                  "$0.30",
+                  "$3.75",
+                  "$15.00"
+                ],
+                "footnotes": [],
+                "quote": "Claude Sonnet 4 GA Versatile Default Not applicable $3.00 $0.30 $3.75 $15.00"
+              },
+              {
+                "cells": [
+                  "Claude Sonnet 4.6",
+                  "GA",
+                  "Versatile",
+                  "Default",
+                  "Not applicable",
+                  "$3.00",
+                  "$0.30",
+                  "$3.75",
+                  "$15.00"
+                ],
+                "footnotes": [],
+                "quote": "Claude Sonnet 4.6 GA Versatile Default Not applicable $3.00 $0.30 $3.75 $15.00"
+              },
+              {
+                "cells": [
+                  "Claude Opus 4.8",
+                  "GA",
+                  "Powerful",
+                  "Default",
+                  "Not applicable",
+                  "$5.00",
+                  "$0.50",
+                  "$6.25",
+                  "$25.00"
+                ],
+                "footnotes": [],
+                "quote": "Claude Opus 4.8 GA Powerful Default Not applicable $5.00 $0.50 $6.25 $25.00"
+              },
+              {
+                "cells": [
+                  "Claude Opus 5",
+                  "GA",
+                  "Powerful",
+                  "Default",
+                  "Not applicable",
+                  "$5.00",
+                  "$0.50",
+                  "$6.25",
+                  "$25.00"
+                ],
+                "footnotes": [],
+                "quote": "Claude Opus 5 GA Powerful Default Not applicable $5.00 $0.50 $6.25 $25.00"
+              },
+              {
+                "cells": [
+                  "Claude Opus 5.5",
+                  "GA",
+                  "Powerful",
+                  "Default",
+                  "Not applicable",
+                  "$4.00",
+                  "$0.20",
+                  "$5.00",
+                  "$20.00"
+                ],
+                "footnotes": [],
+                "quote": "Claude Opus 5.5 GA Powerful Default Not applicable $4.00 $0.20 $5.00 $20.00"
+              },
+              {
+                "cells": [
+                  "Claude Sonnet 5",
+                  "GA",
+                  "Versatile",
+                  "Default",
+                  "Not applicable",
+                  "$2.00",
+                  "$0.20",
+                  "$2.50",
+                  "$10.00"
+                ],
+                "footnotes": [],
+                "quote": "Claude Sonnet 5 GA Versatile Default Not applicable $2.00 $0.20 $2.50 $10.00"
+              },
+              {
+                "cells": [
+                  "Claude Sonnet 5.5",
+                  "GA",
+                  "Versatile",
+                  "Default",
+                  "Not applicable",
+                  "$2.00",
+                  "$0.10",
+                  "$2.50",
+                  "$10.00"
+                ],
+                "footnotes": [],
+                "quote": "Claude Sonnet 5.5 GA Versatile Default Not applicable $2.00 $0.10 $2.50 $10.00"
+              },
+              {
+                "cells": [
+                  "Claude Opus 4.8 (fast mode) (preview)",
+                  "GA",
+                  "Powerful",
+                  "Default",
+                  "Not applicable",
+                  "$10.00",
+                  "$1.00",
+                  "$12.50",
+                  "$50.00"
+                ],
+                "footnotes": [],
+                "quote": "Claude Opus 4.8 (fast mode) (preview) GA Powerful Default Not applicable $10.00 $1.00 $12.50 $50.00"
+              },
+              {
+                "cells": [
+                  "Claude Fable 5",
+                  "GA",
+                  "Powerful",
+                  "Default",
+                  "Not applicable",
+                  "$10.00",
+                  "$1.00",
+                  "$12.50",
+                  "$50.00"
+                ],
+                "footnotes": [],
+                "quote": "Claude Fable 5 GA Powerful Default Not applicable $10.00 $1.00 $12.50 $50.00"
+              },
+              {
+                "cells": [
+                  "Claude Fable 5.1",
+                  "GA",
+                  "Powerful",
+                  "Default",
+                  "Not applicable",
+                  "$10.00",
+                  "$0.25",
+                  "$12.50",
+                  "$50.00"
+                ],
+                "footnotes": [],
+                "quote": "Claude Fable 5.1 GA Powerful Default Not applicable $10.00 $0.25 $12.50 $50.00"
+              }
+            ]
+          },
+          {
+            "owner": "google",
+            "headers": [
+              "Model",
+              "Release status",
+              "Category",
+              "Tier",
+              "Threshold (input tokens)",
+              "Input",
+              "Cached input",
+              "Output"
+            ],
+            "rows": [
+              {
+                "cells": [
+                  "Gemini 3.8 Flash",
+                  "GA",
+                  "Versatile",
+                  "Default",
+                  "Not applicable",
+                  "$0.75",
+                  "$0.075",
+                  "$3.75"
+                ],
+                "footnotes": [
+                  "user-content-fn-gemini-flash-promo"
+                ],
+                "quote": "Gemini 3.8 Flash 1 GA Versatile Default Not applicable $0.75 $0.075 $3.75"
+              },
+              {
+                "cells": [
+                  "Gemini 4 Argon",
+                  "GA",
+                  "Powerful",
+                  "Default",
+                  "Not applicable",
+                  "$2.00",
+                  "$0.10",
+                  "$10.00"
+                ],
+                "footnotes": [
+                  "user-content-fn-gemini-4-argon-promo"
+                ],
+                "quote": "Gemini 4 Argon 2 GA Powerful Default Not applicable $2.00 $0.10 $10.00"
+              }
+            ]
+          },
+          {
+            "owner": "fine-tuned-github",
+            "headers": [
+              "Model",
+              "Release status",
+              "Category",
+              "Input",
+              "Cached input",
+              "Output"
+            ],
+            "rows": []
+          },
+          {
+            "owner": "microsoft",
+            "headers": [
+              "Model",
+              "Release status",
+              "Category",
+              "Input",
+              "Cached input",
+              "Output"
+            ],
+            "rows": [
+              {
+                "cells": [
+                  "MAI-Code-1.1-Flash",
+                  "GA",
+                  "Lightweight",
+                  "$0.20",
+                  "$0.02",
+                  "$1.20"
+                ],
+                "footnotes": [],
+                "quote": "MAI-Code-1.1-Flash GA Lightweight $0.20 $0.02 $1.20"
+              }
+            ]
+          },
+          {
+            "owner": "xai",
+            "headers": [
+              "Model",
+              "Release status",
+              "Category",
+              "Tier",
+              "Threshold (input tokens)",
+              "Input",
+              "Cached input",
+              "Output"
+            ],
+            "rows": [
+              {
+                "cells": [
+                  "Grok 4.5",
+                  "GA",
+                  "Versatile",
+                  "Default",
+                  "[redacted]",
+                  "$2.00",
+                  "$0.50",
+                  "$6.00"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "Grok 4.5",
+                  "GA",
+                  "Versatile",
+                  "Long context",
+                  "[redacted]",
+                  "$4.00",
+                  "$1.00",
+                  "$12.00"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "Grok 4.6",
+                  "GA",
+                  "Versatile",
+                  "Default",
+                  "[redacted]",
+                  "$2.00",
+                  "$0.50",
+                  "$6.00"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "Grok 4.6",
+                  "GA",
+                  "Versatile",
+                  "Long context",
+                  "[redacted]",
+                  "$4.00",
+                  "$1.00",
+                  "$12.00"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "Grok 4.7",
+                  "GA",
+                  "Versatile",
+                  "Default",
+                  "[redacted]",
+                  "$2.00",
+                  "$0.50",
+                  "$6.00"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              },
+              {
+                "cells": [
+                  "Grok 4.7",
+                  "GA",
+                  "Versatile",
+                  "Long context",
+                  "[redacted]",
+                  "$4.00",
+                  "$1.00",
+                  "$12.00"
+                ],
+                "footnotes": [],
+                "quote": "[redacted]"
+              }
+            ]
+          },
+          {
+            "owner": "moonshot-ai",
+            "headers": [
+              "Model",
+              "Release status",
+              "Category",
+              "Input",
+              "Cached input",
+              "Output"
+            ],
+            "rows": [
+              {
+                "cells": [
+                  "Kimi K3",
+                  "GA",
+                  "Powerful",
+                  "$3.00",
+                  "$0.30",
+                  "$15.00"
+                ],
+                "footnotes": [],
+                "quote": "Kimi K3 GA Powerful $3.00 $0.30 $15.00"
+              }
+            ]
+          }
+        ],
+        "footnotes": {
+          "user-content-fn-gemini-flash-promo": "[redacted]",
+          "user-content-fn-gemini-4-argon-promo": "[redacted]"
+        }
+      }
     },
     {
       "id": "copilot-retirement",
@@ -343,9 +994,9 @@
       "kind": "documentation",
       "url": "https://docs.github.com/en/copilot/reference/ai-models/supported-models#model-retirement-history",
       "finalUrl": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
-      "sha256": "9324a4577cbaaffc182c94cd4619e88de94025cb47a3ec0d5f617edbc5242bd7",
+      "sha256": "e48015137b1391a129454b8107cbae4b1a09f33c61a81fa91bed71e7d0982cbe",
       "textSha256": "939f043efd90e282dc512d4f593387a4d260e23c2ed4ed80b8632ded343993eb",
-      "retrievedAt": "2026-11-06T12:53:12.564Z",
+      "retrievedAt": "2026-11-07T12:52:50.714Z",
       "status": "ok"
     },
     {
@@ -354,9 +1005,9 @@
       "kind": "documentation",
       "url": "https://github.blog/changelog/label/copilot/",
       "finalUrl": "https://github.blog/changelog/label/copilot/",
-      "sha256": "b68de3f5f3dea9b091f304a8f9a91ce0bda8de181337029012fb8dd1b4b5c64c",
-      "textSha256": "e2ddab26e48bbf3a72fd77e6bc6d483ea77b91172c09a637d7a203c9bf75668d",
-      "retrievedAt": "2026-11-06T12:53:12.604Z",
+      "sha256": "f3d821fb0dd01046fbda96cdfe8c74b8b88e8bcae51cff9a10949eb83df647eb",
+      "textSha256": "7482c771228217acf426eab6a694f1075338132800175754ca1e24ff30f84b7a",
+      "retrievedAt": "2026-11-07T12:52:50.814Z",
       "status": "ok"
     },
     {
@@ -365,9 +1016,9 @@
       "kind": "documentation",
       "url": "https://developers.openai.com/api/docs/models",
       "finalUrl": "https://developers.openai.com/api/docs/models",
-      "sha256": "adbed20b4b79a0df320f00f84832f3527054d6c4fee87bb8b86d69e92e31cd94",
-      "textSha256": "f02a7cd618a8a211234fdb1032f7c0058a30d040862c625252178ff07c51ce31",
-      "retrievedAt": "2026-11-06T12:53:12.735Z",
+      "sha256": "66d5e801a780a97251450bd5cd63aa117648552eb812452860dd0dfea3662d1f",
+      "textSha256": "a9c90965d30c5576d0b22896aaa926551c401ea17a4524ef02f04dee81bf5ce0",
+      "retrievedAt": "2026-11-07T12:52:51.563Z",
       "status": "ok"
     },
     {
@@ -376,9 +1027,9 @@
       "kind": "documentation",
       "url": "https://developers.openai.com/api/docs/pricing",
       "finalUrl": "https://developers.openai.com/api/docs/pricing",
-      "sha256": "acb5613ae0193d0a9e17cde2f6f0cf158c3b9812819f8b2b2c77a5bf65515e39",
-      "textSha256": "33926ae0f70e5ff5869c16542404b4eafbc69a4f8c4e692b98a82ee42ca36f71",
-      "retrievedAt": "2026-11-06T12:53:12.769Z",
+      "sha256": "926b4a1f3ab0e2a78f315ce83ccc67f65f0d4a26e6139cd6c57e661a348037ee",
+      "textSha256": "c4e89c305e24f8dbd03fcece86d0014e49ff515e4a9d048b0945f8f7924027eb",
+      "retrievedAt": "2026-11-07T12:52:51.612Z",
       "status": "ok"
     },
     {
@@ -387,9 +1038,9 @@
       "kind": "documentation",
       "url": "https://developers.openai.com/api/reference/responses/overview",
       "finalUrl": "https://developers.openai.com/api/reference/responses/overview",
-      "sha256": "6457bb1ab03e72dd63910edf6af31e63a2ccaa41749e7775bd7aed497aec4376",
+      "sha256": "7914aaec05a653f80728b0640c66a6b9389af8862b5516fb6614ea34f9a8571b",
       "textSha256": "a6ffd6911ee2842a50c76a0856369470b36ff787174078828dfb471200fa9f77",
-      "retrievedAt": "2026-11-06T12:53:12.791Z",
+      "retrievedAt": "2026-11-07T12:52:51.650Z",
       "status": "ok"
     },
     {
@@ -398,9 +1049,9 @@
       "kind": "documentation",
       "url": "https://platform.claude.com/docs/en/about-claude/models/overview",
       "finalUrl": "https://platform.claude.com/docs/en/models/overview",
-      "sha256": "e5d48ac8d76231799d1475384117e4dd9fc821b05f85e32a88016cff1cb6444c",
-      "textSha256": "5c8f3bd72bbd62a0f92ac3f58b7741dec89090f66aaebb1c41aa0d1cc98d37d4",
-      "retrievedAt": "2026-11-06T12:53:13.125Z",
+      "sha256": "82b47eb4712b84031fb4cb0b03b371908c2bba34ba4ac2d932fb630aeaefa176",
+      "textSha256": "b3fafb8e9fdcfa192639b0f9114fc9f7a45eb2a9e03e0ac92092fa88fbb66b49",
+      "retrievedAt": "2026-11-07T12:52:52.326Z",
       "status": "ok"
     },
     {
@@ -409,9 +1060,9 @@
       "kind": "documentation",
       "url": "https://platform.claude.com/docs/en/about-claude/pricing",
       "finalUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "sha256": "e7a4bfb2ddf9bc3820175b3baf428954dd4c0bed246b230d7ec316f106fb7964",
-      "textSha256": "8787405bb0d0bb1b81e9470e7b50ebb5894dd13926e671e9339bb0c989f16919",
-      "retrievedAt": "2026-11-06T12:53:13.447Z",
+      "sha256": "ac2e53f73efb9f50d8d4cd9b4a3e77ea17dea79515b0a8c97d3014bf1fcc758c",
+      "textSha256": "8352855978113ff31a1dc50a0f7d691344ae8ac5aaa80b393d0c593ce90f9c85",
+      "retrievedAt": "2026-11-07T12:52:52.696Z",
       "status": "ok"
     },
     {
@@ -422,7 +1073,7 @@
       "finalUrl": "https://aistudio.google.com/docs/models?hl=en",
       "sha256": "3875002d6dc17c07ec9c08821e2be8b1b679384213ab3a8e994669696eadac58",
       "textSha256": "c79dd24babbc4287d9255b243ef5067ef79f2a97759b6501ca82e9b37ecc7684",
-      "retrievedAt": "2026-11-06T12:53:13.642Z",
+      "retrievedAt": "2026-11-07T12:52:53.140Z",
       "status": "ok"
     },
     {
@@ -431,9 +1082,9 @@
       "kind": "documentation",
       "url": "https://docs.x.ai/developers/models",
       "finalUrl": "https://docs.x.ai/developers/models",
-      "sha256": "03adbfa1294a9569bcba6352415696ce721bc09dd98741f28590b2b6d76d95c3",
+      "sha256": "3ef6719c6e5ffebd8e5328c3571e0e57a3be7db3dbe7b43dce4f2fb22743f560",
       "textSha256": "ac61194d030e8ad2d9abcba5a2399fd43a451cc2cafa4a5221ffacb6872d745a",
-      "retrievedAt": "2026-11-06T12:53:13.703Z",
+      "retrievedAt": "2026-11-07T12:52:53.311Z",
       "status": "ok"
     },
     {
@@ -442,12 +1093,12 @@
       "kind": "catalogue",
       "url": "https://openrouter.ai/api/v1/models",
       "finalUrl": "https://openrouter.ai/api/v1/models",
-      "sha256": "edbae01b6eea699e358923131e39786ae33075b7f7ca4bbbd7ea162a6be66d0c",
-      "textSha256": "edbae01b6eea699e358923131e39786ae33075b7f7ca4bbbd7ea162a6be66d0c",
-      "retrievedAt": "2026-11-06T12:53:13.761Z",
+      "sha256": "08b4635fd684689feda841f906d59e0dcd8ad9dd57a7c0b7f0667d46b740876a",
+      "textSha256": "08b4635fd684689feda841f906d59e0dcd8ad9dd57a7c0b7f0667d46b740876a",
+      "retrievedAt": "2026-11-07T12:52:53.385Z",
       "status": "ok",
       "import": {
-        "accepted": 426,
+        "accepted": 433,
         "rejected": 27,
         "collisions": [],
         "excluded": [
@@ -487,328 +1138,206 @@
       "file": "containers/api-proxy/models.dev.catalog.json",
       "changes": [
         {
-          "pointer": "/data/@id=deepseek~1deepseek-chat/maxCompletion",
-          "before": 16000,
-          "after": 16384
+          "pointer": "/data/@id=anthracite-org~1magnum-v4-72b/pricing/input_cache_read",
+          "before": null,
+          "after": "0.0000025"
         },
         {
-          "pointer": "/data/@id=deepseek~1deepseek-chat/pricing/completion",
-          "before": "0.0000010287",
-          "after": "0.00000089"
+          "pointer": "/data/@id=cohere~1command-a/parameters/10",
+          "before": null,
+          "after": "top_k"
         },
         {
-          "pointer": "/data/@id=deepseek~1deepseek-chat/pricing/prompt",
-          "before": "0.0000002574",
-          "after": "0.00000032"
+          "pointer": "/data/@id=cohere~1command-a/parameters/11",
+          "before": null,
+          "after": "top_p"
         },
         {
-          "pointer": "/data/@id=deepseek~1deepseek-chat/providerContext",
-          "before": 128000,
-          "after": 163840
+          "pointer": "/data/@id=cohere~1command-a/parameters/8",
+          "before": "top_k",
+          "after": "tool_choice"
         },
         {
-          "pointer": "/data/@id=deepseek~1deepseek-v4-flash-vision-exp/maxCompletion",
-          "before": 262144,
-          "after": 943717
+          "pointer": "/data/@id=cohere~1command-a/parameters/9",
+          "before": "top_p",
+          "after": "tools"
         },
         {
-          "pointer": "/data/@id=deepseek~1deepseek-v4-flash-vision-exp/pricing/completion",
-          "before": "0.0000006468",
-          "after": "0.00000132"
+          "pointer": "/data/@id=cohere~1command-a-plus/parameters/10",
+          "before": "tools",
+          "after": "tool_choice"
         },
         {
-          "pointer": "/data/@id=deepseek~1deepseek-v4-flash-vision-exp/pricing/input_cache_read",
-          "before": "0.00000000686",
-          "after": "0.000000014"
+          "pointer": "/data/@id=cohere~1command-a-plus/parameters/11",
+          "before": "top_k",
+          "after": "tools"
         },
         {
-          "pointer": "/data/@id=deepseek~1deepseek-v4-flash-vision-exp/pricing/prompt",
-          "before": "0.0000002156",
-          "after": "0.00000044"
+          "pointer": "/data/@id=cohere~1command-a-plus/parameters/12",
+          "before": "top_p",
+          "after": "top_k"
         },
         {
-          "pointer": "/data/@id=deepseek~1deepseek-v4-flash-vision-exp/providerContext",
-          "before": 1048576,
-          "after": 1048575
+          "pointer": "/data/@id=cohere~1command-a-plus/parameters/13",
+          "before": null,
+          "after": "top_p"
         },
         {
-          "pointer": "/data/@id=deepseek~1deepseek-v4-pro/maxCompletion",
-          "before": 393216,
-          "after": 384000
+          "pointer": "/data/@id=cohere~1command-r7b-12-2024/parameters/10",
+          "before": null,
+          "after": "top_k"
+        },
+        {
+          "pointer": "/data/@id=cohere~1command-r7b-12-2024/parameters/11",
+          "before": null,
+          "after": "top_p"
+        },
+        {
+          "pointer": "/data/@id=cohere~1command-r7b-12-2024/parameters/8",
+          "before": "top_k",
+          "after": "tool_choice"
+        },
+        {
+          "pointer": "/data/@id=cohere~1command-r7b-12-2024/parameters/9",
+          "before": "top_p",
+          "after": "tools"
+        },
+        {
+          "pointer": "/data/@id=deepseek~1deepseek-v4-flash-0731/pricing/prompt",
+          "before": "0.000000059",
+          "after": "0.0000000487"
+        },
+        {
+          "pointer": "/data/@id=deepseek~1deepseek-v4-flash-0731:batch",
+          "before": null,
+          "after": {
+            "id": "deepseek/deepseek-v4-flash-0731:batch",
+            "pricing": {
+              "completion": "0.000000144",
+              "input_cache_read": "0.000000012",
+              "prompt": "0.000000048"
+            },
+            "canonicalSlug": "deepseek/deepseek-v4-flash-20260731",
+            "context": 1048576,
+            "providerContext": 1048576,
+            "maxCompletion": 384000,
+            "parameters": [
+              "frequency_penalty",
+              "include_reasoning",
+              "logit_bias",
+              "max_tokens",
+              "min_p",
+              "presence_penalty",
+              "reasoning",
+              "reasoning_effort",
+              "repetition_penalty",
+              "response_format",
+              "seed",
+              "stop",
+              "structured_outputs",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_k",
+              "top_p"
+            ],
+            "inputModalities": [
+              "text"
+            ],
+            "outputModalities": [
+              "text"
+            ],
+            "expiration": null
+          }
         },
         {
           "pointer": "/data/@id=deepseek~1deepseek-v4-pro/pricing/completion",
-          "before": "0.0000032",
-          "after": "0.000001794636"
+          "before": "0.000001794636",
+          "after": "0.000001435848"
         },
         {
           "pointer": "/data/@id=deepseek~1deepseek-v4-pro/pricing/input_cache_read",
-          "before": "0.000000135",
-          "after": "0.0000000747765"
+          "before": "0.0000000747765",
+          "after": "0.000000059827"
         },
         {
           "pointer": "/data/@id=deepseek~1deepseek-v4-pro/pricing/prompt",
-          "before": "0.0000016",
-          "after": "0.000000897318"
-        },
-        {
-          "pointer": "/data/@id=deepseek~1deepseek-v4-pro/providerContext",
-          "before": 1048576,
-          "after": 1024000
-        },
-        {
-          "pointer": "/data/@id=deepseek~1deepseek-v4-pro-0813/pricing/completion",
-          "before": "0.00000411",
-          "after": "0.00000466"
-        },
-        {
-          "pointer": "/data/@id=deepseek~1deepseek-v4-pro-0813/pricing/input_cache_read",
-          "before": "0.000000098",
-          "after": "0.000000111"
-        },
-        {
-          "pointer": "/data/@id=deepseek~1deepseek-v4-pro-0813/pricing/prompt",
-          "before": "0.000000103",
-          "after": "0.0000001165"
-        },
-        {
-          "pointer": "/data/@id=deepseek~1deepseek-v4.1-flash/pricing/completion",
-          "before": "0.0000005",
-          "after": "0.000000567"
-        },
-        {
-          "pointer": "/data/@id=deepseek~1deepseek-v4.1-flash/pricing/prompt",
-          "before": "0.000000045",
-          "after": "0.000000051"
-        },
-        {
-          "pointer": "/data/@id=google~1gemini-omni-1.1-flash",
-          "before": null,
-          "after": {
-            "id": "google/gemini-omni-1.1-flash",
-            "pricing": {
-              "completion": "0.000009",
-              "prompt": "0.0000015",
-              "web_search": "0.014"
-            },
-            "canonicalSlug": "google/gemini-omni-1.1-flash-20260911",
-            "context": 131072,
-            "providerContext": 131072,
-            "maxCompletion": 65536,
-            "parameters": [
-              "include_reasoning",
-              "max_tokens",
-              "reasoning",
-              "reasoning_effort",
-              "seed",
-              "temperature",
-              "top_p"
-            ],
-            "inputModalities": [
-              "image",
-              "text",
-              "video"
-            ],
-            "outputModalities": [
-              "text",
-              "video"
-            ],
-            "expiration": null
-          }
-        },
-        {
-          "pointer": "/data/@id=google~1gemini-omni-1.2-flash",
-          "before": null,
-          "after": {
-            "id": "google/gemini-omni-1.2-flash",
-            "pricing": {
-              "completion": "0.000009",
-              "prompt": "0.0000015",
-              "web_search": "0.014"
-            },
-            "canonicalSlug": "google/gemini-omni-1.2-flash-20261105",
-            "context": 131072,
-            "providerContext": 131072,
-            "maxCompletion": 65536,
-            "parameters": [
-              "include_reasoning",
-              "max_tokens",
-              "reasoning",
-              "reasoning_effort",
-              "seed",
-              "temperature",
-              "top_p"
-            ],
-            "inputModalities": [
-              "image",
-              "text",
-              "video"
-            ],
-            "outputModalities": [
-              "text",
-              "video"
-            ],
-            "expiration": null
-          }
-        },
-        {
-          "pointer": "/data/@id=google~1gemma-4-26b-a4b-it/maxCompletion",
-          "before": 32768,
-          "after": 235929
+          "before": "0.000000897318",
+          "after": "0.000000717924"
         },
         {
           "pointer": "/data/@id=google~1gemma-4-26b-a4b-it/pricing/completion",
-          "before": "0.000000113",
-          "after": "0.0000003"
+          "before": "0.0000003",
+          "after": "0.000000225"
         },
         {
           "pointer": "/data/@id=google~1gemma-4-26b-a4b-it/pricing/input_cache_read",
-          "before": "0.000000019",
-          "after": "0.00000005"
+          "before": "0.00000005",
+          "after": "0.0000000375"
         },
         {
           "pointer": "/data/@id=google~1gemma-4-26b-a4b-it/pricing/prompt",
-          "before": "0.000000038",
-          "after": "0.00000009"
+          "before": "0.00000009",
+          "after": "0.0000000675"
         },
         {
-          "pointer": "/data/@id=meta-llama~1llama-3.2-1b-instruct/expiration",
+          "pointer": "/data/@id=inclusionai~1ling-3.1-flash/pricing/completion",
+          "before": "0.000000225",
+          "after": "0.000000135"
+        },
+        {
+          "pointer": "/data/@id=inclusionai~1ling-3.1-flash/pricing/input_cache_read",
+          "before": "0.000000015",
+          "after": "0.000000009"
+        },
+        {
+          "pointer": "/data/@id=inclusionai~1ling-3.1-flash/pricing/prompt",
+          "before": "0.000000075",
+          "after": "0.000000045"
+        },
+        {
+          "pointer": "/data/@id=liquid~1lfm-2.5-2.6b/expiration",
           "before": null,
-          "after": "2026-11-15"
+          "after": "2026-11-13"
         },
         {
-          "pointer": "/data/@id=meta-llama~1llama-3.2-3b-instruct/expiration",
+          "pointer": "/data/@id=liquid~1lfm-2.5-2.6b:free/expiration",
           "before": null,
-          "after": "2026-11-15"
+          "after": "2026-11-13"
         },
         {
-          "pointer": "/data/@id=meta-llama~1llama-3.3-70b-instruct/maxCompletion",
-          "before": 128000,
-          "after": 32768
-        },
-        {
-          "pointer": "/data/@id=meta-llama~1llama-3.3-70b-instruct/pricing/completion",
-          "before": "0.00000052",
-          "after": "0.00000079"
-        },
-        {
-          "pointer": "/data/@id=meta-llama~1llama-3.3-70b-instruct/pricing/input_cache_read",
-          "before": "0.0000001",
-          "after": "0.000000295"
-        },
-        {
-          "pointer": "/data/@id=meta-llama~1llama-3.3-70b-instruct/pricing/prompt",
-          "before": "0.0000002",
-          "after": "0.00000059"
-        },
-        {
-          "pointer": "/data/@id=minimax~1minimax-01",
-          "before": {
-            "id": "minimax/minimax-01",
+          "pointer": "/data/@id=liquid~1lfm-3-1.7b",
+          "before": null,
+          "after": {
+            "id": "liquid/lfm-3-1.7b",
             "pricing": {
-              "completion": "0.0000011",
-              "prompt": "0.0000002"
+              "completion": "0.0000002",
+              "input_cache_read": "0.00000002",
+              "prompt": "0.00000008"
             },
-            "canonicalSlug": "minimax/minimax-01",
-            "context": 1000192,
-            "providerContext": 1000192,
-            "maxCompletion": 900172,
+            "canonicalSlug": "liquid/lfm-3-1.7b-20261106",
+            "context": 262144,
+            "providerContext": 262144,
+            "maxCompletion": 8192,
             "parameters": [
-              "max_tokens",
-              "temperature",
-              "top_p"
-            ],
-            "inputModalities": [
-              "image",
-              "text"
-            ],
-            "outputModalities": [
-              "text"
-            ],
-            "expiration": "2026-11-05"
-          },
-          "after": null
-        },
-        {
-          "pointer": "/data/@id=minimax~1minimax-m2",
-          "before": {
-            "id": "minimax/minimax-m2",
-            "pricing": {
-              "completion": "0.00000102",
-              "prompt": "0.000000255"
-            },
-            "canonicalSlug": "minimax/minimax-m2",
-            "context": 204800,
-            "providerContext": 204800,
-            "maxCompletion": 131072,
-            "parameters": [
+              "frequency_penalty",
               "include_reasoning",
+              "logprobs",
+              "max_completion_tokens",
               "max_tokens",
+              "min_p",
+              "presence_penalty",
               "reasoning",
-              "temperature",
-              "tool_choice",
-              "tools",
-              "top_p"
-            ],
-            "inputModalities": [
-              "text"
-            ],
-            "outputModalities": [
-              "text"
-            ],
-            "expiration": "2026-11-05"
-          },
-          "after": null
-        },
-        {
-          "pointer": "/data/@id=minimax~1minimax-m2-her",
-          "before": {
-            "id": "minimax/minimax-m2-her",
-            "pricing": {
-              "completion": "0.0000012",
-              "input_cache_read": "0.00000003",
-              "prompt": "0.0000003"
-            },
-            "canonicalSlug": "minimax/minimax-m2-her-20260123",
-            "context": 65536,
-            "providerContext": 65536,
-            "maxCompletion": 2048,
-            "parameters": [
-              "max_tokens",
-              "temperature",
-              "top_p"
-            ],
-            "inputModalities": [
-              "text"
-            ],
-            "outputModalities": [
-              "text"
-            ],
-            "expiration": "2026-11-05"
-          },
-          "after": null
-        },
-        {
-          "pointer": "/data/@id=minimax~1minimax-m2.1",
-          "before": {
-            "id": "minimax/minimax-m2.1",
-            "pricing": {
-              "completion": "0.0000012",
-              "input_cache_read": "0.00000003",
-              "prompt": "0.0000003"
-            },
-            "canonicalSlug": "minimax/minimax-m2.1",
-            "context": 204800,
-            "providerContext": 204800,
-            "maxCompletion": 131072,
-            "parameters": [
-              "include_reasoning",
-              "max_tokens",
-              "reasoning",
+              "repetition_penalty",
               "response_format",
+              "seed",
+              "stop",
+              "structured_outputs",
               "temperature",
               "tool_choice",
               "tools",
+              "top_k",
+              "top_logprobs",
               "top_p"
             ],
             "inputModalities": [
@@ -817,88 +1346,99 @@
             "outputModalities": [
               "text"
             ],
-            "expiration": "2026-11-05"
-          },
-          "after": null
+            "expiration": null
+          }
         },
         {
-          "pointer": "/data/@id=minimax~1minimax-m2.7/expiration",
-          "before": "2026-11-05",
-          "after": null
-        },
-        {
-          "pointer": "/data/@id=minimax~1minimax-m2.7/maxCompletion",
-          "before": 131072,
-          "after": 176947
-        },
-        {
-          "pointer": "/data/@id=minimax~1minimax-m2.7/pricing/completion",
-          "before": "0.0000012",
-          "after": "0.00000084"
-        },
-        {
-          "pointer": "/data/@id=minimax~1minimax-m2.7/pricing/input_cache_read",
-          "before": "0.00000006",
-          "after": "0.000000042"
-        },
-        {
-          "pointer": "/data/@id=minimax~1minimax-m2.7/pricing/prompt",
-          "before": "0.0000003",
-          "after": "0.00000021"
-        },
-        {
-          "pointer": "/data/@id=minimax~1minimax-m2.7/providerContext",
-          "before": 204800,
-          "after": 196608
-        },
-        {
-          "pointer": "/data/@id=moonshotai~1kimi-k2.7-code/pricing/input_cache_read",
-          "before": "0.00000015",
-          "after": "0.00000016"
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-super-120b-a12b/maxCompletion",
-          "before": 262144,
-          "after": 16384
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-super-120b-a12b/pricing/completion",
-          "before": "0.0000024",
-          "after": "0.0000004"
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-super-120b-a12b/pricing/input_cache_read",
-          "before": "0.00000015",
-          "after": null
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-super-120b-a12b/pricing/prompt",
-          "before": "0.0000003",
-          "after": "0.000000075"
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-super-120b-a12b/providerContext",
-          "before": 1048576,
-          "after": 262144
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3.5-content-safety:free",
-          "before": {
-            "id": "nvidia/nemotron-3.5-content-safety:free",
+          "pointer": "/data/@id=liquid~1lfm-3-1.7b:free",
+          "before": null,
+          "after": {
+            "id": "liquid/lfm-3-1.7b:free",
             "pricing": {
               "completion": "0",
               "prompt": "0"
             },
-            "canonicalSlug": "nvidia/nemotron-3.5-content-safety-20260604",
-            "context": 128000,
-            "providerContext": 128000,
+            "canonicalSlug": "liquid/lfm-3-1.7b-20261106",
+            "context": 262144,
+            "providerContext": 262144,
             "maxCompletion": 8192,
             "parameters": [
+              "frequency_penalty",
               "include_reasoning",
+              "logprobs",
+              "max_completion_tokens",
               "max_tokens",
+              "min_p",
+              "presence_penalty",
               "reasoning",
+              "repetition_penalty",
+              "response_format",
               "seed",
+              "stop",
+              "structured_outputs",
               "temperature",
+              "tool_choice",
+              "tools",
+              "top_k",
+              "top_logprobs",
+              "top_p"
+            ],
+            "inputModalities": [
+              "text"
+            ],
+            "outputModalities": [
+              "text"
+            ],
+            "expiration": null
+          }
+        },
+        {
+          "pointer": "/data/@id=mancer~1weaver/pricing/input_cache_read",
+          "before": null,
+          "after": "0.0000004"
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.2-1b-instruct/expiration",
+          "before": "2026-11-15",
+          "after": "2026-11-20"
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.2-3b-instruct/expiration",
+          "before": "2026-11-15",
+          "after": "2026-11-20"
+        },
+        {
+          "pointer": "/data/@id=meta~1muse-glimmer-30b:batch",
+          "before": null,
+          "after": {
+            "id": "meta/muse-glimmer-30b:batch",
+            "pricing": {
+              "completion": "0.00000096",
+              "input_cache_read": "0.000000032",
+              "prompt": "0.00000024"
+            },
+            "canonicalSlug": "meta/muse-glimmer-30b-20260810",
+            "context": 131072,
+            "providerContext": 131072,
+            "maxCompletion": 16384,
+            "parameters": [
+              "frequency_penalty",
+              "include_reasoning",
+              "logit_bias",
+              "max_tokens",
+              "min_p",
+              "presence_penalty",
+              "reasoning",
+              "reasoning_effort",
+              "repetition_penalty",
+              "response_format",
+              "seed",
+              "stop",
+              "structured_outputs",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_k",
               "top_p"
             ],
             "inputModalities": [
@@ -909,350 +1449,422 @@
               "text"
             ],
             "expiration": null
-          },
-          "after": null
+          }
         },
         {
-          "pointer": "/data/@id=openai~1gpt-oss-120b/pricing/completion",
-          "before": "0.0000006",
-          "after": "0.000000092"
+          "pointer": "/data/@id=minimax~1minimax-m2.5/maxCompletion",
+          "before": 32768,
+          "after": 58982
         },
         {
-          "pointer": "/data/@id=openai~1gpt-oss-120b/pricing/input_cache_read",
-          "before": "0.000000075",
-          "after": "0.000000022"
+          "pointer": "/data/@id=minimax~1minimax-m2.5/pricing/completion",
+          "before": "0.00000095",
+          "after": "0.0000012"
         },
         {
-          "pointer": "/data/@id=openai~1gpt-oss-120b/pricing/prompt",
-          "before": "0.00000015",
-          "after": "0.000000025"
+          "pointer": "/data/@id=minimax~1minimax-m2.5/pricing/input_cache_read",
+          "before": "0.00000003",
+          "after": "0.00000006"
         },
         {
-          "pointer": "/data/@id=reflection~1beam-1.0-501b-a23b/maxCompletion",
-          "before": 131072,
-          "after": 943718
-        },
-        {
-          "pointer": "/data/@id=reflection~1beam-1.0-501b-a23b/pricing/input_cache_read",
-          "before": "0.00000005",
-          "after": "0.00000004"
-        },
-        {
-          "pointer": "/data/@id=reflection~1beam-1.0-501b-a23b/pricing/prompt",
-          "before": "0.00000025",
+          "pointer": "/data/@id=minimax~1minimax-m2.5/pricing/prompt",
+          "before": "0.00000027",
           "after": "0.0000003"
         },
         {
-          "pointer": "/runtimeResolution/@lookup=auto-code",
+          "pointer": "/data/@id=minimax~1minimax-m2.5/providerContext",
+          "before": 198000,
+          "after": 65536
+        },
+        {
+          "pointer": "/data/@id=minimax~1minimax-m3:batch",
           "before": null,
           "after": {
-            "exists": true,
-            "pricing": null
+            "id": "minimax/minimax-m3:batch",
+            "pricing": {
+              "completion": "0.00000088",
+              "input_cache_read": "0.0000000448",
+              "prompt": "0.000000224"
+            },
+            "canonicalSlug": "minimax/minimax-m3-20260531",
+            "context": 524288,
+            "providerContext": 524288,
+            "maxCompletion": 512000,
+            "parameters": [
+              "frequency_penalty",
+              "include_reasoning",
+              "logit_bias",
+              "max_tokens",
+              "min_p",
+              "presence_penalty",
+              "reasoning",
+              "repetition_penalty",
+              "response_format",
+              "seed",
+              "stop",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_k",
+              "top_p"
+            ],
+            "inputModalities": [
+              "image",
+              "text",
+              "video"
+            ],
+            "outputModalities": [
+              "text"
+            ],
+            "expiration": null
           }
         },
         {
-          "pointer": "/runtimeResolution/@lookup=beam-1-0-501b-a23b/pricing/cachedInput",
-          "before": 0.049999999999999996,
-          "after": 0.04
+          "pointer": "/data/@id=openai~1gpt-oss-120b/pricing/completion",
+          "before": "0.000000092",
+          "after": "0.000000065"
         },
         {
-          "pointer": "/runtimeResolution/@lookup=beam-1-0-501b-a23b/pricing/input",
-          "before": 0.25,
-          "after": 0.3
+          "pointer": "/data/@id=openai~1gpt-oss-120b/pricing/input_cache_read",
+          "before": "0.000000022",
+          "after": "0.000000016"
         },
         {
-          "pointer": "/runtimeResolution/@lookup=deepseek-chat/pricing/cachedInput",
-          "before": 0.025740000000000002,
-          "after": 0.032
+          "pointer": "/data/@id=openai~1gpt-oss-120b/pricing/prompt",
+          "before": "0.000000025",
+          "after": "0.000000018"
         },
         {
-          "pointer": "/runtimeResolution/@lookup=deepseek-chat/pricing/input",
-          "before": 0.2574,
-          "after": 0.32
+          "pointer": "/data/@id=qwen~1qwen3.8-27b:batch",
+          "before": null,
+          "after": {
+            "id": "qwen/qwen3.8-27b:batch",
+            "pricing": {
+              "completion": "0.000002",
+              "input_cache_read": "0.00000004",
+              "prompt": "0.00000016"
+            },
+            "canonicalSlug": "qwen/qwen3.8-27b-20260814",
+            "context": 262144,
+            "providerContext": 262144,
+            "maxCompletion": 235929,
+            "parameters": [
+              "frequency_penalty",
+              "include_reasoning",
+              "logit_bias",
+              "max_tokens",
+              "min_p",
+              "presence_penalty",
+              "reasoning",
+              "reasoning_effort",
+              "repetition_penalty",
+              "response_format",
+              "seed",
+              "stop",
+              "structured_outputs",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_k",
+              "top_p"
+            ],
+            "inputModalities": [
+              "image",
+              "text",
+              "video"
+            ],
+            "outputModalities": [
+              "text"
+            ],
+            "expiration": null
+          }
         },
         {
-          "pointer": "/runtimeResolution/@lookup=deepseek-chat/pricing/output",
-          "before": 1.0287,
-          "after": 0.8899999999999999
+          "pointer": "/data/@id=thinkingmachines~1inkling-small:batch",
+          "before": null,
+          "after": {
+            "id": "thinkingmachines/inkling-small:batch",
+            "pricing": {
+              "completion": "0.00000096",
+              "input_cache_read": "0.00000008",
+              "prompt": "0.00000036"
+            },
+            "canonicalSlug": "thinkingmachines/inkling-small-20260730",
+            "context": 524288,
+            "providerContext": 524288,
+            "maxCompletion": 262144,
+            "parameters": [
+              "frequency_penalty",
+              "include_reasoning",
+              "logit_bias",
+              "max_tokens",
+              "min_p",
+              "presence_penalty",
+              "reasoning",
+              "reasoning_effort",
+              "repetition_penalty",
+              "seed",
+              "stop",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_k",
+              "top_p"
+            ],
+            "inputModalities": [
+              "audio",
+              "image",
+              "text"
+            ],
+            "outputModalities": [
+              "text"
+            ],
+            "expiration": null
+          }
         },
         {
-          "pointer": "/runtimeResolution/@lookup=deepseek-chat-v3/pricing/cachedInput",
-          "before": 0.025740000000000002,
-          "after": 0.032
+          "pointer": "/data/@id=undi95~1remm-slerp-l2-13b/pricing/input_cache_read",
+          "before": null,
+          "after": "0.00000035"
         },
         {
-          "pointer": "/runtimeResolution/@lookup=deepseek-chat-v3/pricing/input",
-          "before": 0.2574,
-          "after": 0.32
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-0731/pricing/input",
+          "before": 0.059,
+          "after": 0.0487
         },
         {
-          "pointer": "/runtimeResolution/@lookup=deepseek-chat-v3/pricing/output",
-          "before": 1.0287,
-          "after": 0.8899999999999999
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-0731:batch",
+          "before": null,
+          "after": {
+            "exists": true,
+            "pricing": {
+              "modelId": "deepseek/deepseek-v4-flash-0731:batch",
+              "alias": "deepseek/deepseek-v4-flash-0731:batch",
+              "input": 0.048,
+              "cachedInput": 0.012,
+              "cacheWrite": null,
+              "output": 0.144
+            }
+          }
         },
         {
-          "pointer": "/runtimeResolution/@lookup=deepseek-pro-latest/pricing/cachedInput",
-          "before": 0.0927,
-          "after": 0.0999
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-latest/pricing/cachedInput",
+          "before": 0.035,
+          "after": 0.0015400000000000001
         },
         {
-          "pointer": "/runtimeResolution/@lookup=deepseek-pro-latest/pricing/input",
-          "before": 0.0927,
-          "after": 0.0999
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-latest/pricing/input",
+          "before": 0.059,
+          "after": 0.048400000000000006
         },
         {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-1-flash/pricing/input",
-          "before": 0.045,
-          "after": 0.051
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-1-flash/pricing/output",
-          "before": 0.5,
-          "after": 0.5670000000000001
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-vision-exp/pricing/cachedInput",
-          "before": 0.00686,
-          "after": 0.014
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-vision-exp/pricing/input",
-          "before": 0.21559999999999999,
-          "after": 0.44
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-vision-exp/pricing/output",
-          "before": 0.6468,
-          "after": 1.32
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-latest/pricing/output",
+          "before": 0.3,
+          "after": 0.1452
         },
         {
           "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro/pricing/cachedInput",
-          "before": 0.135,
-          "after": 0.0747765
+          "before": 0.0747765,
+          "after": 0.059827
         },
         {
           "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro/pricing/input",
-          "before": 1.5999999999999999,
-          "after": 0.8973180000000001
+          "before": 0.8973180000000001,
+          "after": 0.717924
         },
         {
           "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro/pricing/output",
-          "before": 3.1999999999999997,
-          "after": 1.7946360000000001
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro-0813/pricing/cachedInput",
-          "before": 0.098,
-          "after": 0.111
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro-0813/pricing/input",
-          "before": 0.103,
-          "after": 0.1165
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro-0813/pricing/output",
-          "before": 4.109999999999999,
-          "after": 4.66
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=gemini-omni-1-1-flash",
-          "before": null,
-          "after": {
-            "exists": true,
-            "pricing": {
-              "modelId": "google/gemini-omni-1.1-flash",
-              "alias": "google/gemini-omni-1.1-flash",
-              "input": 1.5,
-              "cachedInput": 0.15000000000000002,
-              "cacheWrite": null,
-              "output": 9
-            }
-          }
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=gemini-omni-1-2-flash",
-          "before": null,
-          "after": {
-            "exists": true,
-            "pricing": {
-              "modelId": "google/gemini-omni-1.2-flash",
-              "alias": "google/gemini-omni-1.2-flash",
-              "input": 1.5,
-              "cachedInput": 0.15000000000000002,
-              "cacheWrite": null,
-              "output": 9
-            }
-          }
+          "before": 1.7946360000000001,
+          "after": 1.435848
         },
         {
           "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/cachedInput",
-          "before": 0.019000000000000003,
-          "after": 0.049999999999999996
+          "before": 0.049999999999999996,
+          "after": 0.0375
         },
         {
           "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/input",
-          "before": 0.038000000000000006,
-          "after": 0.09
+          "before": 0.09,
+          "after": 0.0675
         },
         {
           "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/output",
-          "before": 0.113,
-          "after": 0.3
+          "before": 0.3,
+          "after": 0.22499999999999998
         },
         {
           "pointer": "/runtimeResolution/@lookup=glm-flash-latest/pricing/cachedInput",
-          "before": 0.0285,
-          "after": 0.028399999999999998
+          "before": 0.028399999999999998,
+          "after": 0.0285
         },
         {
           "pointer": "/runtimeResolution/@lookup=glm-flash-latest/pricing/input",
-          "before": 0.0285,
-          "after": 0.028399999999999998
+          "before": 0.028399999999999998,
+          "after": 0.0285
         },
         {
           "pointer": "/runtimeResolution/@lookup=gpt-oss-120b/pricing/cachedInput",
-          "before": 0.075,
-          "after": 0.022
+          "before": 0.022,
+          "after": 0.016
         },
         {
           "pointer": "/runtimeResolution/@lookup=gpt-oss-120b/pricing/input",
-          "before": 0.15,
-          "after": 0.024999999999999998
+          "before": 0.024999999999999998,
+          "after": 0.018
         },
         {
           "pointer": "/runtimeResolution/@lookup=gpt-oss-120b/pricing/output",
-          "before": 0.6,
-          "after": 0.092
+          "before": 0.092,
+          "after": 0.065
         },
         {
-          "pointer": "/runtimeResolution/@lookup=kimi-k2-7-code/pricing/cachedInput",
-          "before": 0.15,
-          "after": 0.16
+          "pointer": "/runtimeResolution/@lookup=inkling-small:batch",
+          "before": null,
+          "after": {
+            "exists": true,
+            "pricing": {
+              "modelId": "thinkingmachines/inkling-small:batch",
+              "alias": "thinkingmachines/inkling-small:batch",
+              "input": 0.36,
+              "cachedInput": 0.08,
+              "cacheWrite": null,
+              "output": 0.96
+            }
+          }
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=kimi-latest/pricing/cachedInput",
+          "before": 0.18,
+          "after": 0.16999999999999998
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=kimi-latest/pricing/input",
+          "before": 0.18239999999999998,
+          "after": 0.1719
         },
         {
           "pointer": "/runtimeResolution/@lookup=kimi-latest/pricing/output",
-          "before": 9.338799999999999,
-          "after": 10.1522
+          "before": 10.1522,
+          "after": 9.338799999999999
         },
         {
-          "pointer": "/runtimeResolution/@lookup=llama-3-3-70b-instruct/pricing/cachedInput",
-          "before": 0.09999999999999999,
-          "after": 0.295
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=llama-3-3-70b-instruct/pricing/input",
-          "before": 0.19999999999999998,
-          "after": 0.59
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=llama-3-3-70b-instruct/pricing/output",
-          "before": 0.52,
-          "after": 0.7899999999999999
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=minimax-01",
-          "before": {
+          "pointer": "/runtimeResolution/@lookup=lfm-3-1-7b",
+          "before": null,
+          "after": {
             "exists": true,
             "pricing": {
-              "modelId": "minimax/minimax-01",
-              "alias": "minimax/minimax-01",
-              "input": 0.19999999999999998,
+              "modelId": "liquid/lfm-3-1.7b",
+              "alias": "liquid/lfm-3-1.7b",
+              "input": 0.08,
               "cachedInput": 0.02,
               "cacheWrite": null,
-              "output": 1.1
+              "output": 0.19999999999999998
             }
-          },
-          "after": null
+          }
         },
         {
-          "pointer": "/runtimeResolution/@lookup=minimax-m2",
-          "before": {
+          "pointer": "/runtimeResolution/@lookup=lfm-3-1-7b:free",
+          "before": null,
+          "after": {
             "exists": true,
             "pricing": {
-              "modelId": "minimax/minimax-m2",
-              "alias": "minimax/minimax-m2",
-              "input": 0.255,
-              "cachedInput": 0.025500000000000002,
-              "cacheWrite": null,
-              "output": 1.02
-            }
-          },
-          "after": null
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=minimax-m2-1",
-          "before": {
-            "exists": true,
-            "pricing": {
-              "modelId": "minimax/minimax-m2.1",
-              "alias": "minimax/minimax-m2.1",
-              "input": 0.3,
-              "cachedInput": 0.03,
-              "cacheWrite": null,
-              "output": 1.2
-            }
-          },
-          "after": null
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=minimax-m2-7/pricing/cachedInput",
-          "before": 0.06,
-          "after": 0.041999999999999996
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=minimax-m2-7/pricing/input",
-          "before": 0.3,
-          "after": 0.21
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=minimax-m2-7/pricing/output",
-          "before": 1.2,
-          "after": 0.84
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=minimax-m2-her",
-          "before": {
-            "exists": true,
-            "pricing": {
-              "modelId": "minimax/minimax-m2-her",
-              "alias": "minimax/minimax-m2-her",
-              "input": 0.3,
-              "cachedInput": 0.03,
-              "cacheWrite": null,
-              "output": 1.2
-            }
-          },
-          "after": null
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=nemotron-3-5-content-safety:free",
-          "before": {
-            "exists": true,
-            "pricing": {
-              "modelId": "nvidia/nemotron-3.5-content-safety:free",
-              "alias": "nvidia/nemotron-3.5-content-safety:free",
+              "modelId": "liquid/lfm-3-1.7b:free",
+              "alias": "liquid/lfm-3-1.7b:free",
               "input": 0,
               "cachedInput": 0,
               "cacheWrite": null,
               "output": 0
             }
-          },
-          "after": null
+          }
         },
         {
-          "pointer": "/runtimeResolution/@lookup=nemotron-3-super-120b-a12b/pricing/cachedInput",
-          "before": 0.15,
-          "after": 0.0075
+          "pointer": "/runtimeResolution/@lookup=ling-3-1-flash/pricing/cachedInput",
+          "before": 0.015,
+          "after": 0.009
         },
         {
-          "pointer": "/runtimeResolution/@lookup=nemotron-3-super-120b-a12b/pricing/input",
-          "before": 0.3,
-          "after": 0.075
+          "pointer": "/runtimeResolution/@lookup=ling-3-1-flash/pricing/input",
+          "before": 0.075,
+          "after": 0.045
         },
         {
-          "pointer": "/runtimeResolution/@lookup=nemotron-3-super-120b-a12b/pricing/output",
-          "before": 2.4,
+          "pointer": "/runtimeResolution/@lookup=ling-3-1-flash/pricing/output",
+          "before": 0.22499999999999998,
+          "after": 0.135
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=magnum-v4-72b/pricing/cachedInput",
+          "before": 0.25,
+          "after": 2.5
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=minimax-m2-5/pricing/cachedInput",
+          "before": 0.03,
+          "after": 0.06
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=minimax-m2-5/pricing/input",
+          "before": 0.27,
+          "after": 0.3
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=minimax-m2-5/pricing/output",
+          "before": 0.95,
+          "after": 1.2
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=minimax-m3:batch",
+          "before": null,
+          "after": {
+            "exists": true,
+            "pricing": {
+              "modelId": "minimax/minimax-m3:batch",
+              "alias": "minimax/minimax-m3:batch",
+              "input": 0.224,
+              "cachedInput": 0.0448,
+              "cacheWrite": null,
+              "output": 0.88
+            }
+          }
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=muse-glimmer-30b:batch",
+          "before": null,
+          "after": {
+            "exists": true,
+            "pricing": {
+              "modelId": "meta/muse-glimmer-30b:batch",
+              "alias": "meta/muse-glimmer-30b:batch",
+              "input": 0.24,
+              "cachedInput": 0.032,
+              "cacheWrite": null,
+              "output": 0.96
+            }
+          }
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=qwen3-8-27b:batch",
+          "before": null,
+          "after": {
+            "exists": true,
+            "pricing": {
+              "modelId": "qwen/qwen3.8-27b:batch",
+              "alias": "qwen/qwen3.8-27b:batch",
+              "input": 0.16,
+              "cachedInput": 0.04,
+              "cacheWrite": null,
+              "output": 2
+            }
+          }
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=remm-slerp-l2-13b/pricing/cachedInput",
+          "before": 0.034999999999999996,
+          "after": 0.35
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=weaver/pricing/cachedInput",
+          "before": 0.04,
           "after": 0.39999999999999997
         }
       ],
@@ -1261,21 +1873,18 @@
         "efforts-and-limits",
         "human-review-required",
         "lifecycle-retirement-replacement",
-        "pricing-including-decreases-and-expiry",
-        "source-or-record-disappearance-not-proof-of-retirement"
+        "pricing-including-decreases-and-expiry"
       ],
       "addedModels": [
-        "google/gemini-omni-1.1-flash",
-        "google/gemini-omni-1.2-flash",
-        "openrouter/auto-code"
+        "deepseek/deepseek-v4-flash-0731:batch",
+        "liquid/lfm-3-1.7b",
+        "liquid/lfm-3-1.7b:free",
+        "meta/muse-glimmer-30b:batch",
+        "minimax/minimax-m3:batch",
+        "qwen/qwen3.8-27b:batch",
+        "thinkingmachines/inkling-small:batch"
       ],
-      "removedModels": [
-        "minimax/minimax-01",
-        "minimax/minimax-m2",
-        "minimax/minimax-m2-her",
-        "minimax/minimax-m2.1",
-        "nvidia/nemotron-3.5-content-safety:free"
-      ],
+      "removedModels": [],
       "previousProvenance": null,
       "proposal": {
         "scope": "OpenRouter observation only; no native-provider deployability or billing inference"
@@ -1286,18 +1895,18 @@
       "changes": [
         {
           "pointer": "/retrievedAt",
-          "before": "2026-11-05T12:54:10.548Z",
-          "after": "2026-11-06T12:53:13.761Z"
+          "before": "2026-11-06T12:53:13.761Z",
+          "after": "2026-11-07T12:52:53.385Z"
         },
         {
           "pointer": "/revision",
-          "before": "aa5d1d48bd717fc87dde2611d51e82d8028089d02896492399e6aa7522905e43",
-          "after": "edbae01b6eea699e358923131e39786ae33075b7f7ca4bbbd7ea162a6be66d0c"
+          "before": "edbae01b6eea699e358923131e39786ae33075b7f7ca4bbbd7ea162a6be66d0c",
+          "after": "08b4635fd684689feda841f906d59e0dcd8ad9dd57a7c0b7f0667d46b740876a"
         },
         {
           "pointer": "/sha256",
-          "before": "aa5d1d48bd717fc87dde2611d51e82d8028089d02896492399e6aa7522905e43",
-          "after": "edbae01b6eea699e358923131e39786ae33075b7f7ca4bbbd7ea162a6be66d0c"
+          "before": "edbae01b6eea699e358923131e39786ae33075b7f7ca4bbbd7ea162a6be66d0c",
+          "after": "08b4635fd684689feda841f906d59e0dcd8ad9dd57a7c0b7f0667d46b740876a"
         }
       ],
       "reviewRequired": [
@@ -1307,14 +1916,1500 @@
       "removedModels": [],
       "previousProvenance": {
         "source": "https://openrouter.ai/api/v1/models",
-        "revision": "aa5d1d48bd717fc87dde2611d51e82d8028089d02896492399e6aa7522905e43",
-        "retrievedAt": "2026-11-05T12:54:10.548Z",
-        "sha256": "aa5d1d48bd717fc87dde2611d51e82d8028089d02896492399e6aa7522905e43",
+        "revision": "edbae01b6eea699e358923131e39786ae33075b7f7ca4bbbd7ea162a6be66d0c",
+        "retrievedAt": "2026-11-06T12:53:13.761Z",
+        "sha256": "edbae01b6eea699e358923131e39786ae33075b7f7ca4bbbd7ea162a6be66d0c",
         "license": "Model API does not declare a catalogue/model license; no license rights inferred."
       },
       "proposal": {
         "scope": "OpenRouter observation only; no native-provider deployability or billing inference"
       }
+    },
+    {
+      "file": "shared/model-information/sources/copilot-gemini.json",
+      "changes": [
+        {
+          "pointer": "/models/@id=copilot~1gemini-3.8-flash",
+          "before": null,
+          "after": {
+            "schemaVersion": 1,
+            "identity": {
+              "key": "copilot/gemini-3.8-flash",
+              "provider": "copilot",
+              "rawId": "gemini-3.8-flash",
+              "lookupId": "gemini-3-8-flash"
+            },
+            "lifecycle": {
+              "status": "active"
+            },
+            "modelType": "completion",
+            "tariffs": [
+              {
+                "scope": {
+                  "provider": "copilot",
+                  "channel": "copilot-api"
+                },
+                "currency": "USD",
+                "unit": "USD_PER_1M_TOKENS",
+                "tier": "default",
+                "effectiveUntil": "2027-01-01T00:00:00.000Z",
+                "promotion": "Gemini 3.8 Flash published promotional pricing",
+                "components": {
+                  "input": {
+                    "price": "0.75",
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  },
+                  "cachedInput": {
+                    "price": "0.075",
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  },
+                  "cacheWrite": {
+                    "price": {
+                      "unavailable": true
+                    },
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  },
+                  "output": {
+                    "price": "3.75",
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  }
+                },
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              }
+            ],
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "pointer": "/models/@id=copilot~1gemini-4-argon",
+          "before": null,
+          "after": {
+            "schemaVersion": 1,
+            "identity": {
+              "key": "copilot/gemini-4-argon",
+              "provider": "copilot",
+              "rawId": "gemini-4-argon",
+              "lookupId": "gemini-4-argon"
+            },
+            "lifecycle": {
+              "status": "active"
+            },
+            "modelType": "completion",
+            "tariffs": [
+              {
+                "scope": {
+                  "provider": "copilot",
+                  "channel": "copilot-api"
+                },
+                "currency": "USD",
+                "unit": "USD_PER_1M_TOKENS",
+                "tier": "default",
+                "effectiveUntil": "2026-12-01T00:00:00.000Z",
+                "promotion": "Gemini 4 Argon published promotional pricing",
+                "components": {
+                  "input": {
+                    "price": "2",
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  },
+                  "cachedInput": {
+                    "price": "0.1",
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  },
+                  "cacheWrite": {
+                    "price": {
+                      "unavailable": true
+                    },
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  },
+                  "output": {
+                    "price": "10",
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  }
+                },
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              }
+            ],
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
+      "reviewRequired": [
+        "human-review-required"
+      ],
+      "addedModels": [
+        "copilot/gemini-3.8-flash",
+        "copilot/gemini-4-argon"
+      ],
+      "removedModels": [],
+      "previousProvenance": {
+        "authority": "maintained",
+        "source": "pinned legacy compatibility capture",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "at": "2026-10-20T00:22:04.000Z",
+        "confidence": "estimated"
+      },
+      "proposal": {
+        "file": "shared/model-information/sources/copilot-gemini.json",
+        "generator": "copilot-pricing-v1",
+        "beforeSha256": "79ef797076db9f00574bcf4494a79f93aaf6942a863c45720f98f8b394bbe679",
+        "afterSha256": "e95b7d03e064dc4d560b89238142ab27fba06e94fa775bb7180008d801ccb520",
+        "scope": "GitHub Copilot / copilot-api published billing only; no CLI eligibility or native-provider inference",
+        "summary": "Propose exact GA Copilot token tariffs from captured pricing rows and attached footnotes",
+        "evidence": [
+          {
+            "source": "copilot-pricing",
+            "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "sha256": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "retrievedAt": "2026-11-07T12:52:50.618Z",
+            "quote": "Gemini 3.8 Flash 1 GA Versatile Default Not applicable $0.75 $0.075 $3.75",
+            "model": "gemini-3.8-flash",
+            "tariff": "default",
+            "components": [
+              "input",
+              "cachedInput",
+              "cacheWrite",
+              "output"
+            ]
+          },
+          {
+            "source": "copilot-pricing",
+            "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "sha256": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "retrievedAt": "2026-11-07T12:52:50.618Z",
+            "quote": "Gemini 3.8 Flash is available at the promotional pricing of $0.75 per 1M input tokens, $0.075 per 1M cached input tokens, and $3.75 per 1M output tokens through December 31, 2026.",
+            "model": "gemini-3.8-flash",
+            "tariff": "default",
+            "fields": [
+              "effectiveUntil",
+              "promotion"
+            ],
+            "successor": "not-published",
+            "boundaryInterpretation": {
+              "publishedCalendarEnd": "through December 31, 2026",
+              "publishedTimezone": "not specified by source",
+              "reviewedPolicy": "Interpret through as inclusive calendar date and until as exclusive calendar date; normalize the exclusive boundary to UTC. The source does not publish this UTC instant.",
+              "normalizedExclusiveEnd": "2027-01-01T00:00:00.000Z"
+            }
+          },
+          {
+            "source": "copilot-models",
+            "url": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+            "sha256": "e48015137b1391a129454b8107cbae4b1a09f33c61a81fa91bed71e7d0982cbe",
+            "retrievedAt": "2026-11-07T12:52:50.538Z",
+            "quote": "Gemini 3.8 Flash Google GA",
+            "model": "gemini-3.8-flash",
+            "fields": [
+              "identity",
+              "lifecycle",
+              "modelType"
+            ]
+          },
+          {
+            "source": "copilot-pricing",
+            "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "sha256": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "retrievedAt": "2026-11-07T12:52:50.618Z",
+            "quote": "Gemini 4 Argon 2 GA Powerful Default Not applicable $2.00 $0.10 $10.00",
+            "model": "gemini-4-argon",
+            "tariff": "default",
+            "components": [
+              "input",
+              "cachedInput",
+              "cacheWrite",
+              "output"
+            ]
+          },
+          {
+            "source": "copilot-pricing",
+            "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "sha256": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "retrievedAt": "2026-11-07T12:52:50.618Z",
+            "quote": "Gemini 4 Argon is available at the promotional pricing of $2.00 per 1M input tokens, $0.10 per 1M cached input tokens, and $10.00 per 1M output tokens until December 1, 2026.",
+            "model": "gemini-4-argon",
+            "tariff": "default",
+            "fields": [
+              "effectiveUntil",
+              "promotion"
+            ],
+            "successor": "not-published",
+            "boundaryInterpretation": {
+              "publishedCalendarEnd": "until December 1, 2026",
+              "publishedTimezone": "not specified by source",
+              "reviewedPolicy": "Interpret through as inclusive calendar date and until as exclusive calendar date; normalize the exclusive boundary to UTC. The source does not publish this UTC instant.",
+              "normalizedExclusiveEnd": "2026-12-01T00:00:00.000Z"
+            }
+          },
+          {
+            "source": "copilot-models",
+            "url": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+            "sha256": "e48015137b1391a129454b8107cbae4b1a09f33c61a81fa91bed71e7d0982cbe",
+            "retrievedAt": "2026-11-07T12:52:50.538Z",
+            "quote": "Gemini 4 Argon Google GA",
+            "model": "gemini-4-argon",
+            "fields": [
+              "identity",
+              "lifecycle",
+              "modelType"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "file": "shared/model-information/sources/copilot-main.json",
+      "changes": [
+        {
+          "pointer": "/models/@id=copilot~1gpt-5.6-luna/provenance/at",
+          "before": "2026-10-20T00:22:04.000Z",
+          "after": "2026-11-07T12:52:50.618Z"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-5.6-luna/provenance/confidence",
+          "before": "estimated",
+          "after": "verified"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-5.6-luna/provenance/revision",
+          "before": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+          "after": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-5.6-luna/provenance/source",
+          "before": "pinned legacy compatibility capture",
+          "after": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-5.6-luna/tariffs/1",
+          "before": null,
+          "after": {
+            "scope": {
+              "provider": "copilot",
+              "channel": "copilot-api"
+            },
+            "currency": "USD",
+            "unit": "USD_PER_1M_TOKENS",
+            "tier": "long_context",
+            "promptTokensAbove": 200000,
+            "components": {
+              "input": {
+                "price": "0.4",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "cachedInput": {
+                "price": "0.04",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "cacheWrite": {
+                "price": "0.5",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "output": {
+                "price": "1.8",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              }
+            },
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-5.6-sol/provenance/at",
+          "before": "2026-10-20T00:22:04.000Z",
+          "after": "2026-11-07T12:52:50.618Z"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-5.6-sol/provenance/confidence",
+          "before": "estimated",
+          "after": "verified"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-5.6-sol/provenance/revision",
+          "before": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+          "after": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-5.6-sol/provenance/source",
+          "before": "pinned legacy compatibility capture",
+          "after": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-5.6-sol/tariffs/1",
+          "before": null,
+          "after": {
+            "scope": {
+              "provider": "copilot",
+              "channel": "copilot-api"
+            },
+            "currency": "USD",
+            "unit": "USD_PER_1M_TOKENS",
+            "tier": "long_context",
+            "promptTokensAbove": 272000,
+            "components": {
+              "input": {
+                "price": "8",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "cachedInput": {
+                "price": "0.8",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "cacheWrite": {
+                "price": "10",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "output": {
+                "price": "30",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              }
+            },
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-5.6-terra/provenance/at",
+          "before": "2026-10-20T00:22:04.000Z",
+          "after": "2026-11-07T12:52:50.618Z"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-5.6-terra/provenance/confidence",
+          "before": "estimated",
+          "after": "verified"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-5.6-terra/provenance/revision",
+          "before": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+          "after": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-5.6-terra/provenance/source",
+          "before": "pinned legacy compatibility capture",
+          "after": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-5.6-terra/tariffs/1",
+          "before": null,
+          "after": {
+            "scope": {
+              "provider": "copilot",
+              "channel": "copilot-api"
+            },
+            "currency": "USD",
+            "unit": "USD_PER_1M_TOKENS",
+            "tier": "long_context",
+            "promptTokensAbove": 272000,
+            "components": {
+              "input": {
+                "price": "4",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "cachedInput": {
+                "price": "0.4",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "cacheWrite": {
+                "price": "5",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "output": {
+                "price": "18",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              }
+            },
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-6-astra/provenance/at",
+          "before": "2026-10-20T00:22:04.000Z",
+          "after": "2026-11-07T12:52:50.618Z"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-6-astra/provenance/confidence",
+          "before": "estimated",
+          "after": "verified"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-6-astra/provenance/revision",
+          "before": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+          "after": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-6-astra/provenance/source",
+          "before": "pinned legacy compatibility capture",
+          "after": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-6-astra/tariffs/1",
+          "before": null,
+          "after": {
+            "scope": {
+              "provider": "copilot",
+              "channel": "copilot-api"
+            },
+            "currency": "USD",
+            "unit": "USD_PER_1M_TOKENS",
+            "tier": "long_context",
+            "promptTokensAbove": 272000,
+            "components": {
+              "input": {
+                "price": "20",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "cachedInput": {
+                "price": "2",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "cacheWrite": {
+                "price": "25",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "output": {
+                "price": "75",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              }
+            },
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-6-luna/provenance/at",
+          "before": "2026-10-20T00:22:04.000Z",
+          "after": "2026-11-07T12:52:50.618Z"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-6-luna/provenance/confidence",
+          "before": "estimated",
+          "after": "verified"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-6-luna/provenance/revision",
+          "before": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+          "after": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-6-luna/provenance/source",
+          "before": "pinned legacy compatibility capture",
+          "after": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-6-luna/tariffs/1",
+          "before": null,
+          "after": {
+            "scope": {
+              "provider": "copilot",
+              "channel": "copilot-api"
+            },
+            "currency": "USD",
+            "unit": "USD_PER_1M_TOKENS",
+            "tier": "long_context",
+            "promptTokensAbove": 272000,
+            "components": {
+              "input": {
+                "price": "0.2",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "cachedInput": {
+                "price": "0.02",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "cacheWrite": {
+                "price": "0.25",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "output": {
+                "price": "0.75",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              }
+            },
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-6-sol/provenance/at",
+          "before": "2026-10-20T00:22:04.000Z",
+          "after": "2026-11-07T12:52:50.618Z"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-6-sol/provenance/confidence",
+          "before": "estimated",
+          "after": "verified"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-6-sol/provenance/revision",
+          "before": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+          "after": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-6-sol/provenance/source",
+          "before": "pinned legacy compatibility capture",
+          "after": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-6-sol/tariffs/1",
+          "before": null,
+          "after": {
+            "scope": {
+              "provider": "copilot",
+              "channel": "copilot-api"
+            },
+            "currency": "USD",
+            "unit": "USD_PER_1M_TOKENS",
+            "tier": "long_context",
+            "promptTokensAbove": 272000,
+            "components": {
+              "input": {
+                "price": "4",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "cachedInput": {
+                "price": "0.4",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "cacheWrite": {
+                "price": "5",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              "output": {
+                "price": "15",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              }
+            },
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "pointer": "/models/@id=copilot~1gpt-6.1-terra",
+          "before": null,
+          "after": {
+            "schemaVersion": 1,
+            "identity": {
+              "key": "copilot/gpt-6.1-terra",
+              "provider": "copilot",
+              "rawId": "gpt-6.1-terra",
+              "lookupId": "gpt-6-1-terra"
+            },
+            "lifecycle": {
+              "status": "active"
+            },
+            "modelType": "completion",
+            "tariffs": [
+              {
+                "scope": {
+                  "provider": "copilot",
+                  "channel": "copilot-api"
+                },
+                "currency": "USD",
+                "unit": "USD_PER_1M_TOKENS",
+                "tier": "default",
+                "components": {
+                  "input": {
+                    "price": "1",
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  },
+                  "cachedInput": {
+                    "price": "0.05",
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  },
+                  "cacheWrite": {
+                    "price": "1.25",
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  },
+                  "output": {
+                    "price": "5",
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  }
+                },
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              },
+              {
+                "scope": {
+                  "provider": "copilot",
+                  "channel": "copilot-api"
+                },
+                "currency": "USD",
+                "unit": "USD_PER_1M_TOKENS",
+                "tier": "long_context",
+                "promptTokensAbove": 272000,
+                "components": {
+                  "input": {
+                    "price": "2",
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  },
+                  "cachedInput": {
+                    "price": "0.1",
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  },
+                  "cacheWrite": {
+                    "price": "2.5",
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  },
+                  "output": {
+                    "price": "7.5",
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  }
+                },
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              }
+            ],
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
+      "reviewRequired": [
+        "confidence-including-downgrade",
+        "human-review-required",
+        "pricing-including-decreases-and-expiry"
+      ],
+      "addedModels": [
+        "copilot/gpt-6.1-terra"
+      ],
+      "removedModels": [],
+      "previousProvenance": {
+        "authority": "maintained",
+        "source": "pinned legacy compatibility capture",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "at": "2026-10-20T00:22:04.000Z",
+        "confidence": "estimated"
+      },
+      "proposal": {
+        "file": "shared/model-information/sources/copilot-main.json",
+        "generator": "copilot-pricing-v1",
+        "beforeSha256": "4c8112081a0ff6f37f7f3b1b691ca28921df372df981cd044cb117a2764d5990",
+        "afterSha256": "044468c75382d116c92f4018f9e0f1a229007bd816948c4c802775c99cc24c71",
+        "scope": "GitHub Copilot / copilot-api published billing only; no CLI eligibility or native-provider inference",
+        "summary": "Propose exact GA Copilot token tariffs from captured pricing rows and attached footnotes",
+        "evidence": [
+          {
+            "source": "copilot-pricing",
+            "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "sha256": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "retrievedAt": "2026-11-07T12:52:50.618Z",
+            "quote": "GPT-5.6 Luna GA Lightweight Long context > 200K $0.40 $0.04 $0.50 $1.80",
+            "model": "gpt-5.6-luna",
+            "tariff": "long_context",
+            "components": [
+              "input",
+              "cachedInput",
+              "cacheWrite",
+              "output"
+            ]
+          },
+          {
+            "source": "copilot-models",
+            "url": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+            "sha256": "e48015137b1391a129454b8107cbae4b1a09f33c61a81fa91bed71e7d0982cbe",
+            "retrievedAt": "2026-11-07T12:52:50.538Z",
+            "quote": "GPT-5.6 Luna OpenAI GA",
+            "model": "gpt-5.6-luna",
+            "fields": [
+              "identity",
+              "lifecycle",
+              "modelType"
+            ]
+          },
+          {
+            "source": "copilot-pricing",
+            "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "sha256": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "retrievedAt": "2026-11-07T12:52:50.618Z",
+            "quote": "GPT-5.6 Sol GA Powerful Long context > 272K $8.00 $0.80 $10.00 $30.00",
+            "model": "gpt-5.6-sol",
+            "tariff": "long_context",
+            "components": [
+              "input",
+              "cachedInput",
+              "cacheWrite",
+              "output"
+            ]
+          },
+          {
+            "source": "copilot-models",
+            "url": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+            "sha256": "e48015137b1391a129454b8107cbae4b1a09f33c61a81fa91bed71e7d0982cbe",
+            "retrievedAt": "2026-11-07T12:52:50.538Z",
+            "quote": "GPT-5.6 Sol OpenAI GA",
+            "model": "gpt-5.6-sol",
+            "fields": [
+              "identity",
+              "lifecycle",
+              "modelType"
+            ]
+          },
+          {
+            "source": "copilot-pricing",
+            "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "sha256": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "retrievedAt": "2026-11-07T12:52:50.618Z",
+            "quote": "GPT-5.6 Terra GA Versatile Long context > 272K $4.00 $0.40 $5.00 $18.00",
+            "model": "gpt-5.6-terra",
+            "tariff": "long_context",
+            "components": [
+              "input",
+              "cachedInput",
+              "cacheWrite",
+              "output"
+            ]
+          },
+          {
+            "source": "copilot-models",
+            "url": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+            "sha256": "e48015137b1391a129454b8107cbae4b1a09f33c61a81fa91bed71e7d0982cbe",
+            "retrievedAt": "2026-11-07T12:52:50.538Z",
+            "quote": "GPT-5.6 Terra OpenAI GA",
+            "model": "gpt-5.6-terra",
+            "fields": [
+              "identity",
+              "lifecycle",
+              "modelType"
+            ]
+          },
+          {
+            "source": "copilot-pricing",
+            "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "sha256": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "retrievedAt": "2026-11-07T12:52:50.618Z",
+            "quote": "GPT-6 Astra GA Powerful Long context > 272K $20.00 $2.00 $25.00 $75.00",
+            "model": "gpt-6-astra",
+            "tariff": "long_context",
+            "components": [
+              "input",
+              "cachedInput",
+              "cacheWrite",
+              "output"
+            ]
+          },
+          {
+            "source": "copilot-models",
+            "url": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+            "sha256": "e48015137b1391a129454b8107cbae4b1a09f33c61a81fa91bed71e7d0982cbe",
+            "retrievedAt": "2026-11-07T12:52:50.538Z",
+            "quote": "GPT-6 Astra OpenAI GA",
+            "model": "gpt-6-astra",
+            "fields": [
+              "identity",
+              "lifecycle",
+              "modelType"
+            ]
+          },
+          {
+            "source": "copilot-pricing",
+            "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "sha256": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "retrievedAt": "2026-11-07T12:52:50.618Z",
+            "quote": "GPT-6 Luna GA Lightweight Long context > 272K $0.20 $0.02 $0.25 $0.75",
+            "model": "gpt-6-luna",
+            "tariff": "long_context",
+            "components": [
+              "input",
+              "cachedInput",
+              "cacheWrite",
+              "output"
+            ]
+          },
+          {
+            "source": "copilot-models",
+            "url": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+            "sha256": "e48015137b1391a129454b8107cbae4b1a09f33c61a81fa91bed71e7d0982cbe",
+            "retrievedAt": "2026-11-07T12:52:50.538Z",
+            "quote": "GPT-6 Luna OpenAI GA",
+            "model": "gpt-6-luna",
+            "fields": [
+              "identity",
+              "lifecycle",
+              "modelType"
+            ]
+          },
+          {
+            "source": "copilot-pricing",
+            "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "sha256": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "retrievedAt": "2026-11-07T12:52:50.618Z",
+            "quote": "GPT-6 Sol GA Powerful Long context > 272K $4.00 $0.40 $5.00 $15.00",
+            "model": "gpt-6-sol",
+            "tariff": "long_context",
+            "components": [
+              "input",
+              "cachedInput",
+              "cacheWrite",
+              "output"
+            ]
+          },
+          {
+            "source": "copilot-models",
+            "url": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+            "sha256": "e48015137b1391a129454b8107cbae4b1a09f33c61a81fa91bed71e7d0982cbe",
+            "retrievedAt": "2026-11-07T12:52:50.538Z",
+            "quote": "GPT-6 Sol OpenAI GA GPT-6.1 Sol OpenAI GA",
+            "model": "gpt-6-sol",
+            "fields": [
+              "identity",
+              "lifecycle",
+              "modelType"
+            ]
+          },
+          {
+            "source": "copilot-pricing",
+            "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "sha256": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "retrievedAt": "2026-11-07T12:52:50.618Z",
+            "quote": "GPT-6.1 Terra GA Versatile Default ≤ 272K $1.00 $0.05 $1.25 $5.00",
+            "model": "gpt-6.1-terra",
+            "tariff": "default",
+            "components": [
+              "input",
+              "cachedInput",
+              "cacheWrite",
+              "output"
+            ]
+          },
+          {
+            "source": "copilot-pricing",
+            "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "sha256": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "retrievedAt": "2026-11-07T12:52:50.618Z",
+            "quote": "GPT-6.1 Terra GA Versatile Long context > 272K $2.00 $0.10 $2.50 $7.50",
+            "model": "gpt-6.1-terra",
+            "tariff": "long_context",
+            "components": [
+              "input",
+              "cachedInput",
+              "cacheWrite",
+              "output"
+            ]
+          },
+          {
+            "source": "copilot-models",
+            "url": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+            "sha256": "e48015137b1391a129454b8107cbae4b1a09f33c61a81fa91bed71e7d0982cbe",
+            "retrievedAt": "2026-11-07T12:52:50.538Z",
+            "quote": "GPT-6.1 Terra OpenAI GA",
+            "model": "gpt-6.1-terra",
+            "fields": [
+              "identity",
+              "lifecycle",
+              "modelType"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "file": "shared/model-information/sources/copilot-other.json",
+      "changes": [
+        {
+          "pointer": "/models/@id=copilot~1mai-code-1.1-flash",
+          "before": null,
+          "after": {
+            "schemaVersion": 1,
+            "identity": {
+              "key": "copilot/mai-code-1.1-flash",
+              "provider": "copilot",
+              "rawId": "mai-code-1.1-flash",
+              "lookupId": "mai-code-1-1-flash"
+            },
+            "lifecycle": {
+              "status": "active"
+            },
+            "modelType": "completion",
+            "tariffs": [
+              {
+                "scope": {
+                  "provider": "copilot",
+                  "channel": "copilot-api"
+                },
+                "currency": "USD",
+                "unit": "USD_PER_1M_TOKENS",
+                "tier": "default",
+                "components": {
+                  "input": {
+                    "price": "0.2",
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  },
+                  "cachedInput": {
+                    "price": "0.02",
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  },
+                  "cacheWrite": {
+                    "price": {
+                      "unavailable": true
+                    },
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  },
+                  "output": {
+                    "price": "1.2",
+                    "provenance": {
+                      "authority": "maintained",
+                      "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                      "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                      "at": "2026-11-07T12:52:50.618Z",
+                      "confidence": "verified"
+                    }
+                  }
+                },
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                  "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                  "at": "2026-11-07T12:52:50.618Z",
+                  "confidence": "verified"
+                }
+              }
+            ],
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+              "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+              "at": "2026-11-07T12:52:50.618Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
+      "reviewRequired": [
+        "human-review-required"
+      ],
+      "addedModels": [
+        "copilot/mai-code-1.1-flash"
+      ],
+      "removedModels": [],
+      "previousProvenance": {
+        "authority": "maintained",
+        "source": "pinned legacy compatibility capture",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "at": "2026-10-20T00:22:04.000Z",
+        "confidence": "estimated"
+      },
+      "proposal": {
+        "file": "shared/model-information/sources/copilot-other.json",
+        "generator": "copilot-pricing-v1",
+        "beforeSha256": "94a87bb1b7e99eb9a30557457eaf6747cbda0c722a4d790f28139e8e4f720574",
+        "afterSha256": "e75251c61a3339c9bedc96da89de777bc1c9227b9145662da66c2290bedca312",
+        "scope": "GitHub Copilot / copilot-api published billing only; no CLI eligibility or native-provider inference",
+        "summary": "Propose exact GA Copilot token tariffs from captured pricing rows and attached footnotes",
+        "evidence": [
+          {
+            "source": "copilot-pricing",
+            "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "sha256": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "retrievedAt": "2026-11-07T12:52:50.618Z",
+            "quote": "MAI-Code-1.1-Flash GA Lightweight $0.20 $0.02 $1.20",
+            "model": "mai-code-1.1-flash",
+            "tariff": "default",
+            "components": [
+              "input",
+              "cachedInput",
+              "cacheWrite",
+              "output"
+            ]
+          },
+          {
+            "source": "copilot-models",
+            "url": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+            "sha256": "e48015137b1391a129454b8107cbae4b1a09f33c61a81fa91bed71e7d0982cbe",
+            "retrievedAt": "2026-11-07T12:52:50.538Z",
+            "quote": "MAI-Code-1.1-Flash 3 Microsoft GA",
+            "model": "mai-code-1.1-flash",
+            "fields": [
+              "identity",
+              "lifecycle",
+              "modelType"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "file": "shared/model-information/sources/target.json",
+      "changes": [
+        {
+          "pointer": "/tariffs/gemini-3.8-flash",
+          "before": {
+            "default": [
+              0.75,
+              0.075,
+              null,
+              3.75
+            ],
+            "promotionUntil": "2027-01-01T00:00:00Z",
+            "successor": [
+              1.5,
+              0.15,
+              null,
+              7.5
+            ]
+          },
+          "after": null
+        }
+      ],
+      "reviewRequired": [
+        "human-review-required",
+        "pricing-including-decreases-and-expiry",
+        "source-or-record-disappearance-not-proof-of-retirement"
+      ],
+      "addedModels": [],
+      "removedModels": [],
+      "previousProvenance": {
+        "authority": "maintained",
+        "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
+        "revision": "issues-10029-10030-open-2026-10-20",
+        "at": "2026-10-15T17:11:28Z",
+        "confidence": "estimated"
+      },
+      "proposal": {
+        "file": "shared/model-information/sources/target.json",
+        "generator": "copilot-pricing-v1",
+        "beforeSha256": "553066569864d458049c74a1bcd6dddb7f4910143e7fc44e9ffa2acff4272697",
+        "afterSha256": "6f11edb06092603f35a5fa02668685f2df4c04a01d326f60d25e2c735808a714",
+        "scope": "GitHub Copilot / copilot-api published billing only; no CLI eligibility or native-provider inference",
+        "summary": "Reconcile only fulfilled Gemini Flash pricing correction; discard unverified staged successor",
+        "evidence": [
+          {
+            "source": "copilot-pricing",
+            "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "sha256": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "retrievedAt": "2026-11-07T12:52:50.618Z",
+            "quote": "Gemini 3.8 Flash 1 GA Versatile Default Not applicable $0.75 $0.075 $3.75",
+            "model": "gemini-3.8-flash",
+            "tariff": "default",
+            "components": [
+              "input",
+              "cachedInput",
+              "cacheWrite",
+              "output"
+            ]
+          },
+          {
+            "source": "copilot-pricing",
+            "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "sha256": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "retrievedAt": "2026-11-07T12:52:50.618Z",
+            "quote": "Gemini 3.8 Flash is available at the promotional pricing of $0.75 per 1M input tokens, $0.075 per 1M cached input tokens, and $3.75 per 1M output tokens through December 31, 2026.",
+            "model": "gemini-3.8-flash",
+            "tariff": "default",
+            "fields": [
+              "effectiveUntil",
+              "promotion"
+            ],
+            "successor": "not-published",
+            "boundaryInterpretation": {
+              "publishedCalendarEnd": "through December 31, 2026",
+              "publishedTimezone": "not specified by source",
+              "reviewedPolicy": "Interpret through as inclusive calendar date and until as exclusive calendar date; normalize the exclusive boundary to UTC. The source does not publish this UTC instant.",
+              "normalizedExclusiveEnd": "2027-01-01T00:00:00.000Z"
+            }
+          },
+          {
+            "source": "copilot-models",
+            "url": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+            "sha256": "e48015137b1391a129454b8107cbae4b1a09f33c61a81fa91bed71e7d0982cbe",
+            "retrievedAt": "2026-11-07T12:52:50.538Z",
+            "quote": "Gemini 3.8 Flash Google GA",
+            "model": "gemini-3.8-flash",
+            "fields": [
+              "identity",
+              "lifecycle",
+              "modelType"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sourceDiagnostics": [
+    {
+      "source": "copilot-pricing",
+      "model": "Claude Opus 4.8 (fast mode) (preview)",
+      "status": "retained-prior-facts",
+      "message": "Uncertain exact Copilot model-ID mapping"
+    },
+    {
+      "source": "copilot-pricing",
+      "model": "claude-sonnet-4",
+      "status": "retained-prior-facts",
+      "message": "Not unambiguously GA in both Copilot sources"
+    },
+    {
+      "source": "copilot-pricing",
+      "model": "gemini-3.8-flash",
+      "status": "promotion-without-successor",
+      "message": "Published calendar end: through December 31, 2026; reviewed UTC boundary interpretation: 2027-01-01T00:00:00.000Z (not a page-published UTC instant). No successor published; ordinary fallback applies after expiry",
+      "boundaryInterpretation": {
+        "publishedCalendarEnd": "through December 31, 2026",
+        "publishedTimezone": "not specified by source",
+        "reviewedPolicy": "Interpret through as inclusive calendar date and until as exclusive calendar date; normalize the exclusive boundary to UTC. The source does not publish this UTC instant.",
+        "normalizedExclusiveEnd": "2027-01-01T00:00:00.000Z"
+      }
+    },
+    {
+      "source": "copilot-pricing",
+      "model": "gemini-4-argon",
+      "status": "promotion-without-successor",
+      "message": "Published calendar end: until December 1, 2026; reviewed UTC boundary interpretation: 2026-12-01T00:00:00.000Z (not a page-published UTC instant). No successor published; ordinary fallback applies after expiry",
+      "boundaryInterpretation": {
+        "publishedCalendarEnd": "until December 1, 2026",
+        "publishedTimezone": "not specified by source",
+        "reviewedPolicy": "Interpret through as inclusive calendar date and until as exclusive calendar date; normalize the exclusive boundary to UTC. The source does not publish this UTC instant.",
+        "normalizedExclusiveEnd": "2026-12-01T00:00:00.000Z"
+      }
+    },
+    {
+      "source": "copilot-pricing",
+      "model": "Grok 4.5",
+      "status": "retained-prior-facts",
+      "message": "Uncertain exact Copilot model-ID mapping"
+    },
+    {
+      "source": "copilot-pricing",
+      "model": "Grok 4.6",
+      "status": "retained-prior-facts",
+      "message": "Uncertain exact Copilot model-ID mapping"
+    },
+    {
+      "source": "copilot-pricing",
+      "model": "Grok 4.7",
+      "status": "retained-prior-facts",
+      "message": "Uncertain exact Copilot model-ID mapping"
+    },
+    {
+      "source": "copilot-pricing",
+      "model": "Kimi K3",
+      "status": "retained-prior-facts",
+      "message": "Uncertain exact Copilot model-ID mapping"
     }
   ],
   "generatedFiles": [
@@ -1323,7 +3418,10 @@
     "shared/model-information/manifest.generated.json",
     "shared/model-information/target.generated.json",
     "shared/model-information/baseline-to-target.generated.json",
+    "shared/model-information/naming.generated.json",
+    "src/model-information.naming.generated.json",
     "src/model-information.compat.generated.json",
+    "containers/api-proxy/model-information.naming.generated.json",
     "containers/api-proxy/model-information.pricing.generated.json",
     "containers/api-proxy/model-information.fallback-pricing.generated.json",
     "containers/api-proxy/model-information.retired.generated.json",
