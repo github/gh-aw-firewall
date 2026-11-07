@@ -484,10 +484,17 @@ describeLinux('host-owned Docker enclave executor', () => {
     const invocation = { ...plan, entryId: kind, executorKind: kind };
     await expect(backend([entry]).execute(invocation, new AbortController().signal)).resolves.toMatchObject({ outcome: 'success' });
     const launch = docker.calls.filter((c) => c[0] === 'create')[1];
-    expect(launch).toEqual(expect.arrayContaining(['--user', '12345:23456']));
+    if (kind === 'agent') {
+      expect(launch).toEqual(expect.arrayContaining([
+        '--user', '0:0', '--env', 'AWF_ENCLAVE_AGENT_UID=12345', '--env', 'AWF_ENCLAVE_AGENT_GID=23456',
+      ]));
+    } else expect(launch).toEqual(expect.arrayContaining(['--user', '12345:23456']));
     expect(fs.fchownSync).toHaveBeenCalledWith(expect.any(Number), 12345, 23456);
     if (kind === 'agent') {
       expect(fs.fchownSync).toHaveBeenCalledWith(expect.any(Number), 12345, 23456);
+      expect(fs.fchownSync).toHaveBeenCalledWith(
+        expect.any(Number), process.getuid?.() ?? 0, process.getgid?.() ?? 0,
+      );
     } else expect(launch).toContain('/query:rw,nosuid,nodev,size=96m,uid=12345,gid=23456,mode=0700');
   });
 

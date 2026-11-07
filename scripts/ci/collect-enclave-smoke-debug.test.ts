@@ -319,6 +319,42 @@ describe('host-only public enclave debug collector', () => {
     }
   });
 
+  it('retains finite Claude denial classes and the final result after event-cap saturation', () => {
+    const denials = ['shell', 'file-read', 'file-write', 'output-write', 'search', 'unknown'].map(toolClass => ({
+      event: 'progress', stage: 'claude-permission-denied', toolClass,
+      input: 'PRIVATE_COMMAND', tool_name: 'PRIVATE_TOOL', prompt: 'PRIVATE_PROMPT',
+    }));
+    const result = { event: 'progress', stage: 'claude-result', resultError: false };
+    const writeError = {
+      event: 'progress', stage: 'claude-tool-completed', toolClass: 'output-write', toolError: true,
+    };
+    const session = projectEnclaveSessionDiagnostics(Buffer.from([
+      ...Array.from({ length: 32 }, () => ({ event: 'progress', stage: 'claude-response' })),
+      ...denials, ...denials, writeError, writeError, result,
+    ].map(event => JSON.stringify(event)).join('\n')));
+    const identity = { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' };
+    const projected = JSON.parse(projectDiagnostics({ ...commonEnvelope(), session }, identity).toString());
+    expect(projected.session.claudePermissionDenials).toEqual(denials.map(({ toolClass }) => ({
+      event: 'progress', stage: 'claude-permission-denied', toolClass,
+    })));
+    expect(projected.session.claudeResult).toEqual(result);
+    expect(projected.session.claudeToolErrors).toEqual([writeError]);
+    expect(projected.session.events).toHaveLength(32);
+    expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+    for (const invalid of [
+      { claudeResult: { event: 'success' } },
+      { claudePermissionDenials: [{ event: 'success' }] },
+      { claudePermissionDenials: Array(8).fill(denials[0]) },
+      { claudePermissionDenials: [{ ...denials[0], toolClass: 'PRIVATE_CLASS' }] },
+      { claudeToolErrors: [{ ...writeError, toolError: false }] },
+      { claudeToolErrors: Array(8).fill(writeError) },
+    ]) {
+      expect(() => projectDiagnostics({
+        ...commonEnvelope(), session: { status: 'captured', ...invalid },
+      }, identity)).toThrow(/session-schema/);
+    }
+  });
+
   it('retains the final Claude startup failure after event-cap saturation', () => {
     const startupFailure = {
       event: 'progress', stage: 'claude-startup-failure', classification: 'invalid-option-value',
@@ -347,7 +383,11 @@ describe('host-only public enclave debug collector', () => {
       ...commonEnvelope(), session,
     }, { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' }).toString());
     expect(projected.session.claudeStartupFailure).toEqual(session.claudeStartupFailure);
+    expect(projected.session.lastEvent).toEqual(session.lastEvent);
     expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+    expect(projectEnclaveSessionDiagnostics(Buffer.from(JSON.stringify({
+      event: 'progress', stage: 'engine-completed', attempt: 4,
+    }))).lastEvent).toEqual({ event: 'progress', stage: 'engine-completed' });
     expect(() => projectDiagnostics({
       ...commonEnvelope(), session: {
         status: 'captured', claudeStartupFailure: {
