@@ -1057,6 +1057,44 @@ describe('standalone public enclave diagnostics collector', () => {
     return source;
   }
 
+  it('retains closed session permission metadata for successful and rejected append-open preflights', () => {
+    const result = JSON.parse(projectDiagnostics(envelope({
+      session: {
+        status: 'captured',
+        bytes: 1024,
+        events: [
+          {
+            event: 'preflight', path: 'session-log', exists: true, type: 'file', uid: 0, gid: 0,
+            mode: 0o600, links: 1, writerUid: 0, writerGid: 0, writable: true,
+            parentUid: 0, parentGid: 0, parentMode: 0o700, parentTraversable: true, mountWritable: true,
+            fileName: 'PRIVATE_PATH',
+          },
+          {
+            event: 'preflight', path: 'session-log', exists: true, type: 'file', uid: 1234, gid: 1234,
+            mode: 0o400, links: 1, writerUid: 0, writerGid: 0, writable: false,
+            parentUid: 0, parentGid: 0, parentMode: 0o700, parentTraversable: true, mountWritable: true,
+            failedCheck: 'session-log-open', failureCategory: 'permission-denied', failureErrno: 13,
+            exception: 'PRIVATE_ERROR',
+          },
+        ],
+      },
+    }), identity()).toString('utf8'));
+    expect(result.session.events).toEqual([
+      {
+        event: 'preflight', path: 'session-log', exists: true, type: 'file', writable: true,
+        uid: 0, gid: 0, writerUid: 0, writerGid: 0, mode: 0o600, links: 1,
+        parentUid: 0, parentGid: 0, parentMode: 0o700, parentTraversable: true, mountWritable: true,
+      },
+      {
+        event: 'preflight', path: 'session-log', exists: true, type: 'file', writable: false,
+        uid: 'other', gid: 'other', writerUid: 0, writerGid: 0, mode: 0o400, links: 1,
+        parentUid: 0, parentGid: 0, parentMode: 0o700, parentTraversable: true, mountWritable: true,
+        failedCheck: 'session-log-open', failureCategory: 'permission-denied', failureErrno: 13,
+      },
+    ]);
+    expect(JSON.stringify(result.session)).not.toMatch(/PRIVATE_/);
+  });
+
   it.each(['docker', 'cloud-hypervisor'])('exports complete shared %s success evidence with runner-owned artifacts', backend => {
     roots.backend = backend;
     fs.mkdirSync(path.join(roots.debug, 'c'.repeat(32)), { mode: 0o700 });

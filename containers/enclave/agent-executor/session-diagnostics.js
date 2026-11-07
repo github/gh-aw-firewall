@@ -104,6 +104,23 @@ function projectEvent(value) {
     for (const key of ['exists', 'executable', 'writable']) {
       if (typeof value[key] === 'boolean') result[key] = value[key];
     }
+    if (value.path === 'session-log') {
+      for (const key of ['uid', 'gid', 'writerUid', 'writerGid', 'parentUid', 'parentGid']) {
+        if (integer(value[key])) result[key] = value[key] === 0 || value[key] === 65534 ? value[key] : 'other';
+      }
+      for (const key of ['mode', 'parentMode']) {
+        if (integer(value[key]) && value[key] <= 0o7777) result[key] = value[key];
+      }
+      if (integer(value.links) && value.links <= 1_000_000) result.links = value.links;
+      for (const key of ['parentTraversable', 'mountWritable']) {
+        if (typeof value[key] === 'boolean') result[key] = value[key];
+      }
+      if (allowed(value.failedCheck, [
+        'session-parent-stat', 'session-mount-statvfs', 'session-log-stat', 'session-log-open',
+      ])) result.failedCheck = value.failedCheck;
+      if (allowed(value.failureCategory, CATEGORIES)) result.failureCategory = value.failureCategory;
+      if (integer(value.failureErrno) && value.failureErrno <= 4095) result.failureErrno = value.failureErrno;
+    }
   } else if (value.event === 'failure' && allowed(value.category, CATEGORIES)) {
     result.event = 'failure';
     result.category = value.category;

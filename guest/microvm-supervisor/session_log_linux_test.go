@@ -304,6 +304,7 @@ func runSessionSupervisorProbe() int {
 	if err := s.start(Frame{RequestID: "session-probe", Argv: []string{enclaveAgentEntrypoint}, Env: env, Cwd: "/", UID: 65534, GID: 65534}); err != nil {
 		return fail(err)
 	}
+	var agentStderr strings.Builder
 	for exitCode < 0 {
 		frame, err := ReadFrame(client)
 		if err != nil {
@@ -314,7 +315,16 @@ func runSessionSupervisorProbe() int {
 		}
 		if frame.Type == "stderr" && frame.Data != nil {
 			data, _ := base64.StdEncoding.DecodeString(*frame.Data)
+			agentStderr.Write(data)
 			os.Stderr.Write(data)
+		}
+	}
+	if scenario == "inaccessible" {
+		fallback := agentStderr.String()
+		if strings.Count(fallback, `"event":"preflight"`) != 1 ||
+			!strings.Contains(fallback, `"failedCheck":"session-log-open"`) ||
+			!strings.Contains(fallback, `"parentMode":448`) {
+			return fail(fmt.Errorf("missing bounded append-open preflight fallback: %s", fallback))
 		}
 	}
 	if scenario != "success" && exitCode != 24 || scenario == "success" && exitCode != 0 {

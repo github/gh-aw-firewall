@@ -170,6 +170,22 @@ function projectSessionEvent(value) {
       type: member(['file', 'directory', 'missing', 'other', 'forbidden-seed-mount']),
       exists: boolean, executable: boolean, writable: boolean,
     }));
+    if (value.path === 'session-log') {
+      Object.assign(result, fields(value, {
+        uid: value => count(value), gid: value => count(value),
+        writerUid: value => count(value), writerGid: value => count(value),
+        parentUid: value => count(value), parentGid: value => count(value),
+        mode: value => count(value) && value <= 0o7777,
+        parentMode: value => count(value) && value <= 0o7777,
+        links: value => count(value) && value <= 1_000_000,
+        parentTraversable: boolean, mountWritable: boolean,
+        failedCheck: member(['session-parent-stat', 'session-mount-statvfs', 'session-log-stat', 'session-log-open']),
+        failureCategory: member(categories), failureErrno: boundedErrno,
+      }));
+      for (const key of ['uid', 'gid', 'writerUid', 'writerGid', 'parentUid', 'parentGid']) {
+        if (result[key] !== undefined) result[key] = result[key] === 0 || result[key] === 65534 ? result[key] : 'other';
+      }
+    }
   } else if (value.event === 'operation-error' && SESSION_OPERATIONS.includes(value.operation)
       && categories.includes(value.category)) {
     Object.assign(result, { event: value.event, operation: value.operation, category: value.category },

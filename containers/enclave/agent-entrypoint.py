@@ -153,6 +153,22 @@ def append_event(event: dict) -> None:
         sys.stderr.write('{"event":"failure","category":"diagnostic-encoding-failed"}\n')
 
 
+def failed_session_preflight(metadata: dict, check: str, error: OSError) -> OSError:
+    metadata.update({"writable": False, "failedCheck": check})
+    error_metadata = os_error_event(error, f"preflight-{check}", fatal=False)
+    metadata["failureCategory"] = error_metadata["category"]
+    if "errno" in error_metadata:
+        metadata["failureErrno"] = error_metadata["errno"]
+    encoded = json.dumps(metadata, separators=(",", ":"), ensure_ascii=True)
+    if len(encoded) > 4096:
+        encoded = '{"event":"failure","category":"diagnostic-encoding-failed"}'
+    try:
+        sys.stderr.write(encoded + "\n")
+    except OSError:
+        pass
+    return error
+
+
 def agent_identity() -> tuple[int, int]:
     try:
         uid = int(os.environ["AWF_ENCLAVE_AGENT_UID"])
@@ -623,37 +639,51 @@ def preflight_path(
         "type": "missing",
     }
     if identifier == "session-log" and GUEST_SUPERVISOR:
+        failed_check = "session-parent-stat"
         try:
             with transcript_identity():
-                path_stat = path.stat()
                 metadata.update({
-                    "exists": True,
-                    "type": "file" if stat.S_ISREG(path_stat.st_mode) else "other",
-                    "uid": path_stat.st_uid,
-                    "gid": path_stat.st_gid,
-                    "mode": stat.S_IMODE(path_stat.st_mode),
                     "writerUid": os.geteuid(),
                     "writerGid": os.getegid(),
                 })
-                # Open using the same identity/mode as append_event, not access()
-                # with the real uid, so ACL and read-only mount denials agree.
-                with session_log_file():
-                    pass
-                parent = path.parent.stat()
+                parent = path.parent.lstat()
                 metadata.update({
                     "parentUid": parent.st_uid,
                     "parentGid": parent.st_gid,
                     "parentMode": stat.S_IMODE(parent.st_mode),
                     "parentTraversable": os.access(path.parent, os.X_OK, effective_ids=True),
-                    "mountWritable": not bool(os.statvfs(path).f_flag & os.ST_RDONLY),
                 })
-                metadata["writable"] = True
+                if not stat.S_ISDIR(parent.st_mode):
+                    raise NotADirectoryError(errno.ENOTDIR, os.strerror(errno.ENOTDIR))
+
+                failed_check = "session-mount-statvfs"
+                filesystem = os.statvfs(path.parent)
+                metadata["mountWritable"] = not bool(filesystem.f_flag & os.ST_RDONLY)
+
+                failed_check = "session-log-stat"
+                try:
+                    path_stat = path.lstat()
+                except FileNotFoundError:
+                    path_stat = None
+                if path_stat is not None:
+                    metadata.update({
+                        "exists": True,
+                        "type": "file" if stat.S_ISREG(path_stat.st_mode) else "other",
+                        "uid": path_stat.st_uid,
+                        "gid": path_stat.st_gid,
+                        "mode": stat.S_IMODE(path_stat.st_mode),
+                        "links": path_stat.st_nlink,
+                    })
+                failed_check = "session-log-open"
+                with session_log_file():
+                    pass
+                metadata.update({
+                    "writable": True,
+                })
             append_event(metadata)
             return None
         except OSError as error:
-            metadata["writable"] = False
-            append_event(metadata)
-            return error
+            return failed_session_preflight(metadata, failed_check, error)
     try:
         path_stat = file_operation(f"preflight-{identifier}-stat", path.stat)
     except OSError as error:
