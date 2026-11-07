@@ -15,6 +15,12 @@ const run = (...flags: string[]) => {
   if (result.status !== 0) throw new Error(result.stderr);
   return result.stdout;
 };
+const copyLegacyPricingProjections = (directory: string) => {
+  const proxy = path.join(directory, 'containers/api-proxy');
+  fs.mkdirSync(proxy, { recursive: true });
+  fs.copyFileSync(path.join(root, 'containers/api-proxy/ai-credits-pricing.js'),
+    path.join(proxy, 'ai-credits-pricing.js'));
+};
 
 describe('maintained model compilation', () => {
   it('checks repeatable generated outputs without refreshing timestamps', () => {
@@ -50,9 +56,6 @@ describe('maintained model compilation', () => {
     )).sort((a, b) => a.identity.key < b.identity.key ? -1 : a.identity.key > b.identity.key ? 1 : 0);
     expect(naming.models).toEqual(identities);
     expect(naming.rules).toEqual(sources.flatMap(source => source.rules || []));
-    expect(naming.models).not.toContainEqual(expect.objectContaining({
-      identity: expect.objectContaining({ key: 'copilot/gemini-3.8-flash' }),
-    }));
     const bytes = fs.readFileSync(path.join(root, 'shared/model-information/naming.generated.json'));
     for (const file of ['containers/api-proxy/model-information.naming.generated.json',
       'src/model-information.naming.generated.json']) {
@@ -128,7 +131,7 @@ describe('maintained model compilation', () => {
     const manifest = require('../../shared/model-information/manifest.generated.json');
     const catalogue = require('../../shared/model-information/catalog.generated.json');
     expect(manifest.catalogRevision).toBe(catalogue.catalogRevision);
-    expect(manifest.compilerVersion).toBe(6);
+    expect(manifest.compilerVersion).toBe(7);
     expect(manifest.schemaHash).toMatch(/^[0-9a-f]{64}$/);
     expect(catalogue.generatedAt).toBe(manifest.generatedAt);
     expect(manifest.sourceFiles).toEqual(expect.arrayContaining([
@@ -149,11 +152,16 @@ describe('maintained model compilation', () => {
       const rawPath = path.join(temp, 'containers/api-proxy/models.dev.catalog.json');
       fs.mkdirSync(path.dirname(rawPath), { recursive: true });
       fs.copyFileSync(path.join(root, 'containers/api-proxy/models.dev.catalog.json'), rawPath);
+      copyLegacyPricingProjections(temp);
       const sourcePath = path.join(temp, 'shared/model-information/sources/copilot-main.json');
       const source = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
       const model = source.models.find((entry: { identity: { rawId: string } }) =>
         entry.identity.rawId === 'gpt-5-codex-mini');
       model.tariffs[0].components.input.price = '9.0000000000000000000000000001';
+      const sol = source.models.find((entry: { identity: { rawId: string } }) =>
+        entry.identity.rawId === 'gpt-6.1-sol');
+      sol.tariffs.find((tariff: { tier: string }) => tariff.tier === 'default')
+        .components.output.price = '12';
       fs.writeFileSync(sourcePath, JSON.stringify(source));
       const tempCompiler = path.join(temp, 'scripts/model-information/compile.cjs');
       execFileSync(process.execPath, [tempCompiler], { cwd: temp });
@@ -161,9 +169,15 @@ describe('maintained model compilation', () => {
         path.join(temp, 'containers/api-proxy/model-information.pricing.generated.json'), 'utf8',
       ));
       expect(staged['gpt-5-codex-mini'].input).toBe('9.0000000000000000000000000001');
+      expect(staged['gpt-6.1-sol'].output).toBe('12');
       const active = JSON.parse(fs.readFileSync(
         path.join(temp, 'containers/api-proxy/model-information.fallback-pricing.generated.json'), 'utf8',
       ));
+      expect(active.compatibility.providers.openai['gpt-6.1-sol'].output).toBe('10');
+      const legacyReference = JSON.parse(fs.readFileSync(
+        path.join(temp, 'containers/api-proxy/ai-credits-pricing-reference.json'), 'utf8',
+      ));
+      expect(legacyReference.providers.openai.models['gpt-6.1-sol'].output).toBe(10);
       expect(active.imported.copilot).toBeUndefined();
       expect(active.imported.openai).toBeUndefined();
       expect(active.compatibility).toMatchObject({
@@ -188,7 +202,59 @@ describe('maintained model compilation', () => {
     ])).toBe('2026-10-21T00:00:00.000Z');
   });
 
-  it('does not flatten unsupported maintained tariff scope, dates, units or missing components', () => {
+  it('compiles the four GA Copilot prices and strict Terra threshold', () => {
+    const { reviewedCopilotFixture } =
+      require('../../containers/api-proxy/test-helpers/copilot-pricing-fixture');
+    const fixture = reviewedCopilotFixture();
+    expect(fixture.reviewed).toHaveLength(4);
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-compile-copilot-prices-'));
+    try {
+      for (const folder of ['scripts/model-information', 'shared/model-information']) {
+        fs.cpSync(path.join(root, folder), path.join(directory, folder), { recursive: true });
+      }
+      fs.symlinkSync(path.join(root, 'node_modules'), path.join(directory, 'node_modules'), 'dir');
+      const proxy = path.join(directory, 'containers/api-proxy');
+      fs.mkdirSync(proxy, { recursive: true });
+      fs.copyFileSync(path.join(root, 'containers/api-proxy/models.dev.catalog.json'),
+        path.join(proxy, 'models.dev.catalog.json'));
+      copyLegacyPricingProjections(directory);
+      for (const [file, document] of fixture.plan.updates) {
+        fs.writeFileSync(path.join(directory, file), JSON.stringify(document));
+      }
+      execFileSync(process.execPath, [path.join(directory, 'scripts/model-information/compile.cjs')], {
+        cwd: directory,
+      });
+      const pricing = JSON.parse(fs.readFileSync(
+        path.join(proxy, 'model-information.pricing.generated.json'), 'utf8'));
+      expect(Object.fromEntries(fixture.ids.map((id: string) => [id, pricing[id]])))
+        .toEqual(fixture.projection);
+      expect(pricing['gpt-6.1-terra'].longContext.threshold).toBe(272000);
+      const { getMaintainedPricingFact } = require('../../containers/api-proxy/catalogue-pricing');
+      const originalTerra = getMaintainedPricingFact('copilot', 'gpt-6.1-terra');
+      jest.isolateModules(() => {
+        jest.doMock('../../containers/api-proxy/model-information.pricing.generated.json', () => pricing);
+        const { getMaintainedPricingFact: maintained } = require('../../containers/api-proxy/catalogue-pricing');
+        const { selectPricingFact } = require('../../shared/model-information/pricing-resolution');
+        const fact = maintained('copilot', 'gpt-6.1-terra');
+        expect(selectPricingFact(fact, 272000)).toMatchObject({ tier: 'default', pricing: { input: 1 } });
+        expect(selectPricingFact(fact, 272001)).toMatchObject({ tier: 'long_context', pricing: { input: 2 } });
+      });
+      jest.dontMock('../../containers/api-proxy/model-information.pricing.generated.json');
+      expect(getMaintainedPricingFact('copilot', 'gpt-6.1-terra')).toEqual(originalTerra);
+      for (const id of ['gemini-3.8-flash', 'gemini-4-argon']) {
+        const canonical = fixture.reviewed.find((model: any) => model.identity.rawId === id);
+        expect(pricing[id]).toEqual({ tariffs: canonical.tariffs });
+        expect(canonical.tariffs).toHaveLength(1);
+        expect(canonical.tariffs[0]).not.toHaveProperty('successor');
+        expect(canonical.tariffs[0].components.cacheWrite.price).toEqual({ unavailable: true });
+      }
+    } finally {
+      jest.dontMock('../../containers/api-proxy/model-information.pricing.generated.json');
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('does not flatten unsupported maintained tariff scope, units or missing components', () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-pricing-scope-'));
     try {
       fs.cpSync(path.join(root, 'shared/model-information/sources'), directory, { recursive: true });
@@ -199,8 +265,13 @@ describe('maintained model compilation', () => {
         { scope: { provider: 'copilot', channel: 'copilot-api', deployment: 'private' } },
         { unit: 'USD_PER_TOKEN' },
         { currency: 'EUR' },
-        { effectiveUntil: '2027-01-01T00:00:00Z' },
         { components: {} },
+        { components: { ...original.models.find((entry: any) => entry.tariffs?.length)
+          .tariffs[0].components, request: {
+          price: '1', provenance: original.provenance,
+        } } },
+        { tier: 'post_promotion' },
+        { promotion: 'contract intro without expiry' },
       ]) {
         const source = structuredClone(original);
         const model = source.models.find((entry: { tariffs?: unknown[] }) => entry.tariffs?.length);
@@ -209,9 +280,62 @@ describe('maintained model compilation', () => {
         const result = spawnSync(process.execPath, [compiler, '--check', `--source-dir=${directory}`], {
           cwd: root, encoding: 'utf8',
         });
+
         expect(result.status).not.toBe(0);
-        expect(result.stderr).toMatch(/Unsupported maintained fallback tariff|currency|components/);
+        expect(result.stderr).toMatch(/Unsupported maintained fallback tariff|currency|components|effectiveUntil/);
       }
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves Copilot promotion intervals and evidenced successor provenance', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-compile-promotion-'));
+    try {
+      for (const folder of ['scripts/model-information', 'shared/model-information']) {
+        fs.cpSync(path.join(root, folder), path.join(directory, folder), { recursive: true });
+      }
+      fs.symlinkSync(path.join(root, 'node_modules'), path.join(directory, 'node_modules'), 'dir');
+      const proxy = path.join(directory, 'containers/api-proxy');
+      fs.mkdirSync(proxy, { recursive: true });
+      fs.copyFileSync(path.join(root, 'containers/api-proxy/models.dev.catalog.json'),
+        path.join(proxy, 'models.dev.catalog.json'));
+      copyLegacyPricingProjections(directory);
+      // Immutable estimated contract tariffs are not published successor evidence.
+      const { copilotPromotionContractFixture } =
+        require('../../containers/api-proxy/test-helpers/copilot-pricing-fixture');
+      const model = copilotPromotionContractFixture();
+      const successor = model.tariffs.find((tariff: any) => tariff.tier === 'post_promotion');
+      successor.provenance = structuredClone(require('../../shared/model-information/fixtures.v1.json')
+        .model.provenance);
+      successor.effectiveUntil = '2027-02-01T00:00:00Z';
+      for (const component of Object.values(successor.components) as any[]) {
+        component.provenance = successor.provenance;
+      }
+      successor.components.input.price = '1.5000000000000000000000000001';
+      const file = path.join(directory, 'shared/model-information/sources/copilot-gemini.json');
+      const source = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const existing = source.models.findIndex((entry: any) => entry.identity.key === model.identity.key);
+      if (existing < 0) source.models.push(model);
+      else source.models[existing] = model;
+      fs.writeFileSync(file, JSON.stringify(source));
+      const targetFile = path.join(directory, 'shared/model-information/sources/target.json');
+      const target = JSON.parse(fs.readFileSync(targetFile, 'utf8'));
+      delete target.tariffs['gemini-3.8-flash'];
+      fs.writeFileSync(targetFile, JSON.stringify(target));
+      execFileSync(process.execPath, [path.join(directory, 'scripts/model-information/compile.cjs')], {
+        cwd: directory,
+      });
+      const pricing = JSON.parse(fs.readFileSync(
+        path.join(proxy, 'model-information.pricing.generated.json'), 'utf8'));
+      expect(pricing['gemini-3.8-flash']).toEqual({ tariffs: model.tariffs });
+      expect(pricing['gemini-3.8-flash'].input).toBeUndefined();
+      expect(pricing['gemini-3.8-flash'].tariffs[1]).toMatchObject({
+        effectiveFrom: '2027-01-01T00:00:00Z', effectiveUntil: '2027-02-01T00:00:00Z',
+        provenance: successor.provenance,
+        components: { input: { price: '1.5000000000000000000000000001',
+          provenance: successor.provenance } },
+      });
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
@@ -225,9 +349,18 @@ describe('maintained model compilation', () => {
       model.identity.key === 'openai/gpt-5.5');
     const lookup = (key: string) => target.models.find((model: { identity: { key: string } }) =>
       model.identity.key === key);
-    expect(baseline.models.some((model: { identity: { key: string } }) =>
-      model.identity.key === 'copilot/gemini-3.8-flash')).toBe(false);
-    expect(lookup('copilot/gemini-3.8-flash').tariffs[0].effectiveUntil).toBe('2027-01-01T00:00:00Z');
+    const activeFlash = baseline.models.find((model: { identity: { key: string } }) =>
+      model.identity.key === 'copilot/gemini-3.8-flash');
+    const stagedFlash = require('../../shared/model-information/sources/target.json')
+      .tariffs['gemini-3.8-flash'];
+    if (stagedFlash) {
+      expect(activeFlash?.tariffs || []).toHaveLength(0);
+      expect(Date.parse(lookup('copilot/gemini-3.8-flash').tariffs[0].effectiveUntil))
+        .toBe(Date.parse(stagedFlash.promotionUntil));
+    } else {
+      expect(activeFlash).toBeDefined();
+      expect(lookup('copilot/gemini-3.8-flash').tariffs).toEqual(activeFlash.tariffs);
+    }
     expect(lookup('copilot/gemini-3.8-flash').tariffs[0].components.cacheWrite.price)
       .toEqual({ unavailable: true });
     const long = lookup('copilot/grok-4.7').tariffs.find((tier: { tier: string }) =>

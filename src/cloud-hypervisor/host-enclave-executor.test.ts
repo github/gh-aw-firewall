@@ -457,8 +457,10 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
                 request.stderr?.write(fragmented.subarray(0, split));
                 request.stderr?.write(fragmented.subarray(split));
                 request.stderr?.write('{"event":"failure","category":"result-empty","message":"PRIVATE_SESSION_TOKEN"}\n');
-                await fs.writeFile(path.join(invocationHostDir, 'runtime', 'session.jsonl'),
+                const sessionPath = path.join(invocationHostDir, 'runtime', 'session.jsonl');
+                await fs.writeFile(sessionPath,
                   '{"event":"progress","stage":"engine-started","secret":"PRIVATE_SESSION_TOKEN"}\n');
+                await fs.chmod(sessionPath, 0o600);
               }
               if (managerExecuteError) throw new GuestTransportError('guest-disconnected');
               if (role === 'agent' && expectHandoffCredentials) {
@@ -1642,6 +1644,22 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       }
       expect(verifications[1][2]).toBe(scriptRootfsPath);
       expect(verifications[1][6]).toBe(rootfsProvenancePath);
+      const copyProgress: HostPreflightProgress[] = [];
+      const copyReport = new HostPreflightReporter('bounded-artifacts', value => copyProgress.push(value),
+        undefined, { phase: 'preflight', profile: 'common' });
+      const copyOptions = { releaseTag, manifestPath, manifestBundlePath,
+        scriptRootfsPath, agentRootfsPath, attestationToolPath };
+      await expect(preflightCloudHypervisorEnclaveArtifacts(copyOptions, scratch,
+        async () => { throw Object.assign(new Error('/private/SECRET'), { code: 'ENOSPC' }); },
+        copyReport)).rejects.toMatchObject({ code: 'ENOSPC' });
+      const failedCopy = copyProgress[copyProgress.length - 1];
+      expect(failedCopy).toMatchObject({ schemaVersion: 2, scope: 'bounded-artifacts' });
+      expect(failedCopy.checks.find(check => check.id === 'rootfs-copy'))
+        .toEqual({ id: 'rootfs-copy', result: 'failed', reason: 'ENOSPC' });
+      expect(failedCopy.checks.find(check => check.id === 'rootfs-digest')?.result).toBe('not-attempted');
+      expect(failedCopy.checks.find(check => check.id === 'rootfs-attestation')?.result).toBe('not-attempted');
+      expect(JSON.stringify(copyProgress)).not.toContain('SECRET');
+      expect((await fs.readdir(scratch)).filter(name => name.startsWith('awf-enclave-attestation-'))).toEqual([]);
       const progress = jest.fn();
       const report = new HostPreflightReporter('bounded-artifacts', progress, undefined,
         { phase: 'preflight', profile: 'common' });

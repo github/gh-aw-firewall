@@ -42,8 +42,9 @@ const MAX_STREAM_BYTES = 1024 * 1024;
 const MAX_FILES = 32;
 const MAX_RUN_PROJECTION_FILES = 4;
 const MAX_STATUS_BYTES = 4096;
+const MAX_STARTUP_BYTES = 64 * 1024;
 const MAX_PUBLISHED_FILES = MAX_FILES + MAX_RUN_PROJECTION_FILES + 3;
-const MAX_PUBLISHED_BYTES = (MAX_FILES + MAX_RUN_PROJECTION_FILES) * MAX_STREAM_BYTES + 3 * MAX_STATUS_BYTES;
+const MAX_PUBLISHED_BYTES = (MAX_FILES + MAX_RUN_PROJECTION_FILES) * MAX_STREAM_BYTES + 2 * MAX_STATUS_BYTES + MAX_STARTUP_BYTES;
 const MAX_DIRECTORY_ENTRIES = 4096;
 const MAX_USAGE_BYTES = 16 * 1024;
 const ID = /^[a-f0-9]{32}$/;
@@ -151,6 +152,7 @@ function projectSessionEvent(value) {
           'stderrObserved', 'captureTruncated'].map(key => [key, boolean])),
         permissionMode: member(['default', 'auto', 'acceptEdits', 'bypassPermissions', 'unknown']),
         outputState: member(['present', 'empty', 'unavailable']),
+        toolClass: member(['shell', 'file-read', 'file-write', 'output-write', 'search', 'unknown']),
         httpStatus: member([null, 400, 401, 403, 404, 408, 429, 500, 502, 503, 504, 529]),
       }));
       if (value.stage === 'claude-startup-failure') {
@@ -207,6 +209,26 @@ function projectSession(value) {
     check(object(value.claudeStartupFailure) && value.claudeStartupFailure.event === 'progress'
       && value.claudeStartupFailure.stage === 'claude-startup-failure', 'session-schema');
     result.claudeStartupFailure = projectSessionEvent(value.claudeStartupFailure);
+  }
+  if (value.claudeResult !== undefined) {
+    check(object(value.claudeResult) && value.claudeResult.event === 'progress'
+      && value.claudeResult.stage === 'claude-result', 'session-schema');
+    result.claudeResult = projectSessionEvent(value.claudeResult);
+  }
+  if (value.claudePermissionDenials !== undefined) {
+    check(Array.isArray(value.claudePermissionDenials) && value.claudePermissionDenials.length <= 7, 'session-schema');
+    result.claudePermissionDenials = value.claudePermissionDenials.map(event => {
+      check(object(event) && event.event === 'progress' && event.stage === 'claude-permission-denied', 'session-schema');
+      return projectSessionEvent(event);
+    });
+  }
+  if (value.claudeToolErrors !== undefined) {
+    check(Array.isArray(value.claudeToolErrors) && value.claudeToolErrors.length <= 7, 'session-schema');
+    result.claudeToolErrors = value.claudeToolErrors.map(event => {
+      check(object(event) && event.event === 'progress' && event.stage === 'claude-tool-completed'
+        && event.toolError === true, 'session-schema');
+      return projectSessionEvent(event);
+    });
   }
   if (value.operationErrors !== undefined) {
     check(Array.isArray(value.operationErrors) && value.operationErrors.length <= 16, 'session-bound');
@@ -628,6 +650,32 @@ function prepare(runDirectory, roots = ROOTS, uid = 0, trustedRoot = '/', bindin
     { mode: 0o600, flag: 'wx' });
 }
 
+function projectStartupChecklist(value) {
+  const schema = STARTUP_CHECKLIST_SCHEMA;
+  check(object(value) && value.schemaVersion === 1 && typeof value.ready === 'boolean'
+    && object(value.checks), 'startup-schema');
+  const checks = {};
+  const scopes = new Set();
+  for (const [id, outcome] of Object.entries(value.checks)) {
+    const [scope, name, extra] = id.split('/');
+    check(extra === undefined && Object.hasOwn(schema.scopes, scope)
+      && Object.hasOwn(schema.scopes[scope], name)
+      && Array.isArray(outcome) && outcome.length === 2
+      && ['not-attempted', 'not-required', 'attempted', 'passed', 'failed'].includes(outcome[0])
+      && typeof outcome[1] === 'string' && Object.hasOwn(schema.reasons, outcome[1])
+      && (outcome[0] === 'failed' ? outcome[1] !== 'none' : outcome[1] === 'none')
+      && (outcome[0] !== 'not-required' || schema.optionalChecks.includes(id)), 'startup-schema');
+    checks[id] = [...outcome];
+    scopes.add(scope);
+  }
+  for (const scope of scopes) {
+    check(Object.keys(schema.scopes[scope]).every(name => Object.hasOwn(checks, `${scope}/${name}`)), 'startup-schema');
+  }
+  check(!value.ready || (checks['startup/readiness']?.[0] === 'passed'
+    && Object.values(checks).every(([result]) => ['passed', 'not-required'].includes(result))), 'startup-schema');
+  return { schemaVersion: 1, ready: value.ready, checks };
+}
+
 function projectStartup(value, backend) {
   check(object(value) && value.backend === backend
     && ['docker', 'cloud-hypervisor'].includes(backend)
@@ -681,6 +729,9 @@ function projectStartup(value, backend) {
       attempts: value => count(value) && value <= 1200,
       httpStatus: value => value === null || (count(value) && value >= 100 && value <= 599),
     });
+    if (value.diagnostic.enclaveStartup.startupChecks !== undefined) {
+      diagnostic.enclaveStartup.startupChecks = projectStartupChecklist(value.diagnostic.enclaveStartup.startupChecks);
+    }
   }
   const evidence = {
     record: fields(value.evidence.record, {
@@ -712,13 +763,13 @@ function retainStartup(runDirectory, value, uid = 0, trustedRoot = '/') {
   const prepared = JSON.parse(readRegular(path.join(runDirectory, 'baseline.json'), MAX_STREAM_BYTES, uid));
   check(!fs.existsSync(path.join(runDirectory, 'collected')), 'prepared-scope', 'scope-already-collected');
   const bytes = projectStartup(value, prepared.binding?.backend);
-  check(bytes.length <= MAX_STATUS_BYTES, 'file-size', 'oversized');
+  check(bytes.length <= MAX_STARTUP_BYTES, 'file-size', 'oversized');
   fs.writeFileSync(path.join(runDirectory, 'startup.json'), bytes, { mode: 0o600, flag: 'wx' });
 }
 
 function startupFiles(runDirectory, backend, uid) {
   try {
-    const bytes = readRegular(path.join(runDirectory, 'startup.json'), MAX_STATUS_BYTES, uid);
+    const bytes = readRegular(path.join(runDirectory, 'startup.json'), MAX_STARTUP_BYTES, uid);
     return [['startup.json', projectStartup(parseRecord(decodeUtf8(bytes, 'startup-schema')), backend)]];
   } catch (error) {
     if (error.code === 'ENOENT') return [];
@@ -1012,11 +1063,56 @@ function assertPublicationBounds(files, status) {
 
 module.exports = {
   prepare, collect, retainStartup, projectStartup, retainFinalization, projectFinalization, FINALIZATION_REASONS,
-  MAX_STREAM_BYTES, MAX_FILES, MAX_PUBLISHED_FILES, MAX_PUBLISHED_BYTES, MAX_STATUS_BYTES,
+  projectStartupChecklist,
+  MAX_STREAM_BYTES, MAX_FILES, MAX_PUBLISHED_FILES, MAX_PUBLISHED_BYTES, MAX_STATUS_BYTES, MAX_STARTUP_BYTES,
   directory, inventory, readRegular, projectProxyUsage, projectProxyResponse,
   projectProxyEvents, projectProxyContainerLog, isSafeCopilotAuthLogFields,
   projectDiagnostics, cliRoots, cliCandidates, parseArguments, main, publishCollectionFailure,
   assertPublicationBounds, redactCredentials,
+};
+
+const STARTUP_CHECKLIST_SCHEMA = {
+  scopes: Object.fromEntries([
+    ['vm-launch', 'artifact-preflight,recovery,identity,network,rootfs,run-directory,cgroup,kernel-stage,rootfs-stage,vmm-launch,api-socket,api-ping,confinement,virtiofsd,vm-create,vm-boot,guest-connect'],
+    ['enclave-network', 'gateway-identity,network-inspect,network-topology,network-membership,api-proxy-ready,gateway-ready,bridge-ready'],
+    ['host-invocation', 'policy,filesystem,export-plan,snapshot,snapshot-digest,workload-profile,input-staging,manager-create,manager-start,instance-start,guest-execute,result-read'],
+    ['host-invocation-cleanup', 'pending-work,manager-stop,manager-record,snapshot-remove,filesystem-remove,storage-close,journal-complete'],
+    ['startup', 'configuration,enclave-preparation,network-enforcement,compose-configuration,infrastructure,gateway-attachment,github-attachment,github-ready,gateway-ready,delegation,readiness'],
+    ['gateway-attachment', 'contract,identity,network-connect,network-membership'],
+    ['gateway-handshake', 'contract,initialize,initialized,tools-list'],
+    ['enclave-runtime', 'primary-runtime,script-runtime,agent-runtime,host-service'],
+    ['enclave-storage', 'private-root-isolation,work-directory,directory-layout,run-identity,seed-catalog,capability-staging,github-identity,delegation-custody'],
+    ['host-isolation', 'journal-isolation,invocation-isolation,allocation-isolation,debug-artifact-isolation'],
+    ['provider-selection', 'storage-provider'],
+    ['storage-admission', 'root,runner-eligibility,ubuntu-distribution,mount-capability,tmpfs-support,kvm-access,kvm-device,kvm-open,cgroup-writable,cgroup-controllers'],
+    ['bounded-runtime', 'configured-role,tool-mount,tool-umount,invocation-root,invocation-parent,resource-journal,storage-allocation,storage-ancestor,storage-parent,storage-root,storage-tmpfs,storage-propagation-set,storage-propagation,storage-layout,storage-artifact-mount,storage-run-mounts,invocation-directory,invocation-mount,storage-verification,operator-identity,artifact-configuration,cloud-hypervisor-trust,virtiofsd-trust,tool-getent,tool-getfacl,tool-groupdel,tool-id,tool-ip,tool-nft,tool-sysctl,tool-flock,tool-mke2fs,tool-debugfs,tool-e2fsck,tool-rsync,tool-setfacl,tool-setpriv,tool-useradd,tool-userdel,kernel-trust,rootfs-trust,sbom-trust,supervisor-trust,manifest-trust,bundle-trust,artifact-snapshot,snapshot-journal,tool-gh,manifest-attestation,manifest-contents,cloud-hypervisor-digest,virtiofsd-digest,cloud-hypervisor-version,virtiofsd-version,kernel-digest,rootfs-digest,sbom-digest,sbom-contents,supervisor-digest,platform,architecture,kvm-access,kvm-group,host-policy,root,ipv4-control,ipv6-control,seccomp-control,cgroup-v2,tool-docker,docker-infrastructure,docker-info,docker-compose'],
+    ['storage-verification', 'journal-identity,mountinfo-read,mountinfo-observation,allocation-root,invocation-state,run-storage,rootfs-preparation,artifact-parent,sealed-snapshot'],
+    ['artifact-snapshot', 'root,directory,identity,vmm-copy,vmm-mode,virtiofsd-copy,virtiofsd-mode,kernel-copy,kernel-mode,rootfs-copy,rootfs-mode,sbom-copy,sbom-mode,supervisor-copy,supervisor-mode,manifest-copy,manifest-mode,bundle-copy,bundle-mode,directory-mode,mount-intent,topology-before,bind,mount-capture,readonly-exec,sealed-storage,partial-remove'],
+    ['bounded-cleanup', 'storage-close,directory-release,journal-complete'],
+    ['storage-mount-capture', 'canonical-path,mountinfo-read,mountinfo-parse,mountinfo-topology,match-count,filesystem,source,journal-open,journal-write,journal-file-sync,journal-file-close,journal-publish,journal-directory-sync,journal-staging-remove'],
+    ['bounded-artifacts', 'configured-role,tool-mount,tool-umount,invocation-root,invocation-parent,resource-journal,storage-allocation,storage-ancestor,storage-parent,storage-root,storage-tmpfs,storage-propagation-set,storage-propagation,storage-layout,storage-artifact-mount,storage-run-mounts,invocation-directory,invocation-mount,storage-verification,operator-identity,tool-gh,tool-rsync,verification-directory,enclave-artifacts,manifest-bundle-path,manifest-trust,bundle-trust,manifest-read,bundle-read,manifest-parse,manifest-attestation,rootfs-configuration,rootfs-trust,rootfs-provenance-trust,rootfs-copy,rootfs-digest,rootfs-attestation,sbom-trust,sbom-digest,sbom-contents'],
+  ].map(([scope, names]) => [
+    scope, Object.fromEntries(names.split(',').map(name => [name, null])),
+  ])),
+  optionalChecks: [
+    'enclave-network/gateway-identity', 'enclave-network/gateway-ready',
+    'storage-verification/sealed-snapshot',
+    'startup/github-attachment', 'startup/github-ready', 'startup/delegation',
+    'enclave-runtime/script-runtime', 'enclave-runtime/agent-runtime', 'enclave-runtime/host-service',
+    'enclave-storage/seed-catalog', 'enclave-storage/github-identity', 'enclave-storage/delegation-custody',
+    'artifact-snapshot/manifest-copy', 'artifact-snapshot/manifest-mode',
+    'artifact-snapshot/bundle-copy', 'artifact-snapshot/bundle-mode',
+    'artifact-snapshot/sbom-copy', 'artifact-snapshot/sbom-mode',
+    'artifact-snapshot/rootfs-copy', 'artifact-snapshot/rootfs-mode',
+    'bounded-runtime/rootfs-trust', 'bounded-runtime/rootfs-digest',
+    'bounded-runtime/sbom-trust', 'bounded-runtime/sbom-digest', 'bounded-runtime/sbom-contents',
+    'bounded-artifacts/sbom-contents',
+    'artifact-snapshot/partial-remove', 'bounded-cleanup/directory-release',
+  ],
+  reasons: Object.fromEntries(
+    'none,unknown,requirement-not-met,platform-unsupported,architecture-unsupported,github-actions-required,runner-not-github-hosted,ubuntu-image-required,command-failed,guest-disconnected,guest-socket-error,guest-read-timeout,guest-write-timeout,guest-not-writable,guest-output-failed,guest-protocol-error,guest-rejected,invocation-timeout,invocation-cancelled,result-invalid,mount-noexec,storage-mount-options,storage-mount-propagation,storage-path-changed,storage-cap-changed,mountinfo-malformed,storage-mount-missing,storage-mount-multiple,storage-mount-filesystem,storage-mount-source,storage-identity-uncommitted,storage-mount-identity-changed,storage-mount-unrecorded,rsync-file-io,rsync-partial-transfer,rsync-source-vanished,rsync-source-read,rsync-destination-write,path-not-absolute,private-root-overlap,mount-source-invalid,ancestor-symlink,ancestor-writable,ancestor-owner,file-symlink,file-type,file-writable,file-owner,tool-not-found,version-format,version-mismatch,digest-format,digest-empty,digest-mismatch,attestation-failed,artifact-size,ENOENT,EACCES,EPERM,ENOTDIR,ELOOP,ENOEXEC,EISDIR,ENOSPC,EDQUOT,EROFS,EIO,dns-not-found,dns-temporary,connection-refused,connection-timeout,request-timeout,network-unreachable,host-unreachable,connection-reset,transport-other,http-auth,http-status,backend-unavailable,response-too-large,malformed-json,malformed-protocol,rpc-error,identity-mismatch,tools-mismatch,readiness-deadline'
+      .split(',').map(reason => [reason, null]),
+  ),
 };
 
 function cliRoots(backend, runnerUid) {

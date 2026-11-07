@@ -53,6 +53,7 @@ function harness(jobs: Job[], existing: Issue[] = []) {
     context: { repo: repository, runId: 123, serverUrl: 'https://github.com' },
     core: { info: jest.fn() },
     sourceSha,
+    sourceAttempt: 1,
     runAttempt: 1,
   };
   return { options, github, actions, issues };
@@ -72,6 +73,7 @@ describe('agent regression failure reporting', () => {
     expect(issue.body).toContain(marker);
     expect(issue.body).toContain('15 failed build or regression job(s)');
     expect(issue.body).toContain(`${runUrl}/attempts/1`);
+    expect(issue.body).toContain('Build source job attempt: `1`');
     expect(issue.body).toContain(`/commit/${sourceSha}`);
     expect(issue.body).toContain(`Workflow revision: \`${workflowSha}\``);
     for (const cell of jobs.slice(0, 15)) {
@@ -89,12 +91,21 @@ describe('agent regression failure reporting', () => {
     'reports a shared build %s even when downstream cells were skipped',
     async conclusion => {
       const h = harness([job('Build AWF', conclusion), job('copilot / docker', 'skipped')]);
-      await report({ ...h.options, sourceSha: '' });
+      await report({ ...h.options, sourceSha: '', sourceAttempt: 0 });
       expect(h.issues.create.mock.calls[0][0].body).toContain('| [Build AWF]');
       expect(h.issues.create.mock.calls[0][0].body).toContain('Unavailable: the shared build');
+      expect(h.issues.create.mock.calls[0][0].body).toContain('Build source job attempt: `Unavailable`');
       expect(h.issues.create.mock.calls[0][0].body).not.toContain(`/commit/${workflowSha}`);
     },
   );
+
+  it('records the build attempt separately from the report attempt', async () => {
+    const h = harness([job('codex / docker')]);
+    await report({ ...h.options, sourceAttempt: 1, runAttempt: 2 });
+    const body = h.issues.create.mock.calls[0][0].body;
+    expect(body).toContain('Run: [123, attempt 2]');
+    expect(body).toContain('Build source job attempt: `1`');
+  });
 
   it.each(['success', 'cancelled', 'skipped', 'neutral', null])(
     'does not create or update an issue for only %s jobs',
@@ -170,9 +181,10 @@ describe('agent regression failure reporting', () => {
 interface WorkflowJob {
   needs?: string[];
   if?: string;
+  outputs?: Record<string, string>;
   permissions?: Record<string, string>;
   steps: {
-    uses?: string; env?: Record<string, string>; with?: Record<string, unknown>;
+    uses?: string; env?: Record<string, string>; with?: Record<string, unknown>; run?: string;
   }[];
 }
 const workflow = yaml.load(fs.readFileSync(path.resolve(__dirname,
@@ -209,8 +221,15 @@ describe('regression reporting workflow wiring', () => {
     });
     expect(reporter.steps[1]).toMatchObject({
       uses: expect.stringMatching(/^actions\/github-script@[a-f0-9]{40}$/),
-      env: { SOURCE_SHA: '${{ needs.build.outputs.source_sha }}' },
+      env: {
+        SOURCE_SHA: '${{ needs.build.outputs.source_sha }}',
+        SOURCE_ATTEMPT: '${{ needs.build.outputs.source_attempt }}',
+      },
     });
+    expect(workflow.jobs.build.outputs).toMatchObject({
+      source_attempt: '${{ steps.source.outputs.attempt }}',
+    });
+    expect(workflow.jobs.build.steps[1].run).toContain('attempt=$GITHUB_RUN_ATTEMPT');
   });
 
   it('executes the tested reporter with the pinned source and current run attempt', async () => {
@@ -223,8 +242,8 @@ describe('regression reporting workflow wiring', () => {
       expect(file).toBe('./scripts/ci/report-agent-regression-failures.cjs');
       return invoke;
     }, options.github, options.context, options.core, {
-      env: { SOURCE_SHA: sourceSha, GITHUB_RUN_ATTEMPT: '3' },
+      env: { SOURCE_SHA: sourceSha, SOURCE_ATTEMPT: '1', GITHUB_RUN_ATTEMPT: '3' },
     });
-    expect(invoke).toHaveBeenCalledWith({ ...options, sourceSha, runAttempt: 3 });
+    expect(invoke).toHaveBeenCalledWith({ ...options, sourceSha, sourceAttempt: 1, runAttempt: 3 });
   });
 });

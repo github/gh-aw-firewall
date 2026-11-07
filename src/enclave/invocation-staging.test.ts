@@ -41,12 +41,16 @@ describe('backend-neutral invocation input staging', () => {
     ])).toEqual([
       ['request/task.txt', plan.payload, 0o400, 'wx'],
       ['request/schema.json', JSON.stringify(plan.schema), 0o400, 'wx'],
-      ['runtime/session.jsonl', '', 0o600, 'wx'],
+      ['runtime/session.jsonl', '', 0o644, 'wx'],
       ['session-handoff/github-agent-id', 'agent-id\n', 0o400, 'wx'],
       ['session-handoff/github-bearer', 'invocation-scoped-test-bearer\n', 0o400, 'wx'],
     ]);
     expect(deps.chmod).toHaveBeenCalledTimes(5);
     expect(deps.chown).toHaveBeenCalledTimes(5);
+    expect(deps.chown).toHaveBeenCalledWith(
+      path.join(plan.invocationHostDir, 'runtime', 'session.jsonl'),
+      process.getuid?.() ?? 0, process.getgid?.() ?? 0,
+    );
   });
 
   it('stages only the bearer for a scoped GitHub capability', async () => {

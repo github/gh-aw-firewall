@@ -47,6 +47,9 @@ function createInvocationWorkspace(params) {
   const { config, invocationId, task, schema, githubAgentId, executorBearer } = params;
   const layout = invocationLayout(config.workDir, invocationId);
 
+  if ((process.getuid?.() ?? 0) === config.enclaveUid) {
+    throw new Error('Enclave session transcript requires a separate supervisor identity');
+  }
   fs.mkdirSync(layout.root, { recursive: true, mode: 0o700 });
 
   fs.writeFileSync(layout.taskPath, task, { mode: 0o444 });
@@ -57,8 +60,8 @@ function createInvocationWorkspace(params) {
 
   fs.writeFileSync(layout.outPath, '', { mode: 0o600 });
   fs.chownSync(layout.outPath, config.enclaveUid, config.enclaveGid);
-  fs.writeFileSync(layout.sessionLogPath, '', { mode: 0o600 });
-  fs.chownSync(layout.sessionLogPath, config.enclaveUid, config.enclaveGid);
+  fs.writeFileSync(layout.sessionLogPath, '', { mode: 0o644 });
+  fs.chmodSync(layout.sessionLogPath, 0o644);
   fs.mkdirSync(layout.agentPath, { mode: 0o700 });
   fs.chownSync(layout.agentPath, config.enclaveUid, config.enclaveGid);
   fs.chmodSync(layout.agentPath, 0o700);
