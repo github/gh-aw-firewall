@@ -15,7 +15,7 @@ const metadataFile = 'shared/model-information/imported/legacy-models-dev.metada
 const snapshotFile = 'shared/model-information/imported/legacy-models-dev.snapshot.v1.json';
 
 function toSafePricingData(value, depth = 0) {
-  const MAX_DEPTH = 4;
+  const MAX_DEPTH = 6;
   const MAX_ITEMS = 50;
   const MAX_KEYS = 40;
   const MAX_STRING = 500;

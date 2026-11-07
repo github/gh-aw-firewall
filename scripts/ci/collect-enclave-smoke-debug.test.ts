@@ -250,7 +250,7 @@ describe('host-only public enclave debug collector', () => {
     expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThan(8192);
   });
 
-  it('retains attempt metadata on the final event after the event cap is reached', () => {
+  it('retains the final event after the event cap without exporting progress integers', () => {
     const transcript = [
       ...Array.from({ length: 32 }, (_, index) => ({
         event: 'progress', stage: 'engine-started', attempt: index + 1,
@@ -262,9 +262,9 @@ describe('host-only public enclave debug collector', () => {
 
     expect(session.events).toHaveLength(32);
     expect(session.dropped).toBe(1);
-    expect(session.lastEvent).toEqual({
-      event: 'progress', stage: 'engine-completed', attempt: 3, exitCode: 1, runtimeMs: 100,
-    });
+    expect(session.lastEvent).toEqual({ event: 'progress', stage: 'engine-completed', exitCode: 1 });
+  });
+
   it.each([
     'unknown-option', 'invalid-option-value', 'missing-option-value',
     'invalid-settings', 'invalid-mcp-config', 'unknown',
@@ -329,7 +329,7 @@ describe('host-only public enclave debug collector', () => {
       transcript.map(event => JSON.stringify(event)).join('\n')));
     expect(session.events).toHaveLength(32);
     expect(session.events?.some(event => event.stage === 'claude-startup-failure')).toBe(false);
-    expect(session.lastEvent).toEqual({ event: 'progress', stage: 'engine-completed', attempt: 3, exitCode: 1 });
+    expect(session.lastEvent).toEqual({ event: 'progress', stage: 'engine-completed', exitCode: 1 });
     expect(session.claudeStartupFailure).toEqual({
       event: 'progress', stage: 'claude-startup-failure', classification: 'invalid-option-value',
     });

@@ -145,7 +145,15 @@ describe('offline scheduled source maintenance', () => {
     expect(microsoft.rows[0].cells).toEqual(['MAI-Code-1.1-Flash', 'GA', 'Lightweight', '$0.20', '$0.02', '$1.20']);
     expect(microsoft.headers).not.toContain('Tier');
     expect(microsoft.headers).not.toContain('Cache write');
-    expect(capture.pricing).toEqual(extracted);
+    expect(capture.pricing.tables.map((table: any) => table.owner))
+      .toEqual(extracted.tables.map((table: any) => table.owner));
+    const capturedOpenai = capture.pricing.tables.find((table: any) => table.owner === 'openai');
+    expect(capturedOpenai.rows[0].cells).toEqual([
+      'GPT-6.1 Sol', 'GA', 'Powerful', 'Default', '[redacted]', '$2.00', '$0.10', '$2.50', '$10.00',
+    ]);
+    expect(capture.pricing.footnotes).toEqual(Object.fromEntries(
+      Object.keys(extracted.footnotes).map((id: string) => [id, '[redacted]']),
+    ));
   });
 
   it('proposes missing and changed Copilot tariffs from captured evidence', () => {
