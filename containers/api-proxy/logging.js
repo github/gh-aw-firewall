@@ -8,6 +8,59 @@
 'use strict';
 
 const crypto = require('crypto');
+const { parseBodyAsObject } = require('./body-utils');
+
+// Only fixed protocol labels may reach shape logs, never caller-supplied types.
+const INPUT_ITEM_TYPES = new Set([
+  'message', 'function_call', 'function_call_output', 'reasoning',
+  'item_reference', 'custom_tool_call', 'custom_tool_call_output',
+]);
+const CONTENT_PART_TYPES = new Set([
+  'input_text', 'input_image', 'input_file', 'input_audio', 'output_text',
+  'text', 'image', 'image_url', 'audio', 'refusal',
+]);
+
+/**
+ * Log Copilot content types/counts without prompts, tool outputs or image data.
+ * Counts stay bounded in size even for large histories or unrecognized types.
+ */
+function logRequestShape(body, provider, requestId, stage) {
+  if (provider !== 'copilot' || body.length === 0) return;
+  const parsed = parseBodyAsObject(body);
+  const fields = { request_id: requestId, provider, stage, body_bytes: body.length };
+  if (!parsed) {
+    logRequest('debug', 'request_shape', { ...fields, body_format: 'unrecognized' });
+    return;
+  }
+  const inputTypes = {};
+  const contentTypes = {};
+  const outputTypes = {};
+  function count(counts, type, allowed) {
+    const label = allowed.has(type) ? type : 'unknown';
+    counts[label] = (counts[label] || 0) + 1;
+  }
+  function countContent(content, counts) {
+    if (typeof content === 'string') {
+      count(counts, 'text', CONTENT_PART_TYPES);
+    } else if (Array.isArray(content)) {
+      for (const part of content) count(counts, part?.type, CONTENT_PART_TYPES);
+    }
+  }
+  if (typeof parsed.input === 'string') countContent(parsed.input, contentTypes);
+  const items = Array.isArray(parsed.input) ? parsed.input
+    : Array.isArray(parsed.messages) ? parsed.messages : [];
+  for (const item of items) {
+    count(inputTypes, item?.type ?? (item?.role ? 'message' : 'unknown'), INPUT_ITEM_TYPES);
+    countContent(item?.content, contentTypes);
+    if (item?.type === 'function_call_output') countContent(item.output, outputTypes);
+  }
+  logRequest('debug', 'request_shape', {
+    ...fields,
+    input_item_types: inputTypes,
+    content_part_types: contentTypes,
+    tool_output_part_types: outputTypes,
+  });
+}
 
 /**
  * Generate a unique request ID (UUID v4).
@@ -34,7 +87,7 @@ function sanitizeForLog(str, maxLen = 200) {
 /**
  * Write a structured JSON log line to stdout.
  *
- * @param {string} level   - "info" | "warn" | "error"
+ * @param {string} level   - "debug" | "info" | "warn" | "error"
  * @param {string} event   - e.g. "request_start", "request_complete", "request_error", "startup"
  * @param {object} [fields] - Additional key/value pairs merged into the log line
  */
@@ -57,4 +110,4 @@ function logRequest(level, event, fields = {}) {
   process.stdout.write(JSON.stringify(line) + '\n');
 }
 
-module.exports = { generateRequestId, sanitizeForLog, logRequest };
+module.exports = { generateRequestId, sanitizeForLog, logRequest, logRequestShape };
