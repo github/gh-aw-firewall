@@ -68,9 +68,17 @@ export async function stageInvocationInputs(
     return;
   }
   if (!policy) throw new Error('Trusted agent policy is required for an agent enclave');
+  const supervisorUid = process.getuid?.() ?? 0;
+  const supervisorGid = process.getgid?.() ?? 0;
+  if (supervisorUid === resourceProfile.uid) {
+    throw new Error('Enclave session transcript requires a separate supervisor identity');
+  }
   await write(requestDir, 'task.txt', plan.payload);
   await write(requestDir, 'schema.json', JSON.stringify(plan.schema));
-  await write(invocationFilePath(plan.invocationHostDir, 'runtime'), 'session.jsonl', '', 0o600);
+  await writePrivateInvocationFile(
+    invocationFilePath(invocationFilePath(plan.invocationHostDir, 'runtime'), 'session.jsonl'),
+    '', supervisorUid, supervisorGid, 0o644, dependencies,
+  );
   if (policy.githubAgentId !== undefined || policy.githubBearer !== undefined) {
     const handoffDir = invocationFilePath(plan.invocationHostDir, 'session-handoff');
     if (policy.githubAgentId !== undefined) {

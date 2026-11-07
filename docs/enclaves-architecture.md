@@ -279,6 +279,13 @@ AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave
 - **Script executor** — `enclave_run_script` runs a bounded Python script in a no-network, read-only, single-use sandbox.
 - **Agent executor** — `enclave_run_agent` runs pinned Copilot, Codex, or Claude in a bounded single-use enclave. Codex requires the `openai` profile and Claude requires `anthropic`. Its mandatory peer is the dedicated API proxy; only the selected provider route is configured and real credentials remain outside the enclave. Copilot's `agent.tools.github` (or the deprecated legacy `agent.github.cli: issues-read-v1` marker) also permits a direct connection to compiler-owned shared mcpg. GitHub MCP and dynamic repository admission remain Copilot-only and fail closed for the other engines.
 
+The Docker/gVisor enclave entrypoint is a trusted supervisor with only the
+capabilities needed to write its host-owned session transcript, prepare private
+agent paths, and drop the coding engine to its fixed non-root identity. The
+engine and all its tools run without capabilities. The transcript is not
+writable by the engine process, preventing caller-directed shell commands from
+forging broker-audited diagnostic events.
+
 Claude's command builder defaults to `default` permission mode, `host` permission
 prompts, and pre-approved read-only Read, Glob, and Grep tools. The trusted AWF
 child-environment builder explicitly selects unattended shell/file writes for
@@ -293,6 +300,17 @@ enclave's filesystem, capability, or network restrictions.
 Its streaming output is projected onto bounded, deduplicated
 `claude-*` lifecycle milestones (initialization, provider response/retry, tool
 request/completion, permission denial, result, and stream/output presence).
+Tool requests, completions, and refusals retain only the finite `toolClass`:
+`shell`, `file-read`, `file-write`, `output-write`, `search`, or `unknown`.
+`output-write` identifies a native Write/Edit request targeting `/awf/out`;
+arbitrary shell commands are not inspected to infer their destination.
+A tool error does not imply a native permission refusal or a filesystem errno.
+Output-path syscall failures retain their separate operation/errno diagnostics.
+Denial/tool-error classes and the final result/stream summary survive the projected event
+limit; stream parsing continues after bounded raw capture fills, including
+resuming after an oversized line. The pinned unattended fixture uses the
+production child policy unchanged for success and substitutes only the provider
+edge, never approvals; negative cases cover refusal and output-write failure.
 Prompts, headers, tool inputs/results, and model text are never retained in
 Claude diagnostics, including public/raw-debug runs. Nonzero exits before
 initialization additionally project one finite startup classification:

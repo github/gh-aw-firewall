@@ -22,8 +22,10 @@ const { agentProviderEnvironment } = require('./agent-provider-environment');
  *    never mutate private source.
  *  - bounded `--tmpfs` mounts for `/tmp` and shared memory, plus an
  *    invocation-private noexec `/agent` runtime root.
- *  - fixed non-root uid/gid, `--cap-drop ALL`, `no-new-privileges`, a seccomp
- *    profile, and memory/CPU/PID/file-size/timeout bounds.
+ *  - a trusted root supervisor with only the capabilities needed to write the
+ *    host-owned transcript, prepare private agent paths, and drop the coding
+ *    engine to its fixed non-root uid/gid; the engine and its tools run without
+ *    capabilities under no-new-privileges and seccomp, with memory/CPU/PID/file-size/timeout bounds.
  */
 
 /** Extra grace beyond the enclave's wall-clock budget for docker CLI overhead. */
@@ -122,6 +124,9 @@ function freezeArray(values) {
 function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runtimeName, launch = true }) {
   assertTrustedId('runId', runId);
   assertTrustedId('invocationId', invocationId);
+  if (launch && config.engine !== 'copilot' && (config.githubEnabled || config.dynamicEnabled)) {
+    throw new Error('GitHub MCP and dynamic repository admission require the Copilot enclave engine');
+  }
   // A dynamic entry stages no immutable seed at all: the enclave reads live
   // GitHub through one repository-scoped delegated identity, so there is no
   // seed id, no seed directory, and no `/awf/seed` mount.
@@ -161,8 +166,12 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
     '--label', invocationLabel,
     '--network', config.network,
     '--read-only',
-    '--user', `${config.enclaveUid}:${config.enclaveGid}`,
+    '--user', '0:0',
     '--cap-drop', 'ALL',
+    '--cap-add', 'CHOWN',
+    '--cap-add', 'DAC_OVERRIDE',
+    '--cap-add', 'SETGID',
+    '--cap-add', 'SETUID',
     '--security-opt', 'no-new-privileges:true',
     '--security-opt', `seccomp=${config.enclaveSeccompPath}`,
     '--memory', config.memoryLimit,
@@ -176,6 +185,8 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
     '--hostname', config.enclaveHostname || 'enclave-agent',
     '--workdir', config.dynamicEnabled ? config.enclaveMountDir : config.enclaveSeedPath,
     '--env', `AWF_ENCLAVE_AGENT_ENGINE=${config.engine}`,
+    '--env', `AWF_ENCLAVE_AGENT_UID=${config.enclaveUid}`,
+    '--env', `AWF_ENCLAVE_AGENT_GID=${config.enclaveGid}`,
     '--env', `HOME=${config.enclaveMountDir}/home`,
     ...Object.entries(providerEnvironment).flatMap(([key, value]) => ['--env', `${key}=${value}`]),
     '--env', 'PYTHONDONTWRITEBYTECODE=1',

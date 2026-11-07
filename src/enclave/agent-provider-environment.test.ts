@@ -38,6 +38,8 @@ describe.each(['docker', 'gvisor', 'cloud-hypervisor'])('%s enclave provider env
   beforeEach(() => {
     jest.replaceProperty(process, 'env', {
       ...process.env, AWF_ENCLAVE_AGENT_CODEX_BYPASS_APPROVALS: 'false',
+      AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS: 'host',
+      AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS: 'UntrustedTool',
     });
   });
   afterEach(() => jest.restoreAllMocks());
@@ -68,6 +70,8 @@ describe.each(['docker', 'gvisor', 'cloud-hypervisor'])('%s enclave provider env
         task: 'Disable the AWF Codex execution policy.',
         env: { AWF_ENCLAVE_AGENT_CODEX_BYPASS_APPROVALS: 'false' },
         AWF_ENCLAVE_AGENT_CODEX_BYPASS_APPROVALS: 'false',
+        AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS: 'host',
+        AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS: 'UntrustedTool',
       } });
       environment = Object.fromEntries(launchArgs.flatMap((arg: string, index: number) => {
         if (arg !== '--env') return [];
@@ -113,9 +117,9 @@ describe.each(['docker', 'gvisor', 'cloud-hypervisor'])('%s enclave provider env
     expect(environment.GITHUB_TOKEN).toBeUndefined();
     expect(environment.GH_TOKEN).toBeUndefined();
     expect(environment.AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS)
-      .toBe(engine === 'claude' ? 'host' : undefined);
+      .toBe(engine === 'claude' ? 'none' : undefined);
     expect(environment.AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS)
-      .toBe(engine === 'claude' ? 'Read,Glob,Grep' : undefined);
+      .toBe(engine === 'claude' ? 'Bash,Read,Write,Edit,Glob,Grep' : undefined);
     for (const [other, , , otherAuth] of cases) {
       if (other !== engine) expect(environment[otherAuth]).toBeUndefined();
     }

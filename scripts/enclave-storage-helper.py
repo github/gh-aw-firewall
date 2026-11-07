@@ -17,7 +17,7 @@ MAX_ALLOCATIONS = 32
 DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 FILE = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 FILES = {
-    "out": 0o600, "session.jsonl": 0o600,
+    "out": 0o600, "session.jsonl": 0o644,
     "stdout.log": 0o600, "stderr.log": 0o600,
     "github-agent-id": 0o400, "github-bearer": 0o400,
 }
@@ -259,7 +259,11 @@ def validate_request(args, uid):
     target = BASE + "/" + str(uid) + "/" + allocation
     if operation == "own":
         require(args[4] in {*FILES, "agent"})
-        require(args[5:7] == ["65534", "65534"])
+        if args[4] == "session.jsonl":
+            group = re.fullmatch(r"(?:0|[1-9][0-9]{0,9})", args[6])
+            require(args[5] == str(uid) and group is not None and int(args[6]) <= 2147483647)
+        else:
+            require(args[5:7] == ["65534", "65534"])
     if operation == "reclaim":
         require(args[4] in ("out", "session.jsonl", "stdout.log", "stderr.log"))
     return operation, allocation, source, size, target
