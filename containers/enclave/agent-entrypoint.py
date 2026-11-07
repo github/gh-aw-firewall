@@ -96,22 +96,11 @@ def append_event(event: dict) -> None:
         current = SESSION_LOG_PATH.stat().st_size
         if len(encoded) <= MAX_TRANSCRIPT_BYTES and current + len(encoded) <= MAX_TRANSCRIPT_BYTES:
             operation = "session-log-open"
-            handle = SESSION_LOG_PATH.open("ab")
-            write_completed = False
-            try:
+            with SESSION_LOG_PATH.open("ab") as handle:
                 operation = "session-log-write"
                 handle.write(encoded)
-                write_completed = True
-            finally:
-                try:
-                    handle.close()
-                except OSError as error:
-                    if write_completed:
-                        operation = "session-log-close"
-                        raise
-                    sys.stderr.write(json.dumps(os_error_event(
-                        error, "session-log-close", fatal=False,
-                    )) + "\n")
+                operation = "session-log-close"
+                handle.close()
     except OSError as error:
         # Do not recurse into the failed transcript writer.
         sys.stderr.write(json.dumps(os_error_event(error, operation, fatal=False)) + "\n")
@@ -124,6 +113,24 @@ def append_event(event: dict) -> None:
         sys.stderr.write('{"event":"failure","category":"diagnostic-encoding-failed"}\n')
 
 
+def agent_identity() -> tuple[int, int]:
+    try:
+        uid = int(os.environ["AWF_ENCLAVE_AGENT_UID"])
+        gid = int(os.environ["AWF_ENCLAVE_AGENT_GID"])
+    except (KeyError, ValueError):
+        raise ValueError("invalid unprivileged agent identity") from None
+    if uid <= 0 or gid <= 0:
+        raise ValueError("invalid unprivileged agent identity")
+    return uid, gid
+
+
+def drop_agent_privileges() -> None:
+    uid, gid = agent_identity()
+    os.setgroups([])
+    os.setgid(gid)
+    os.setuid(uid)
+
+
 def file_operation(operation: str, action, *, fatal: bool = True):
     try:
         return action()
@@ -132,26 +139,46 @@ def file_operation(operation: str, action, *, fatal: bool = True):
         raise
 
 
-def close_file(handle, operation: str, *, fatal: bool = True) -> None:
+def chown_runtime_path(path: Path, operation: str) -> None:
     try:
-        handle.close()
+        os.chown(path, *agent_identity())
     except OSError as error:
-        safe_os_error(error, operation, fatal=fatal)
+        safe_os_error(error, operation)
+        raise
+
+
+@contextmanager
+def managed_file(handle, operation: str, *, fatal: bool = True):
+    pending_error = False
+    try:
+        with handle:
+            try:
+                yield handle
+            except BaseException:
+                pending_error = True
+                raise
+    except OSError as error:
+        if not pending_error:
+            safe_os_error(error, f"{operation}-close", fatal=fatal)
         raise
 
 
 @contextmanager
 def diagnostic_file(path: Path, operation: str, mode: str, *, fatal: bool = True):
-    handle = file_operation(f"{operation}-open", lambda: path.open(mode), fatal=fatal)
+    phase = f"{operation}-open"
+    pending_error = False
     try:
-        yield handle
-    finally:
-        pending_error = sys.exc_info()[0] is not None
-        try:
-            close_file(handle, f"{operation}-close", fatal=fatal)
-        except OSError:
-            if not pending_error:
+        with path.open(mode) as opened:
+            phase = f"{operation}-close"
+            try:
+                yield opened
+            except BaseException:
+                pending_error = True
                 raise
+    except OSError as error:
+        if not pending_error:
+            safe_os_error(error, phase, fatal=fatal)
+        raise
 
 
 def read_file(path: Path, operation: str, *, limit: int = -1, fatal: bool = True) -> bytes:
@@ -457,31 +484,25 @@ def append_output_verification(stage: str, max_output: int) -> None:
 
     def readback(path: Path, label: str):
         operation = f"verify-output-{label}"
-        handle = None
         try:
             handle = file_operation(
                 f"{operation}-open", lambda: open(path, "rb", opener=lambda name, flags:
                     os.open(name, flags | os.O_NONBLOCK)), fatal=False,
             )
-            metadata = file_operation(
-                f"{operation}-fstat", lambda: os.fstat(handle.fileno()), fatal=False,
-            )
-            if not stat.S_ISREG(metadata.st_mode):
-                safe_os_error(OSError(errno.EINVAL, "not a regular file"),
-                              f"{operation}-validate", fatal=False)
-                return None
-            data = file_operation(
-                f"{operation}-read", lambda: handle.read(max_output + 1), fatal=False,
-            )
-            return data, metadata
+            with managed_file(handle, operation, fatal=False) as opened:
+                metadata = file_operation(
+                    f"{operation}-fstat", lambda: os.fstat(opened.fileno()), fatal=False,
+                )
+                if not stat.S_ISREG(metadata.st_mode):
+                    safe_os_error(OSError(errno.EINVAL, "not a regular file"),
+                                  f"{operation}-validate", fatal=False)
+                    return None
+                data = file_operation(
+                    f"{operation}-read", lambda: opened.read(max_output + 1), fatal=False,
+                )
+                return data, metadata
         except OSError:
             return None
-        finally:
-            if handle is not None:
-                try:
-                    file_operation(f"{operation}-close", handle.close, fatal=False)
-                except OSError:
-                    pass
 
     direct = readback(direct_path, "direct")
     alias = readback(OUT_PATH, "alias")
@@ -767,7 +788,9 @@ def is_dynamic_enabled() -> bool:
 def configure_github_mcp() -> None:
     if os.environ.get("AWF_ENCLAVE_AGENT_ENGINE", "copilot") != "copilot" \
             and (is_dynamic_enabled()
-                 or os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true"):
+                 or os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true"
+                 or os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE")
+                 or os.environ.get("AWF_GITHUB_MCP_AUTHORIZATION")):
         # Engine-specific MCP tool/header semantics must not silently weaken
         # the existing scoped GitHub contract.
         raise ValueError("GitHub MCP is currently supported only by Copilot enclaves")
@@ -803,6 +826,8 @@ def configure_github_mcp() -> None:
     }
     write_file(GITHUB_MCP_CONFIG_PATH, json.dumps(config, separators=(",", ":")), "github-mcp-config-write")
     file_operation("github-mcp-config-chmod", lambda: GITHUB_MCP_CONFIG_PATH.chmod(0o600))
+    if os.geteuid() == 0:
+        chown_runtime_path(GITHUB_MCP_CONFIG_PATH, "github-mcp-config-chown")
 
 
 def configure_scoped_github_mcp() -> None:
@@ -833,6 +858,8 @@ def configure_scoped_github_mcp() -> None:
     }
     write_file(GITHUB_MCP_CONFIG_PATH, json.dumps(config, separators=(",", ":")), "github-mcp-config-write")
     file_operation("github-mcp-config-chmod", lambda: GITHUB_MCP_CONFIG_PATH.chmod(0o600))
+    if os.geteuid() == 0:
+        chown_runtime_path(GITHUB_MCP_CONFIG_PATH, "github-mcp-config-chown")
 
 
 def configure_dynamic_github_mcp() -> None:
@@ -865,6 +892,8 @@ def configure_dynamic_github_mcp() -> None:
     }
     write_file(GITHUB_MCP_CONFIG_PATH, json.dumps(config, separators=(",", ":")), "github-mcp-config-write")
     file_operation("github-mcp-config-chmod", lambda: GITHUB_MCP_CONFIG_PATH.chmod(0o600))
+    if os.geteuid() == 0:
+        chown_runtime_path(GITHUB_MCP_CONFIG_PATH, "github-mcp-config-chown")
 
 
 def append_engine_result(completed: subprocess.CompletedProcess) -> tuple[str, str]:
@@ -909,6 +938,16 @@ def classify_claude_startup_failure(stderr: bytes) -> str:
     return "unknown"
 
 
+def claude_tool_class(name, tool_input=None) -> str:
+    if not isinstance(name, str):
+        return "unknown"
+    if name in {"Write", "Edit"}:
+        if isinstance(tool_input, dict) and tool_input.get("file_path") == str(OUT_PATH):
+            return "output-write"
+        return "file-write"
+    return {"Bash": "shell", "Read": "file-read", "Glob": "search", "Grep": "search"}.get(name, "unknown")
+
+
 def communicate_claude(process: subprocess.Popen, timeout: float) -> tuple[bytes, bytes]:
     """Drain streams incrementally, projecting only fixed lifecycle observations."""
     started = time.monotonic()
@@ -917,10 +956,11 @@ def communicate_claude(process: subprocess.Popen, timeout: float) -> tuple[bytes
     pending = bytearray()
     discard_line = False
     seen = set()
+    tool_classes = {}
     truncated = False
 
     def milestone(stage: str, **metadata) -> None:
-        key = (stage, metadata.get("toolError")) if stage == "claude-tool-completed" else stage
+        key = (stage, metadata.get("toolClass"), metadata.get("toolError"))
         if key not in seen:
             seen.add(key)
             append_progress(stage, runtimeMs=int((time.monotonic() - started) * 1000), **metadata)
@@ -945,7 +985,8 @@ def communicate_claude(process: subprocess.Popen, timeout: float) -> tuple[bytes
                           } else "unknown",
                           shellAvailable=isinstance(tools, list) and "Bash" in tools)
             elif event.get("subtype") == "permission_denied":
-                milestone("claude-permission-denied")
+                milestone("claude-permission-denied",
+                          toolClass=claude_tool_class(event.get("tool_name"), event.get("tool_input")))
             elif event.get("subtype") == "api_retry":
                 status = event.get("error_status")
                 milestone("claude-api-retry",
@@ -966,12 +1007,23 @@ def communicate_claude(process: subprocess.Popen, timeout: float) -> tuple[bytes
                     if not isinstance(block, dict):
                         continue
                     if kind == "assistant" and block.get("type") == "tool_use":
-                        milestone("claude-tool-requested")
+                        tool_class = claude_tool_class(block.get("name"), block.get("input"))
+                        tool_id = block.get("id")
+                        if isinstance(tool_id, str) and len(tool_id) <= 128:
+                            if len(tool_classes) >= 64:
+                                tool_classes.pop(next(iter(tool_classes)))
+                            tool_classes[tool_id] = tool_class
+                        milestone("claude-tool-requested", toolClass=tool_class)
                     elif kind == "user" and block.get("type") == "tool_result":
-                        milestone("claude-tool-completed", toolError=block.get("is_error") is True)
+                        tool_id = block.get("tool_use_id")
+                        tool_class = tool_classes.pop(tool_id, "unknown") if isinstance(tool_id, str) else "unknown"
+                        milestone("claude-tool-completed", toolClass=tool_class,
+                                  toolError=block.get("is_error") is True)
         elif kind == "result":
             if isinstance(event.get("permission_denials"), list) and event["permission_denials"]:
-                milestone("claude-permission-denied")
+                for denial in event["permission_denials"]:
+                    milestone("claude-permission-denied", toolClass=claude_tool_class(
+                        denial.get("tool_name"), denial.get("tool_input")) if isinstance(denial, dict) else "unknown")
             milestone("claude-result", resultError=event.get("is_error") is True)
 
     try:
@@ -1019,7 +1071,7 @@ def communicate_claude(process: subprocess.Popen, timeout: float) -> tuple[bytes
                 raise subprocess.TimeoutExpired(process.args, timeout,
                                                 bytes(captured["stdout"]), bytes(captured["stderr"]))
     finally:
-        if process.returncode not in {None, 0} and "claude-initialized" not in seen:
+        if process.returncode not in {None, 0} and not any(key[0] == "claude-initialized" for key in seen):
             milestone("claude-startup-failure",
                       classification=classify_claude_startup_failure(bytes(captured["stderr"])))
         try:
@@ -1037,10 +1089,10 @@ def engine_binary(engine: str) -> str:
 
 
 def configure_engine_environment(engine: str) -> None:
+    if os.geteuid() == 0:
+        agent_identity()
     if engine == "copilot":
         return
-    if os.geteuid() == 0:
-        raise ValueError("coding engines must run as the unprivileged enclave user")
     endpoint = os.environ.get("AWF_ENCLAVE_AGENT_API_ENDPOINT", "")
     port = {"codex": 10000, "claude": 10001}[engine]
     if endpoint != f"http://172.31.0.30:{port}":
@@ -1167,6 +1219,8 @@ def main() -> int:
     for identifier, path in runtime_paths:
         try:
             path.mkdir(mode=0o700, exist_ok=True)
+            if os.geteuid() == 0:
+                chown_runtime_path(path, f"runtime-path-ownership-{identifier}")
         except OSError as error:
             safe_os_error(error, f"runtime-path-creation-{identifier}")
             append_event({"event": "failure", "category": "engine-failed"})
@@ -1223,6 +1277,7 @@ def main() -> int:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 start_new_session=True,
+                preexec_fn=drop_agent_privileges if os.geteuid() == 0 else None,
             )
             append_progress("engine-started", attempt=attempt + 1)
             try:

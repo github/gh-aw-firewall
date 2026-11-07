@@ -102,6 +102,17 @@ class HelperPolicy(unittest.TestCase):
         self.assertEqual(list(self.state_path.iterdir()), [])
         self.assertEqual(self.invoke("unmount"), {"clean": True})
 
+    def test_session_transcript_is_supervisor_owned_and_readable(self):
+        self.invoke("mount")
+        session = Path(self.target) / "session.jsonl"
+        session.touch()
+        session.chmod(0o644)
+        self.assertEqual(self.invoke("own", "session.jsonl", str(self.uid), str(os.getgid())), {"owned": True})
+        self.assertEqual(self.owners[session.stat().st_ino], self.uid)
+        self.assertEqual(self.invoke("reclaim", "session.jsonl"), {"owned": True})
+        self.assertEqual(session.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.invoke("unmount"), {"clean": True})
+
     def test_public_capture_files_are_fixed_and_reclaim_is_restartable(self):
         self.invoke("mount")
         for name in ("stdout.log", "stderr.log"):

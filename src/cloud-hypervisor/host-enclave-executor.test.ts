@@ -457,8 +457,10 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
                 request.stderr?.write(fragmented.subarray(0, split));
                 request.stderr?.write(fragmented.subarray(split));
                 request.stderr?.write('{"event":"failure","category":"result-empty","message":"PRIVATE_SESSION_TOKEN"}\n');
-                await fs.writeFile(path.join(invocationHostDir, 'runtime', 'session.jsonl'),
+                const sessionPath = path.join(invocationHostDir, 'runtime', 'session.jsonl');
+                await fs.writeFile(sessionPath,
                   '{"event":"progress","stage":"engine-started","secret":"PRIVATE_SESSION_TOKEN"}\n');
+                await fs.chmod(sessionPath, 0o600);
               }
               if (managerExecuteError) throw new GuestTransportError('guest-disconnected');
               if (role === 'agent' && expectHandoffCredentials) {
