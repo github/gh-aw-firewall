@@ -340,7 +340,10 @@ authorization.
 for both `docker` and `cloud-hypervisor`. The historical filename remains stable;
 consumers do not need to copy its implementation or duplicate the diagnostic
 schema. Pin the exporter checkout to a reviewed AWF release or full commit SHA
-containing this interface. Pin the AWF execution installation separately.
+containing this interface. Its closed startup-check catalog is embedded in the
+exporter, so standalone installations do not need a companion schema or built
+`dist` files. A regression test keeps that catalog synchronized with the host
+preflight schema. Pin the AWF execution installation separately.
 
 The daily agent regression also retains `startup.json` in the protected export
 directory before cleanup. This closed, bounded projection records the launch

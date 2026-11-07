@@ -142,6 +142,17 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       .toContain('unshare --mount --propagation private');
     expect(job.steps.find((step) => step.name.startsWith('Probe real'))!.run)
       .toContain('src/cloud-hypervisor/enclave-trusted-storage.integration.test.ts');
+    const prerequisites = job.steps.find(step => step.name === 'Install host probe prerequisites')!.run!;
+    expect(prerequisites).toContain('e2fsprogs');
+    expect(prerequisites).toContain('rsync');
+    const rootfs = job.steps.find(step => step.name === 'Stage selected release shared enclave rootfs')!;
+    expect(rootfs.env).toEqual({ GH_TOKEN: '${{ github.token }}' });
+    expect(rootfs.run).toContain('CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG');
+    expect(rootfs.run).toContain('enclave-rootfs.ext4.gz');
+    const storageProbe = job.steps.find(step => step.name.startsWith('Probe real'))!.run!;
+    expect(storageProbe).toContain(
+      'AWF_TEST_RELEASE_ROOTFS=$RUNNER_TEMP/enclave-rootfs/enclave-rootfs.ext4',
+    );
     expect(job.steps.find((step) => step.name === 'Remove probe executable')?.if).toBe('always()');
     const admission = job.steps.find((step) => step.name.startsWith('Probe production host admission'))!;
     expect(admission.run).toContain('sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,ImageOS');

@@ -631,11 +631,24 @@ describe('host-only public enclave debug collector', () => {
       expect(collectRun).toThrow();
       expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
     });
-  it('loads as a relocated standalone collector and matches the auth-fields validator', () => {
+  it('loads standalone with synchronized startup and auth-fields validators', () => {
     const stagedPath = path.join(temp, 'collector.cjs');
     fs.copyFileSync(path.join(__dirname, 'collect-enclave-smoke-debug.cjs'), stagedPath);
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const staged = require(stagedPath);
+    const checks = Object.fromEntries(Object.entries(preflightSchema.scopes).flatMap(([scope, catalog]) =>
+      Object.keys(catalog).map(id => [`${scope}/${id}`, ['not-attempted', 'none']])));
+    for (const id of preflightSchema.optionalChecks) checks[id] = ['not-required', 'none'];
+    const checklist = { schemaVersion: 1, ready: false, checks };
+    expect(staged.projectStartupChecklist(checklist)).toEqual(checklist);
+    for (const reason of Object.keys(preflightSchema.reasons).filter(reason => reason !== 'none')) {
+      expect(staged.projectStartupChecklist({
+        ...checklist, checks: { ...checks, 'startup/configuration': ['failed', reason] },
+      }).checks['startup/configuration']).toEqual(['failed', reason]);
+    }
+    expect(() => staged.projectStartupChecklist({
+      ...checklist, checks: { ...checks, 'private/SECRET': ['failed', 'ENOSPC'] },
+    })).toThrow(/startup-schema/);
     const canonical = projectCopilotAuthLogFields({});
     const cases = [
       canonical, `${canonical} extra=field`,
