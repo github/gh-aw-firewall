@@ -22,8 +22,15 @@ const decimal = value => {
   if (!match) throw new Error(`Missing or ambiguous numeric price: ${value || '(empty)'}`);
   return value.slice(1).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 };
-const cleanHtml = bytes => bytes.toString('utf8')
-  .replace(/<(script|style|noscript|svg)\b[^>]*>[\s\S]*?<\/\1>/gi, '');
+const cleanHtml = bytes => {
+  let html = bytes.toString('utf8');
+  let previous;
+  do {
+    previous = html;
+    html = html.replace(/<(script|style|noscript|svg)\b[^>]*>[\s\S]*?<\/\1>/gi, '');
+  } while (html !== previous);
+  return html;
+};
 
 function tables(bytes, text) {
   return [...cleanHtml(bytes).matchAll(/<table\b([^>]*)>([\s\S]*?)<\/table>/gi)].map(match => {
