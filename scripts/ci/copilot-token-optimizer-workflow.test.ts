@@ -32,7 +32,7 @@ describe('copilot token optimizer workflow', () => {
     });
     expect(metadata.engine_versions.copilot).toBe(frontmatter.engine.version);
     expect(installStep?.run).toBe(
-      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" ${frontmatter.engine.version} --checksums-sha256 ${frontmatter.engine['checksums-sha256']}`,
+      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" ${frontmatter.engine.version} --checksums-sha256 ${frontmatter.engine['checksums-sha256']} --cooldown-days 3`,
     );
   });
 });

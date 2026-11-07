@@ -438,7 +438,7 @@ describe.each(agents)('%s launch orchestration', agent => {
     audit?: string; missingAudit?: boolean; incomplete?: boolean; keepWork?: boolean; keepChrootHome?: boolean;
     stopFailure?: boolean; exitCode?: number | null; signal?: string;
     gatewayFailure?: boolean; gatewayThrow?: boolean; retentionFailure?: boolean;
-    stopFileFailure?: boolean; stopRequestFailure?: boolean; preStart?: boolean;
+    stopFileFailure?: boolean; stopRequestFailure?: boolean; preStart?: boolean; invalidResult?: boolean;
   } = {}) {
     const child = { exitCode: failure ? 1 : null as number | null, signalCode: null };
     const primaryVm = {
@@ -472,7 +472,7 @@ describe.each(agents)('%s launch orchestration', agent => {
       waitForDockerPrimaryReadiness: jest.fn(),
       requestMcp: jest.fn(async (_endpoint, _key, id, _method, params) => id !== 3 ? {} : {
         jsonrpc: '2.0', id, result: {
-          structuredContent: { status: 'ok', result: Object.fromEntries(
+          structuredContent: { status: options.invalidResult ? 'error' : 'ok', result: Object.fromEntries(
             Object.entries(params.arguments.schema.fields).map(([name, field]) =>
               [name, (field as { value: unknown }).value])) },
           content: [],
@@ -642,6 +642,31 @@ describe.each(agents)('%s launch orchestration', agent => {
         { gate: 'awf-exit', reason: 'nonzero-exit' }, { gate: 'gateway-cleanup', reason: 'remove-failed' },
       ],
     });
+  });
+  it.each([
+    {},
+    { stopFailure: true },
+    { exitCode: 1, keepWork: true },
+    { retentionFailure: true },
+  ])('fails invalid Docker results independently of finalization (%j)', async options => {
+    const { fixture, finalized, error } = await launch('docker', undefined, { ...options, invalidResult: true });
+    expect(error).toBeDefined();
+    expect(fixture.requestMcp).toHaveBeenCalledTimes(3);
+    expect(fixture.stopAwf).toHaveBeenCalledTimes(1);
+    const record = finalized.mock.calls[0][1];
+    expect(record.resultValidated).toBe(false);
+    expect(record.primaryFailure).toEqual({ gate: 'primary', reason: 'result' });
+    expect(record.checks['audit-invocation']).toEqual(['not-attempted', 'none']);
+    if ('keepWork' in options) {
+      expect(record.secondaryFailures).toEqual([
+        { gate: 'awf-exit', reason: 'nonzero-exit' },
+        { gate: 'awf-cleanup', reason: 'work-dir-present' },
+      ]);
+      const args = fixture.spawnAwf.mock.calls[0][0];
+      expect(fs.existsSync(args[args.indexOf('--work-dir') + 1])).toBe(true);
+    } else if (!('stopFailure' in options)) {
+      expect(record.checks['awf-cleanup']).toEqual(['passed', 'none']);
+    }
   });
   it('keeps the first post-result failure separate from later gateway cleanup failure', async () => {
     const { finalized, error } = await launch('docker', undefined, { missingAudit: true, gatewayFailure: true });

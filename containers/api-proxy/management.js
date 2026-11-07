@@ -202,6 +202,15 @@ function createManagementHandlers(deps) {
           automatic_model_selection: reflectScopedAuto(
             adapter.name, models, privateRoutingModelMetadata, modelPolicy,
           ),
+          ...(adapter.name === 'copilot' ? {
+            copilot_native_auto: {
+              supported: false,
+              reason: 'native_launch_contract_unavailable',
+              message: 'Copilot CLI --auto-tier is not supported by AWF\'s offline/BYOK launch. ' +
+                'Use gh-aw engine.model-routing or a concrete model without --auto-tier. ' +
+                'See https://github.com/github/gh-aw/issues/74970.',
+            },
+          } : {}),
           routing_models: buildRoutingModelMetadata(
             adapter.name,
             models,

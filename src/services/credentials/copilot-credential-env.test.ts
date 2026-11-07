@@ -153,6 +153,27 @@ describe('buildCopilotCredentialEnv', () => {
     expect(result.COPILOT_PROVIDER_WIRE_API).toBeUndefined();
   });
 
+  it.each(['auto', 'claude-sonnet-5.5', 'gpt-5'])(
+    'keeps %s on the isolated offline/BYOK contract, not a native Auto launch',
+    model => {
+      const config = { ...baseConfig, copilotGithubToken: 'ghu_token' } as WrapperConfig;
+      mockGetConfigEnvValue.mockImplementation((_, key) =>
+        key === 'COPILOT_MODEL' ? model : undefined
+      );
+
+      const result = buildCopilotCredentialEnv({ config, proxyIp });
+
+      expect(result.COPILOT_OFFLINE).toBe('true');
+      expect(result.COPILOT_API_URL).toBe(`http://${proxyIp}:10002`);
+      expect(result.COPILOT_PROVIDER_BASE_URL).toBe(`http://${proxyIp}:10002`);
+      expect(result.COPILOT_GITHUB_TOKEN).toBe(COPILOT_PLACEHOLDER_TOKEN);
+      expect(result.COPILOT_TOKEN).toBe(COPILOT_PLACEHOLDER_TOKEN);
+      expect(result.COPILOT_PROVIDER_WIRE_API).toBe(model === 'gpt-5' ? 'responses' : undefined);
+      expect(result).not.toHaveProperty('COPILOT_MODEL');
+      expect(Object.values(result)).not.toContain('ghu_token');
+    }
+  );
+
   it('real copilotGithubToken is NOT present in agent env (credential isolation)', () => {
     const realToken = 'ghu_real_secret_token';
     const config = { ...baseConfig, copilotGithubToken: realToken } as WrapperConfig;

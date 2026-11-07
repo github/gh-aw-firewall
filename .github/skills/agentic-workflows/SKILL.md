@@ -58,15 +58,18 @@ If GitHub API, `gh api`, or GitHub MCP downloads return HTTP 403 (including a to
 - `.github/aw/deployment-status.md`
 - `.github/aw/designer-mappings.md`
 - `.github/aw/designer.md`
+- `.github/aw/doctor.md`
 - `.github/aw/documentation-workflows.md`
 - `.github/aw/drive-memory.md`
 - `.github/aw/enclaves.md`
 - `.github/aw/evals.md`
 - `.github/aw/experiments.md`
+- `.github/aw/formal-methods.md`
 - `.github/aw/github-agentic-workflows.md`
 - `.github/aw/github-mcp-server-pagination.md`
 - `.github/aw/github-mcp-server-tools.md`
 - `.github/aw/github-mcp-server.md`
+- `.github/aw/harbor.md`
 - `.github/aw/instructions.md`
 - `.github/aw/intent.md`
 - `.github/aw/jobs.md`
@@ -83,6 +86,7 @@ If GitHub API, `gh api`, or GitHub MCP downloads return HTTP 403 (including a to
 - `.github/aw/multi-agent-research.md`
 - `.github/aw/network.md`
 - `.github/aw/optimize-agentic-workflow.md`
+- `.github/aw/otel.md`
 - `.github/aw/patterns.md`
 - `.github/aw/playwright.md`
 - `.github/aw/pr-reviewer.md`
