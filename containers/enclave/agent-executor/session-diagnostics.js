@@ -74,7 +74,8 @@ function projectEvent(value) {
   if (value.event === 'progress' && allowed(value.stage, STAGES)) {
     result.event = 'progress';
     result.stage = value.stage;
-    for (const key of ['attempt', 'runtimeMs']) if (integer(value[key])) result[key] = value[key];
+    if (integer(value.attempt)) result.attempt = value.attempt;
+    if (integer(value.runtimeMs)) result.runtimeMs = value.runtimeMs;
     if (typeof value.valid === 'boolean') result.valid = value.valid;
     if (String(value.stage).startsWith('claude-')) {
       for (const key of ['shellAvailable', 'toolError', 'resultError', 'stdoutObserved',

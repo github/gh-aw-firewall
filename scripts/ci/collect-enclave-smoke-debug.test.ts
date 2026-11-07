@@ -223,6 +223,23 @@ describe('host-only public enclave debug collector', () => {
     expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThan(8192);
   });
 
+  it('retains attempt metadata on the final event after the event cap is reached', () => {
+    const transcript = [
+      ...Array.from({ length: 32 }, (_, index) => ({
+        event: 'progress', stage: 'engine-started', attempt: index + 1,
+      })),
+      { event: 'progress', stage: 'engine-completed', attempt: 3, exitCode: 1, runtimeMs: 100 },
+    ];
+    const session = projectEnclaveSessionDiagnostics(Buffer.from(
+      transcript.map(event => JSON.stringify(event)).join('\n')));
+
+    expect(session.events).toHaveLength(32);
+    expect(session.dropped).toBe(1);
+    expect(session.lastEvent).toEqual({
+      event: 'progress', stage: 'engine-completed', attempt: 3, exitCode: 1, runtimeMs: 100,
+    });
+  });
+
   it('projects the independent Claude summary and rejects incorrect summary schema', () => {
     const envelope = { ...commonEnvelope(), session: {
       status: 'captured', claudeStreamSummary: {
