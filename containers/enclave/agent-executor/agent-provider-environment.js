@@ -32,7 +32,7 @@ function agentProviderEnvironment(engine, endpoint, model, directory, budgetToke
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
         DISABLE_AUTOUPDATER: '1',
         // Fixed AWF policy: shell diagnostics and /awf/out writes remain inside the outer sandbox.
-        AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS: 'standard',
+        AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS: 'none',
         AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS: 'Bash,Read,Write,Edit,Glob,Grep',
       };
     default:

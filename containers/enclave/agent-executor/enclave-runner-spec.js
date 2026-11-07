@@ -124,6 +124,9 @@ function freezeArray(values) {
 function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runtimeName, launch = true }) {
   assertTrustedId('runId', runId);
   assertTrustedId('invocationId', invocationId);
+  if (launch && config.engine !== 'copilot' && (config.githubEnabled || config.dynamicEnabled)) {
+    throw new Error('GitHub MCP and dynamic repository admission require the Copilot enclave engine');
+  }
   // A dynamic entry stages no immutable seed at all: the enclave reads live
   // GitHub through one repository-scoped delegated identity, so there is no
   // seed id, no seed directory, and no `/awf/seed` mount.

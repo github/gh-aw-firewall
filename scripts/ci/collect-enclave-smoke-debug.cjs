@@ -146,10 +146,6 @@ function projectSessionEvent(value) {
     result.event = value.event;
     result.stage = value.stage;
     if (typeof value.valid === 'boolean') result.valid = value.valid;
-    if (['engine-launch-attempt', 'engine-started', 'engine-completed'].includes(value.stage)
-        && count(value.attempt) && value.attempt >= 1 && value.attempt <= 3) {
-      result.attempt = value.attempt;
-    }
     if (value.stage.startsWith('claude-')) {
       Object.assign(result, fields(value, {
         ...Object.fromEntries(['shellAvailable', 'toolError', 'resultError', 'stdoutObserved',

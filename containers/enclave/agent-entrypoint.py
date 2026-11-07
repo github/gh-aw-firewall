@@ -768,7 +768,9 @@ def is_dynamic_enabled() -> bool:
 def configure_github_mcp() -> None:
     if os.environ.get("AWF_ENCLAVE_AGENT_ENGINE", "copilot") != "copilot" \
             and (is_dynamic_enabled()
-                 or os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true"):
+                 or os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true"
+                 or os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE")
+                 or os.environ.get("AWF_GITHUB_MCP_AUTHORIZATION")):
         # Engine-specific MCP tool/header semantics must not silently weaken
         # the existing scoped GitHub contract.
         raise ValueError("GitHub MCP is currently supported only by Copilot enclaves")

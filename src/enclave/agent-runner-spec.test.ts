@@ -100,6 +100,17 @@ describe('unified enclave agent runner specification', () => {
     expect(spec.invocationListArgs).toContain('label=awf.enclave.invocation=0123456789abcdef');
   });
 
+  it.each(['claude', 'codex'])('rejects GitHub credential mounts for %s before launch', engine => {
+    for (const github of [{ githubEnabled: true }, { dynamicEnabled: true }]) {
+      expect(() => deriveEnclaveContainerSpec({
+        config: { ...trustedConfig, engine, ...github },
+        runId: 'abcdef1234567890',
+        invocationId: '0123456789abcdef',
+        seedId: 'b'.repeat(32),
+      })).toThrow(/require the Copilot enclave engine/);
+    }
+  });
+
   it('preserves every mandatory single-use isolation control', () => {
     expect(spec.launchArgs).toEqual(expect.arrayContaining([
       '--network', 'awf-enclave-agent',

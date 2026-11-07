@@ -758,6 +758,8 @@ describe('enclave agent protected entrypoint diagnostics', () => {
       { AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'true' },
       { AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'true', AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE: 'scoped-bearer' },
       { AWF_ENCLAVE_AGENT_DYNAMIC_ENABLED: 'true' },
+      { AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE: 'scoped-bearer' },
+      { AWF_GITHUB_MCP_AUTHORIZATION: 'private-delegated-bearer-sentinel' },
     ];
     for (const githubEnv of githubModes) {
       const result = runHarness('model-limits', { ...providerEnv(engine), ...githubEnv });
