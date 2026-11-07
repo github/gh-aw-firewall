@@ -314,7 +314,7 @@ describe('host-only public enclave debug collector', () => {
       transcript.map(event => JSON.stringify(event)).join('\n')));
     expect(session.events).toHaveLength(32);
     expect(session.events?.some(event => event.stage === 'claude-startup-failure')).toBe(false);
-    expect(session.lastEvent).toEqual({ event: 'progress', stage: 'engine-completed', attempt: 3, exitCode: 1 });
+    expect(session.lastEvent).toEqual({ event: 'progress', stage: 'engine-completed', exitCode: 1 });
     expect(session.claudeStartupFailure).toEqual({
       event: 'progress', stage: 'claude-startup-failure', classification: 'invalid-option-value',
     });
