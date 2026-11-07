@@ -13,6 +13,49 @@ const reportFile = 'shared/model-information/maintenance-report.json';
 const rawImport = 'containers/api-proxy/models.dev.catalog.json';
 const metadataFile = 'shared/model-information/imported/legacy-models-dev.metadata.json';
 const snapshotFile = 'shared/model-information/imported/legacy-models-dev.snapshot.v1.json';
+
+function toSafePricingData(value, depth = 0) {
+  const MAX_DEPTH = 4;
+  const MAX_ITEMS = 50;
+  const MAX_KEYS = 40;
+  const MAX_STRING = 500;
+
+  if (depth > MAX_DEPTH) return undefined;
+  if (value === null || value === undefined) return value;
+
+  if (typeof value === 'string') {
+    return value
+      .replace(/[\u0000-\u001F\u007F]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, MAX_STRING);
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    const out = [];
+    for (const item of value.slice(0, MAX_ITEMS)) {
+      const safe = toSafePricingData(item, depth + 1);
+      if (safe !== undefined) out.push(safe);
+    }
+    return out;
+  }
+
+  if (typeof value === 'object') {
+    const out = {};
+    for (const key of Object.keys(value).slice(0, MAX_KEYS)) {
+      if (!/^[a-zA-Z0-9_.-]{1,64}$/.test(key)) continue;
+      const safe = toSafePricingData(value[key], depth + 1);
+      if (safe !== undefined) out[key] = safe;
+    }
+    return out;
+  }
+
+  return undefined;
+}
 const maintenanceTitle = 'chore: refresh canonical model sources';
 const projections = [
   snapshotFile, 'shared/model-information/catalog.generated.json',
@@ -200,7 +243,8 @@ function sanitizeForAgentContext(value) {
           captured.import = { accepted: snapshot.accepted, rejected: snapshot.rejected, collisions: snapshot.collisions, excluded };
         }
         if (source.id === 'copilot-pricing') {
-          captured.pricing = sanitizeForAgentContext(copilotPricing.extractPricingTables(bytes, documentText));
+          const extractedPricing = copilotPricing.extractPricingTables(bytes, documentText);
+          captured.pricing = toSafePricingData(extractedPricing);
         }
         writeCapture(directory, `${source.id}.raw`, bytes);
         writeCapture(directory, `${source.id}.txt`, text);
