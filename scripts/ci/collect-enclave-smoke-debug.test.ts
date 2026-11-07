@@ -245,9 +245,28 @@ describe('host-only public enclave debug collector', () => {
     const projected = JSON.parse(projectDiagnostics({ ...commonEnvelope(), session }, {
       runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor',
     }).toString());
-    expect(projected.session).toEqual(session);
+    expect(projected.session).toEqual({
+      ...session,
+      events: session.events?.map(event => Object.fromEntries(
+        Object.entries(event).filter(([key]) => !['attempt', 'runtimeMs'].includes(key)))),
+    });
     expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
     expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThan(8192);
+  });
+
+  it('retains the final event after the event cap without exporting progress integers', () => {
+    const transcript = [
+      ...Array.from({ length: 32 }, (_, index) => ({
+        event: 'progress', stage: 'engine-started', attempt: index + 1,
+      })),
+      { event: 'progress', stage: 'engine-completed', attempt: 3, exitCode: 1, runtimeMs: 100 },
+    ];
+    const session = projectEnclaveSessionDiagnostics(Buffer.from(
+      transcript.map(event => JSON.stringify(event)).join('\n')));
+
+    expect(session.events).toHaveLength(32);
+    expect(session.dropped).toBe(1);
+    expect(session.lastEvent).toEqual({ event: 'progress', stage: 'engine-completed', exitCode: 1 });
   });
 
   it.each([

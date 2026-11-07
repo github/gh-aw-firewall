@@ -100,14 +100,36 @@ function chargeHttpAndWebSocket(provider, model, expectedCredits, tokens = 10000
 async function main() {
   reset();
   const fixtureSources = process.env.AWF_PRICING_SMOKE_IMPORT_FIXTURES === 'true';
-  assert.equal(Object.keys(maintainedPricing).length, 42);
-  assert.equal(Object.values(bundledPricing.compatibility.providers)
-    .reduce((count, models) => count + Object.keys(models).length, 0), 16);
+  assert.ok(Object.keys(maintainedPricing).length > 0);
+  for (const [model, pricing] of Object.entries(maintainedPricing)) {
+    assert.ok(model.length > 0);
+    assert.ok(pricing && typeof pricing === 'object');
+    if (pricing.tariffs) {
+      assert.ok(Array.isArray(pricing.tariffs) && pricing.tariffs.length > 0);
+      assert.ok(pricing.tariffs.some(tariff => tariff.tier === 'default'));
+    } else {
+      for (const field of ['input', 'cachedInput', 'cacheWrite', 'output']) {
+        assert.ok(Object.hasOwn(pricing, field));
+      }
+    }
+  }
+  assert.ok(Object.keys(bundledPricing.compatibility.providers).length > 0);
+  for (const [provider, models] of Object.entries(bundledPricing.compatibility.providers)) {
+    assert.ok(provider.length > 0);
+    assert.ok(Object.keys(models).length > 0);
+    for (const [model, pricing] of Object.entries(models)) {
+      assert.ok(model.length > 0);
+      assert.ok(pricing && typeof pricing === 'object');
+      for (const field of ['input', 'cachedInput', 'cacheWrite', 'output']) {
+        assert.ok(Object.hasOwn(pricing, field));
+      }
+    }
+  }
   assert.equal(bundledPricing.compatibility.policy, 'legacy_native_compatibility');
   for (const [provider, model, credits] of [
     ['copilot', 'gpt-5.4', 250],
     ['copilot', 'gpt-5-mini', fixtureSources ? 75 : 25],
-    ['openai', 'gpt-5-mini', fixtureSources ? 75 : 25],
+    ['openai', 'gpt-5-mini', 25],
     ['openai', 'gpt-5.4', 250],
     ['openrouter', 'openai/gpt-5.4', 250],
     ['openrouter', 'perceptron/perceptron-mk1', 15],

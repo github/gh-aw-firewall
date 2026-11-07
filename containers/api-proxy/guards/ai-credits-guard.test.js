@@ -43,6 +43,168 @@ describe('ai-credits-guard', () => {
     resetModelPricingCatalogForTests();
   });
 
+  describe('reviewed Copilot tariff accounting', () => {
+    let fixture;
+    let guard;
+    let environment;
+
+    function loadProjection(projection) {
+      jest.isolateModules(() => {
+        jest.doMock('../model-information.pricing.generated.json', () => projection);
+        jest.doMock('../catalogue-loader', () => ({
+          getCatalogueLoader: () => ({ capture: () => null }),
+        }));
+        guard = require('./ai-credits-guard');
+      });
+    }
+
+    beforeEach(() => {
+      environment = { ...process.env };
+      for (const key of ['AWF_API_PROXY_PROVIDERS', 'AWF_MODEL_PRICING_CATALOG',
+        'AWF_DEFAULT_AI_CREDITS_PRICING', 'AWF_MAX_AI_CREDITS', 'AWF_AI_CREDITS_HARD_CAP',
+        'COPILOT_PROVIDER_API_KEY', 'COPILOT_API_TARGET', 'GITHUB_SERVER_URL']) delete process.env[key];
+      fixture = require('../test-helpers/copilot-pricing-fixture').reviewedCopilotFixture();
+      jest.spyOn(Date, 'now').mockReturnValue(Date.parse(fixture.capture.retrievedAt));
+      loadProjection(fixture.projection);
+    });
+
+    afterEach(() => {
+      jest.dontMock('../model-information.pricing.generated.json');
+      jest.dontMock('../catalogue-loader');
+      jest.restoreAllMocks();
+      process.env = environment;
+    });
+
+    it('uses maintained Copilot prices for charges budgets steering and reflection when live billing is absent', () => {
+      for (const model of fixture.reviewed) {
+        guard.resetAiCreditsGuardForTests();
+        process.env.AWF_MAX_AI_CREDITS = '0.1';
+        const id = model.identity.rawId;
+        const rates = model.tariffs.find(tariff => tariff.tier === 'default').components;
+        const expected = Number(((10000 * Number(rates.input.price) +
+          1000 * Number(rates.cachedInput.price) + 10000 * Number(rates.output.price)) / 10000).toFixed(6));
+        const usage = guard.applyAiCreditsUsage({
+          input_tokens: 10000, cache_read_tokens: 1000, output_tokens: 10000,
+        }, id, 'copilot', { catalogue: null, runtimeCatalog: {} });
+        expect(usage).toMatchObject({
+          pricingSource: 'curated', pricingTier: 'default', accountingPolicy: 'concrete_model',
+        });
+        expect(usage.aiCreditsThisResponse).toBeCloseTo(expected, 6);
+        expect(guard.getAiCreditsBlockState()).toMatchObject({ maxExceeded: true, maxAiCredits: 0.1 });
+        expect(guard.getPendingAiCreditSteeringWarning().threshold).toBe(99);
+        const reflected = guard.getAiCreditsReflectState().by_model[id];
+        expect(reflected).toMatchObject({
+          total: expected, pricing_source: 'curated', pricing_tier: 'default',
+          accounting_policy: 'concrete_model', fallback_pricing_used: false,
+          pricing_catalog_version: expect.any(String),
+        });
+        expect(reflected).not.toHaveProperty('pricing_estimate');
+        process.env.AWF_AI_CREDITS_HARD_CAP = '0.1';
+        expect(guard.getAiCreditsBlockState()).toMatchObject({ maxExceeded: true, hardCap: true });
+        delete process.env.AWF_AI_CREDITS_HARD_CAP;
+      }
+    });
+
+    it.each([272000, 272001])('charges Terra at the strict maintained threshold %s', input_tokens => {
+      const usage = guard.applyAiCreditsUsage({ input_tokens }, 'gpt-6.1-terra', 'copilot', {
+        catalogue: null, runtimeCatalog: {},
+      });
+      expect(usage).toMatchObject({
+        pricingSource: 'curated', pricingTier: input_tokens > 272000 ? 'long_context' : 'default',
+      });
+      expect(usage.aiCreditsThisResponse).toBe(input_tokens * (input_tokens > 272000 ? 2 : 1) / 10000);
+    });
+
+    it('preserves complete provider pricing priority', () => {
+      for (const id of fixture.ids) {
+        const usage = guard.applyAiCreditsUsage({ input_tokens: 10000 }, id, 'copilot', {
+          catalogue: null,
+          runtimeCatalog: { copilot: [{
+            id, provider: 'copilot', observedAt: fixture.capture.retrievedAt,
+            pricing: { default: { input: 9, cachedInput: 0, cacheWrite: null, output: 9 } },
+          }] },
+        });
+        expect(usage).toMatchObject({ pricingSource: 'provider', aiCreditsThisResponse: 9 });
+      }
+    });
+
+    it.each([
+      { kind: 'partial', inputTokens: 11, providerThreshold: 10, tier: 'long_context', cached: 0.02 },
+      { kind: 'partial', inputTokens: 272001, providerThreshold: 500000, tier: 'default', cached: 0.01 },
+      { kind: 'complete', inputTokens: 11, providerThreshold: 10, tier: 'long_context', cached: 0.9 },
+      { kind: 'complete', inputTokens: 272001, providerThreshold: 500000, tier: 'default', cached: 0.9 },
+    ])('preserves $kind provider $tier selection with different dated maintained thresholds', ({
+      kind, inputTokens, providerThreshold, tier, cached,
+    }) => {
+      const model = structuredClone(require('../../../shared/model-information/sources/copilot-main.json')
+        .models.find(item => item.identity.rawId === 'gpt-6.1-sol'));
+      for (const tariff of model.tariffs) tariff.effectiveUntil = '2027-01-01T00:00:00Z';
+      loadProjection({ 'gpt-6.1-sol': { tariffs: model.tariffs } });
+      const usage = guard.applyAiCreditsUsage({
+        input_tokens: inputTokens, cache_read_tokens: 1000,
+      }, 'gpt-6.1-sol', 'copilot', {
+        catalogue: null, runtimeCatalog: { copilot: [{
+          id: 'gpt-6.1-sol', provider: 'copilot', observedAt: fixture.capture.retrievedAt,
+          pricing: {
+            default: { input: 1, output: 3, threshold: providerThreshold,
+              ...(kind === 'complete' ? { cachedInput: 9, cacheWrite: null } : {}) },
+            longContext: { input: 6, output: 8, cacheWrite: 0,
+              ...(kind === 'complete' ? { cachedInput: 9 } : {}) },
+          },
+        }] },
+      });
+      expect(usage).toMatchObject({
+        pricingSource: 'provider', pricingTier: tier, cachedInputCreditsThisResponse: cached,
+      });
+    });
+
+    it('does not reuse an expired Copilot promo without a verified successor', () => {
+      process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify({ input: 9, output: 9 });
+      for (const id of ['gemini-3.8-flash', 'gemini-4-argon']) {
+        const end = Date.parse(fixture.projection[id].tariffs[0].effectiveUntil);
+        for (const time of [end - 1, end, end + 1]) {
+          Date.now.mockReturnValue(time);
+          guard.resetAiCreditsGuardForTests();
+          const usage = guard.applyAiCreditsUsage({ input_tokens: 10000 }, id, 'copilot', {
+            catalogue: null, runtimeCatalog: {},
+          });
+          expect(usage.pricingSource).toBe(time < end ? 'curated' : 'configured_default');
+          expect(guard.checkModelPricing(id, 'copilot')).toBeNull();
+          expect(guard.getAiCreditsReflectState().by_model[id].pricing_source)
+            .toBe(time < end ? 'curated' : 'configured_default');
+        }
+      }
+    });
+
+    it('selects a reviewed successor only within its effective interval', () => {
+      // Immutable estimated contract fixture, not a successor claimed by the captured page.
+      const staged = require('../test-helpers/copilot-pricing-fixture').copilotPromotionContractFixture();
+      const successor = staged.tariffs.find(tariff => tariff.tier === 'post_promotion');
+      const provenance = require('../../../shared/model-information/fixtures.v1.json').model.provenance;
+      successor.provenance = provenance;
+      successor.effectiveUntil = '2027-02-01T00:00:00Z';
+      for (const component of Object.values(successor.components)) component.provenance = provenance;
+      loadProjection({ 'gemini-3.8-flash': { tariffs: staged.tariffs } });
+      process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify({ input: 9, output: 9 });
+      const start = Date.parse(successor.effectiveFrom);
+      for (const time of [start - 1, start, start + 1, Date.parse(successor.effectiveUntil)]) {
+        Date.now.mockReturnValue(time);
+        guard.resetAiCreditsGuardForTests();
+        const usage = guard.applyAiCreditsUsage({ input_tokens: 10000 }, 'gemini-3.8-flash', 'copilot', {
+          catalogue: null, runtimeCatalog: {},
+        });
+        expect(usage.pricingSource).toBe(time < Date.parse(successor.effectiveUntil)
+          ? 'curated' : 'configured_default');
+        if (time >= start && time < Date.parse(successor.effectiveUntil)) {
+          expect(usage).toMatchObject({
+            pricingTier: 'post_promotion', pricingObservedAt: provenance.at,
+            pricingCatalogId: provenance.source, aiCreditsThisResponse: Number(successor.components.input.price),
+          });
+        }
+      }
+    });
+  });
+
   afterEach(() => {
     resetAiCreditsGuardForTests();
     clearRuntimeModels();
@@ -736,8 +898,16 @@ describe('ai-credits-guard', () => {
   });
 
   it('warns and estimates usage for concrete models without prices', () => {
+    process.env.AWF_MODEL_PRICING_CATALOG = JSON.stringify({
+      catalogId: 'median-fixture', version: 'v1',
+      schemaVersion: 1, unit: 'USD_PER_1M_TOKENS', providers: {
+        'median-test': { models: {
+          donor: { input: 2, cachedInput: 0.2, cacheWrite: null, output: 11, reasoning: 11 },
+        } },
+      },
+    });
     const { lines } = collectLogOutput();
-    const usage = applyAiCreditsUsage({ input_tokens_include_cache: true, input_tokens: 100 }, 'unknown-model', 'copilot');
+    const usage = applyAiCreditsUsage({ input_tokens_include_cache: true, input_tokens: 100 }, 'unknown-model', 'median-test');
 
     expect(usage).toMatchObject({ pricingSource: 'median_estimate', aiCreditsThisResponse: 0.02 });
     expect(getAiCreditsReflectState().total).toBe(0.02);
@@ -1116,13 +1286,21 @@ describe('ai-credits-guard', () => {
   describe('missing model pricing warnings', () => {
     it('warns once and charges estimated usage when maxAiCredits is active', () => {
       process.env.AWF_MAX_AI_CREDITS = '10';
+      process.env.AWF_MODEL_PRICING_CATALOG = JSON.stringify({
+        catalogId: 'median-fixture', version: 'v1',
+        schemaVersion: 1, unit: 'USD_PER_1M_TOKENS', providers: {
+          'median-test': { models: {
+            donor: { input: 2, cachedInput: 0.2, cacheWrite: null, output: 11, reasoning: 11 },
+          } },
+        },
+      });
       resetAiCreditsGuardForTests();
 
       const { lines } = collectLogOutput();
-      expect(checkModelPricing('brand-new-model-xyz', 'copilot')).toBeNull();
-      expect(checkModelPricing('brand-new-model-xyz', 'copilot')).toBeNull();
+      expect(checkModelPricing('brand-new-model-xyz', 'median-test')).toBeNull();
+      expect(checkModelPricing('brand-new-model-xyz', 'median-test')).toBeNull();
       expect(applyAiCreditsUsage(
-        { input_tokens_include_cache: true, input_tokens: 1000, output_tokens: 500 }, 'brand-new-model-xyz', 'copilot',
+        { input_tokens_include_cache: true, input_tokens: 1000, output_tokens: 500 }, 'brand-new-model-xyz', 'median-test',
       )).toMatchObject({ pricingSource: 'median_estimate', aiCreditsThisResponse: 0.75 });
       expect(getAiCreditsReflectState().total).toBe(0.75);
       expect(getAiCreditsBlockState()).toMatchObject({ maxExceeded: false, totalAiCredits: 0.75 });
