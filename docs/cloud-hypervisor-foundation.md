@@ -786,6 +786,20 @@ privileges through executable metadata. Missing mounts, unsupported kernel
 controls, or verification mismatches abort startup rather than launching
 without a limit.
 
+Agent enclaves reserve guest root (with only `SETUID`/`SETGID`) for the fixed,
+immutable trusted entrypoint. It retains real/saved root identity but performs
+ordinary file operations with effective UID/GID `65534:65534`. Only transcript
+operations temporarily restore effective root, appending to the root-owned
+`0600` file in the root-owned `0700` `/session-state` export. Preflight opens
+that same file under the writer identity and rejects unsafe ownership, modes,
+links, parent directories, and read-only mounts. Before launching Copilot,
+Codex, or Claude, the entrypoint permanently drops all child UID/GID identities
+to `65534:65534`, clearing supplementary groups and capabilities. The engine
+cannot replace the transcript or access the trusted parent's process resources.
+The trusted storage provider preserves guest root in virtio-fs UID/GID
+translation only for this exact transcript export. Non-root IDs there and all
+IDs on other exports remain squashed to the non-root workspace identity.
+
 The trusted host executor mounts one invocation-private Linux **tmpfs** at
 `/run/awf-cloud-hypervisor/enclave-storage/<vmRunId>`, with `size=1073741824` for scripts (1 GiB) or
 `size=536870912` for agents (512 MiB). The production provider routes the closed

@@ -55,7 +55,7 @@ async function readSession(
 ): Promise<EnclaveSessionDiagnostics | Buffer> {
   let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
   try {
-    const runtime = path.join(invocationDirectory, 'runtime');
+    const runtime = path.join(invocationDirectory, 'session-state');
     if (await fs.realpath(runtime) !== runtime) return { status: 'unsafe' };
     const directory = await fs.lstat(runtime);
     if (!directory.isDirectory() || directory.uid !== uid || directory.gid !== gid
@@ -86,8 +86,8 @@ async function readSession(
 /** Retention sinks receive only the closed metadata projection, never guest session text. */
 export async function readEnclaveSessionDiagnostics(
   invocationDirectory: string,
-  uid = 65534,
-  gid = 65534,
+  uid = 0,
+  gid = 0,
   retainPublicSession?: (metadata: string) => Promise<void>,
 ): Promise<EnclaveSessionDiagnostics> {
   const session = await readSession(invocationDirectory, uid, gid);

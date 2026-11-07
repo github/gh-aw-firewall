@@ -20,10 +20,11 @@ import (
 )
 
 const (
-	afVsock      = 40
-	vmaddrCIDAny = ^uint32(0)
-	cancelGrace  = 2 * time.Second
-	maxTimeoutMS = int64(24 * 60 * 60 * 1000)
+	afVsock                = 40
+	vmaddrCIDAny           = ^uint32(0)
+	cancelGrace            = 2 * time.Second
+	maxTimeoutMS           = int64(24 * 60 * 60 * 1000)
+	enclaveAgentEntrypoint = "/usr/local/bin/run-enclave-agent"
 )
 
 func runEnclaveExec(args []string) error {
@@ -34,7 +35,22 @@ func runEnclaveExec(args []string) error {
 	if err != nil {
 		return err
 	}
-	if os.Getuid() != int(profile.uid) || os.Getgid() != int(profile.gid) {
+	uid, gid := int(profile.uid), int(profile.gid)
+	validateCapabilities := validateEnclaveCapabilities
+	if args[0] == "agent" && args[1] == enclaveAgentEntrypoint && len(args) == 3 {
+		uid, gid = 0, 0
+		validateCapabilities = validateEnclaveSupervisorCapabilities
+		if err := os.Setenv("AWF_ENCLAVE_AGENT_GUEST_SUPERVISOR", "true"); err != nil {
+			return err
+		}
+		if err := os.Setenv("AWF_ENCLAVE_AGENT_UID", fmt.Sprint(profile.uid)); err != nil {
+			return err
+		}
+		if err := os.Setenv("AWF_ENCLAVE_AGENT_GID", fmt.Sprint(profile.gid)); err != nil {
+			return err
+		}
+	}
+	if os.Getuid() != uid || os.Geteuid() != uid || os.Getgid() != gid || os.Getegid() != gid {
 		return fmt.Errorf("enclave process identity verification failed")
 	}
 	groups, err := os.Getgroups()
@@ -47,7 +63,7 @@ func runEnclaveExec(args []string) error {
 	if err := setNoNewPrivilegesAllThreads(); err != nil {
 		return fmt.Errorf("set enclave process no_new_privs: %w", err)
 	}
-	if err := verifyEnclaveThreads("/proc/self/task", validateEnclaveCapabilities); err != nil {
+	if err := verifyEnclaveThreads("/proc/self/task", validateCapabilities); err != nil {
 		return err
 	}
 	if err := verifyEnclaveRlimits(profile); err != nil {
@@ -508,6 +524,15 @@ func (s *session) start(frame Frame) error {
 		return err
 	}
 	var command *exec.Cmd
+	uid, gid := uint32(frame.UID), uint32(frame.GID)
+	if s.config.EnclaveRole == "agent" {
+		// Only the immutable trusted entrypoint may retain the supervisor identity.
+		if resolvedCommand != enclaveAgentEntrypoint || len(frame.Argv) != 1 {
+			cancel()
+			return typedError{errorInvalidRequest, "agent enclave requires its fixed trusted entrypoint"}
+		}
+		uid, gid = 0, 0
+	}
 	if s.config.EnclaveRole != "" {
 		command = exec.Command(
 			"/usr/sbin/awf-supervisor",
@@ -521,7 +546,7 @@ func (s *session) start(frame Frame) error {
 	command.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,
 		Credential: &syscall.Credential{
-			Uid: uint32(frame.UID), Gid: uint32(frame.GID), NoSetGroups: true,
+			Uid: uid, Gid: gid, NoSetGroups: true,
 		},
 	}
 	stdin, err := command.StdinPipe()

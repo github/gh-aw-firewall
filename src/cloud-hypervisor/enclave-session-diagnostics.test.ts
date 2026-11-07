@@ -14,7 +14,7 @@ describe('bounded guest session evidence', () => {
 
   beforeEach(async () => {
     directory = await fs.realpath(await fs.mkdtemp(path.join(process.cwd(), '.guest-session-')));
-    runtime = path.join(directory, 'runtime');
+    runtime = path.join(directory, 'session-state');
     file = path.join(runtime, 'session.jsonl');
     await fs.mkdir(runtime, { mode: 0o700 });
   });

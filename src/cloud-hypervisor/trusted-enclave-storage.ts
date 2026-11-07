@@ -382,7 +382,7 @@ async function prepareTrustedStorage(
         const writable = exports.filter((entry) => entry.mode === 'rw').map((entry) => entry.source);
         if (!writable.length) throw new Error('Bounded writable exports are missing');
         await verifyStorage(plan.invocationHostDir, bytes, writable);
-      }, ...args),
+      }, plan.executorKind === 'agent' ? path.join(plan.invocationHostDir, 'session-state') : undefined, ...args),
   });
   const sealSnapshot = async <T extends CloudHypervisorCommonArtifactSnapshot>(
     stage: (snapshotReport: HostPreflightReporter) => Promise<T>,

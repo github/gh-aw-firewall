@@ -58,6 +58,20 @@ func TestStartValidatesCWDForEnclaveAndPrimaryRoles(t *testing.T) {
 	}
 }
 
+func TestAgentStartRejectsArbitrarySupervisorCommands(t *testing.T) {
+	s := session{config: bootConfig{EnclaveRole: "agent"}}
+	err := s.start(Frame{
+		Argv: []string{"/bin/true"}, Env: map[string]string{"PATH": "/bin"},
+		Cwd: "/", UID: 65534, GID: 65534,
+	})
+	if err == nil || !strings.Contains(err.Error(), "fixed trusted entrypoint") {
+		t.Fatalf("arbitrary agent command was not rejected: %v", err)
+	}
+	if s.active != nil {
+		t.Fatal("untrusted supervisor command started")
+	}
+}
+
 func TestIPCommandRequiresExecutableFromFixedPaths(t *testing.T) {
 	root := t.TempDir()
 	missing := filepath.Join(root, "missing")

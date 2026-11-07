@@ -48,6 +48,12 @@ export async function stageInvocationInputs(
   policy: HostExecutorAgentPolicy | undefined,
   dependencies: InvocationStagingDependencies,
   credentialContext = 'enclave GitHub bearer file',
+  sessionStorage = {
+    directory: 'runtime',
+    uid: process.getuid?.() ?? 0,
+    gid: process.getgid?.() ?? 0,
+    mode: 0o644,
+  },
 ): Promise<void> {
   if (role === 'agent' && policy?.githubBearer) {
     assertNoHostGithubTokenValue(
@@ -68,16 +74,15 @@ export async function stageInvocationInputs(
     return;
   }
   if (!policy) throw new Error('Trusted agent policy is required for an agent enclave');
-  const supervisorUid = process.getuid?.() ?? 0;
-  const supervisorGid = process.getgid?.() ?? 0;
+  const { uid: supervisorUid, gid: supervisorGid } = sessionStorage;
   if (supervisorUid === resourceProfile.uid) {
     throw new Error('Enclave session transcript requires a separate supervisor identity');
   }
   await write(requestDir, 'task.txt', plan.payload);
   await write(requestDir, 'schema.json', JSON.stringify(plan.schema));
   await writePrivateInvocationFile(
-    invocationFilePath(invocationFilePath(plan.invocationHostDir, 'runtime'), 'session.jsonl'),
-    '', supervisorUid, supervisorGid, 0o644, dependencies,
+    invocationFilePath(invocationFilePath(plan.invocationHostDir, sessionStorage.directory), 'session.jsonl'),
+    '', supervisorUid, supervisorGid, sessionStorage.mode, dependencies,
   );
   if (policy.githubAgentId !== undefined || policy.githubBearer !== undefined) {
     const handoffDir = invocationFilePath(plan.invocationHostDir, 'session-handoff');

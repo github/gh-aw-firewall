@@ -46,6 +46,9 @@ func TestMain(m *testing.M) {
 	if os.Getenv(guestProbeStageEnv) == "supervisor" {
 		os.Exit(runGuestSupervisorProbe())
 	}
+	if os.Getenv(guestProbeStageEnv) == "session-supervisor" {
+		os.Exit(runSessionSupervisorProbe())
+	}
 	os.Exit(m.Run())
 }
 
@@ -63,6 +66,7 @@ func TestEnclaveGuestLimitsLive(t *testing.T) {
 	if _, _, errno := syscall.AllThreadsSyscall(syscall.SYS_GETPID, 0, 0, 0); errno == syscall.ENOTSUP {
 		skip("live enclave guest probe requires a CGO_ENABLED=0 test binary")
 	}
+	t.Run("session-transcript", testEnclaveSessionLogLive)
 	workDir, err := os.MkdirTemp("/var/tmp", "awf-guest-probe-")
 	if err != nil {
 		t.Fatal(err)

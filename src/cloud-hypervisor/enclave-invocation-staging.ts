@@ -116,7 +116,9 @@ export async function prepareInvocationFilesystem(
     for (const name of ['session-handoff', 'session-state']) {
       const directory = filePath(plan.invocationHostDir, name);
       await dependencies.mkdir(directory, { mode: 0o700 });
-      await dependencies.chown(directory, resourceProfile.uid, resourceProfile.gid);
+      await dependencies.chown(directory,
+        name === 'session-state' ? 0 : resourceProfile.uid,
+        name === 'session-state' ? 0 : resourceProfile.gid);
     }
   }
 }
@@ -145,7 +147,8 @@ export async function stageInvocationInputs(
   dependencies: Pick<HostEnclaveExecutorDependencies, 'writeFile' | 'chown' | 'chmod'>,
 ): Promise<void> {
   await stageSharedInvocationInputs(plan, role, policy, dependencies,
-    'Cloud Hypervisor enclave GitHub bearer file');
+    'Cloud Hypervisor enclave GitHub bearer file',
+    { directory: 'session-state', uid: 0, gid: 0, mode: 0o600 });
 }
 
 export function agentEnvironment(
