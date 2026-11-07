@@ -15,6 +15,12 @@ const run = (...flags: string[]) => {
   if (result.status !== 0) throw new Error(result.stderr);
   return result.stdout;
 };
+const copyLegacyPricingProjections = (directory: string) => {
+  const proxy = path.join(directory, 'containers/api-proxy');
+  fs.mkdirSync(proxy, { recursive: true });
+  fs.copyFileSync(path.join(root, 'containers/api-proxy/ai-credits-pricing.js'),
+    path.join(proxy, 'ai-credits-pricing.js'));
+};
 
 describe('maintained model compilation', () => {
   it('checks repeatable generated outputs without refreshing timestamps', () => {
@@ -146,11 +152,16 @@ describe('maintained model compilation', () => {
       const rawPath = path.join(temp, 'containers/api-proxy/models.dev.catalog.json');
       fs.mkdirSync(path.dirname(rawPath), { recursive: true });
       fs.copyFileSync(path.join(root, 'containers/api-proxy/models.dev.catalog.json'), rawPath);
+      copyLegacyPricingProjections(temp);
       const sourcePath = path.join(temp, 'shared/model-information/sources/copilot-main.json');
       const source = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
       const model = source.models.find((entry: { identity: { rawId: string } }) =>
         entry.identity.rawId === 'gpt-5-codex-mini');
       model.tariffs[0].components.input.price = '9.0000000000000000000000000001';
+      const sol = source.models.find((entry: { identity: { rawId: string } }) =>
+        entry.identity.rawId === 'gpt-6.1-sol');
+      sol.tariffs.find((tariff: { tier: string }) => tariff.tier === 'default')
+        .components.output.price = '12';
       fs.writeFileSync(sourcePath, JSON.stringify(source));
       const tempCompiler = path.join(temp, 'scripts/model-information/compile.cjs');
       execFileSync(process.execPath, [tempCompiler], { cwd: temp });
@@ -158,9 +169,15 @@ describe('maintained model compilation', () => {
         path.join(temp, 'containers/api-proxy/model-information.pricing.generated.json'), 'utf8',
       ));
       expect(staged['gpt-5-codex-mini'].input).toBe('9.0000000000000000000000000001');
+      expect(staged['gpt-6.1-sol'].output).toBe('12');
       const active = JSON.parse(fs.readFileSync(
         path.join(temp, 'containers/api-proxy/model-information.fallback-pricing.generated.json'), 'utf8',
       ));
+      expect(active.compatibility.providers.openai['gpt-6.1-sol'].output).toBe('10');
+      const legacyReference = JSON.parse(fs.readFileSync(
+        path.join(temp, 'containers/api-proxy/ai-credits-pricing-reference.json'), 'utf8',
+      ));
+      expect(legacyReference.providers.openai.models['gpt-6.1-sol'].output).toBe(10);
       expect(active.imported.copilot).toBeUndefined();
       expect(active.imported.openai).toBeUndefined();
       expect(active.compatibility).toMatchObject({
@@ -200,6 +217,7 @@ describe('maintained model compilation', () => {
       fs.mkdirSync(proxy, { recursive: true });
       fs.copyFileSync(path.join(root, 'containers/api-proxy/models.dev.catalog.json'),
         path.join(proxy, 'models.dev.catalog.json'));
+      copyLegacyPricingProjections(directory);
       for (const [file, document] of fixture.plan.updates) {
         fs.writeFileSync(path.join(directory, file), JSON.stringify(document));
       }
@@ -282,6 +300,7 @@ describe('maintained model compilation', () => {
       fs.mkdirSync(proxy, { recursive: true });
       fs.copyFileSync(path.join(root, 'containers/api-proxy/models.dev.catalog.json'),
         path.join(proxy, 'models.dev.catalog.json'));
+      copyLegacyPricingProjections(directory);
       // Immutable estimated contract tariffs are not published successor evidence.
       const { copilotPromotionContractFixture } =
         require('../../containers/api-proxy/test-helpers/copilot-pricing-fixture');

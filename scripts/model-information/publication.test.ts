@@ -469,6 +469,7 @@ exec '${realGit}' "$@"
       'containers/api-proxy/model-information.naming.generated.json',
       'containers/api-proxy/model-information.eligibility.generated.json',
       'containers/api-proxy/ai-credits-pricing-reference.json',
+      'containers/api-proxy/ai-credits-pricing.js',
       'containers/api-proxy/model-api-mapping.json',
       'containers/api-proxy/catalogue-contract',
     ]) {

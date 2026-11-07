@@ -15,6 +15,7 @@ if (rootArgument && !process.argv.includes('--check')) {
   throw new Error('--root is only available in check mode');
 }
 const root = rootArgument ? path.resolve(rootArgument.slice('--root='.length)) : path.resolve(__dirname, '../..');
+const legacyPricing = require(path.join(root, 'containers/api-proxy/ai-credits-pricing.js'));
 const sourceArgument = process.argv.find(arg => arg.startsWith('--source-dir='));
 if (sourceArgument && !process.argv.includes('--check')) {
   throw new Error('--source-dir is only available in check mode');
@@ -370,21 +371,20 @@ function compile() {
     referenceProviders[provider] = {
       source: data.source, checkedAt: data.checkedAt,
       models: Object.fromEntries(data.models.map(name => {
-        if (referenceNames.has(name) || !pricing[name]) {
+        const legacyPrice = legacyPricing[name];
+        if (referenceNames.has(name) || !legacyPrice) {
           throw new Error(`pricing-reference.json: duplicate or unresolved curated model ${name}`);
         }
         referenceNames.add(name);
-        const rate = pricing[name];
-        if (rate.tariffs) throw new Error(`pricing-reference.json: dated Copilot tariff cannot author native compatibility: ${name}`);
         const project = values => ({
           ...(values.threshold !== undefined ? { threshold: values.threshold } : {}),
           input: Number(values.input), cachedInput: Number(values.cachedInput),
-          cacheWrite: values.cacheWrite === null ? null : Number(values.cacheWrite), output: Number(values.output),
-          reasoning: Number(values.reasoning ?? (data.reasoningMatchesOutput ? values.output : undefined)),
+          cacheWrite: values.cacheWrite === null ? null : Number(values.cacheWrite),
+          output: Number(values.output), reasoning: Number(values.reasoning ?? values.output),
         });
         return [name, {
-          ...project(rate),
-          ...(rate.longContext ? { longContext: project(rate.longContext) } : {}),
+          ...project(legacyPrice),
+          ...(legacyPrice.longContext ? { longContext: project(legacyPrice.longContext) } : {}),
         }];
       })),
     };
@@ -416,23 +416,35 @@ function compile() {
       !nativeCompatibility.additionalModels) {
     throw new Error('pricing-reference.json: expected explicit legacy native compatibility policy');
   }
-  const withReasoning = tier => ({ ...tier, reasoning: tier.reasoning ?? tier.output });
+  const projectCompatibility = (values, includeReasoning = true) => ({
+    input: String(values.input), cachedInput: String(values.cachedInput),
+    cacheWrite: values.cacheWrite === null ? null : String(values.cacheWrite),
+    output: String(values.output),
+    ...(values.reasoning !== undefined || includeReasoning
+      ? { reasoning: String(values.reasoning ?? values.output) } : {}),
+    ...(values.threshold !== undefined ? { threshold: values.threshold } : {}),
+  });
   const compatibilityProviders = Object.fromEntries(Object.entries(referenceProviders).map(([provider, data]) =>
     [provider, Object.fromEntries(Object.keys(data.models).map(name => {
-      const rate = pricing[name];
-      return [name, { ...withReasoning(rate),
-        ...(rate.longContext ? { longContext: withReasoning(rate.longContext) } : {}) }];
+      const rate = legacyPricing[name];
+      return [name, {
+        ...projectCompatibility(rate),
+        ...(rate.longContext ? { longContext: projectCompatibility(rate.longContext) } : {}),
+      }];
     }))]));
   for (const [provider, names] of Object.entries(nativeCompatibility.additionalModels)) {
     if (!compatibilityProviders[provider] || !Array.isArray(names) ||
         new Set(names).size !== names.length ||
-        names.some(name => !Object.hasOwn(pricing, name) ||
+        names.some(name => !legacyPricing[name] ||
           Object.hasOwn(compatibilityProviders[provider], name))) {
       throw new Error(`pricing-reference.json: invalid native compatibility associations for ${provider}`);
     }
-    for (const name of names) compatibilityProviders[provider][name] = pricing[name];
-    if (names.some(name => pricing[name].tariffs)) {
-      throw new Error(`pricing-reference.json: dated Copilot tariff cannot author native compatibility: ${provider}`);
+    for (const name of names) {
+      const rate = legacyPricing[name];
+      compatibilityProviders[provider][name] = {
+        ...projectCompatibility(rate, false),
+        ...(rate.longContext ? { longContext: projectCompatibility(rate.longContext, false) } : {}),
+      };
     }
   }
   const fallbackPricing = {

@@ -143,7 +143,8 @@ function semanticTariff(tariff) {
     effectiveFrom: tariff.effectiveFrom ? new Date(tariff.effectiveFrom).toISOString() : undefined,
     effectiveUntil: tariff.effectiveUntil ? new Date(tariff.effectiveUntil).toISOString() : undefined,
     promotion: Boolean(tariff.promotion), successor: tariff.successor,
-    components: Object.fromEntries(components.map(key => [key, price(tariff.components?.[key]?.price)])),
+    components: Object.fromEntries([...components, 'reasoning']
+      .map(key => [key, price(tariff.components?.[key]?.price)])),
   };
 }
 
@@ -228,6 +229,17 @@ function planCopilotPricing(documents, pricingCapture, modelsCapture, pricingByt
         fail('Previously documented promotion interval absent; explicit reconciliation required');
         changed = false; observed = null; break;
       }
+      if (old.length && old[0].components.reasoning &&
+          semanticTariff(old[0]).components.output !== semanticTariff(candidate).components.output) {
+        if (semanticTariff(old[0]).components.reasoning !== semanticTariff(old[0]).components.output) {
+          fail('Output changed while the reasoning-rate relationship is unverified; prior tariff retained');
+          changed = false; observed = null; break;
+        }
+        candidate.components.reasoning = candidate.components.output;
+      }
+      if (old.length && old[0].components.reasoning && !candidate.components.reasoning) {
+        candidate.components.reasoning = old[0].components.reasoning;
+      }
       if (old.length && JSON.stringify(semanticTariff(old[0])) === JSON.stringify(semanticTariff(candidate))) {
         nextTariffs.push(old[0]); continue;
       }
@@ -269,7 +281,15 @@ function planCopilotPricing(documents, pricingCapture, modelsCapture, pricingByt
     if (index >= 0) document.models[index] = model;
     else document.models.push(model);
     updates.set(file, document);
-    const gaQuote = supported.flatMap(table => table.rows).find(row => row.cells[0] === name)?.quote;
+    const gaEntry = supported.flatMap(table => table.rows.map((row, index) => ({ table, row, index })))
+      .find(({ table, row }) => row.cells[table.headers.indexOf(modelColumn(table))] === name &&
+        row.cells[table.headers.indexOf('Release status')] === 'GA');
+    let gaQuote = gaEntry?.row.quote;
+    if (gaQuote && gaQuote.length < 20 && gaEntry) {
+      const adjacent = gaEntry.table.rows[gaEntry.index + 1] || gaEntry.table.rows[gaEntry.index - 1];
+      if (adjacent) gaQuote = `${gaQuote} ${adjacent.quote}`;
+      if (gaQuote.length < 20) gaQuote = `${gaQuote} ${gaEntry.table.headers.join(' ')}`;
+    }
     modelReceipts.push(receipt(modelsCapture, gaQuote, { model: id, fields: ['identity', 'lifecycle', 'modelType'] }));
     receipts.set(file, [...(receipts.get(file) || []), ...modelReceipts]);
     changedModels.push(id);
@@ -288,5 +308,5 @@ function planCopilotPricing(documents, pricingCapture, modelsCapture, pricingByt
 }
 
 module.exports = {
-  sourceFiles, targetFile, extractPricingTables, planCopilotPricing, semanticTariff,
+  sourceFiles, targetFile, copilotTariff, extractPricingTables, planCopilotPricing, semanticTariff,
 };

@@ -261,6 +261,17 @@ function copilotPlan(cwd, directory, captures, revision) {
   );
 }
 
+function copilotTariffFacts(document) {
+  return Object.fromEntries((document.models || []).flatMap(model => {
+    const tariffs = (model.tariffs || []).filter(copilotPricing.copilotTariff)
+      .sort((left, right) => [left.tier, left.effectiveFrom || '', left.effectiveUntil || '',
+        left.promptTokensAbove || 0].join(':').localeCompare(
+        [right.tier, right.effectiveFrom || '', right.effectiveUntil || '',
+          right.promptTokensAbove || 0].join(':')));
+    return tariffs.length ? [[model.identity.rawId, tariffs]] : [];
+  }));
+}
+
 function proposeCopilotPricing(cwd, directory) {
   const captures = loadCaptures(directory);
   const plan = copilotPlan(cwd, directory, captures);
@@ -470,8 +481,7 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
         throw new Error(`${file}: missing source-aware proposal with exact before/after hashes, scope and summary`);
       }
       const copilotTariffsChanged = copilotPricing.sourceFiles.includes(file) &&
-        json(facts((before.models || []).map(model => ({ id: model.identity.rawId, tariffs: model.tariffs })))) !==
-        json(facts((after.models || []).map(model => ({ id: model.identity.rawId, tariffs: model.tariffs }))));
+        json(facts(copilotTariffFacts(before))) !== json(facts(copilotTariffFacts(after)));
       const flashReconciled = file === copilotPricing.targetFile &&
         before.tariffs?.['gemini-3.8-flash'] && !after.tariffs?.['gemini-3.8-flash'];
       if ((copilotTariffsChanged || flashReconciled) && claim.generator !== 'copilot-pricing-v1') {
@@ -488,7 +498,12 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
         verifiedCopilotPlan ||= copilotPlan(cwd, directory, captures, base);
         const expected = verifiedCopilotPlan.updates.get(file);
         const expectedEvidence = verifiedCopilotPlan.receipts.get(file) || [];
-        if (!expected || json(expected) !== afterBytes.toString('utf8') ||
+        const pricingMatches = expected && (copilotPricing.sourceFiles.includes(file)
+          ? json(facts(copilotTariffFacts(expected))) === json(facts(copilotTariffFacts(after)))
+          : file === copilotPricing.targetFile &&
+            json(facts(expected.tariffs?.['gemini-3.8-flash'])) ===
+              json(facts(after.tariffs?.['gemini-3.8-flash'])));
+        if (!expected || !pricingMatches ||
             expectedEvidence.some(receipt => !claim.evidence.some(item => json(item) === json(receipt)))) {
           throw new Error(`${file}: Copilot proposal does not match independently reconstructed captured facts`);
         }

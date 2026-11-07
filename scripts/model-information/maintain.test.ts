@@ -31,6 +31,12 @@ const write = (cwd: string, file: string, bytes: string | Buffer) => {
   fs.mkdirSync(path.dirname(path.join(cwd, file)), { recursive: true });
   fs.writeFileSync(path.join(cwd, file), bytes);
 };
+const copyLegacyPricing = (cwd: string) => {
+  const proxy = path.join(cwd, 'containers/api-proxy');
+  fs.mkdirSync(proxy, { recursive: true });
+  fs.copyFileSync(path.join(root, 'containers/api-proxy/ai-credits-pricing.js'),
+    path.join(proxy, 'ai-credits-pricing.js'));
+};
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 const fakeFetch = (bytes = catalog(), pricing = realPricing) => async (url: string) => new Response(
@@ -198,18 +204,117 @@ describe('offline scheduled source maintenance', () => {
     ]));
   });
 
-  it('updates broader known GA tariffs without hardcoded rates or rewriting unchanged components', () => {
+  it('updates broader known GA tariffs without hardcoded rates or rewriting unchanged components', async () => {
     seedCopilot((_file, document) => {
       const sol = document.models?.find((model: any) => model.identity.rawId === 'gpt-6.1-sol');
-      if (sol) sol.tariffs[0].components.input.price = '999';
+      if (sol) {
+        sol.tariffs[0].components.input.price = '999';
+        sol.tariffs[0].components.output.price = '10';
+        sol.tariffs[0].components.reasoning.price = '10';
+      }
     });
+    const increasedOutput = realPricing.toString().replace(
+      '$10.00</td></tr><tr><td>GPT-6.1 Sol',
+      '$12.00</td></tr><tr><td>GPT-6.1 Sol',
+    );
+    expect(increasedOutput).not.toBe(realPricing.toString());
+    await captureSources(evidence, fakeFetch(catalog(), Buffer.from(increasedOutput)));
     const previous = structuredClone(copilotModel('gpt-6.1-sol'));
     expect(proposeCopilotPricing(cwd, evidence).changedModels).toContain('gpt-6.1-sol');
     const changed = copilotModel('gpt-6.1-sol');
     expect(changed.tariffs[0].components.input.price).toBe('2');
-    expect(changed.tariffs[0].components.output).toEqual(previous.tariffs[0].components.output);
-    expect(changed.tariffs[0].components.reasoning).toEqual(previous.tariffs[0].components.reasoning);
+    expect(changed.tariffs[0].components.output.price).toBe('12');
+    expect(changed.tariffs[0].components.reasoning.price).toBe('12');
+    expect(changed.tariffs[0].components.reasoning.provenance).toEqual(changed.provenance);
     expect(changed.tariffs[1]).toEqual(previous.tariffs[1]);
+  });
+
+  it('retains the prior tariff when an output change has an unverified reasoning relationship', async () => {
+    seedCopilot((_file, document) => {
+      const sol = document.models?.find((model: any) => model.identity.rawId === 'gpt-6.1-sol');
+      if (sol) sol.tariffs[0].components.reasoning.price = '9';
+    });
+    const previous = structuredClone(copilotModel('gpt-6.1-sol'));
+    const increasedOutput = realPricing.toString().replace(
+      '$10.00</td></tr><tr><td>GPT-6.1 Sol',
+      '$12.00</td></tr><tr><td>GPT-6.1 Sol',
+    );
+    await captureSources(evidence, fakeFetch(catalog(), Buffer.from(increasedOutput)));
+
+    const result = proposeCopilotPricing(cwd, evidence);
+    expect(result.changedModels).not.toContain('gpt-6.1-sol');
+    expect(copilotModel('gpt-6.1-sol')).toEqual(previous);
+    expect(result.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ model: 'gpt-6.1-sol', status: 'retained-prior-facts',
+        message: expect.stringContaining('reasoning-rate relationship is unverified') }),
+    ]));
+  });
+
+  it('uses the declared model column and extends short GA receipts with adjacent captured text', async () => {
+    seedCopilot();
+    const pricing = realPricing.toString().replace(/GPT-6\.1 Terra/g, 'GPT-5.4');
+    const models = realModels.toString()
+      .replace('<th scope="col">Model name</th><th scope="col">Provider</th><th scope="col">Release status</th>',
+        '<th scope="col">Provider</th><th scope="col">Model name</th><th scope="col">Release status</th>')
+      .replace('<th scope="row">GPT-6.1 Terra</th><td>OpenAI</td><td>GA</td>',
+        '<td>OpenAI</td><th scope="row">GPT-5.4</th><td>GA</td>');
+    expect(pricing).not.toBe(realPricing.toString());
+    expect(models).not.toBe(realModels.toString());
+    await captureSources(evidence, async (url: string) => {
+      if (url.includes('models-and-pricing')) return new Response(pricing, { status: 200 });
+      if (url.includes('/supported-models')) return new Response(models, { status: 200 });
+      return fakeFetch()(url);
+    });
+
+    expect(proposeCopilotPricing(cwd, evidence).changedModels).toContain('gpt-5.4');
+    const claim = JSON.parse(fs.readFileSync(path.join(evidence, 'proposal.json'), 'utf8')).changes
+      .find((item: any) => item.file === copilotFiles[0]);
+    expect(claim.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ model: 'gpt-5.4',
+        quote: expect.stringMatching(/GPT-5\.4.*Gemini 3\.8 Flash/) }),
+    ]));
+    expect(buildReport(cwd, evidence)).not.toBeNull();
+  });
+
+  it('validates generated tariffs by model while retaining independently evidenced source edits', () => {
+    seedCopilot();
+    proposeCopilotPricing(cwd, evidence);
+    const proposalPath = path.join(evidence, 'proposal.json');
+    const proposal = JSON.parse(fs.readFileSync(proposalPath, 'utf8'));
+    const amend = (file: string, update: (document: any) => void, fields: string[]) => {
+      const document = JSON.parse(fs.readFileSync(path.join(cwd, file), 'utf8'));
+      update(document);
+      write(cwd, file, json(document));
+      const claim = proposal.changes.find((item: any) => item.file === file);
+      claim.afterSha256 = hash(fs.readFileSync(path.join(cwd, file)));
+      claim.evidence.push({ source: 'openai-models', quote, fields });
+    };
+    const sourceFile = copilotFiles[0];
+    amend(sourceFile, document => {
+      document.models.reverse();
+      const sol = document.models.find((model: any) => model.identity.rawId === 'gpt-6.1-sol');
+      sol.limits = { contextTokens: 128000, provenance: sol.provenance };
+      const unpriced = structuredClone(sol);
+      unpriced.identity = {
+        key: 'copilot/unpriced-review-fixture', provider: 'copilot',
+        rawId: 'unpriced-review-fixture', lookupId: 'unpriced-review-fixture',
+      };
+      delete unpriced.tariffs;
+      document.models.push(unpriced);
+    }, ['limits', 'identity']);
+    amend(targetFile, document => { document.routing[0].context = 128000; }, ['routing']);
+    fs.writeFileSync(proposalPath, json(proposal));
+
+    const report = buildReport(cwd, evidence);
+    const sourceChange = report.changes.find((item: any) => item.file === sourceFile);
+    const targetChange = report.changes.find((item: any) => item.file === targetFile);
+    expect(sourceChange.addedModels).toContain('copilot/unpriced-review-fixture');
+    expect(sourceChange.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ pointer: expect.stringContaining('/limits') }),
+    ]));
+    expect(targetChange.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ pointer: '/routing/0/context' }),
+    ]));
   });
 
   it('unchanged Copilot price evidence does not churn provenance reports or PRs', async () => {
@@ -217,6 +322,7 @@ describe('offline scheduled source maintenance', () => {
       fs.cpSync(path.join(root, directory), path.join(cwd, directory), { recursive: true });
     }
     write(cwd, rawFile, fs.readFileSync(path.join(root, rawFile)));
+    copyLegacyPricing(cwd);
     fs.symlinkSync(path.join(root, 'node_modules'), path.join(cwd, 'node_modules'), 'dir');
     const compileArgs = [path.join(cwd, 'scripts/model-information/compile.cjs')];
     seedCopilot();
@@ -991,6 +1097,7 @@ describe('governed source-to-generated validation', () => {
       fs.mkdirSync(path.join(cwd, 'src'));
       fs.mkdirSync(path.join(cwd, 'docs'));
       write(cwd, rawFile, fs.readFileSync(path.join(root, rawFile)));
+      copyLegacyPricing(cwd);
       const args = [path.join(cwd, 'scripts/model-information/compile.cjs')];
       execFileSync(process.execPath, args);
       const original = fs.readFileSync(path.join(cwd, snapshotFile));

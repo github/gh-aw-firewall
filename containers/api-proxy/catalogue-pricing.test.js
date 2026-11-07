@@ -377,4 +377,37 @@ describe('reviewed Copilot pricing projection', () => {
       catalogue: { time: expired, maxAge: 86400000 }, runtimeCatalog: {}, centralAllowed: false,
     })).not.toBeNull();
   });
+
+  test('uses the active successor threshold and honors a provider-selected tier', () => {
+    const model = structuredClone(require('../../shared/model-information/sources/copilot-main.json')
+      .models.find(item => item.identity.rawId === 'gpt-6.1-sol'));
+    const boundary = '2027-01-01T00:00:00Z';
+    const oldLong = model.tariffs.find(tariff => tariff.tier === 'long_context');
+    oldLong.effectiveUntil = boundary;
+    const successor = structuredClone(oldLong);
+    successor.effectiveFrom = boundary;
+    delete successor.effectiveUntil;
+    successor.promptTokensAbove = 500000;
+    model.tariffs.push(successor);
+    loadProjection({ 'gpt-6.1-sol': { tariffs: model.tariffs } });
+
+    const time = Date.parse(boundary);
+    const defaultTier = pricing.getMaintainedPricingFact('copilot', 'gpt-6.1-sol', {
+      time, inputTokens: 300000, preferredTier: 'default',
+    });
+    expect(contract.selectPricingFact(defaultTier, 300000, 'default')).toMatchObject({
+      tier: 'default', pricing: { input: 2 },
+    });
+    const automatic = pricing.getMaintainedPricingFact('copilot', 'gpt-6.1-sol', {
+      time, inputTokens: 300000,
+    });
+    expect(contract.selectPricingFact(automatic, 300000)).toMatchObject({
+      tier: 'default', pricing: { input: 2 },
+    });
+
+    const providerLong = pricing.getMaintainedPricingFact('copilot', 'gpt-6.1-sol', {
+      time, inputTokens: 300000, preferredTier: 'long_context',
+    });
+    expect(providerLong).toBeNull();
+  });
 });

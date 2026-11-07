@@ -62,14 +62,17 @@ function getMaintainedPricingFact(provider, model, context = {}) {
       tariff.scope.provider === scope.provider && tariff.scope.channel === scope.channel &&
       tariff.scope.deployment === scope.deployment);
     const effective = tariff => !tariff.effectiveFrom || Date.parse(tariff.effectiveFrom) <= time;
-    // Match the shared resolver: an expired long tier cannot become a base rate.
-    const requiresLong = scoped.some(tariff => tariff.tier === 'long_context' &&
-      tokens > tariff.promptTokensAbove && effective(tariff));
     const active = scoped.filter(tariff => effective(tariff) &&
       (!tariff.effectiveUntil || Date.parse(tariff.effectiveUntil) > time));
     const base = active.filter(tariff => tariff.tier !== 'long_context');
     const long = active.filter(tariff => tariff.tier === 'long_context');
     const eligibleLong = long.filter(tariff => tokens > tariff.promptTokensAbove);
+    const expiredLong = scoped.filter(tariff => tariff.tier === 'long_context' &&
+      effective(tariff) && tariff.effectiveUntil && Date.parse(tariff.effectiveUntil) <= time);
+    const requiresLong = context.preferredTier === 'long_context' ||
+      (context.preferredTier !== 'default' &&
+        (long.length ? eligibleLong.length > 0 :
+          expiredLong.some(tariff => tokens > tariff.promptTokensAbove)));
     if ((requiresLong ? eligibleLong : base).length !== 1) return null;
     const selected = base.length === 1 ? base[0] : eligibleLong[0];
     const rates = tariff => exact.rates(Object.fromEntries(Object.entries(tariff.components)
@@ -253,6 +256,7 @@ function getMedianPricingFact(provider, model, inputTokens, options = {}) {
       }
       return null;
     };
+    let runtimeFact;
     const resolution = resolvePricing({
       identity: resolved.identity, scope, inputTokens, time, runtimeTime, maxAge,
       allowMissingCacheWrite: true, sources: {
@@ -260,6 +264,7 @@ function getMedianPricingFact(provider, model, inputTokens, options = {}) {
         configured: () => firstSource(id => getConfiguredPricingFact(provider, id, { preserveNamespace: true })),
         runtime: () => {
           const fact = firstSource(id => getRuntimePricingFact(provider, id, runtime));
+          runtimeFact = fact;
           const selected = selectPricingFact(fact, inputTokens);
           // Donors cannot reuse the historical stale-provider merge behavior.
           return selected && fresh({ at: selected.observedAt }, runtimeTime, maxAge) ? fact : null;
@@ -267,7 +272,9 @@ function getMedianPricingFact(provider, model, inputTokens, options = {}) {
         central: () => firstSource(id => getCentralPricingFact(provider, id, catalogue, {
           ...scope, nativeInput: true,
         })),
-        curated: () => firstSource(id => getMaintainedPricingFact(provider, id, { scope, time, inputTokens })),
+        curated: () => firstSource(id => getMaintainedPricingFact(provider, id, {
+          scope, time, inputTokens, preferredTier: runtimeFact?.tier,
+        })),
         imported: () => firstSource(id => getImportedPricingFact(provider, id)),
         selector: null, configuredDefault: null, median: null, sentinel: null,
       },
