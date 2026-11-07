@@ -233,9 +233,9 @@ digests; their JSON results and the job logs support these separate conclusions:
 
 | Evidence level | Result | Run evidence |
 |----------------|--------|--------------|
-| Deterministic fixtures | 280 tests passed across 7 suites; not live proof | [`harness-deterministic`](https://github.com/github/gh-aw-firewall/actions/runs/42321568663/artifacts/13553212995) |
-| Native Docker | 16 cases passed; `cleanupVerified: true` | [Job log](https://github.com/github/gh-aw-firewall/actions/runs/42321568663/job/128247197726), [`harness-live-native`](https://github.com/github/gh-aw-firewall/actions/runs/42321568663/artifacts/13553890774) |
-| Split-filesystem DinD | 17 cases passed, including rejection of an untranslated bind source; `cleanupVerified: true` | [Job log](https://github.com/github/gh-aw-firewall/actions/runs/42321568663/job/128247197939), [`harness-live-split-dind`](https://github.com/github/gh-aw-firewall/actions/runs/42321568663/artifacts/13553880788) |
+| Deterministic fixtures | 280 tests passed across 7 suites; not live proof | [Workflow run](https://github.com/github/gh-aw-firewall/actions/runs/42321568663) (`harness-deterministic` artifact; retained temporarily) |
+| Native Docker | 16 cases passed; `cleanupVerified: true` | [Job log](https://github.com/github/gh-aw-firewall/actions/runs/42321568663/job/128247197726) (`harness-live-native` artifact; retained temporarily) |
+| Split-filesystem DinD | 17 cases passed, including rejection of an untranslated bind source; `cleanupVerified: true` | [Job log](https://github.com/github/gh-aw-firewall/actions/runs/42321568663/job/128247197939) (`harness-live-split-dind` artifact; retained temporarily) |
 | Actual Kubernetes ARC deployment | **Unverified**; neither job runs on ARC | Both live environment records explicitly set `kubernetesArcDeployment: false` |
 
 Both live environments were Linux x64 with Node `v22.23.4`. Native Docker used
