@@ -18,7 +18,7 @@ const {
   protocolForPath,
 } = require('./cross-provider-fallback');
 const { validateReasoningEffort } = require('./reasoning-effort-validation');
-const { sanitizeForLog } = require('./logging');
+const { sanitizeForLog, logRequestShape } = require('./logging');
 const { mergeInjectedHeaders } = require('./request-headers');
 const {
   carryForwardWireApiCompatibility,
@@ -690,6 +690,7 @@ function createSendUpstreamRequest({
     };
 
     let responded = false;
+    logRequestShape(body, provider, requestId, 'upstream');
     const proxyReq = mod.request(options, (proxyRes) => {
       if (cancellation.cancelled) {
         proxyRes.destroy?.();
