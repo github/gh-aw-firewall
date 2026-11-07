@@ -19,13 +19,18 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
+      - name: Install pinned Claude CLI for enclave launch tests
+        run: npm install --prefix "$RUNNER_TEMP/claude-cli" --no-package-lock --no-audit --no-fund @anthropic-ai/claude-code@2.1.280
+
       - name: Run root test suite
+        env:
+          AWF_TEST_CLAUDE_BIN: ${{ runner.temp }}/claude-cli/node_modules/.bin/claude
         run: npm test
 
       - name: Check generated filesystem sharing contract
