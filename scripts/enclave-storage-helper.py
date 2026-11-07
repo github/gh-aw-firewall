@@ -334,7 +334,12 @@ def allocation_operation(base, state, uid, args):
             directory = os.open(name, DIRECTORY, dir_fd=parent)
             try:
                 child_name = args[4]
-                child = os.open(child_name, DIRECTORY if child_name == "agent" else FILE, dir_fd=directory)
+                try:
+                    child = os.open(child_name, DIRECTORY if child_name == "agent" else FILE, dir_fd=directory)
+                except FileNotFoundError:
+                    if operation == "reclaim":
+                        return {"missing": True}
+                    raise
                 try:
                     info = os.fstat(child)
                     require(info.st_dev == os.fstat(directory).st_dev)

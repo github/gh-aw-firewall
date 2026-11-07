@@ -171,7 +171,7 @@ export async function preservePublicEnclaveArtifacts(options: {
       prepared.identity);
   }
   await writeAuditFile(options.dependencies, path.join(prepared.directory, 'enclave-session.log'),
-    options.sessionMetadata || options.session.status === 'captured' ? `${JSON.stringify(session)}\n` : '', prepared.identity);
+    options.session.status === 'captured' ? `${JSON.stringify(session)}\n` : '', prepared.identity);
   const projection = {
     version: 1, runId: envelope.runId, invocationId: envelope.invocationId,
     entryId: envelope.entryId, executorKind: envelope.executorKind, runtime: envelope.runtime,

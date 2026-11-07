@@ -77,6 +77,10 @@ function mcpFailure(reason, response, requestId, httpStatus) {
   return error;
 }
 
+function publicMcpFailureReason(error) {
+  return mcpFailures.get(error)?.reason;
+}
+
 async function acceptanceCheck(context, step, phase, action) {
   const record = (status, details = {}) => {
     const check = conformanceDiagnostics.projectAcceptanceCheck({ step, phase, status, ...details });
@@ -3032,6 +3036,7 @@ module.exports = {
   buildOomProbeScript,
   buildScriptGuestProbe,
   parsePublicToolResult,
+  publicMcpFailureReason,
   assertCanonicalToolError,
   acceptanceCheck,
   observeInvocationRecords,

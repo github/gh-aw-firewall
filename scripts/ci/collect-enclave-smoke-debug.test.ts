@@ -110,6 +110,44 @@ describe('host-only public enclave debug collector', () => {
     };
   }
 
+  it('collects a common entrypoint operation failure without a session transcript', () => {
+    prepareRun();
+    const source = invocation();
+    const failure = {
+      stage: 'entrypoint-initialization', status: 'failed', operation: 'preflight-session-log',
+      category: 'permission-denied', errno: 13,
+    };
+    const envelope = {
+      ...commonEnvelope(), executorKind: 'agent',
+      streams: { stdout: 'captured', stderr: 'captured', session: 'missing' },
+      session: { status: 'missing' }, stages: [failure], primaryFailure: failure,
+    };
+    fs.writeFileSync(path.join(source, 'diagnostics.json'), JSON.stringify(envelope), { mode: 0o600 });
+    fs.writeFileSync(path.join(source, 'stdout.log'), '', { mode: 0o600 });
+    fs.writeFileSync(path.join(source, 'stderr.log'), '{"event":"operation-error","operation":"preflight-session-log"}\n',
+      { mode: 0o600 });
+    fs.writeFileSync(path.join(source, 'enclave-session.log'), '', { mode: 0o600 });
+    collectRun();
+    const projected = JSON.parse(fs.readFileSync(path.join(run, 'upload/diagnostics.json'), 'utf8'));
+    expect(projected.primaryFailure).toEqual(failure);
+    expect(projected.stages).toContainEqual(failure);
+    expect(projected.session).toEqual({ status: 'missing' });
+    expect(fs.readFileSync(path.join(run, 'upload/enclave-session.log'), 'utf8')).toBe('');
+  });
+  it.each([
+    { operation: 'PRIVATE_OPERATION' },
+    { operation: 'output-read' },
+    { operation: 'preflight-session-log', stage: 'workload-exit' },
+    { operation: 'preflight-session-log', status: 'succeeded' },
+  ])('rejects unapproved common entrypoint operation metadata %j', fields => {
+    const failure = {
+      stage: 'entrypoint-initialization', status: 'failed', category: 'permission-denied', errno: 13, ...fields,
+    };
+    expect(() => projectDiagnostics({ ...commonEnvelope(), stages: [failure] }, {
+      runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor',
+    })).toThrow(expect.objectContaining({ failedCheck: 'operation-schema' }));
+  });
+
   it('preserves finite Claude lifecycle evidence without engine payloads', () => {
     const envelope = {
       ...commonEnvelope(),
@@ -497,6 +535,79 @@ describe('host-only public enclave debug collector', () => {
     expect(JSON.parse(text)).toMatchObject({
       resultValidated: true, primaryFailure: { gate: 'audit-presence', reason: 'missing' },
     });
+  });
+  it.each(['schema-failure', 'executor-failure', 'timeout', 'cancelled', 'PRIVATE_OUTCOME'])(
+    'retains only allowlisted terminal result outcome %s from the identity-checked journal', outcome => {
+      retainStartup();
+      const resultFailure = { category: 'tool-rejected', code: 'canonical-error', executorOutcome: 'unknown',
+        detail: 'PRIVATE_RESULT_AND_CREDENTIAL' };
+      const value = {
+        ...finalization(), resultValidated: false, resultFailure,
+        primaryFailure: { gate: 'result', reason: 'tool-rejected' },
+        secondaryFailures: [{ gate: 'audit-presence', reason: 'missing' }],
+      };
+      value.checks.result = ['failed', 'tool-rejected'];
+      collector.retainFinalization(run, value, uid, temp);
+      invocation();
+      const journal = path.join(roots.journal, `${runId}.journal`);
+      const records = fs.readFileSync(journal, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+      records[records.length - 1].outcome = outcome;
+      fs.writeFileSync(journal, records.map(record => JSON.stringify(record)).join('\n') + '\n');
+      collect(run, uid, gid, roots, uid, temp);
+      const text = fs.readFileSync(path.join(run, 'upload/finalization.json'), 'utf8');
+      expect(JSON.parse(text)).toMatchObject({
+        resultValidated: false, primaryFailure: { gate: 'result', reason: 'tool-rejected' },
+        resultFailure: {
+          category: 'tool-rejected', code: 'canonical-error',
+          executorOutcome: outcome === 'PRIVATE_OUTCOME' ? 'unknown' : outcome,
+        },
+        secondaryFailures: [{ gate: 'audit-presence', reason: 'missing' }],
+      });
+      expect(text).not.toContain('PRIVATE_');
+    },
+  );
+  it('keeps missing executor outcome unknown and projects result and audit metadata without free-form text', () => {
+    retainStartup();
+    const resultFailure = { category: 'schema-validation', code: 'result-shape', executorOutcome: 'unknown' };
+    const startup = JSON.parse(fs.readFileSync(path.join(run, 'startup.json'), 'utf8'));
+    fs.writeFileSync(path.join(run, 'startup.json'), JSON.stringify({ ...startup, failureStage: 'result', resultFailure }));
+    const value = {
+      ...finalization(), resultValidated: false, resultFailure,
+      primaryFailure: { gate: 'result', reason: 'schema-validation' },
+      auditEvidence: {
+        contract: 'failure-observation', successInvocations: 'none', failureRecords: 'one',
+        invocationIdentity: 'valid', repository: 'not-observed', sensitivity: 'not-observed',
+        detail: 'PRIVATE_AUDIT_CONTENT',
+      },
+    };
+    value.checks.result = ['failed', 'schema-validation'];
+    collector.retainFinalization(run, value, uid, temp);
+    collectRun();
+    for (const name of ['startup.json', 'finalization.json']) {
+      const text = fs.readFileSync(path.join(run, 'upload', name), 'utf8');
+      expect(JSON.parse(text).resultFailure).toEqual(resultFailure);
+      expect(text).not.toContain('PRIVATE_');
+    }
+    expect(JSON.parse(fs.readFileSync(path.join(run, 'upload/finalization.json'), 'utf8')).auditEvidence)
+      .toEqual({
+        contract: 'failure-observation', successInvocations: 'none', failureRecords: 'one',
+        invocationIdentity: 'valid', repository: 'not-observed', sensitivity: 'not-observed',
+      });
+  });
+  it.each(['category', 'code', 'executorOutcome'])('rejects unallowlisted result %s', field => {
+    const value = {
+      ...finalization(),
+      resultFailure: { category: 'unknown', code: 'unknown', executorOutcome: 'unknown', [field]: 'PRIVATE_VALUE' },
+    };
+    expect(() => collector.projectFinalization(value, 'cloud-hypervisor'))
+      .toThrow(expect.objectContaining({ failedCheck: 'result-failure-schema' }));
+  });
+  it('accepts legacy finalization without inferring a new result gate passed', () => {
+    const value = finalization();
+    delete value.checks.result;
+    const projected = JSON.parse(collector.projectFinalization(value, 'cloud-hypervisor').toString());
+    expect(projected.checks.result).toEqual(['not-attempted', 'none']);
+    expect(projected).not.toHaveProperty('resultFailure');
   });
   it('retains startup and finalization independently when invocation collection fails', () => {
     retainStartup(true);
@@ -1093,6 +1204,58 @@ describe('standalone public enclave diagnostics collector', () => {
     expect(fs.existsSync(path.join(roots.journal, `${runId}.journal`))).toBe(true);
   });
 
+  function unavailableInvocation() {
+    roots.backend = 'docker';
+    prepareRun();
+    const source = invocation();
+    for (const name of fs.readdirSync(source)) fs.unlinkSync(path.join(source, name));
+    const journal = path.join(roots.journal, `${runId}.journal`);
+    write(journal, fs.readFileSync(journal, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+      .filter(record => !['terminal', 'closed'].includes(record.state)).map(record => JSON.stringify(record)).join('\n') + '\n');
+    const primaryFailure = { stage: 'storage-preparation', category: 'host-exception' };
+    const value = {
+      version: 1, ...identity(), executorKind: 'script', stage: 'setup', status: 'unavailable',
+      reason: 'host-reconciliation-incomplete',
+      stages: [{ ...primaryFailure, status: 'failed' }], primaryFailure,
+      message: 'PRIVATE_EXCEPTION', workloadStopped: true, workloadLaunched: true,
+    };
+    const file = path.join(source, 'retention-unavailable.json');
+    write(file, JSON.stringify(value));
+    return { source, file, value };
+  }
+  it('exports only closed Docker retention-unavailable evidence without claiming launch or stop', () => {
+    const { file } = unavailableInvocation();
+    expect(collectRun()).toBe(1);
+    const upload = path.join(scope, 'upload');
+    expect(fs.readdirSync(upload).sort()).toEqual(['collection-status.txt', 'retention-unavailable.json']);
+    const text = fs.readFileSync(path.join(upload, 'retention-unavailable.json'), 'utf8');
+    expect(JSON.parse(text)).toMatchObject({
+      status: 'unavailable', reason: 'host-reconciliation-incomplete',
+      primaryFailure: { stage: 'storage-preparation', status: 'failed', category: 'host-exception' },
+    });
+    expect(text).not.toMatch(/PRIVATE|workloadStopped|workloadLaunched|stopProof|exitCode/);
+    const status = fs.readFileSync(path.join(upload, 'collection-status.txt'), 'utf8');
+    expect(status).toContain('Shared diagnostics envelope: unavailable-host-reconciliation-incomplete');
+    expect(status).not.toContain('envelope: validated');
+    expect(fs.existsSync(file)).toBe(true);
+  });
+  it.each(['identity', 'reason', 'operation', 'extra-stream', 'symlink', 'hardlink', 'permissions', 'oversized'])(
+    'rejects unsafe or contradictory retention-unavailable evidence %s', kind => {
+      const { source, file, value } = unavailableInvocation();
+      if (kind === 'identity') write(file, JSON.stringify({ ...value, invocationId: 'c'.repeat(24) }));
+      if (kind === 'reason') write(file, JSON.stringify({ ...value, reason: 'PRIVATE_REASON' }));
+      if (kind === 'operation') write(file, JSON.stringify({
+        ...value, stages: [{ stage: 'storage-preparation', status: 'failed', category: 'PRIVATE_CATEGORY' }],
+      }));
+      if (kind === 'extra-stream') write(path.join(source, 'stderr.log'), 'PRIVATE_UNSTOPPED_STREAM');
+      if (kind === 'symlink') { fs.renameSync(file, file + '.real'); fs.symlinkSync(file + '.real', file); }
+      if (kind === 'hardlink') fs.linkSync(file, path.join(root, 'linked'));
+      if (kind === 'permissions') fs.chmodSync(file, 0o644);
+      if (kind === 'oversized') fs.truncateSync(file, collector.MAX_STARTUP_BYTES + 1);
+      expect(collectRun).toThrow();
+      expect(fs.existsSync(path.join(scope, 'upload'))).toBe(false);
+    },
+  );
   it('collects only finite Docker metadata when stop and cleanup remain uncertain', () => {
     roots.backend = 'docker';
     const value = envelope({

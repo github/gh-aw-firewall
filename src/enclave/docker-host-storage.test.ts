@@ -4,10 +4,15 @@ import { randomBytes } from 'crypto';
 import { execFile, type ChildProcess } from 'child_process';
 import {
   assertDockerHostPath, cleanupDockerHostStorage, dockerMemoryBytes, dockerWritableBudget, inspectDockerHostTmpfs,
-  resolveDockerHostTool, mountDockerHostStorage,
+  ownDockerHostStorageFile, resolveDockerHostTool, mountDockerHostStorage,
 } from './docker-host-storage';
+import { dockerHelperStorageTarget, runDockerStorageHelper } from './docker-storage-helper';
 
 jest.mock('child_process', () => ({ ...jest.requireActual('child_process'), execFile: jest.fn() }));
+jest.mock('./docker-storage-helper', () => ({
+  ...jest.requireActual('./docker-storage-helper'),
+  runDockerStorageHelper: jest.fn(),
+}));
 
 const linuxIt = process.platform === 'linux' ? it : it.skip;
 
@@ -113,5 +118,21 @@ describe('Docker host enclave writable storage', () => {
       jest.mocked(execFile).mockReset();
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test('translates only helper-verified missing reclaim files to ENOENT', async () => {
+    const target = dockerHelperStorageTarget('a'.repeat(32), 'agent', 'b'.repeat(32));
+    const identity = {
+      mountId: '42', device: '0:42', root: '/', source: `awf-enclave-${'a'.repeat(32)}-agent-${'b'.repeat(32)}`,
+      target, bytes: 65536,
+    };
+    jest.mocked(runDockerStorageHelper).mockResolvedValueOnce({ missing: true });
+
+    await expect(ownDockerHostStorageFile(identity, 'stdout.log', 65534, 65534, true))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+
+    jest.mocked(runDockerStorageHelper).mockResolvedValueOnce({ missing: true });
+    await expect(ownDockerHostStorageFile(identity, 'stdout.log', 65534, 65534))
+      .rejects.not.toMatchObject({ code: 'ENOENT' });
   });
 });

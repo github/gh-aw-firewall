@@ -4,7 +4,10 @@ import * as path from 'path';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const sessionDiagnostics = require('../../containers/enclave/agent-executor/session-diagnostics.js') as {
   projectEnclaveSessionDiagnostics(bytes: Buffer): EnclaveSessionDiagnostics;
+  OPERATIONS: readonly string[];
 };
+
+export const ENCLAVE_SESSION_OPERATIONS = sessionDiagnostics.OPERATIONS;
 
 const MAX_SESSION_BYTES = 1024 * 1024;
 type SafeEvent = Record<string, string | number | boolean | null>;

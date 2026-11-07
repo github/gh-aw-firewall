@@ -129,6 +129,11 @@ class HelperPolicy(unittest.TestCase):
         self.assertEqual(self.invoke("unmount"), {"clean": True})
         self.assertEqual(os.listdir(self.state), [])
 
+    def test_reclaim_reports_a_missing_file_without_weakening_ownership_checks(self):
+        self.invoke("mount")
+        self.assertEqual(self.invoke("reclaim", "stdout.log"), {"missing": True})
+        self.assertEqual(self.invoke("unmount"), {"clean": True})
+
     def test_public_capture_reclaim_denies_replaced_inode_and_links(self):
         self.invoke("mount")
         target = Path(self.target) / "stdout.log"
