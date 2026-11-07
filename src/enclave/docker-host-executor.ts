@@ -625,6 +625,28 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
             record.publicDebug.retained = true;
             journal.write(record);
           } catch { /* Initial retained evidence or the invocation source remains protected. */ }
+        } else {
+          // Host-only classification requires no stream read or stop claim.
+          // This export never settles retention custody or authorizes deletion.
+          const { protectedRoot, root } = resolveDockerPublicEnclaveDebugPaths();
+          const uid = process.getuid?.() ?? 0;
+          try {
+            await preservePublicEnclaveArtifacts({
+              directory: path.join(root, record.runId, record.invocationId), protectedRoot,
+              stdout: { status: 'unavailable' }, stderr: { status: 'unavailable' },
+              session: { status: 'unavailable' }, secrets: [],
+              owner: { uid, gid: process.getgid?.() ?? 0 },
+              dependencies: { ...fs.promises, resolveIdentity: () => ({ uid, gid: process.getgid?.() ?? 0 }) },
+              envelope: {
+                version: 1, runId: record.runId, invocationId: record.invocationId, entryId: record.entryId,
+                executorKind: entry.executorKind, runtime: 'docker',
+                stage: record.publicDebug.stage, failure: record.publicDebug.failure,
+                exitCode: record.publicDebug.exitCode, workloadStopped: false,
+                workloadLaunched: Boolean(record.expected && !record.expected.name.endsWith('-probe')),
+                ...diagnostic?.snapshot(),
+              },
+            });
+          } catch { /* The recovery journal and source remain protected. */ }
         }
       }
       return { outcome: result.outcome === 'cancelled' ? 'cancelled' : 'executor-failure', cleanupComplete: false };

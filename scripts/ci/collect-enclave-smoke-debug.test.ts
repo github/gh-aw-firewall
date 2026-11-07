@@ -1093,6 +1093,38 @@ describe('standalone public enclave diagnostics collector', () => {
     expect(fs.existsSync(path.join(roots.journal, `${runId}.journal`))).toBe(true);
   });
 
+  it('collects only finite Docker metadata when stop and cleanup remain uncertain', () => {
+    roots.backend = 'docker';
+    const value = envelope({
+      stage: 'setup', failure: 'setup-failed', workloadStopped: false, workloadLaunched: false,
+      stopProof: 'unavailable', exitCode: null,
+      streams: { stdout: 'unavailable', stderr: 'unavailable', session: 'unavailable' },
+      session: { status: 'unavailable' },
+      streamCoverage: {
+        stdout: { artifactSource: 'unavailable', agentSession: 'unavailable' },
+        stderr: { artifactSource: 'unavailable', agentSession: 'unavailable' }, copilotDiagnostics: 'unavailable',
+      },
+      primaryFailure: { stage: 'storage-probe', status: 'failed', category: 'host-exception' },
+      cleanupFailure: { stage: 'cleanup', status: 'failed', category: 'cleanup-failed' },
+    });
+    prepareRun();
+    invocation(value);
+    expect(collectRun()).toBe(4);
+    expect(JSON.parse(fs.readFileSync(path.join(scope, 'upload/diagnostics.json'), 'utf8')))
+      .toMatchObject({ workloadStopped: false, stopProof: 'unavailable',
+        primaryFailure: { stage: 'storage-probe', status: 'failed', category: 'host-exception' },
+        cleanupFailure: { stage: 'cleanup', status: 'failed', category: 'cleanup-failed' } });
+    for (const stream of ['stdout', 'stderr', 'session']) {
+      expect(() => projectDiagnostics({
+        ...value, streams: { ...value.streams, [stream]: 'captured' },
+      }, identity())).toThrow(/stop-proof/);
+    }
+    expect(() => projectDiagnostics({
+      ...value, session: { status: 'unavailable', events: [{ event: 'progress', stage: 'engine-started' }] },
+    }, identity())).toThrow(/stop-proof/);
+    expect(() => projectDiagnostics({ ...value, cleanupFailure: undefined }, identity())).toThrow(/stop-proof/);
+  });
+
   it.each(['docker', 'cloud-hypervisor'])('preserves %s nonzero workload and setup outcomes without synthetic exit codes', backend => {
     roots.backend = backend;
     const nonzero = envelope({ stage: 'execution', failure: 'workload-exit', exitCode: 17 });

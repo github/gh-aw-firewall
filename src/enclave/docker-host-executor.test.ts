@@ -82,7 +82,8 @@ class FakeDocker {
         },
         HostConfig: {
           NetworkMode: expected.network, ReadonlyRootfs: true, Privileged: false, CapDrop: ['ALL'],
-          CapAdd: [], SecurityOpt: expected.security, Memory: expected.memory, MemorySwap: expected.memory,
+          CapAdd: values('--cap-add').map(cap => `CAP_${cap}`).sort(),
+          SecurityOpt: expected.security, Memory: expected.memory, MemorySwap: expected.memory,
           NanoCpus: expected.cpus, PidsLimit: expected.pids, ShmSize: expected.shm,
           Runtime: expected.runtime || 'runc', LogConfig: { Type: 'none' }, AutoRemove: false,
           Binds: expected.binds, Tmpfs: expected.tmpfs, Ulimits: expected.ulimits,
@@ -415,7 +416,10 @@ describeLinux('host-owned Docker enclave executor', () => {
     docker.onWorkloadStart = () => { docker.failRemoval = true; };
     await expect(backend([script], { publicDebug: true }).execute(plan, new AbortController().signal))
       .resolves.toMatchObject({ cleanupComplete: false });
-    expect(preservePublicEnclaveArtifacts).not.toHaveBeenCalled();
+    expect(preservePublicEnclaveArtifacts).toHaveBeenCalledWith(expect.objectContaining({
+      stdout: { status: 'unavailable' }, stderr: { status: 'unavailable' }, session: { status: 'unavailable' },
+      envelope: expect.objectContaining({ workloadStopped: false, cleanupFailure: { stage: 'cleanup', category: 'host-exception' } }),
+    }));
     expect(() => backend([{ ...script, runtimeName: 'runsc' }], { publicDebug: true })).toThrow(/default-runtime/);
   });
   test('retains fixed authority failures before storage exists without synthesizing a stop or exit', async () => {
@@ -454,8 +458,119 @@ describeLinux('host-owned Docker enclave executor', () => {
     jest.mocked(preservePublicEnclaveArtifacts).mockClear();
     await expect(backend([script], { publicDebug: true }).execute(plan, new AbortController().signal))
       .resolves.toMatchObject({ cleanupComplete: false });
-    expect(preservePublicEnclaveArtifacts).not.toHaveBeenCalled();
+    expect(preservePublicEnclaveArtifacts).toHaveBeenCalledWith(expect.objectContaining({
+      envelope: expect.objectContaining({
+        workloadStopped: false, workloadLaunched: false, exitCode: null,
+        primaryFailure: { stage: 'storage-probe', category: 'host-exception' },
+        cleanupFailure: { stage: 'cleanup', category: 'cleanup-failed' },
+      }),
+      stdout: { status: 'unavailable' }, stderr: { status: 'unavailable' }, session: { status: 'unavailable' },
+    }));
     expect(fs.existsSync(plan.invocationHostDir)).toBe(true);
+  });
+
+  describe.each(['copilot', 'codex', 'claude'])('%s supervisor lifecycle', engine => {
+    function agentPlan(): HostExecutorInvocationPlan {
+      agent.config = { ...agent.config, engine };
+      return { ...plan, entryId: 'agent', executorKind: 'agent' };
+    }
+
+    test('verifies the exact audited supervisor capabilities at probe and workload creation', async () => {
+      const invocation = agentPlan();
+      const executor = backend([agent], { publicDebug: true });
+      await expect(executor.execute(invocation, new AbortController().signal))
+        .resolves.toEqual({ outcome: 'success', result: 'true' });
+      const creates = docker.calls.filter(args => args[0] === 'create');
+      expect(creates).toHaveLength(2);
+      for (const args of creates) {
+        expect(args.filter((_, i) => args[i - 1] === '--cap-add'))
+          .toEqual(['CHOWN', 'DAC_OVERRIDE', 'SETGID', 'SETUID']);
+      }
+      expect(docker.containers.size).toBe(0);
+      expect(fs.existsSync(invocation.invocationHostDir)).toBe(false);
+      expect(new DockerHostRecoveryJournal(path.join(root, 'journal'), runId).records()).toEqual([]);
+      await expect(executor.close()).resolves.toBeUndefined();
+    });
+
+    test.each(['probe', 'exit', 'retention', 'removal'] as const)(
+      'preserves the first failure and verified/uncertain cleanup for %s', async phase => {
+        const invocation = agentPlan();
+        if (phase === 'probe') docker.failProbe = true;
+        else docker.workloadExitCode = 23;
+        if (phase === 'retention') jest.mocked(preservePublicEnclaveArtifacts).mockRejectedValue(new Error('PRIVATE_RETENTION'));
+        if (phase === 'removal') docker.onWorkloadStart = () => { docker.failRemoval = true; };
+        const executor = backend([agent], { publicDebug: true });
+        const result = await executor.execute(invocation, new AbortController().signal);
+        expect(result.outcome).toBe('executor-failure');
+        expect(result).not.toHaveProperty('result');
+        const uncertain = phase === 'retention' || phase === 'removal';
+        expect(result.cleanupComplete === false).toBe(uncertain);
+        expect(fs.existsSync(invocation.invocationHostDir)).toBe(uncertain);
+        const records = new DockerHostRecoveryJournal(path.join(root, 'journal'), runId).records();
+        expect(records).toHaveLength(uncertain ? 1 : 0);
+        const expectedFailure = { stage: phase === 'probe' ? 'storage-probe' : 'workload-exit' };
+        if (uncertain) {
+          expect(records[0].publicDebug?.primaryFailure).toMatchObject(expectedFailure);
+          expect(records[0].publicDebug?.cleanupFailure).toBeDefined();
+          expect(records[0].publicDebug?.pending).toBe(true);
+          await expect(executor.close()).rejects.toThrow(/recovery/);
+        } else {
+          expect(jest.mocked(preservePublicEnclaveArtifacts).mock.calls[0][0].envelope.primaryFailure)
+            .toMatchObject(expectedFailure);
+          expect(docker.containers.size).toBe(0);
+          await expect(executor.close()).resolves.toBeUndefined();
+        }
+      });
+
+    test.each(['additional', 'missing', 'legacy'] as const)('capability verification is exact for %s records', async kind => {
+      const invocation = agentPlan();
+      docker.onWorkloadStart = () => { docker.failRemoval = true; };
+      await backend([agent]).execute(invocation, new AbortController().signal);
+      const record = new DockerHostRecoveryJournal(path.join(root, 'journal'), runId).records()[0];
+      const container = [...docker.containers.values()][0];
+      if (kind === 'additional') container.HostConfig.CapAdd.push('SYS_ADMIN');
+      if (kind === 'missing') container.HostConfig.CapAdd.pop();
+      if (kind === 'legacy') delete record.expected!.capAdd;
+      if (kind === 'legacy') {
+        expect(() => assertDockerHostContainer(container, record.expected!, record.containerId)).not.toThrow();
+        container.HostConfig.CapAdd.push('NET_ADMIN');
+      }
+      expect(() => assertDockerHostContainer(container, record.expected!, record.containerId)).toThrow(/configuration mismatch/);
+      await expect(removeDockerHostContainer(docker.command, record)).rejects.toThrow(/configuration mismatch/);
+      expect(docker.containers.size).toBe(1);
+    });
+
+    test('recovers a legacy supervisor journal only after exact identity and removal proof', async () => {
+      const invocation = agentPlan();
+      docker.onWorkloadStart = () => { docker.failRemoval = true; };
+      const executor = backend([agent]);
+      await expect(executor.execute(invocation, new AbortController().signal))
+        .resolves.toEqual({ outcome: 'executor-failure', cleanupComplete: false });
+      const journal = new DockerHostRecoveryJournal(path.join(root, 'journal'), runId);
+      const record = journal.records()[0];
+      delete record.expected!.capAdd;
+      journal.write(record);
+      docker.failRemoval = false;
+      await recoverDockerHostEnclaveExecutor({
+        runId, journalDir: journal.directory, entries: [agent], dockerCommand: docker.command,
+      });
+      expect(docker.containers.size).toBe(0);
+      expect(journal.records()).toEqual([]);
+      expect(fs.existsSync(invocation.invocationHostDir)).toBe(false);
+    });
+
+    test('settles cancellation only after stopping the active workload and removing storage', async () => {
+      const invocation = agentPlan();
+      const cancel = new AbortController();
+      docker.holdWorkload = true;
+      docker.onWorkloadStart = () => cancel.abort();
+      const executor = backend([agent]);
+      await expect(executor.execute(invocation, cancel.signal)).resolves.toEqual({ outcome: 'cancelled' });
+      expect(docker.calls.some(args => args[0] === 'kill')).toBe(true);
+      expect(docker.containers.size).toBe(0);
+      expect(fs.existsSync(invocation.invocationHostDir)).toBe(false);
+      await expect(executor.close()).resolves.toBeUndefined();
+    });
   });
 
   test('rounds fractional CPU limits to Docker inspect integer nanocpus', async () => {

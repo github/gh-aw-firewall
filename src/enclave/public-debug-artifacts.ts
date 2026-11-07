@@ -30,7 +30,8 @@ export interface PublicEnclaveArtifactEnvelope {
   failure: PublicEnclaveFailure;
   /** Never synthesize a workload exit code from a caught host exception. */
   exitCode: number | null;
-  workloadStopped: true;
+  /** False permits only host-origin metadata, never workload streams. */
+  workloadStopped: boolean;
   /** No workload was created; setup evidence does not imply a synthetic stop. */
   workloadLaunched?: boolean;
   stages?: readonly PublicEnclaveOperationEvent[];
@@ -115,7 +116,13 @@ export async function preservePublicEnclaveArtifacts(options: {
 }): Promise<void> {
   const { envelope } = options;
   if (![envelope.runId, envelope.invocationId].every(id => /^[a-f0-9]{16,64}$/.test(id))
-    || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(envelope.entryId) || envelope.workloadStopped !== true
+    || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(envelope.entryId)
+    || (envelope.workloadStopped !== true && !(envelope.workloadStopped === false
+      && envelope.runtime === 'docker' && envelope.cleanupFailure
+      && typeof envelope.workloadLaunched === 'boolean'
+      && options.sessionMetadata === undefined
+      && [options.stdout, options.stderr, options.session].every(stream =>
+        stream.status === 'unavailable' && stream.contents === undefined)))
     || !['docker', 'cloud-hypervisor'].includes(envelope.runtime)
     || !['agent', 'script'].includes(envelope.executorKind)
     || !['setup', 'execution', 'result', 'stop', 'retention', 'complete'].includes(envelope.stage)
@@ -168,9 +175,11 @@ export async function preservePublicEnclaveArtifacts(options: {
   const projection = {
     version: 1, runId: envelope.runId, invocationId: envelope.invocationId,
     entryId: envelope.entryId, executorKind: envelope.executorKind, runtime: envelope.runtime,
-    stage: envelope.stage, failure: envelope.failure, exitCode: envelope.exitCode, workloadStopped: true,
+    stage: envelope.stage, failure: envelope.failure, exitCode: envelope.exitCode,
+    workloadStopped: envelope.workloadStopped,
     workloadLaunched: envelope.workloadLaunched ?? true,
-    stopProof: envelope.workloadLaunched === false ? 'not-launched' : 'verified',
+    stopProof: !envelope.workloadStopped ? 'unavailable'
+      : envelope.workloadLaunched === false ? 'not-launched' : 'verified',
     stages: (envelope.stages ?? []).slice(0, 64).map(projectPublicEnclaveOperationEvent),
     ...(envelope.primaryFailure ? { primaryFailure: projectPublicEnclaveOperationEvent({
       ...envelope.primaryFailure, status: 'failed',
