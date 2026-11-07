@@ -17,6 +17,8 @@ function agentProviderEnvironment(engine, endpoint, model, directory, budgetToke
       };
     case 'codex':
       return {
+        // AWF owns the outer sandbox; never derive native execution policy from a task.
+        AWF_ENCLAVE_AGENT_CODEX_BYPASS_APPROVALS: 'true',
         CODEX_HOME: `${directory}/codex`,
         OPENAI_BASE_URL: `${endpoint}/v1`,
         OPENAI_API_KEY: token,
