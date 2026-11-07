@@ -808,6 +808,8 @@ describe('PR sous-chef workflow safety contract', () => {
     expect(permissions.some(permission => permission.includes('scripts/ci/pr-sous-chef'))).toBe(false);
     expect(invocation).not.toContain('--allow-tool github');
     expect(invocation).not.toContain('shell(github:*)');
+    expect(permissions).not.toContain('gh:*');
+    expect(invocation).not.toContain('--difc-proxy-host');
     expect(source).toContain('Do not run the refresh helper or call GitHub APIs');
     expect(source).not.toContain('`node scripts/ci/pr-sous-chef.cjs NUMBER`');
     expect(permissions).not.toContain('node:*');
