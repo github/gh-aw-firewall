@@ -156,6 +156,25 @@ async function captureSources(directory, fetcher = fetch, sources = approvedSour
   for (const source of sources) {
     const errors = [];
     let captured;
+function sanitizeForAgentContext(value) {
+  if (typeof value === 'string') {
+    return value
+      .replace(/[\u0000-\u001f\u007f]/g, ' ')
+      .replace(/```/g, '` ` `')
+      .replace(/`/g, "'")
+      .replace(/\b(ignore\s+previous|ignore\s+all|system\s+prompt|developer\s+message|tool\s+call|function\s+call|browse|execute|run\s+command)\b/gi, '[redacted-token]')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  if (Array.isArray(value)) return value.map(sanitizeForAgentContext);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = sanitizeForAgentContext(v);
+    return out;
+  }
+  return value;
+}
+
     for (const url of source.urls) {
       try {
         const response = await fetcher(url, {
@@ -181,7 +200,7 @@ async function captureSources(directory, fetcher = fetch, sources = approvedSour
           captured.import = { accepted: snapshot.accepted, rejected: snapshot.rejected, collisions: snapshot.collisions, excluded };
         }
         if (source.id === 'copilot-pricing') {
-          captured.pricing = copilotPricing.extractPricingTables(bytes, documentText);
+          captured.pricing = sanitizeForAgentContext(copilotPricing.extractPricingTables(bytes, documentText));
         }
         writeCapture(directory, `${source.id}.raw`, bytes);
         writeCapture(directory, `${source.id}.txt`, text);
