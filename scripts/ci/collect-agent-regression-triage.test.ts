@@ -157,13 +157,19 @@ describe('regression triage metadata collection', () => {
     const h = harness();
     h.issues.listForRepo.mockResolvedValue({ data: [reportIssue(), {
       ...reportIssue(), number: 11, user: { login: 'maintainer', type: 'User' },
+      html_url: `${serverUrl}/${repository}/issues/11`,
       body: `${jobMarker}\n${'x'.repeat(9000)}`,
     }] });
     const data = await collect(h.options);
-    expect(data.existing_remediation_issues).toMatchObject([{
-      number: 11, job_markers: [jobMarker], body_truncated: true,
+    expect(data.existing_remediation_issues).toEqual([{
+      number: 11,
+      url: `${serverUrl}/${repository}/issues/11`,
+      title_present: true,
+      title_length: 'Daily agent/runtime regression failed (run 123)'.length,
+      job_markers: [jobMarker],
     }]);
-    expect(data.existing_remediation_issues[0].body).toHaveLength(8000);
+    expect(data.existing_remediation_issues[0]).not.toHaveProperty('body');
+    expect(data.existing_remediation_issues[0]).not.toHaveProperty('body_truncated');
     expect(h.issues.listForRepo.mock.calls[0][0]).toMatchObject({
       state: 'open', sort: 'created', direction: 'asc',
     });
@@ -275,7 +281,7 @@ describe('daily regression triage workflow contract', () => {
       max: 5, 'deduplicate-by-title': true,
     });
     expect(source['safe-outputs']['add-comment']).toMatchObject({
-      max: 20, target: '*', 'pull-requests': false,
+      max: 20, target: '[runtime-regression] *', 'pull-requests': false,
       'required-title-prefix': 'Daily agent/runtime regression failed (run ',
     });
     expect(source['safe-outputs']).not.toHaveProperty('close-issue');
