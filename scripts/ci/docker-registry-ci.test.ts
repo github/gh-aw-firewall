@@ -360,15 +360,20 @@ echo "$*" >> "$TRACE"
   it('builds the reviewed prerelease compiler before scanning', () => {
     const steps = jobs('supply-chain-scan.yml').compile.steps;
     const install = steps.findIndex(
-      (step) => step.name === 'Install gh-aw v1.2.1',
+      (step) => step.name === 'Build gh-aw v1.2.1 and scoped acceptance compiler',
     );
     const compile = steps.findIndex((step) =>
-      step.run === 'gh aw compile --syft --action-mode action --action-tag v1.2.1 .github/workflows/*.md');
+      step.run?.startsWith('gh aw compile --syft --action-mode action --action-tag v1.2.1 .github/workflows/*.md'));
+    const acceptanceCompile = steps.findIndex((step) =>
+      step.name === 'Compile Copilot acceptance with scoped backport');
     expect(install).toBeGreaterThanOrEqual(0);
     expect(compile).toBeGreaterThan(install);
     expect(steps[install - 2].name).toBe('Checkout gh-aw v1.2.1');
     expect(steps[install - 2].with?.ref).toBe('8f3224323bdfd3ae8574c99c5da8a65d450577bb');
-    expect(steps[install].run).not.toContain('compiler-agent-acceptance');
+    expect(steps[install].run).toContain('compiler-agent-acceptance-v0.28.66.patch');
+    expect(steps[install].run).toContain('go test -C .tmp/gh-aw-compiler ./pkg/workflow');
+    expect(steps[install].run).toContain('./pkg/parser');
+    expect(steps[install].run).toContain('dev-v1.2.1-agent-acceptance-v0.28.66-budget131072');
     expect(steps[install].run).toContain('-ldflags="-X main.version=v1.2.1"');
     expect(steps[install].run).toContain('gh aw version');
     expect(steps[install].env?.GH_TOKEN).toBe('${{ github.token }}');
@@ -376,6 +381,10 @@ echo "$*" >> "$TRACE"
       expect(steps[index].if).toBeUndefined();
       expect(steps[index]['continue-on-error']).toBeUndefined();
     }
+    expect(acceptanceCompile).toBeGreaterThan(compile);
+    expect(steps[acceptanceCompile].run).toContain('$RUNNER_TEMP/gh-aw-agent-acceptance" compile --syft');
+    expect(steps[acceptanceCompile].run)
+      .toContain('.github/workflows/smoke-enclave-cloud-hypervisor-copilot.md');
   });
 
   it('fans scans out after one compilation without cancelling sibling scans', () => {
