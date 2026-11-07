@@ -319,11 +319,11 @@ describe('bounded immutable enclave preflight', () => {
     expect(mountTmpfs).toHaveBeenCalledWith(plan.invocationHostDir,
       artifactProfile.writableStorageBytes, 0, 0, { mount: '/trusted/mount', umount: '/trusted/umount' });
     expect(verifyStorage).toHaveBeenCalledWith(plan.invocationHostDir, artifactProfile.writableStorageBytes);
-    expect(artifactProfile.writableStorageBytes).toBe(2 * 1024 ** 3);
+    expect(artifactProfile.writableStorageBytes).toBe(4 * 1024 ** 3);
     // No sparse-hole assumption: one fully allocated representative image and
     // maximum bounded metadata must fit even for a script-only configuration.
     const metadataBytes = (1 + 8 + 8 + 16) * 1024 ** 2;
-    expect(1536 * 1024 ** 2 + metadataBytes).toBeLessThan(artifactProfile.writableStorageBytes);
+    expect(3345670144 + metadataBytes).toBeLessThan(artifactProfile.writableStorageBytes);
     expect(profiles.script.writableStorageBytes).toBe(1024 ** 3);
     expect(profiles.agent.writableStorageBytes).toBe(512 * 1024 ** 2);
     expect(fs.mkdir).toHaveBeenCalledWith(`${root}/verification`, { mode: 0o700 });
@@ -333,11 +333,14 @@ describe('bounded immutable enclave preflight', () => {
   });
 
   it.each(['copy', 'allocation', 'cleanup'])('retains artifact %s failures and journal cleanup protections', async (failure) => {
+    const published: HostPreflightProgress[] = [];
     const primary = Object.assign(new Error('artifact copy failed'), { code: 'ENOSPC' });
     (preflightCloudHypervisorEnclaveArtifacts as jest.Mock).mockRejectedValue(primary);
     if (failure === 'allocation') (prepareTrustedArtifactVerificationStorage as jest.Mock).mockRejectedValue(primary);
     if (failure === 'cleanup') close.mockRejectedValue(new Error('busy mount'));
-    const operation = createBoundedEnclavePreflight(options(), active)
+    const operation = createBoundedEnclavePreflight({
+      ...options(), onHostPreflight: value => published.push(value),
+    }, active)
       .preflightEnclaveArtifacts({} as CloudHypervisorEnclaveArtifactPreflightOptions);
     if (failure === 'cleanup') {
       await expect(operation).rejects.toMatchObject({ cause: primary, cleanupError: { message: 'busy mount' } });
@@ -349,6 +352,12 @@ describe('bounded immutable enclave preflight', () => {
       expect(journal.complete).toHaveBeenCalled();
       expect(active.size).toBe(0);
     }
+    expect(published.filter(value => value.scope === 'bounded-artifacts').slice(-1)[0]?.checks)
+      .toContainEqual({ id: failure === 'allocation' ? 'storage-allocation' : 'enclave-artifacts',
+        result: 'failed', reason: 'ENOSPC' });
+    expect(published.filter(value => value.scope === 'bounded-cleanup').slice(-1)[0]?.checks)
+      .toContainEqual({ id: 'storage-close', result: failure === 'cleanup' ? 'failed' : 'passed',
+        reason: failure === 'cleanup' ? 'unknown' : 'none' });
   });
 
   it('stages captured role manifest and bundle bytes only beneath the trusted optional verification root', async () => {

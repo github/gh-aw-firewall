@@ -247,6 +247,7 @@ describe('Cloud Hypervisor artifact snapshots', () => {
       {
         reject: false,
         stdio: ['ignore', 'pipe', 'pipe'],
+        env: { LC_ALL: 'C' },
       },
     );
   });
@@ -306,8 +307,28 @@ describe('Cloud Hypervisor artifact snapshots', () => {
       '/source/rootfs.ext4',
       '/destination/rootfs.ext4',
     )).rejects.toThrow(
-      'sparse artifact copy failed with code 23: No space left on device',
+      'sparse artifact copy failed (rsync-partial-transfer)',
     );
+  });
+
+  it.each([
+    ['receiver', 'write failed on "/private/SECRET": No space left on device', 28, 'ENOSPC'],
+    ['receiver', 'write failed on "/private/SECRET": Disk quota exceeded', 122, 'EDQUOT'],
+    ['sender', 'send_files failed to open "/private/SECRET": Permission denied', 13, 'EACCES'],
+    ['receiver', 'mkstemp "/private/SECRET" failed: Operation not permitted', 1, 'EPERM'],
+    ['receiver', 'write failed on "/private/SECRET": Read-only file system', 30, 'EROFS'],
+    ['sender', 'read errors mapping "/private/SECRET": Input/output error', 5, 'rsync-source-read'],
+    ['receiver', 'write failed on "/private/SECRET": Input/output error', 5, 'rsync-destination-write'],
+    ['sender', 'write error: Broken pipe', 32, 'rsync-file-io'],
+  ])('classifies the fixed rsync %s operation without exposing private text', async (actor, operation, errno, reason) => {
+    mockedExeca.mockResolvedValue({
+      exitCode: 11, stdout: '', stderr: `rsync: [${actor}] ${operation} (${errno})\n`,
+    } as never);
+    let failure: unknown;
+    try { await copySparseFileWithRsync('/trusted/rsync', '/source/rootfs', '/destination/rootfs'); }
+    catch (error) { failure = error; }
+    expect(hostPreflightReason(failure)).toBe(reason);
+    expect(String(failure)).not.toMatch(/SECRET|private|Permission denied|Input\/output/);
   });
 
   it('uses sparse copying only for the trusted rootfs snapshot', async () => {

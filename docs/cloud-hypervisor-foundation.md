@@ -728,9 +728,9 @@ raise these fields. The role budgets are:
 | Role work tmpfs | `/query`, 256 MiB | `/tmp`, 96 MiB |
 | Additional tmpfs | `/tmp` 16 MiB, `/run` 16 MiB, `/dev/shm` 32 MiB | `/home/awf-enclave` 32 MiB, `/run` 16 MiB, `/dev/shm` 32 MiB |
 | Aggregate writable guest-export storage ceiling | 1 GiB | 512 MiB |
-| Host-only immutable snapshot staging ceiling | 2 GiB | 2 GiB |
-| Host-only rootfs preparation ceiling | 2 GiB | 2 GiB |
-| Host-only final image and VM run-state ceiling | 2 GiB | 2 GiB |
+| Host-only immutable snapshot staging ceiling | 4 GiB | 4 GiB |
+| Host-only rootfs preparation ceiling | 4 GiB | 4 GiB |
+| Host-only final image and VM run-state ceiling | 4 GiB | 4 GiB |
 | Guest UID/GID | 65534:65534 | 65534:65534 |
 
 The validated host profile distinguishes execution `kind` from `artifact`:
@@ -791,19 +791,19 @@ files also consume its budget. Writable state uses `nosuid,nodev,noexec`
 and shares one tmpfs superblock, not independent capacity limits.
 Linux charges allocated pages atomically, including concurrent writes and writes into sparse-file holes;
 allocation beyond the aggregate ceiling returns `ENOSPC`.
-Immutable invocation snapshots instead use a separate root-owned 2 GiB tmpfs
+Immutable invocation snapshots instead use a separate root-owned 4 GiB tmpfs
 at the allocation's `artifacts` child, reusing the host-only artifact verification
-budget. It fits a full 1.5 GiB agent image plus tools and metadata without
+budget. It fits the full shared enclave image plus tools and metadata without
 relying on sparse allocation. The snapshot is sealed read-only and executable;
 neither this filesystem nor its writable parent is exported to the guest.
 Rootfs preparation (`cloud-hypervisor-rootfs`) and final image/VM run state
-(`runs`) each use another independent 2 GiB tmpfs with `nosuid,nodev,noexec`.
+(`runs`) each use another independent 4 GiB tmpfs with `nosuid,nodev,noexec`.
 The snapshot, prepared image, and final staged image coexist, so they cannot
-share a single 2 GiB budget. Preparation still uses the normal supervisor/hosts
+share a single 4 GiB budget. Preparation still uses the normal supervisor/hosts
 injection and filesystem checks; final staging still uses the normal VMM
 identity handoff. The enclave root disk remains guest-read-only, and these
 host staging directories are not writable guest exports.
-The combined host storage bound is therefore the role ceiling plus 6 GiB.
+The combined host storage bound is therefore the role ceiling plus 12 GiB.
 All four filesystems remain invocation-private and identity-journaled, with the
 same fail-closed mount verification, sealing, reverse-order cleanup and recovery.
 Verification checks each exact capacity, four distinct backing devices, and
@@ -958,10 +958,10 @@ root-owned, non-writable snapshot under
 exec-capable filesystem: AWF resolves its mount and fails closed before copying
 anything when the mount carries `noexec`, instead of surfacing an opaque
 `EACCES` from the later `--version` probe. Enclaves instead stage the snapshot in
-their invocation-owned, host-only 2 GiB artifact tmpfs, using an executable
+their invocation-owned, host-only 4 GiB artifact tmpfs, using an executable
 read-only view separate from role-sized writable state. Run-level enclave preflight
 verifies immutable copies in short-lived, journaled preflight domains. Runtime-artifact and
-role-artifact verification each use a root-owned 2 GiB host-only tmpfs,
+role-artifact verification each use a root-owned 4 GiB host-only tmpfs,
 independent of the configured enclave role. The enclave common-artifact
 snapshot includes VMM, virtiofsd, kernel, supervisor, manifest, and bundle,
 but not the unused primary rootfs or its SBOM. Verification storage must not
@@ -974,7 +974,32 @@ without relying on sparse allocation. Writable invocation storage remains capped
 select the verification budget. Role rootfs, provenance,
 and SBOM inputs are captured into root-private bounded storage before hashing
 and attestation, with each role copy removed before staging the next. These domains close
-before listener startup; no unbounded shared snapshot remains. Attestation,
+before listener startup; no unbounded shared snapshot remains.
+
+The shared image from regression run `42322275102` (source
+`e593eb212a99e121d1f87d2a874ac2ddb2ad3953`) is 3,345,670,144 bytes.
+Both sparse rsync and fully allocated copies reproduce exit 11 in the former
+2 GiB production allocation; the receiver reports errno 28 (`ENOSPC`).
+The fixed 4 GiB ceiling accommodates that image without assuming sparse holes.
+The privileged `enclave-trusted-storage.integration.test.ts` regression accepts
+`AWF_TEST_RELEASE_ROOTFS=/absolute/path/to/enclave-rootfs.ext4` together with
+`AWF_TEST_ENCLAVE_STORAGE=1`; run its `release-built shared rootfs` cases as root
+in a private mount namespace. It compares sparse and fully allocated copies
+using the production allocation, verifies copied digests, and reports only byte
+counts, never source paths or image contents.
+
+The versioned startup checklist records `bounded-artifacts/rootfs-copy` before
+digest/attestation. C-locale rsync operation/errno records distinguish capacity
+(`ENOSPC`, `EDQUOT`), permissions (`EACCES`, `EPERM`), read-only destinations
+(`EROFS`), source reads and destination writes; unrecognized exit 11 remains
+`rsync-file-io`, not inferred exhaustion. Raw rsync stderr is never published.
+Protected `startup.json` retains the closed checklist, including independent
+`bounded-cleanup` results, within 64 KiB even without invocation evidence.
+The regression harness keeps its proxy/startup logs outside the disposable
+work directory; remaining work or recovery state still fails cleanup assertions
+and is not blindly removed.
+
+Attestation,
 parsing, digest checks, and executable version probes use the sealed copies,
 never mutable original paths. Invocation copies are verified again against the
 attested digests before launch. Verification and execution use
@@ -1873,7 +1898,7 @@ hierarchy. A missing prerequisite after opt-in fails the job; it does not skip,
 fall back to Docker, grant the runner user KVM access, or relax limits.
 
 These probes exercise the real role-sized host tmpfs stores (script 1 GiB,
-agent 512 MiB), independent 2 GiB snapshot/preparation/run-state stores,
+agent 512 MiB), independent 4 GiB snapshot/preparation/run-state stores,
 aggregate sparse/concurrent ENOSPC across writable exports, memory-cgroup accounting,
 busy-unmount failure, and invocation isolation. They check executable/read-only
 artifact views, `noexec` state, and dead-owner recovery that refuses a replaced
@@ -1894,8 +1919,8 @@ remains a separate live-VM gate after implementation PRs
 | --- | --- |
 | Production storage admission | `prepareEnclaves()` supplies the trusted production provider on eligible GitHub-hosted Ubuntu x86_64 KVM/cgroup-v2 hosts. Unsupported hosts retain the existing admission error before seeds, runtime probes, listener, or VM creation. |
 | Aggregate writable invocation storage | One invocation-owned tmpfs superblock enforces script 1 GiB or agent 512 MiB across writable exports, requests, and handoff state. Sparse and concurrent writes share the kernel allocation ceiling, which remains enforced until successful close. |
-| Snapshot allocation and executable artifacts | Invocation-local executable artifact staging uses a separate, bounded 2 GiB host-only tmpfs and is sealed read-only. It cannot be used as a writable export. Release attestation, digest verification, and launch confinement remain mandatory. |
-| Host image preparation and VM state | Trusted dependency hooks derive rootfs preparation and final staged disk/run paths within independent 2 GiB invocation-owned tmpfs stores. All three image copies can coexist without consuming writable-export capacity; no unbounded runner-filesystem copies are used for enclaves. |
+| Snapshot allocation and executable artifacts | Invocation-local executable artifact staging uses a separate, bounded 4 GiB host-only tmpfs and is sealed read-only. It cannot be used as a writable export. Release attestation, digest verification, and launch confinement remain mandatory. |
+| Host image preparation and VM state | Trusted dependency hooks derive rootfs preparation and final staged disk/run paths within independent 4 GiB invocation-owned tmpfs stores. All three image copies can coexist without consuming writable-export capacity; no unbounded runner-filesystem copies are used for enclaves. |
 | Recovery ownership | Durable journals capture invocation-owned mount/device/inode identities. Recovery reaps VM resources first and refuses changed identities or uncommitted mount intents; it never replays work or uses a global bind mount. |
 
 An empty provider, a free-space check, an export-only tmpfs, or a mock manager

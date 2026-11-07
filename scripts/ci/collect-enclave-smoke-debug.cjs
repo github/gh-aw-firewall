@@ -42,8 +42,9 @@ const MAX_STREAM_BYTES = 1024 * 1024;
 const MAX_FILES = 32;
 const MAX_RUN_PROJECTION_FILES = 4;
 const MAX_STATUS_BYTES = 4096;
+const MAX_STARTUP_BYTES = 64 * 1024;
 const MAX_PUBLISHED_FILES = MAX_FILES + MAX_RUN_PROJECTION_FILES + 3;
-const MAX_PUBLISHED_BYTES = (MAX_FILES + MAX_RUN_PROJECTION_FILES) * MAX_STREAM_BYTES + 3 * MAX_STATUS_BYTES;
+const MAX_PUBLISHED_BYTES = (MAX_FILES + MAX_RUN_PROJECTION_FILES) * MAX_STREAM_BYTES + 2 * MAX_STATUS_BYTES + MAX_STARTUP_BYTES;
 const MAX_DIRECTORY_ENTRIES = 4096;
 const MAX_USAGE_BYTES = 16 * 1024;
 const ID = /^[a-f0-9]{32}$/;
@@ -628,6 +629,35 @@ function prepare(runDirectory, roots = ROOTS, uid = 0, trustedRoot = '/', bindin
     { mode: 0o600, flag: 'wx' });
 }
 
+function projectStartupChecklist(value) {
+  // The installed collector and its closed catalog are both root-owned.
+  const catalog = path.join(__dirname, 'host-preflight-schema.cjs');
+  const { schema } = require(fs.existsSync(catalog)
+    ? catalog : path.join(__dirname, '../../dist/cloud-hypervisor/host-preflight-schema.js'));
+  check(object(value) && value.schemaVersion === 1 && typeof value.ready === 'boolean'
+    && object(value.checks), 'startup-schema');
+  const checks = {};
+  const scopes = new Set();
+  for (const [id, outcome] of Object.entries(value.checks)) {
+    const [scope, name, extra] = id.split('/');
+    check(extra === undefined && Object.hasOwn(schema.scopes, scope)
+      && Object.hasOwn(schema.scopes[scope], name)
+      && Array.isArray(outcome) && outcome.length === 2
+      && ['not-attempted', 'not-required', 'attempted', 'passed', 'failed'].includes(outcome[0])
+      && typeof outcome[1] === 'string' && Object.hasOwn(schema.reasons, outcome[1])
+      && (outcome[0] === 'failed' ? outcome[1] !== 'none' : outcome[1] === 'none')
+      && (outcome[0] !== 'not-required' || schema.optionalChecks.includes(id)), 'startup-schema');
+    checks[id] = [...outcome];
+    scopes.add(scope);
+  }
+  for (const scope of scopes) {
+    check(Object.keys(schema.scopes[scope]).every(name => Object.hasOwn(checks, `${scope}/${name}`)), 'startup-schema');
+  }
+  check(!value.ready || (checks['startup/readiness']?.[0] === 'passed'
+    && Object.values(checks).every(([result]) => ['passed', 'not-required'].includes(result))), 'startup-schema');
+  return { schemaVersion: 1, ready: value.ready, checks };
+}
+
 function projectStartup(value, backend) {
   check(object(value) && value.backend === backend
     && ['docker', 'cloud-hypervisor'].includes(backend)
@@ -681,6 +711,9 @@ function projectStartup(value, backend) {
       attempts: value => count(value) && value <= 1200,
       httpStatus: value => value === null || (count(value) && value >= 100 && value <= 599),
     });
+    if (value.diagnostic.enclaveStartup.startupChecks !== undefined) {
+      diagnostic.enclaveStartup.startupChecks = projectStartupChecklist(value.diagnostic.enclaveStartup.startupChecks);
+    }
   }
   const evidence = {
     record: fields(value.evidence.record, {
@@ -712,13 +745,13 @@ function retainStartup(runDirectory, value, uid = 0, trustedRoot = '/') {
   const prepared = JSON.parse(readRegular(path.join(runDirectory, 'baseline.json'), MAX_STREAM_BYTES, uid));
   check(!fs.existsSync(path.join(runDirectory, 'collected')), 'prepared-scope', 'scope-already-collected');
   const bytes = projectStartup(value, prepared.binding?.backend);
-  check(bytes.length <= MAX_STATUS_BYTES, 'file-size', 'oversized');
+  check(bytes.length <= MAX_STARTUP_BYTES, 'file-size', 'oversized');
   fs.writeFileSync(path.join(runDirectory, 'startup.json'), bytes, { mode: 0o600, flag: 'wx' });
 }
 
 function startupFiles(runDirectory, backend, uid) {
   try {
-    const bytes = readRegular(path.join(runDirectory, 'startup.json'), MAX_STATUS_BYTES, uid);
+    const bytes = readRegular(path.join(runDirectory, 'startup.json'), MAX_STARTUP_BYTES, uid);
     return [['startup.json', projectStartup(parseRecord(decodeUtf8(bytes, 'startup-schema')), backend)]];
   } catch (error) {
     if (error.code === 'ENOENT') return [];
@@ -1012,7 +1045,7 @@ function assertPublicationBounds(files, status) {
 
 module.exports = {
   prepare, collect, retainStartup, projectStartup, retainFinalization, projectFinalization, FINALIZATION_REASONS,
-  MAX_STREAM_BYTES, MAX_FILES, MAX_PUBLISHED_FILES, MAX_PUBLISHED_BYTES, MAX_STATUS_BYTES,
+  MAX_STREAM_BYTES, MAX_FILES, MAX_PUBLISHED_FILES, MAX_PUBLISHED_BYTES, MAX_STATUS_BYTES, MAX_STARTUP_BYTES,
   directory, inventory, readRegular, projectProxyUsage, projectProxyResponse,
   projectProxyEvents, projectProxyContainerLog, isSafeCopilotAuthLogFields,
   projectDiagnostics, cliRoots, cliCandidates, parseArguments, main, publishCollectionFailure,
