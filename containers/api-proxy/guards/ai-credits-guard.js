@@ -230,16 +230,18 @@ function resolveModelPricing(model, state = aiCreditsState, provider = undefined
     operator: () => provider ? getProviderPricingFact(provider, pricingModel) : null,
     configured: () => provider ? getConfiguredPricingFact(provider, pricingModel) : null,
     runtime: () => {
-      const fact = provider ? getRuntimePricingFact(provider, pricingModel, options.runtimeCatalog) : null;
+      capture.runtimeFact = provider ? getRuntimePricingFact(provider, pricingModel, options.runtimeCatalog) : null;
       catalogue = Object.hasOwn(options, 'catalogue') ? options.catalogue : getCatalogueLoader().capture();
       capture.time = catalogue?.time ?? null;
       capture.maxAge = catalogue?.maxAge ?? null;
-      return fact;
+      return capture.runtimeFact;
     },
     central: () => provider && !resolveApiKey(process.env) &&
       isGithubCopilotCatalogTarget(deriveCopilotApiTarget(process.env))
       ? getCentralPricingFact(provider, pricingModel, catalogue, { nativeInput: true }) : null,
-    curated: () => getMaintainedPricingFact(provider, pricingModel),
+    curated: () => getMaintainedPricingFact(provider, pricingModel, {
+      scope, inputTokens, time: catalogue?.time, preferredTier: capture.runtimeFact?.tier,
+    }),
     imported: () => getImportedPricingFact(provider, pricingModel),
     selector: () => {
       const selector = getDynamicSelectorDescriptor(pricingModel, provider);

@@ -214,7 +214,19 @@ jobs:
       - name: Install host probe prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends nftables iproute2 curl
+          sudo apt-get install --yes --no-install-recommends e2fsprogs nftables iproute2 curl rsync
+      - name: Stage selected release shared enclave rootfs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(node -p "require('./dist/cloud-hypervisor/artifact-manifest').CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG")"
+          directory="$RUNNER_TEMP/enclave-rootfs"
+          mkdir -p "$directory"
+          gh release download "$tag" --repo github/gh-aw-firewall \
+            --pattern enclave-rootfs.ext4.gz --dir "$directory"
+          gzip --decompress --stdout "$directory/enclave-rootfs.ext4.gz" > "$directory/enclave-rootfs.ext4"
+          test -s "$directory/enclave-rootfs.ext4"
       - name: Probe mount capture hypotheses (not VM acceptance)
         run: |
           sudo -n unshare --mount --propagation private \
@@ -224,7 +236,9 @@ jobs:
       - name: Probe real aggregate storage and network enforcement
         run: |
           sudo -n unshare --mount --propagation private \
-            env "PATH=$PATH" AWF_TEST_ENCLAVE_STORAGE=1 AWF_TEST_ENCLAVE_NETWORK=1 \
+            env "PATH=$PATH" \
+            "AWF_TEST_RELEASE_ROOTFS=$RUNNER_TEMP/enclave-rootfs/enclave-rootfs.ext4" \
+            AWF_TEST_ENCLAVE_STORAGE=1 AWF_TEST_ENCLAVE_NETWORK=1 \
             ./node_modules/.bin/jest --ci --runInBand --runTestsByPath \
             src/cloud-hypervisor/enclave-storage.integration.test.ts \
             src/cloud-hypervisor/enclave-trusted-storage.integration.test.ts \

@@ -6,6 +6,12 @@
     "kind": "documentation"
   },
   {
+    "id": "copilot-pricing",
+    "scope": "GitHub Copilot / copilot-api published billing tariffs in USD per million tokens, including table-associated footnotes; not native API prices or Copilot CLI eligibility",
+    "urls": ["https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"],
+    "kind": "documentation"
+  },
+  {
     "id": "copilot-retirement",
     "scope": "GitHub Copilot announced lifecycle dates, not immediate retirement",
     "urls": ["https://docs.github.com/en/copilot/reference/ai-models/supported-models#model-retirement-history"],

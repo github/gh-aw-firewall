@@ -34,7 +34,7 @@ function configuration(agent, runtime, source, workDir, artifacts) {
       repos: [{ repo: REPOSITORY, sensitivity: 'public' }],
     }],
     apiProxy: { enabled: true },
-    logging: { auditDir: path.join(path.dirname(workDir), 'audit'), proxyLogsDir: path.join(workDir, 'proxy-logs') },
+    logging: { auditDir: path.join(path.dirname(workDir), 'audit'), proxyLogsDir: path.join(path.dirname(workDir), 'proxy-logs') },
   };
   if (runtime === 'cloud-hypervisor') {
     config.cloudHypervisor = {
@@ -216,7 +216,7 @@ async function main(environment = process.env) {
   const ready = `AWF_DOCKER_PRIMARY_READY_${randomBytes(24).toString('hex')}`;
   const stdout = path.join(directory, 'awf.stdout.log');
   const stderr = path.join(directory, 'awf.stderr.log');
-  const startupErrorFile = path.join(workDir, 'proxy-logs', 'awf-startup-error.json');
+  const startupErrorFile = path.join(directory, 'proxy-logs', 'awf-startup-error.json');
   const guestStop = runtime === 'cloud-hypervisor' ? '/workspace/.awf-enclave-regression-stop' : stop;
   let stage = 'configuration';
   let gatewayStarted = false;

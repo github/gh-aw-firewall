@@ -23,6 +23,10 @@ function canonicalPricingFixture(directory) {
   for (const folder of ['scripts/model-information', 'shared/model-information']) {
     fs.cpSync(path.join(root, folder), path.join(source, folder), { recursive: true });
   }
+  const legacyPricingPath = path.join(source, 'containers/api-proxy');
+  fs.mkdirSync(legacyPricingPath, { recursive: true });
+  fs.copyFileSync(path.join(root, 'containers/api-proxy/ai-credits-pricing.js'),
+    path.join(legacyPricingPath, 'ai-credits-pricing.js'));
   const maintainedPath = path.join(source, 'shared/model-information/sources/copilot-main.json');
   const maintained = JSON.parse(fs.readFileSync(maintainedPath, 'utf8'));
   maintained.models.find(model => model.identity.rawId === 'gpt-5-mini')

@@ -20,6 +20,8 @@ import {
 } from './trusted-enclave-storage';
 import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES as profiles } from './workload-profile';
 import { stageArtifact } from './diagnostics';
+import { copySparseFileWithRsync } from './artifact-snapshot';
+import { calculateSha256 } from './artifact-trust';
 
 const live = process.env.AWF_TEST_ENCLAVE_STORAGE === '1';
 const tools = {
@@ -147,6 +149,54 @@ const tools = {
     await storage.dependencies.verifyStorage!(plan.invocationHostDir, profiles[role].writableStorageBytes, exports);
     return { run, plan, journal, storage, snapshot, paths, rootfsPreparation, exports, close };
   }
+
+  (process.env.AWF_TEST_RELEASE_ROOTFS ? it.each(['sparse', 'fully-allocated']) : it.skip.each(['sparse', 'fully-allocated']))(
+    'copies the release-built shared rootfs into production verification storage (%s)',
+    async (allocation) => {
+      const source = process.env.AWF_TEST_RELEASE_ROOTFS!;
+      expect(path.isAbsolute(source)).toBe(true);
+      const sourceStat = await fs.lstat(source);
+      expect(sourceStat.isFile() && !sourceStat.isSymbolicLink()).toBe(true);
+      const { run, plan } = await invocation('agent');
+      const journal = await HostExecutorResourceJournal.create(run, plan, hostExecutorVmRunId(plan));
+      const close = async () => {
+        await journal.closeStorage(tools.umount);
+        await journal.verifyDirectory();
+        await fs.rm(plan.invocationHostDir, { recursive: true, force: true });
+        await journal.complete();
+      };
+      await fs.mkdir(plan.invocationHostDir, { mode: 0o700 });
+      await journal.captureDirectory();
+      cleanup.add(close);
+      const storage = await prepareTrustedArtifactVerificationStorage(run, plan, journal, tools);
+      const { writableStorageBytes: capacity, uid, gid } = ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE;
+      await storage.dependencies.mountTmpfs!(plan.invocationHostDir, capacity, uid, gid, tools);
+      await journal.captureMount();
+      await storage.dependencies.verifyStorage!(plan.invocationHostDir, capacity);
+      const destination = path.join(storage.workDir, 'verification.ext4');
+      if (allocation === 'sparse') {
+        await copySparseFileWithRsync(tools.rsync, source, destination);
+      } else {
+        const result = await execa(tools.rsync, ['--', source, destination], {
+          reject: false, timeout: 120_000, env: { LC_ALL: 'C' },
+        });
+        expect(result.exitCode).toBe(0);
+      }
+      const copied = await fs.lstat(destination);
+      const filesystem = await fs.statfs(destination, { bigint: true });
+      console.info(JSON.stringify({
+        schemaVersion: 1, allocation, sourceBytes: sourceStat.size,
+        sourceAllocatedBytes: sourceStat.blocks * 512, destinationAllocatedBytes: copied.blocks * 512,
+        capacityBytes: Number(filesystem.blocks * filesystem.bsize),
+      }));
+      expect(copied.size).toBe(sourceStat.size);
+      expect(copied.uid).toBe(0);
+      expect(filesystem.blocks * filesystem.bsize).toBe(BigInt(capacity));
+      expect(await calculateSha256(destination)).toBe(await calculateSha256(source));
+      await close();
+      cleanup.delete(close);
+    }, 180_000,
+  );
 
   it('allocates full release-sized verification images sequentially, then enforces the independent host cap', async () => {
     const { run, plan } = await invocation('script');

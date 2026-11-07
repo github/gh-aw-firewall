@@ -238,7 +238,7 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
       if (copyRootfs) {
         verifiedRootfs = path.join(roleDirectory, artifact.file);
         verifiedProvenance = path.join(roleDirectory, path.basename(provenance));
-        await copyRootfs(rootfsPath, verifiedRootfs);
+        await check(roleReport, 'rootfs-copy', () => copyRootfs(rootfsPath, verifiedRootfs));
         await fs.chmod(verifiedRootfs, 0o400);
         await fs.writeFile(verifiedProvenance, await readTrustedArtifactBytes(provenance, uid, 8 * 1024 * 1024),
           { flag: 'wx', mode: 0o400 });
@@ -254,6 +254,7 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
       });
       await check(roleReport, 'rootfs-attestation', () =>
         verifyAttestation(options.attestationToolPath, verifiedRootfs, verifiedProvenance));
+      if (copyRootfs) await fs.rm(roleDirectory, { recursive: true, force: true });
     }
     for (const role of ['script', 'agent'] as const) {
       if (sharedRootfs && role === 'agent'
