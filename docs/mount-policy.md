@@ -84,7 +84,13 @@ mechanisms, but from the **same list**:
 - **Compose (Docker / gVisor)** mounts an empty `$HOME` plus the `toolSubdirs`,
   then blanks each credential **file** with a `/dev/null` bind overlay
   (`credential-hiding.ts`). For a `dir` entry it masks the enumerated `files`;
-  for a `file` entry it masks the path itself.
+  for a `file` entry it masks the path itself. A `dir` entry with no `files`
+  list (currently `.config/heroku`, `.config/hub`, `.config/op`, and
+  `.local/state/sandboxes`) is **not** masked in compose, because compose cannot
+  overlay a whole directory
+  ([`credentialFilesToHide()`](../src/config/mount-policy.ts)). Such files stay
+  readable when their parent (for example `~/.config`) is mounted; only sbx
+  moves those directories aside, and `.local/state` is never mounted.
 - **Compose (Docker / gVisor)** and the **sbx microVM** replace parents listed in
   `narrowPaths` with their explicit descendants. In particular, they mount
   rootless tool directories under `~/.local` but never `~/.local` or
