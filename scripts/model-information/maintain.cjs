@@ -244,7 +244,18 @@ function sanitizeForAgentContext(value) {
         }
         if (source.id === 'copilot-pricing') {
           const extractedPricing = copilotPricing.extractPricingTables(bytes, documentText);
-          captured.pricing = toSafePricingData(extractedPricing);
+          const safePricing = toSafePricingData(extractedPricing);
+          const sanitizePricingForAgent = (value) => {
+            if (typeof value === 'string') return sanitizeForAgentContext(value);
+            if (Array.isArray(value)) return value.map(sanitizePricingForAgent);
+            if (value && typeof value === 'object') {
+              return Object.fromEntries(
+                Object.entries(value).map(([key, nested]) => [key, sanitizePricingForAgent(nested)]),
+              );
+            }
+            return value;
+          };
+          captured.pricing = sanitizePricingForAgent(safePricing);
         }
         writeCapture(directory, `${source.id}.raw`, bytes);
         writeCapture(directory, `${source.id}.txt`, text);
