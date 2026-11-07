@@ -359,7 +359,11 @@ describe('host-only public enclave debug collector', () => {
       ...commonEnvelope(), session,
     }, { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' }).toString());
     expect(projected.session.claudeStartupFailure).toEqual(session.claudeStartupFailure);
+    expect(projected.session.lastEvent).toEqual(session.lastEvent);
     expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+    expect(projectEnclaveSessionDiagnostics(Buffer.from(JSON.stringify({
+      event: 'progress', stage: 'engine-completed', attempt: 4,
+    }))).lastEvent).toEqual({ event: 'progress', stage: 'engine-completed' });
     expect(() => projectDiagnostics({
       ...commonEnvelope(), session: {
         status: 'captured', claudeStartupFailure: {

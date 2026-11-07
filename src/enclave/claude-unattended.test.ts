@@ -154,7 +154,7 @@ class Provider(http.server.BaseHTTPRequestHandler):
 server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Provider)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 environment = json.loads(os.environ["CONTAINER_ENVIRONMENT"])
-environment.update(PATH="/usr/bin:/bin", TMPDIR=str(module.TEMP_DIR))
+environment.update(PATH=os.environ["NODE_BIN"] + ":/usr/bin:/bin", TMPDIR=str(module.TEMP_DIR))
 legacy = os.environ.get("LEGACY_ARGV") == "true"
 if os.environ.get("DENY_TOOLS") == "true":
     # Negative fixture only; success uses the production policy unchanged.
@@ -231,7 +231,7 @@ pinnedTest.each([
     fs.writeFileSync(path.join(root, 'task.txt'), 'Run the shell diagnostic and write its boolean result to /awf/out.', { mode: 0o444 });
     fs.writeFileSync(path.join(root, 'schema.json'), '{"type":"boolean"}', { mode: 0o444 });
     fs.chmodSync(root, 0o755);
-    const result = spawnSync('sudo', ['--preserve-env=ENTRYPOINT,FIXTURE_ROOT,CLAUDE_BIN,DENY_TOOLS,OUTPUT_FAILURE,LEGACY_ARGV,CONTAINER_ENVIRONMENT',
+    const result = spawnSync('sudo', ['--preserve-env=ENTRYPOINT,FIXTURE_ROOT,CLAUDE_BIN,DENY_TOOLS,OUTPUT_FAILURE,LEGACY_ARGV,CONTAINER_ENVIRONMENT,NODE_BIN',
       'unshare', '--net', '--mount', '--pid', '--fork',
       '--kill-child', '--mount-proc', '/bin/sh', '-c',
       'mount --make-rprivate / && mount --bind / / && mount -o remount,bind,ro /'
@@ -244,6 +244,7 @@ pinnedTest.each([
       env: { PATH: '/usr/bin:/bin:/usr/local/bin', ENTRYPOINT: stagedEntrypoint,
         FIXTURE_ROOT: root, CLAUDE_BIN: binary!, DENY_TOOLS: String(denied), OUTPUT_FAILURE: String(outputFailure),
         LEGACY_ARGV: String(legacy),
+        NODE_BIN: path.dirname(process.execPath),
         CONTAINER_ENVIRONMENT: JSON.stringify(containerEnvironment(root)) },
       encoding: 'utf8', timeout: 20_000,
     });

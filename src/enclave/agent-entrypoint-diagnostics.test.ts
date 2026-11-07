@@ -53,6 +53,10 @@ if scenario.startswith("session-log-"):
         def write(self, data):
             if scenario.startswith("session-log-write"):
                 fail()
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_value, traceback):
+            self.close()
         def close(self):
             if scenario in ("session-log-close", "session-log-close-from-except"):
                 fail()
@@ -166,6 +170,24 @@ module.GITHUB_BEARER_PATH.write_text("private-delegated-bearer-sentinel", encodi
 if scenario in ("injected-io", "verify-io"):
     original_operation = module.file_operation
     def injected_operation(operation, action, *, fatal=True):
+        if operation.endswith("-open") and operation.rsplit("-", 1)[0] + "-close" == os.environ["FAULT_OPERATION"]:
+            class CloseProxy:
+                def __init__(self, handle):
+                    self.handle = handle
+                def __getattr__(self, name):
+                    return getattr(self.handle, name)
+                def __enter__(self):
+                    return self
+                def __exit__(self, exc_type, exc_value, traceback):
+                    self.close()
+                def close(self):
+                    self.handle.close()
+                    raise OSError(
+                        int(os.environ.get("FAULT_ERRNO", str(errno.EIO))),
+                        "unsafe detail " + os.environ["TEST_API_TOKEN"],
+                        os.environ["PRIVATE_PATH"],
+                    )
+            return CloseProxy(original_operation(operation, action, fatal=fatal))
         if operation != os.environ["FAULT_OPERATION"]:
             return original_operation(operation, action, fatal=fatal)
         def fail():
@@ -176,19 +198,6 @@ if scenario in ("injected-io", "verify-io"):
             )
         return original_operation(operation, fail, fatal=fatal)
     module.file_operation = injected_operation
-    original_close_file = module.close_file
-    def injected_close_file(handle, operation, *, fatal=True):
-        if operation != os.environ.get("FAULT_OPERATION"):
-            return original_close_file(handle, operation, fatal=fatal)
-        handle.close()
-        error = OSError(
-            int(os.environ.get("FAULT_ERRNO", str(errno.EIO))),
-            "unsafe detail " + os.environ["TEST_API_TOKEN"],
-            os.environ["PRIVATE_PATH"],
-        )
-        module.safe_os_error(error, operation, fatal=fatal)
-        raise error
-    module.close_file = injected_close_file
 
 original_engine_result = module.append_engine_result
 def engine_result(completed):

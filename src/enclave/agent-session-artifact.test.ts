@@ -39,6 +39,17 @@ describe('enclave agent session artifact preservation', () => {
     expect(info.mode & 0o777).toBe(0o644);
   });
 
+  it('refuses to share transcript ownership with the enclave user', () => {
+    expect(() => createInvocationWorkspace({
+      config: {
+        workDir: root,
+        enclaveUid: process.getuid?.() ?? 0,
+        enclaveGid: process.getgid?.() ?? 0,
+      },
+      invocationId: 'b'.repeat(32), task: 'task', schema: { type: 'boolean' },
+    })).toThrow(/separate supervisor identity/);
+  });
+
   it('preserves only projected metadata in the public audit collection', () => {
     fs.writeFileSync(
       sessionLogPath,

@@ -76,6 +76,10 @@ function projectEvent(value) {
     result.event = 'progress';
     result.stage = value.stage;
     if (typeof value.valid === 'boolean') result.valid = value.valid;
+    if (['engine-launch-attempt', 'engine-started', 'engine-completed'].includes(value.stage)
+        && integer(value.attempt) && value.attempt >= 1 && value.attempt <= 3) {
+      result.attempt = value.attempt;
+    }
     if (String(value.stage).startsWith('claude-')) {
       for (const key of ['shellAvailable', 'toolError', 'resultError', 'stdoutObserved',
         'stderrObserved', 'captureTruncated']) {

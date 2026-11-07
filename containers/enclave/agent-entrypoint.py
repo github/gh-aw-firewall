@@ -96,22 +96,10 @@ def append_event(event: dict) -> None:
         current = SESSION_LOG_PATH.stat().st_size
         if len(encoded) <= MAX_TRANSCRIPT_BYTES and current + len(encoded) <= MAX_TRANSCRIPT_BYTES:
             operation = "session-log-open"
-            handle = SESSION_LOG_PATH.open("ab")
-            write_completed = False
-            try:
+            with SESSION_LOG_PATH.open("ab") as handle:
                 operation = "session-log-write"
                 handle.write(encoded)
-                write_completed = True
-            finally:
-                try:
-                    handle.close()
-                except OSError as error:
-                    if write_completed:
-                        operation = "session-log-close"
-                        raise
-                    sys.stderr.write(json.dumps(os_error_event(
-                        error, "session-log-close", fatal=False,
-                    )) + "\n")
+                operation = "session-log-close"
     except OSError as error:
         # Do not recurse into the failed transcript writer.
         sys.stderr.write(json.dumps(os_error_event(error, operation, fatal=False)) + "\n")
@@ -150,26 +138,27 @@ def file_operation(operation: str, action, *, fatal: bool = True):
         raise
 
 
-def close_file(handle, operation: str, *, fatal: bool = True) -> None:
+@contextmanager
+def managed_file(handle, operation: str, *, fatal: bool = True):
+    pending_error = False
     try:
-        handle.close()
+        with handle:
+            try:
+                yield handle
+            except BaseException:
+                pending_error = True
+                raise
     except OSError as error:
-        safe_os_error(error, operation, fatal=fatal)
+        if not pending_error:
+            safe_os_error(error, f"{operation}-close", fatal=fatal)
         raise
 
 
 @contextmanager
 def diagnostic_file(path: Path, operation: str, mode: str, *, fatal: bool = True):
     handle = file_operation(f"{operation}-open", lambda: path.open(mode), fatal=fatal)
-    try:
-        yield handle
-    finally:
-        pending_error = sys.exc_info()[0] is not None
-        try:
-            close_file(handle, f"{operation}-close", fatal=fatal)
-        except OSError:
-            if not pending_error:
-                raise
+    with managed_file(handle, operation, fatal=fatal) as opened:
+        yield opened
 
 
 def read_file(path: Path, operation: str, *, limit: int = -1, fatal: bool = True) -> bytes:
@@ -475,31 +464,25 @@ def append_output_verification(stage: str, max_output: int) -> None:
 
     def readback(path: Path, label: str):
         operation = f"verify-output-{label}"
-        handle = None
         try:
             handle = file_operation(
                 f"{operation}-open", lambda: open(path, "rb", opener=lambda name, flags:
                     os.open(name, flags | os.O_NONBLOCK)), fatal=False,
             )
-            metadata = file_operation(
-                f"{operation}-fstat", lambda: os.fstat(handle.fileno()), fatal=False,
-            )
-            if not stat.S_ISREG(metadata.st_mode):
-                safe_os_error(OSError(errno.EINVAL, "not a regular file"),
-                              f"{operation}-validate", fatal=False)
-                return None
-            data = file_operation(
-                f"{operation}-read", lambda: handle.read(max_output + 1), fatal=False,
-            )
-            return data, metadata
+            with managed_file(handle, operation, fatal=False) as opened:
+                metadata = file_operation(
+                    f"{operation}-fstat", lambda: os.fstat(opened.fileno()), fatal=False,
+                )
+                if not stat.S_ISREG(metadata.st_mode):
+                    safe_os_error(OSError(errno.EINVAL, "not a regular file"),
+                                  f"{operation}-validate", fatal=False)
+                    return None
+                data = file_operation(
+                    f"{operation}-read", lambda: opened.read(max_output + 1), fatal=False,
+                )
+                return data, metadata
         except OSError:
             return None
-        finally:
-            if handle is not None:
-                try:
-                    file_operation(f"{operation}-close", handle.close, fatal=False)
-                except OSError:
-                    pass
 
     direct = readback(direct_path, "direct")
     alias = readback(OUT_PATH, "alias")
