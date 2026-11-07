@@ -33,6 +33,37 @@ function containerEnvironment(root: string): Record<string, string> {
 const binary = process.env.AWF_TEST_CLAUDE_BIN;
 const pinnedTest = binary ? it : it.skip;
 const entrypoint = path.resolve(__dirname, '../../containers/enclave/agent-entrypoint.py');
+
+function stageClaudeBinary(source: string, root: string): string {
+  const stagedBinary = path.join(root, 'claude');
+  fs.copyFileSync(source, stagedBinary);
+  fs.chmodSync(stagedBinary, 0o555);
+  return stagedBinary;
+}
+
+it('stages a regular executable outside a private CLI install, following its binary symlink', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-claude-staging-'));
+  try {
+    fs.chmodSync(root, 0o755);
+    const install = path.join(root, 'private-install');
+    fs.mkdirSync(install, { mode: 0o700 });
+    const executable = path.join(install, 'native');
+    const contents = Buffer.from('fixture executable');
+    fs.writeFileSync(executable, contents, { mode: 0o755 });
+    const symlink = path.join(install, 'claude');
+    fs.symlinkSync(executable, symlink);
+    const stagedBinary = stageClaudeBinary(symlink, root);
+    expect(fs.statSync(install).mode & 0o001).toBe(0);
+    expect(path.dirname(stagedBinary)).toBe(root);
+    expect(fs.statSync(root).mode & 0o001).toBe(0o001);
+    expect(fs.lstatSync(stagedBinary).isFile()).toBe(true);
+    expect(fs.statSync(stagedBinary).mode & 0o777).toBe(0o555);
+    expect(fs.readFileSync(stagedBinary)).toEqual(contents);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 pinnedTest('uses the pinned enclave Claude CLI version', () => {
   const result = spawnSync(binary!, ['--version'], {
     env: { PATH: '/usr/bin:/bin' }, encoding: 'utf8', timeout: 5000,
@@ -184,6 +215,7 @@ finally:
 result["requests"] = requests
 result["output"] = module.OUT_PATH.read_text() if module.OUT_PATH.exists() else ""
 events = list(map(json.loads, module.SESSION_LOG_PATH.read_text().splitlines()))
+assert any(event.get("event") == "engine-result" for event in events), json.dumps(events)
 result["stages"] = [event["stage"] for event in events if event.get("event") == "progress"]
 result["nativeExit"] = next(event["exitCode"] for event in events if event["event"] == "engine-result")
 result["startupFailures"] = [event["classification"] for event in events
@@ -225,6 +257,8 @@ pinnedTest.each([
     const stagedEntrypoint = path.join(root, 'entrypoint.py');
     fs.copyFileSync(entrypoint, stagedEntrypoint);
     fs.chmodSync(stagedEntrypoint, 0o444);
+    // Keep the dropped engine independent of permissions on the CLI install's parent directories.
+    const stagedBinary = stageClaudeBinary(binary!, root);
     fs.mkdirSync(path.join(root, 'runtime'));
     fs.mkdirSync(path.join(root, 'output'));
     fs.mkdirSync(path.join(root, 'seed'), { mode: 0o555 });
@@ -242,7 +276,7 @@ pinnedTest.each([
       + ' && exec setpriv --no-new-privs python3 -c "$1"',
       'fixture', fixture, root], {
       env: { PATH: '/usr/bin:/bin:/usr/local/bin', ENTRYPOINT: stagedEntrypoint,
-        FIXTURE_ROOT: root, CLAUDE_BIN: binary!, DENY_TOOLS: String(denied), OUTPUT_FAILURE: String(outputFailure),
+        FIXTURE_ROOT: root, CLAUDE_BIN: stagedBinary, DENY_TOOLS: String(denied), OUTPUT_FAILURE: String(outputFailure),
         LEGACY_ARGV: String(legacy),
         NODE_BIN: path.dirname(process.execPath),
         CONTAINER_ENVIRONMENT: JSON.stringify(containerEnvironment(root)) },

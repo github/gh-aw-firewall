@@ -99,6 +99,8 @@ def append_event(event: dict) -> None:
             with SESSION_LOG_PATH.open("ab") as handle:
                 operation = "session-log-write"
                 handle.write(encoded)
+                operation = "session-log-close"
+                handle.close()
     except OSError as error:
         # Do not recurse into the failed transcript writer.
         sys.stderr.write(json.dumps(os_error_event(error, operation, fatal=False)) + "\n")
