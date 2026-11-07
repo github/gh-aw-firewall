@@ -1,6 +1,8 @@
 import * as path from 'path';
 import { stageInvocationInputs, invocationFilePath, type InvocationInputPlan } from './invocation-staging';
 import { ENCLAVE_RESOURCE_POLICIES, type HostExecutorAgentPolicy } from './execution-policy';
+import { stageInvocationInputs as stageGuestInputs } from '../cloud-hypervisor/enclave-invocation-staging';
+import type { HostExecutorInvocationPlan } from './host-executor-server';
 
 const plan: InvocationInputPlan = {
   invocationHostDir: '/trusted/invocation',
@@ -64,6 +66,22 @@ describe('backend-neutral invocation input staging', () => {
       path.relative(plan.invocationHostDir, target), contents,
     ])).toContainEqual(['session-handoff/github-bearer', 'scoped-executor-test-bearer\n']);
   });
+
+  it.each(['copilot', 'codex', 'claude'] as const)(
+    'stages a supervisor-private guest transcript for %s, separate from engine state',
+    async engine => {
+      const deps = dependencies();
+      await stageGuestInputs(plan as HostExecutorInvocationPlan, 'agent', { ...policy, engine }, deps);
+      const session = path.join(plan.invocationHostDir, 'session-state', 'session.jsonl');
+      expect(deps.writeFile).toHaveBeenCalledWith(session, '', {
+        encoding: 'utf8', mode: 0o600, flag: 'wx',
+      });
+      expect(deps.chown).toHaveBeenCalledWith(session, 0, 0);
+      expect(deps.chmod).toHaveBeenCalledWith(session, 0o600);
+      expect(deps.writeFile.mock.calls.map(([target]) => target))
+        .not.toContain(path.join(plan.invocationHostDir, 'runtime', 'session.jsonl'));
+    },
+  );
 
   it('rejects missing agent policy before writing inputs', async () => {
     const deps = dependencies();

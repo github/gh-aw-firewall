@@ -142,6 +142,7 @@ function dependencies(
 function manager(
   deps: VirtiofsdDependencies,
   cgroup?: Pick<CloudHypervisorCgroup, 'assign' | 'cgroupPath'>,
+  transcriptSource?: string,
 ) {
   return new VirtiofsdManager(
     '/opt/virtiofsd',
@@ -155,6 +156,8 @@ function manager(
     },
     { mount: '/usr/bin/mount', umount: '/usr/bin/umount' },
     deps,
+    undefined,
+    transcriptSource,
   );
 }
 
@@ -174,6 +177,35 @@ const enforcement = {
 };
 
 describe('VirtiofsdManager', () => {
+  it('preserves root only for the exact trusted transcript source, never an untrusted tag alone', async () => {
+    const transcript = {
+      tag: 'enclave-session-state', source: '/trusted/invocation/session-state',
+      target: '/session-state', mode: 'rw' as const,
+    };
+    for (const [trustedSource, exported] of [
+      [undefined, transcript],
+      [transcript.source, { ...transcript, source: '/untrusted/session-state' }],
+      [transcript.source, workspace],
+      [transcript.source, transcript],
+    ] as const) {
+      const deps = dependencies();
+      const instance = manager(deps, undefined, trustedSource);
+      await instance.start([exported]);
+      const args = (deps.launch as jest.Mock).mock.calls[0][1] as string[];
+      expect(args.filter(arg => arg.startsWith('--translate-'))).toEqual(
+        trustedSource === exported.source ? [
+          '--translate-uid=guest:0:0:1', '--translate-gid=guest:0:0:1',
+          '--translate-uid=squash-guest:1:1001:4294967294',
+          '--translate-gid=squash-guest:1:121:4294967294',
+        ] : SQUASH_ARGS,
+      );
+      await instance.stop();
+    }
+    expect(() => buildVirtiofsdArgs(workspace, '/run/test.sock', workspace.source, {
+      workspaceIdentity: WORKSPACE_IDENTITY, preserveTranscriptRoot: true,
+    })).toThrow(/restricted/);
+  });
+
   it('verifies bounded enclave storage before launching any daemon', async () => {
     const deps = dependencies();
     const boundedManager = manager(deps);

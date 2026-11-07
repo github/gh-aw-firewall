@@ -136,6 +136,7 @@ interface RunningDaemon extends VirtiofsdDevice {
 export class VirtiofsdManager {
   static withStorageVerifier(
     verifier: VirtiofsdDependencies['assertWritableStorageBound'],
+    transcriptSource: string | undefined,
     ...args: [
       string, string, string, { uid: number; gid: number }, { uid: number; gid: number },
       Pick<CloudHypervisorCgroup, 'assign' | 'cgroupPath'>,
@@ -144,7 +145,7 @@ export class VirtiofsdManager {
   ): VirtiofsdManager {
     const [binary, run, share, identity, workspace, cgroup, tools, cleanup] = args;
     return new VirtiofsdManager(binary, run, share, identity, workspace, cgroup, tools,
-      { ...defaultDependencies, assertWritableStorageBound: verifier }, cleanup);
+      { ...defaultDependencies, assertWritableStorageBound: verifier }, cleanup, transcriptSource);
   }
   private readonly running: RunningDaemon[] = [];
   private readonly diagnosticDevices: VirtiofsdDevice[] = [];
@@ -165,6 +166,7 @@ export class VirtiofsdManager {
     private readonly tools: { readonly mount: string; readonly umount: string },
     private readonly dependencies: VirtiofsdDependencies = defaultDependencies,
     private readonly cleanupRecord?: CloudHypervisorCleanupHandle,
+    private readonly transcriptSource?: string,
   ) {}
 
   /**
@@ -359,6 +361,9 @@ export class VirtiofsdManager {
     const args = buildVirtiofsdArgs(directoryExport, socketPath, sharedDirectory, {
       announceSubmounts: mountTree !== undefined,
       workspaceIdentity: this.workspaceIdentity,
+      preserveTranscriptRoot: directoryExport.tag === 'enclave-session-state'
+        && directoryExport.target === '/session-state' && directoryExport.mode === 'rw'
+        && directoryExport.source === this.transcriptSource,
     });
     const cleanupKey = `virtiofsd-${index}`;
     const workerCleanupKey = `${cleanupKey}-worker`;
@@ -480,6 +485,8 @@ export interface VirtiofsdArgOptions {
    * otherwise read-only tree.
    */
   readonly announceSubmounts?: boolean;
+  /** Trusted enclave storage only: preserve guest root on its private transcript export. */
+  readonly preserveTranscriptRoot?: boolean;
 }
 
 export function buildVirtiofsdArgs(
@@ -493,6 +500,11 @@ export function buildVirtiofsdArgs(
   }
   const uid = assertWorkspaceId('uid', options.workspaceIdentity?.uid);
   const gid = assertWorkspaceId('gid', options.workspaceIdentity?.gid);
+  if (options.preserveTranscriptRoot && (directoryExport.tag !== 'enclave-session-state'
+      || directoryExport.target !== '/session-state' || directoryExport.mode !== 'rw')) {
+    throw new Error('Guest root translation is restricted to the trusted enclave transcript export');
+  }
+  const firstSquashedId = options.preserveTranscriptRoot ? 1 : 0;
   const args = [
     `--socket-path=${socketPath}`,
     `--shared-dir=${sharedDirectory}`,
@@ -500,8 +512,12 @@ export function buildVirtiofsdArgs(
     '--seccomp=kill',
     '--cache=auto',
     '--inode-file-handles=never',
-    `--translate-uid=squash-guest:0:${uid}:${SQUASH_GUEST_ID_COUNT}`,
-    `--translate-gid=squash-guest:0:${gid}:${SQUASH_GUEST_ID_COUNT}`,
+    ...(options.preserveTranscriptRoot ? [
+      '--translate-uid=guest:0:0:1',
+      '--translate-gid=guest:0:0:1',
+    ] : []),
+    `--translate-uid=squash-guest:${firstSquashedId}:${uid}:${SQUASH_GUEST_ID_COUNT - firstSquashedId}`,
+    `--translate-gid=squash-guest:${firstSquashedId}:${gid}:${SQUASH_GUEST_ID_COUNT - firstSquashedId}`,
     ...(options.announceSubmounts ? ['--announce-submounts'] : []),
   ];
   const forbidden = findForbiddenVirtiofsdOption(args);

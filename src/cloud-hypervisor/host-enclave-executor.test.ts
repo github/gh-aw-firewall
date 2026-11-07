@@ -357,7 +357,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         preservePublicSession,
         preservePublicArtifacts,
         readSessionDiagnostics: async (directory, _uid, _gid, retain) => {
-          const runtime = path.join(directory, 'runtime');
+          const runtime = path.join(directory, 'session-state');
           const dir = await fs.stat(runtime);
           sessionReads.push({ stopped, unmounted });
           // chown is intentionally mocked in this unprivileged backend fixture.
@@ -458,7 +458,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
                 request.stderr?.write(fragmented.subarray(0, split));
                 request.stderr?.write(fragmented.subarray(split));
                 request.stderr?.write('{"event":"failure","category":"result-empty","message":"PRIVATE_SESSION_TOKEN"}\n');
-                const sessionPath = path.join(invocationHostDir, 'runtime', 'session.jsonl');
+                const sessionPath = path.join(invocationHostDir, 'session-state', 'session.jsonl');
                 await fs.writeFile(sessionPath,
                   '{"event":"progress","stage":"engine-started","secret":"PRIVATE_SESSION_TOKEN"}\n');
                 await fs.chmod(sessionPath, 0o600);
@@ -789,7 +789,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
                   execute: async request => {
                     const result = await manager.execute(request);
                     if (fallbackStatus) {
-                      await fs.rm(path.join(invocationHostDir, 'runtime', 'session.jsonl'));
+                      await fs.rm(path.join(invocationHostDir, 'session-state', 'session.jsonl'));
                       await fs.mkdir(publicDirectory, { recursive: true, mode: 0o700 });
                       const stderr = path.join(publicDirectory, 'stderr.log');
                       await fs.writeFile(stderr, `${JSON.stringify({
@@ -802,7 +802,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
                       }
                       return { exitCode: 1, signal: null, timedOut: false };
                     }
-                    await fs.writeFile(path.join(invocationHostDir, 'runtime', 'session.jsonl'), [
+                    await fs.writeFile(path.join(invocationHostDir, 'session-state', 'session.jsonl'), [
                       ...Array.from({ length: 40 }, () => JSON.stringify({
                         event: 'progress', stage: 'engine-started', secret: 'PRIVATE_SESSION_TOKEN',
                       })),
@@ -1066,7 +1066,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             expect(stopped).toBe(true);
             expect(unmounted).toBe(false);
             expect(snapshotRemoved).toBe(false);
-            await expect(fs.stat(path.join(invocationHostDir, 'runtime', 'session.jsonl')))
+            await expect(fs.stat(path.join(invocationHostDir, 'session-state', 'session.jsonl')))
               .resolves.toBeDefined();
           }
         } else if (expectedOutcome === 'success') {

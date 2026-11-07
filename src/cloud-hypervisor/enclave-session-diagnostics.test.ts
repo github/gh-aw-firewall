@@ -14,7 +14,7 @@ describe('bounded guest session evidence', () => {
 
   beforeEach(async () => {
     directory = await fs.realpath(await fs.mkdtemp(path.join(process.cwd(), '.guest-session-')));
-    runtime = path.join(directory, 'runtime');
+    runtime = path.join(directory, 'session-state');
     file = path.join(runtime, 'session.jsonl');
     await fs.mkdir(runtime, { mode: 0o700 });
   });
@@ -67,6 +67,37 @@ describe('bounded guest session evidence', () => {
     for (const chunk of privateSeedChunks) {
       expect(retained).not.toContain(String(chunk));
     }
+  });
+
+  it('retains bounded session permission metadata for successful and rejected append-open preflights', async () => {
+    await write([
+      {
+        event: 'preflight', path: 'session-log', exists: true, type: 'file', uid: 0, gid: 0, mode: 0o600, links: 1,
+        writerUid: 0, writerGid: 0, writable: true, parentUid: 0, parentGid: 0, parentMode: 0o700,
+        parentTraversable: true, mountWritable: true, pathText: 'PRIVATE_PATH',
+      },
+      {
+        event: 'preflight', path: 'session-log', exists: true, type: 'file', uid: 1234, gid: 1234, mode: 0o400, links: 1,
+        writerUid: 0, writerGid: 0, writable: false, parentUid: 0, parentGid: 0, parentMode: 0o700,
+        parentTraversable: true, mountWritable: true, failedCheck: 'session-log-open',
+        failureCategory: 'permission-denied', failureErrno: 13, exception: 'PRIVATE_ERROR',
+      },
+    ]);
+    const result = await read();
+    expect(result.events).toEqual([
+      {
+        event: 'preflight', path: 'session-log', exists: true, type: 'file', writable: true,
+        uid: 0, gid: 0, writerUid: 0, writerGid: 0, mode: 0o600, links: 1,
+        parentUid: 0, parentGid: 0, parentMode: 0o700, parentTraversable: true, mountWritable: true,
+      },
+      {
+        event: 'preflight', path: 'session-log', exists: true, type: 'file', writable: false,
+        uid: 'other', gid: 'other', writerUid: 0, writerGid: 0, mode: 0o400, links: 1,
+        parentUid: 0, parentGid: 0, parentMode: 0o700, parentTraversable: true, mountWritable: true,
+        failedCheck: 'session-log-open', failureCategory: 'permission-denied', failureErrno: 13,
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toMatch(/PRIVATE_/);
   });
 
   it.each(['codex', 'claude'])('retains closed %s diagnostic identifiers without guest text', async engine => {

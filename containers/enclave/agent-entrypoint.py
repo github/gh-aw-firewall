@@ -79,6 +79,45 @@ EXIT_RESULT_RESET_FAILED = 37
 ALLOW_RAW_SESSION_LOGS = (
     os.environ.get("AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS") == "true"
 )
+GUEST_SUPERVISOR = os.environ.get("AWF_ENCLAVE_AGENT_GUEST_SUPERVISOR") == "true"
+if GUEST_SUPERVISOR:
+    SESSION_LOG_PATH = Path("/session-state/session.jsonl")
+
+
+@contextmanager
+def transcript_identity():
+    # Guest root has only SETUID/SETGID, not DAC override. Ordinary file
+    # operations use the engine euid; only the protected transcript uses root.
+    uid, gid = os.geteuid(), os.getegid()
+    if GUEST_SUPERVISOR:
+        os.seteuid(0)
+        os.setegid(0)
+    try:
+        yield
+    finally:
+        if GUEST_SUPERVISOR:
+            os.setegid(gid)
+            os.seteuid(uid)
+
+
+def session_log_file():
+    if not GUEST_SUPERVISOR:
+        return SESSION_LOG_PATH.open("ab")
+    parent = SESSION_LOG_PATH.parent.lstat()
+    if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != 0 or parent.st_gid != 0 \
+            or stat.S_IMODE(parent.st_mode) != 0o700:
+        raise PermissionError(errno.EACCES, os.strerror(errno.EACCES))
+    fd = os.open(SESSION_LOG_PATH, os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        observed = os.fstat(fd)
+        if not stat.S_ISREG(observed.st_mode) or observed.st_nlink != 1 \
+                or observed.st_uid != 0 or observed.st_gid != 0 \
+                or stat.S_IMODE(observed.st_mode) != 0o600:
+            raise PermissionError(errno.EACCES, os.strerror(errno.EACCES))
+        return os.fdopen(fd, "ab")
+    except BaseException:
+        os.close(fd)
+        raise
 
 
 def truncate_utf8(value: str, max_bytes: int) -> str:
@@ -93,14 +132,15 @@ def append_event(event: dict) -> None:
     try:
         encoded = (json.dumps(event, separators=(",", ":"), ensure_ascii=False) + "\n").encode()
         operation = "session-log-stat"
-        current = SESSION_LOG_PATH.stat().st_size
-        if len(encoded) <= MAX_TRANSCRIPT_BYTES and current + len(encoded) <= MAX_TRANSCRIPT_BYTES:
-            operation = "session-log-open"
-            with SESSION_LOG_PATH.open("ab") as handle:
-                operation = "session-log-write"
-                handle.write(encoded)
-                operation = "session-log-close"
-                handle.close()
+        with transcript_identity():
+            current = SESSION_LOG_PATH.stat().st_size
+            if len(encoded) <= MAX_TRANSCRIPT_BYTES and current + len(encoded) <= MAX_TRANSCRIPT_BYTES:
+                operation = "session-log-open"
+                with session_log_file() as handle:
+                    operation = "session-log-write"
+                    handle.write(encoded)
+                    operation = "session-log-close"
+                    handle.close()
     except OSError as error:
         # Do not recurse into the failed transcript writer.
         sys.stderr.write(json.dumps(os_error_event(error, operation, fatal=False)) + "\n")
@@ -111,6 +151,28 @@ def append_event(event: dict) -> None:
             }) + "\n")
     except (TypeError, ValueError):
         sys.stderr.write('{"event":"failure","category":"diagnostic-encoding-failed"}\n')
+
+
+def failed_session_preflight(metadata: dict, check: str, error: OSError) -> OSError:
+    metadata.update({"writable": False, "failedCheck": check})
+    error_metadata = os_error_event(error, f"preflight-{check}", fatal=False)
+    metadata["failureCategory"] = error_metadata["category"]
+    if "errno" in error_metadata:
+        metadata["failureErrno"] = error_metadata["errno"]
+    encoded = json.dumps(metadata, separators=(",", ":"), ensure_ascii=True)
+    if len(encoded) > 4096:
+        encoded = '{"event":"failure","category":"diagnostic-encoding-failed"}'
+    try:
+        sys.stderr.write(encoded + "\n")
+    except OSError:
+        # Best-effort diagnostics only: preserve original preflight failure.
+        try:
+            sys.__stderr__.write('{"event":"failure","category":"preflight-diagnostic-write-failed"}\n')
+        except OSError:
+            # Deliberately ignore: both stderr streams are unavailable, and we must
+            # not mask the original preflight error with diagnostic-write failures.
+            pass
+    return error
 
 
 def agent_identity() -> tuple[int, int]:
@@ -126,6 +188,8 @@ def agent_identity() -> tuple[int, int]:
 
 def drop_agent_privileges() -> None:
     uid, gid = agent_identity()
+    if GUEST_SUPERVISOR:
+        os.seteuid(0)
     os.setgroups([])
     os.setgid(gid)
     os.setuid(uid)
@@ -448,9 +512,9 @@ def append_resource_snapshot(stage: str, max_output: int) -> None:
                 "uid": observed.st_uid,
                 "gid": observed.st_gid,
                 "mode": stat.S_IMODE(mode),
-                "readable": os.access(path, os.R_OK),
-                "writable": os.access(path, os.W_OK),
-                "executable": os.access(path, os.X_OK),
+                "readable": os.access(path, os.R_OK, effective_ids=True),
+                "writable": os.access(path, os.W_OK, effective_ids=True),
+                "executable": os.access(path, os.X_OK, effective_ids=True),
             })
             if identifier == "output-file":
                 metadata["size"] = "empty" if observed.st_size == 0 else \
@@ -461,8 +525,8 @@ def append_resource_snapshot(stage: str, max_output: int) -> None:
     append_event({
         "event": "output-snapshot",
         "stage": stage,
-        "uid": os.getuid(),
-        "gid": os.getgid(),
+        "uid": os.geteuid(),
+        "gid": os.getegid(),
         "paths": paths,
     })
     append_output_verification(stage, max_output)
@@ -580,6 +644,52 @@ def preflight_path(
         "exists": False,
         "type": "missing",
     }
+    if identifier == "session-log" and GUEST_SUPERVISOR:
+        failed_check = "session-parent-stat"
+        try:
+            with transcript_identity():
+                metadata.update({
+                    "writerUid": os.geteuid(),
+                    "writerGid": os.getegid(),
+                })
+                parent = path.parent.lstat()
+                metadata.update({
+                    "parentUid": parent.st_uid,
+                    "parentGid": parent.st_gid,
+                    "parentMode": stat.S_IMODE(parent.st_mode),
+                    "parentTraversable": os.access(path.parent, os.X_OK, effective_ids=True),
+                })
+                if not stat.S_ISDIR(parent.st_mode):
+                    raise NotADirectoryError(errno.ENOTDIR, os.strerror(errno.ENOTDIR))
+
+                failed_check = "session-mount-statvfs"
+                filesystem = os.statvfs(path.parent)
+                metadata["mountWritable"] = not bool(filesystem.f_flag & os.ST_RDONLY)
+
+                failed_check = "session-log-stat"
+                try:
+                    path_stat = path.lstat()
+                except FileNotFoundError:
+                    path_stat = None
+                if path_stat is not None:
+                    metadata.update({
+                        "exists": True,
+                        "type": "file" if stat.S_ISREG(path_stat.st_mode) else "other",
+                        "uid": path_stat.st_uid,
+                        "gid": path_stat.st_gid,
+                        "mode": stat.S_IMODE(path_stat.st_mode),
+                        "links": path_stat.st_nlink,
+                    })
+                failed_check = "session-log-open"
+                with session_log_file():
+                    pass
+                metadata.update({
+                    "writable": True,
+                })
+            append_event(metadata)
+            return None
+        except OSError as error:
+            return failed_session_preflight(metadata, failed_check, error)
     try:
         path_stat = file_operation(f"preflight-{identifier}-stat", path.stat)
     except OSError as error:
@@ -591,9 +701,9 @@ def preflight_path(
     actual_type = "file" if is_file else "directory" if is_directory else "other"
     metadata.update({"exists": True, "type": actual_type})
     if executable:
-        metadata["executable"] = os.access(path, os.X_OK)
+        metadata["executable"] = os.access(path, os.X_OK, effective_ids=True)
     if writable:
-        metadata["writable"] = os.access(path, os.W_OK)
+        metadata["writable"] = os.access(path, os.W_OK, effective_ids=True)
     append_event(metadata)
 
     type_matches = (
@@ -1178,6 +1288,21 @@ def build_engine_command(engine: str, model: str, prompt: str, log_dir: Path) ->
 
 
 def main() -> int:
+    if not GUEST_SUPERVISOR:
+        return run_agent()
+    try:
+        if os.getuid() != 0 or os.geteuid() != 0:
+            raise ValueError("invalid guest supervisor identity")
+        uid, gid = agent_identity()
+        os.setegid(gid)
+        os.seteuid(uid)
+    except (OSError, ValueError):
+        append_event({"event": "failure", "category": "configuration-invalid"})
+        return EXIT_CONFIGURATION_INVALID
+    return run_agent()
+
+
+def run_agent() -> int:
     engine = os.environ.get("AWF_ENCLAVE_AGENT_ENGINE")
     if engine not in {"copilot", "codex", "claude"}:
         append_event({"event": "failure", "category": "configuration-invalid"})
@@ -1277,7 +1402,7 @@ def main() -> int:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 start_new_session=True,
-                preexec_fn=drop_agent_privileges if os.geteuid() == 0 else None,
+                preexec_fn=drop_agent_privileges if os.getuid() == 0 else None,
             )
             append_progress("engine-started", attempt=attempt + 1)
             try:

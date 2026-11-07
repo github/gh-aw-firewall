@@ -158,7 +158,7 @@ func createEnclaveCompatibilityLinks(role, root string) error {
 		links = append(links,
 			[2]string{"/input-request/task.txt", "/awf/task.txt"},
 			[2]string{"/input-request/schema.json", "/awf/schema.json"},
-			[2]string{"/runtime/session.jsonl", "/awf/session.jsonl"},
+			[2]string{"/session-state/session.jsonl", "/awf/session.jsonl"},
 			[2]string{"/session-handoff/github-agent-id", "/run/awf-enclave-github/agent-id"},
 			[2]string{"/session-handoff/github-bearer", "/run/awf-enclave-github/bearer"},
 		)
