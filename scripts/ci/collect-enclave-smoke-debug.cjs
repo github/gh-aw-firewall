@@ -143,7 +143,6 @@ function projectSessionEvent(value) {
   if (value.event === 'progress' && stages.includes(value.stage)) {
     result.event = value.event;
     result.stage = value.stage;
-    for (const key of ['attempt', 'runtimeMs']) if (count(value[key])) result[key] = value[key];
     if (typeof value.valid === 'boolean') result.valid = value.valid;
     if (value.stage.startsWith('claude-')) {
       Object.assign(result, fields(value, {

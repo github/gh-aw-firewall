@@ -38,7 +38,7 @@ describe('bounded guest session evidence', () => {
     expect(result).toMatchObject({
       status: 'captured', rejected: 2, dropped: 0,
       events: [
-        { event: 'progress', stage: 'engine-started', attempt: 1 },
+        { event: 'progress', stage: 'engine-started' },
         { event: 'engine-result', exitCode: 24 },
         { event: 'operation-error', operation: 'output-write', category: 'read-only-filesystem', errno: 30 },
         { event: 'failure', category: 'engine-failed' },
@@ -50,6 +50,23 @@ describe('bounded guest session evidence', () => {
     expect(JSON.stringify(result)).not.toContain('PRIVATE_');
     await fs.rm(runtime, { recursive: true });
     expect(result.lastEvent).toEqual({ event: 'failure', category: 'engine-failed' });
+  });
+
+  it('does not export guest-controlled progress integers as audit metadata', async () => {
+    const privateSeedChunks = [3141592653, 2718281828];
+    await write([{
+      event: 'progress', stage: 'engine-completed',
+      attempt: privateSeedChunks[0], runtimeMs: privateSeedChunks[1],
+    }]);
+    let retained = '';
+    const result = await readEnclaveSessionDiagnostics(directory, uid, gid, async metadata => {
+      retained = metadata;
+    });
+    expect(result.events).toEqual([{ event: 'progress', stage: 'engine-completed' }]);
+    expect(retained).toBe(JSON.stringify(result));
+    for (const chunk of privateSeedChunks) {
+      expect(retained).not.toContain(String(chunk));
+    }
   });
 
   it.each(['codex', 'claude'])('retains closed %s diagnostic identifiers without guest text', async engine => {

@@ -135,6 +135,33 @@ describe('host-only public enclave debug collector', () => {
       .toThrow(/session-schema/);
   });
 
+  it('excludes guest-controlled progress integers from exported audit artifacts', () => {
+    const privateSeedChunks = [3141592653, 2718281828];
+    const transcript = Buffer.from(JSON.stringify({
+      event: 'progress', stage: 'engine-completed',
+      attempt: privateSeedChunks[0], runtimeMs: privateSeedChunks[1],
+    }));
+    const session = projectEnclaveSessionDiagnostics(transcript);
+    const identity = { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' };
+    const projected = JSON.parse(projectDiagnostics({ ...commonEnvelope(), session }, identity).toString());
+    expect(projected.session.events).toEqual([{ event: 'progress', stage: 'engine-completed' }]);
+    for (const chunk of privateSeedChunks) {
+      expect(JSON.stringify(projected)).not.toContain(String(chunk));
+    }
+
+    const direct = JSON.parse(projectDiagnostics({
+      ...commonEnvelope(),
+      session: { status: 'captured', events: [{
+        event: 'progress', stage: 'engine-completed',
+        attempt: privateSeedChunks[0], runtimeMs: privateSeedChunks[1],
+      }] },
+    }, identity).toString());
+    expect(direct.session.events).toEqual([{ event: 'progress', stage: 'engine-completed' }]);
+    for (const chunk of privateSeedChunks) {
+      expect(JSON.stringify(direct)).not.toContain(String(chunk));
+    }
+  });
+
   it('preserves the successful Claude summary after two complete silent startup crash attempts', () => {
     const snapshots = (stage: string, outputState = 'empty') => [
       { event: 'resource-snapshot', stage, memory: { currentBytes: 4096, events: { oom_kill: 0 } },
