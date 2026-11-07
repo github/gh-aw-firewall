@@ -75,7 +75,8 @@ module.exports = async function collectAgentRegressionTriage({ github, context, 
     issue.body?.includes(`<!-- awf-regression-job:${repository}:`)).map(issue => ({
     number: issue.number,
     url: issue.html_url,
-    title: issue.title,
+    title_present: typeof issue.title === 'string' && issue.title.length > 0,
+    title_length: typeof issue.title === 'string' ? issue.title.length : 0,
     body_truncated: (issue.body?.length ?? 0) > 8000,
     job_markers: issue.body.match(/<!-- awf-regression-job:[^>\r\n]+ -->/g) ?? [],
   }));
