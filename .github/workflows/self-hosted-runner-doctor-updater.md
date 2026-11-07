@@ -66,10 +66,13 @@ jobs:
 
           CANDIDATE_RESULTS=/tmp/gh-aw/candidate-results.jsonl
           : > "$CANDIDATE_RESULTS"
+          # GitHub search allows at most five Boolean operators per query.
           queries=(
             '"ARC" OR "DinD" OR "self-hosted" OR "GHES" OR "GHEC" OR "ghe.com"'
-            '"DOCKER_HOST" OR "docker-host-path-prefix" OR "chroot" OR "musl" OR "Alpine" OR "IPv6" OR "corporate proxy"'
-            '"cache_peer" OR "GH_HOST" OR "resolv.conf" OR "toolcache" OR "_tool" OR "one-shot-token" OR "capsh" OR "passwd"'
+            '"DOCKER_HOST" OR "docker-host-path-prefix" OR "chroot" OR "musl" OR "Alpine" OR "IPv6"'
+            '"corporate proxy"'
+            '"cache_peer" OR "GH_HOST" OR "resolv.conf" OR "toolcache" OR "_tool" OR "one-shot-token"'
+            '"capsh" OR "passwd"'
           )
           for signals in "${queries[@]}"; do
             gh api --method GET --paginate search/issues \
