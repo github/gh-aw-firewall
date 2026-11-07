@@ -76,6 +76,8 @@ function projectEvent(value) {
     result.event = 'progress';
     result.stage = value.stage;
     if (typeof value.valid === 'boolean') result.valid = value.valid;
+    if (value.stage === 'engine-completed' && integer(value.attempt)
+        && value.attempt > 0 && value.attempt <= 5) result.attempt = value.attempt;
     if (String(value.stage).startsWith('claude-')) {
       for (const key of ['shellAvailable', 'toolError', 'resultError', 'stdoutObserved',
         'stderrObserved', 'captureTruncated']) {

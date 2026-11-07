@@ -145,6 +145,8 @@ function projectSessionEvent(value) {
     result.event = value.event;
     result.stage = value.stage;
     if (typeof value.valid === 'boolean') result.valid = value.valid;
+    if (value.stage === 'engine-completed' && count(value.attempt)
+        && value.attempt > 0 && value.attempt <= 5) result.attempt = value.attempt;
     if (value.stage.startsWith('claude-')) {
       Object.assign(result, fields(value, {
         ...Object.fromEntries(['shellAvailable', 'toolError', 'resultError', 'stdoutObserved',
