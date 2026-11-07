@@ -72,6 +72,47 @@ Compiler-side warning or an MCP fetch fallback is tracked in
 AWF receives the command and domain allowlist, not gh-aw's `tools` declarations,
 so its startup warning cannot identify which native web tools were requested.
 
+### Copilot CLI Native Auto Tier Fails Before Inference
+
+**Problem:** gh-aw `engine.model: auto` with `--auto-tier=balance` or
+`--auto-tier balance` fails before inference:
+
+```text
+Error: Auto preference requires the selected model to be `auto`.
+```
+
+**Cause:** The gh-aw harness resolves its `auto` alias to a concrete model before
+spawning Copilot CLI. A fixed model conflicts with the explicit native Auto
+profile. Retries repeat the same deterministic configuration error.
+
+Keeping `auto` at launch is not sufficient: AWF configures Copilot CLI with
+`COPILOT_OFFLINE=true` and a sidecar `COPILOT_PROVIDER_BASE_URL`, while gh-aw
+selects one `COPILOT_PROVIDER_WIRE_API` before launch. Native runtime routing is
+not supported by this offline/BYOK contract, even with a GitHub token in the
+sidecar. Proxy forwarding of Auto control endpoints does not prove otherwise.
+
+**Workaround:** Remove `--auto-tier` and use gh-aw's per-run model routing:
+
+```yaml
+engine:
+  id: copilot
+  model-routing:
+    goal: cost
+    mode: economy
+```
+
+Alternatively, choose a concrete model and omit `--auto-tier`. Per-run routing,
+bare-auto alias resolution, API-level dynamic selectors, and Copilot native Auto
+are different features. This limitation does not invalidate the existing alias
+or per-run routing paths.
+
+Do not expose real credentials to the agent, disable the proxy/firewall or
+offline mode, or weaken model-policy, multiplier, or budget enforcement.
+The [native-mode support gate](api-proxy-sidecar.md#gate-for-future-native-support)
+tracks the required AWF contract and validation. gh-aw's early compiler/harness
+diagnostic belongs in [github/gh-aw#74970](https://github.com/github/gh-aw/issues/74970),
+before CLI spawn and retries, not in AWF's arbitrary shell-command parsing.
+
 ### Copilot BYOK Sub-Agent Model/API Mismatch
 
 **Problem:** Copilot CLI sub-agents using a model from a different wire-API family
@@ -279,7 +320,8 @@ gpt-5.3-codex ...` for direct CLI usage.
 
 When using the GitHub Copilot provider, `copilot/auto` is routed on Responses
 requests using the available Copilot model inventory; Chat Completions requests
-retain Copilot's native `auto` behavior.
+omit the unsupported `auto` model field so the upstream can select a model.
+Neither provides [Copilot CLI native Auto tiers](#copilot-cli-native-auto-tier-fails-before-inference).
 
 ## Permission Issues
 

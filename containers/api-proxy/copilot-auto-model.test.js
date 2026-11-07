@@ -62,4 +62,27 @@ describe('Copilot auto model handling', () => {
 
     expect(await transform(adapter, 'auto', '/auto')).toEqual({ model: 'auto', messages: [] });
   });
+
+  it.each([
+    ['/models/session', '2025-07-16'],
+    ['/models/session/intent', '2025-07-16'],
+    ['/auto', '2026-08-01'],
+  ])('preserves the control payload and injects trusted auth for %s', async (url, apiVersion) => {
+    const adapter = createCopilotAdapter({ COPILOT_GITHUB_TOKEN: 'test-token' });
+    const req = { method: 'POST', url, headers: { authorization: 'agent-placeholder' } };
+    const payload = { model: 'auto', session_id: 'session-1', intent: 'test', auto_tier: 'balance' };
+    const result = await transformRequestBody(
+      Buffer.from(JSON.stringify(payload)),
+      'copilot',
+      req,
+      'req-auto-control',
+      adapter.getBodyTransform(),
+    );
+
+    expect(parseBody(result.body)).toEqual(payload);
+    expect(adapter.getAuthHeaders(req)).toMatchObject({
+      Authorization: ['Bearer', 'test-token'].join(' '),
+      'X-GitHub-Api-Version': apiVersion,
+    });
+  });
 });
