@@ -72,6 +72,60 @@ Compiler-side warning or an MCP fetch fallback is tracked in
 AWF receives the command and domain allowlist, not gh-aw's `tools` declarations,
 so its startup warning cannot identify which native web tools were requested.
 
+### Copilot `view` Succeeds on PNGs but the Model Cannot See the Image
+
+**Problem:** The tool records `binaryResultsForLlm`, but the next inference
+request contains only `Viewed image file successfully.` and no `input_image`.
+Tool success alone does not prove that Copilot CLI included the image in its
+request to the model.
+
+**Diagnosis:** The Copilot API proxy (port 10002) emits payload-free
+`request_shape` JSON records at debug level in its normal stdout log
+(`api-proxy-logs` in preserved AWF logs). These records are emitted automatically;
+no request-body logging or credential exposure is needed. Match `request_id`
+across `stage: "inbound"` (before body transforms) and `stage: "upstream"`
+(immediately before each upstream attempt). Records include:
+
+- `content_part_types`: counts of message content types such as `input_image`.
+- `tool_output_part_types`: counts inside Responses `function_call_output.output`
+  arrays, including `input_image`; string outputs count as `text`.
+- `input_item_types` and `body_bytes`: item counts and the complete body size.
+
+Only allowlisted protocol type labels and counts are logged; unknown types become
+`unknown`. Prompts, tool arguments/results, image URLs, base64 and credentials are
+not included. A non-object or unparseable body is marked `body_format: "unrecognized"`.
+
+If an image is absent at **inbound**, AWF did not receive it and cannot restore
+it from the tool's success text. If no inbound record exists, the request may not
+have reached this proxy, may have been rejected before collection completed, or
+the logs may be incomplete; absence alone does not identify the cause.
+If present inbound but missing upstream, investigate the proxy transforms.
+Endpoint translation can legitimately rename `input_image` to Chat Completions
+`image_url`; model rewriting or steering can also change body size.
+
+The local Copilot-adapter regression tests verify byte-identical forwarding of
+Responses message images and image-array tool outputs when no body rewrite or
+endpoint translation is required, including a chunked request of exactly 10 MiB.
+This does not establish the cause in an uninspected live workflow.
+
+**Size limits:** The API proxy limits the **entire encoded request** to 10 MiB
+(10,485,760 bytes), including JSON and base64 overhead (roughly 4/3 of binary
+size). Larger requests receive HTTP **413** and are not partially forwarded.
+AWF's generated Squid configuration adds no request-body size limit. In default
+TLS-splice mode, HTTPS upstream calls use CONNECT tunnels, so Squid cannot parse
+image parts. The error-response log capture cap is separate from request forwarding.
+No size-limit increase is needed to diagnose missing parts in accepted requests.
+
+**Upstream handoff:** For a reproducer showing `binaryResultsForLlm` but no
+inbound image parts, attach only the shape records, tool-event metadata,
+AWF/Copilot CLI versions, model and endpoint to
+[github/gh-aw#74972](https://github.com/github/gh-aw/issues/74972) and the related
+Copilot CLI BYOK tool-image report
+[github/copilot-cli#4600](https://github.com/github/copilot-cli/issues/4600).
+The latter reports tool-result image loss even without AWF; it is supporting
+evidence, not proof of this workflow's cause. Do not attach raw inference bodies
+or image data.
+
 ### Copilot BYOK Sub-Agent Model/API Mismatch
 
 **Problem:** Copilot CLI sub-agents using a model from a different wire-API family
