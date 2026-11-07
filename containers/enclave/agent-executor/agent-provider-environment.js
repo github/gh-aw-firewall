@@ -17,6 +17,8 @@ function agentProviderEnvironment(engine, endpoint, model, directory, budgetToke
       };
     case 'codex':
       return {
+        // AWF owns the outer sandbox; never derive native execution policy from a task.
+        AWF_ENCLAVE_AGENT_CODEX_BYPASS_APPROVALS: 'true',
         CODEX_HOME: `${directory}/codex`,
         OPENAI_BASE_URL: `${endpoint}/v1`,
         OPENAI_API_KEY: token,
@@ -29,6 +31,8 @@ function agentProviderEnvironment(engine, endpoint, model, directory, budgetToke
         ANTHROPIC_AUTH_TOKEN: token,
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
         DISABLE_AUTOUPDATER: '1',
+        AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS: 'host',
+        AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS: 'Read,Glob,Grep',
       };
     default:
       throw new Error('Unsupported enclave agent engine');

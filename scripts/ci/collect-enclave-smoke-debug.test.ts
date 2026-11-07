@@ -135,6 +135,33 @@ describe('host-only public enclave debug collector', () => {
       .toThrow(/session-schema/);
   });
 
+  it('excludes guest-controlled progress integers from exported audit artifacts', () => {
+    const privateSeedChunks = [3141592653, 2718281828];
+    const transcript = Buffer.from(JSON.stringify({
+      event: 'progress', stage: 'engine-completed',
+      attempt: privateSeedChunks[0], runtimeMs: privateSeedChunks[1],
+    }));
+    const session = projectEnclaveSessionDiagnostics(transcript);
+    const identity = { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' };
+    const projected = JSON.parse(projectDiagnostics({ ...commonEnvelope(), session }, identity).toString());
+    expect(projected.session.events).toEqual([{ event: 'progress', stage: 'engine-completed' }]);
+    for (const chunk of privateSeedChunks) {
+      expect(JSON.stringify(projected)).not.toContain(String(chunk));
+    }
+
+    const direct = JSON.parse(projectDiagnostics({
+      ...commonEnvelope(),
+      session: { status: 'captured', events: [{
+        event: 'progress', stage: 'engine-completed',
+        attempt: privateSeedChunks[0], runtimeMs: privateSeedChunks[1],
+      }] },
+    }, identity).toString());
+    expect(direct.session.events).toEqual([{ event: 'progress', stage: 'engine-completed' }]);
+    for (const chunk of privateSeedChunks) {
+      expect(JSON.stringify(direct)).not.toContain(String(chunk));
+    }
+  });
+
   it('preserves the successful Claude summary after two complete silent startup crash attempts', () => {
     const snapshots = (stage: string, outputState = 'empty') => [
       { event: 'resource-snapshot', stage, memory: { currentBytes: 4096, events: { oom_kill: 0 } },
@@ -223,6 +250,26 @@ describe('host-only public enclave debug collector', () => {
     expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThan(8192);
   });
 
+  it.each([
+    'unknown-option', 'invalid-option-value', 'missing-option-value',
+    'invalid-settings', 'invalid-mcp-config', 'unknown',
+  ])('preserves startup classification %s through host and protected artifact projection', classification => {
+    const event = { event: 'progress', stage: 'claude-startup-failure', classification,
+      stderr: 'PRIVATE_STDERR', prompt: 'PRIVATE_PROMPT', exception: 'PRIVATE_EXCEPTION' };
+    const session = projectEnclaveSessionDiagnostics(Buffer.from(JSON.stringify(event)));
+    const identity = { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' };
+    const projected = JSON.parse(projectDiagnostics({ ...commonEnvelope(), session }, identity).toString());
+    expect(projected.session.events).toEqual([
+      { event: 'progress', stage: 'claude-startup-failure', classification },
+    ]);
+    expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+    expect(() => projectDiagnostics({
+      ...commonEnvelope(), session: { status: 'captured', events: [
+        { ...event, classification: 'PRIVATE_CLASS' },
+      ] },
+    }, identity)).toThrow(/session-schema/);
+  });
+
   it('projects the independent Claude summary and rejects incorrect summary schema', () => {
     const envelope = { ...commonEnvelope(), session: {
       status: 'captured', claudeStreamSummary: {
@@ -246,6 +293,44 @@ describe('host-only public enclave debug collector', () => {
         ...envelope, session: { status: 'captured', claudeStreamSummary: malformed },
       }, identity)).toThrow(/session-schema/);
     }
+  });
+
+  it('retains the final Claude startup failure after event-cap saturation', () => {
+    const startupFailure = {
+      event: 'progress', stage: 'claude-startup-failure', classification: 'invalid-option-value',
+      stderr: 'PRIVATE_STDERR', prompt: 'PRIVATE_PROMPT',
+    };
+    const transcript = [
+      { event: 'engine-retry', signal: 6 },
+      { event: 'engine-retry', signal: 11 },
+      ...Array.from({ length: 30 }, () => ({
+        event: 'operation-error', operation: 'resource-memory.events-read', category: 'os-error',
+        errno: 5, fatal: false, detail: 'PRIVATE_DETAIL',
+      })),
+      startupFailure,
+      { event: 'progress', stage: 'engine-completed', attempt: 3, exitCode: 1 },
+    ];
+    const session = projectEnclaveSessionDiagnostics(Buffer.from(
+      transcript.map(event => JSON.stringify(event)).join('\n')));
+    expect(session.events).toHaveLength(32);
+    expect(session.events?.some(event => event.stage === 'claude-startup-failure')).toBe(false);
+    expect(session.lastEvent).toEqual({ event: 'progress', stage: 'engine-completed', attempt: 3, exitCode: 1 });
+    expect(session.claudeStartupFailure).toEqual({
+      event: 'progress', stage: 'claude-startup-failure', classification: 'invalid-option-value',
+    });
+
+    const projected = JSON.parse(projectDiagnostics({
+      ...commonEnvelope(), session,
+    }, { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' }).toString());
+    expect(projected.session.claudeStartupFailure).toEqual(session.claudeStartupFailure);
+    expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+    expect(() => projectDiagnostics({
+      ...commonEnvelope(), session: {
+        status: 'captured', claudeStartupFailure: {
+          ...session.claudeStartupFailure, classification: 'PRIVATE_CLASS',
+        },
+      },
+    }, { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' })).toThrow(/session-schema/);
   });
 
   it('collects a failed invocation but excludes stale directories and journals', () => {
@@ -297,9 +382,13 @@ describe('host-only public enclave debug collector', () => {
       .toMatchObject({ diagnostic: { category: 'broker', exitCode: 1 } });
     expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8')).toContain('failedCheck=stop-proof');
   });
-  it('exports the allowlisted early admission reason independently of invocation evidence', () => {
+  it.each([
+    'cloud-hypervisor-enclave-admission',
+    ...['workflow-source', 'configuration-profile', 'token-acquisition', 'signature', 'claims']
+      .map(reason => `cloud-hypervisor-enclave-admission-${reason}`),
+  ])('exports the allowlisted early admission reason independently of invocation evidence (%s)', reason => {
     const earlyFailure = {
-      schemaVersion: 1, phase: 'backend-selection', reason: 'cloud-hypervisor-enclave-admission',
+      schemaVersion: 1, phase: 'backend-selection', reason,
     };
     retainStartup(false, earlyFailure);
     expect(collectRun()).toBe(1);

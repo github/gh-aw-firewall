@@ -890,6 +890,25 @@ def append_engine_result(completed: subprocess.CompletedProcess) -> tuple[str, s
     return stdout, stderr
 
 
+def classify_claude_startup_failure(stderr: bytes) -> str:
+    """Classify bounded pre-init stderr without retaining any matched text."""
+    text = stderr[:MAX_ENGINE_STREAM_BYTES].decode("utf-8", errors="replace")
+    for line in text.splitlines():
+        if line.startswith("error: unknown option "):
+            return "unknown-option"
+        if line.startswith("error: option "):
+            if " argument " in line and " is invalid." in line:
+                return "invalid-option-value"
+            if line.endswith(" argument missing"):
+                return "missing-option-value"
+        message = line.removeprefix("Error: ")
+        if message.startswith(("Invalid settings:", "Error parsing settings:", "Settings file not found:")):
+            return "invalid-settings"
+        if message.startswith(("Invalid MCP config:", "Invalid MCP configuration:", "Error parsing MCP config:")):
+            return "invalid-mcp-config"
+    return "unknown"
+
+
 def communicate_claude(process: subprocess.Popen, timeout: float) -> tuple[bytes, bytes]:
     """Drain streams incrementally, projecting only fixed lifecycle observations."""
     started = time.monotonic()
@@ -1000,6 +1019,9 @@ def communicate_claude(process: subprocess.Popen, timeout: float) -> tuple[bytes
                 raise subprocess.TimeoutExpired(process.args, timeout,
                                                 bytes(captured["stdout"]), bytes(captured["stderr"]))
     finally:
+        if process.returncode not in {None, 0} and "claude-initialized" not in seen:
+            milestone("claude-startup-failure",
+                      classification=classify_claude_startup_failure(bytes(captured["stderr"])))
         try:
             output_state = "present" if OUT_PATH.stat().st_size else "empty"
         except OSError:
@@ -1065,9 +1087,9 @@ def build_engine_command(engine: str, model: str, prompt: str, log_dir: Path) ->
             command.insert(3, "--dangerously-bypass-approvals-and-sandbox")
         return command
     if engine == "claude":
-        permission_prompts = os.environ.get("AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS", "auto")
+        permission_prompts = os.environ.get("AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS", "host")
         allowed_tools = os.environ.get("AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS", "Read,Glob,Grep")
-        if permission_prompts not in {"auto", "none"} or not allowed_tools \
+        if permission_prompts not in {"host", "none"} or not allowed_tools \
                 or any(tool not in {"Bash", "Read", "Write", "Edit", "Glob", "Grep"}
                        for tool in allowed_tools.split(",")):
             raise ValueError("invalid Claude tool permission policy")

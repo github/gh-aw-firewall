@@ -14,6 +14,7 @@ const STAGES = [
   'output-normalized', 'output-write-attempt', 'output-written',
   'claude-first-byte', 'claude-initialized', 'claude-response', 'claude-tool-requested',
   'claude-tool-completed', 'claude-permission-denied', 'claude-api-retry', 'claude-result', 'claude-stream-summary',
+  'claude-startup-failure',
 ];
 const CATEGORIES = [
   'configuration-invalid', 'input-invalid', 'engine-failed', 'result-write-failed', 'deadline-exceeded',
@@ -74,7 +75,6 @@ function projectEvent(value) {
   if (value.event === 'progress' && allowed(value.stage, STAGES)) {
     result.event = 'progress';
     result.stage = value.stage;
-    for (const key of ['attempt', 'runtimeMs']) if (integer(value[key])) result[key] = value[key];
     if (typeof value.valid === 'boolean') result.valid = value.valid;
     if (String(value.stage).startsWith('claude-')) {
       for (const key of ['shellAvailable', 'toolError', 'resultError', 'stdoutObserved',
@@ -85,6 +85,10 @@ function projectEvent(value) {
         result.permissionMode = value.permissionMode;
       }
       if (allowed(value.outputState, ['present', 'empty', 'unavailable'])) result.outputState = value.outputState;
+      if (value.stage === 'claude-startup-failure' && allowed(value.classification, [
+        'unknown-option', 'invalid-option-value', 'missing-option-value',
+        'invalid-settings', 'invalid-mcp-config', 'unknown',
+      ])) result.classification = value.classification;
       if (value.httpStatus === null || (integer(value.httpStatus)
         && [400, 401, 403, 404, 408, 429, 500, 502, 503, 504, 529].includes(value.httpStatus))) {
         result.httpStatus = value.httpStatus;
@@ -254,6 +258,9 @@ function projectEnclaveSessionDiagnostics(bytes) {
     result.lastEvent = event;
     if (event.event === 'progress' && event.stage === 'claude-stream-summary') {
       result.claudeStreamSummary = event;
+    }
+    if (event.event === 'progress' && event.stage === 'claude-startup-failure') {
+      result.claudeStartupFailure = event;
     }
     if (event.event === 'failure' || (event.event === 'operation-error' && event.fatal !== false)) {
       result.failure ??= event;

@@ -135,7 +135,8 @@ function projectSessionEvent(value) {
     'engine-launch-attempt', 'engine-started', 'engine-completed', 'output-normalization-started',
     'output-normalized', 'output-write-attempt', 'output-written',
     'claude-first-byte', 'claude-initialized', 'claude-response', 'claude-tool-requested',
-    'claude-tool-completed', 'claude-permission-denied', 'claude-api-retry', 'claude-result', 'claude-stream-summary'];
+    'claude-tool-completed', 'claude-permission-denied', 'claude-api-retry', 'claude-result', 'claude-stream-summary',
+    'claude-startup-failure'];
   const categories = [...ERROR_CATEGORIES, 'configuration-invalid', 'input-invalid', 'engine-failed',
     'result-write-failed', 'deadline-exceeded', 'result-read-failed', 'result-reset-failed', 'result-empty',
     'result-too-large', 'result-invalid-utf8', 'result-whitespace-only', 'diagnostic-encoding-failed',
@@ -143,7 +144,6 @@ function projectSessionEvent(value) {
   if (value.event === 'progress' && stages.includes(value.stage)) {
     result.event = value.event;
     result.stage = value.stage;
-    for (const key of ['attempt', 'runtimeMs']) if (count(value[key])) result[key] = value[key];
     if (typeof value.valid === 'boolean') result.valid = value.valid;
     if (value.stage.startsWith('claude-')) {
       Object.assign(result, fields(value, {
@@ -153,6 +153,12 @@ function projectSessionEvent(value) {
         outputState: member(['present', 'empty', 'unavailable']),
         httpStatus: member([null, 400, 401, 403, 404, 408, 429, 500, 502, 503, 504, 529]),
       }));
+      if (value.stage === 'claude-startup-failure') {
+        Object.assign(result, fields(value, {
+          classification: member(['unknown-option', 'invalid-option-value', 'missing-option-value',
+            'invalid-settings', 'invalid-mcp-config', 'unknown']),
+        }));
+      }
     }
   } else if (value.event === 'failure' && categories.includes(value.category)) {
     result.event = value.event;
@@ -196,6 +202,11 @@ function projectSession(value) {
     check(object(value.claudeStreamSummary) && value.claudeStreamSummary.event === 'progress'
       && value.claudeStreamSummary.stage === 'claude-stream-summary', 'session-schema');
     result.claudeStreamSummary = projectSessionEvent(value.claudeStreamSummary);
+  }
+  if (value.claudeStartupFailure !== undefined) {
+    check(object(value.claudeStartupFailure) && value.claudeStartupFailure.event === 'progress'
+      && value.claudeStartupFailure.stage === 'claude-startup-failure', 'session-schema');
+    result.claudeStartupFailure = projectSessionEvent(value.claudeStartupFailure);
   }
   if (value.operationErrors !== undefined) {
     check(Array.isArray(value.operationErrors) && value.operationErrors.length <= 16, 'session-bound');
@@ -650,7 +661,12 @@ function projectStartup(value, backend) {
     diagnostic.earlyFailure = fields(value.diagnostic.earlyFailure, {
       schemaVersion: member([1]), phase: member(['configuration', 'validation', 'backend-selection']),
       reason: member(['configuration-rejected', 'validation-rejected', 'backend-selection-rejected',
-        'cloud-hypervisor-enclave-admission']),
+        'cloud-hypervisor-enclave-admission',
+        'cloud-hypervisor-enclave-admission-workflow-source',
+        'cloud-hypervisor-enclave-admission-configuration-profile',
+        'cloud-hypervisor-enclave-admission-token-acquisition',
+        'cloud-hypervisor-enclave-admission-signature',
+        'cloud-hypervisor-enclave-admission-claims']),
     });
     check(Object.keys(diagnostic.earlyFailure).length === 3, 'startup-schema');
   }
