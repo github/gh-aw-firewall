@@ -53,6 +53,10 @@ if scenario.startswith("session-log-"):
         def write(self, data):
             if scenario.startswith("session-log-write"):
                 fail()
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_value, traceback):
+            self.close()
         def close(self):
             if scenario in ("session-log-close", "session-log-close-from-except"):
                 fail()
@@ -166,6 +170,24 @@ module.GITHUB_BEARER_PATH.write_text("private-delegated-bearer-sentinel", encodi
 if scenario in ("injected-io", "verify-io"):
     original_operation = module.file_operation
     def injected_operation(operation, action, *, fatal=True):
+        if operation.endswith("-open") and operation.rsplit("-", 1)[0] + "-close" == os.environ["FAULT_OPERATION"]:
+            class CloseProxy:
+                def __init__(self, handle):
+                    self.handle = handle
+                def __getattr__(self, name):
+                    return getattr(self.handle, name)
+                def __enter__(self):
+                    return self
+                def __exit__(self, exc_type, exc_value, traceback):
+                    self.close()
+                def close(self):
+                    self.handle.close()
+                    raise OSError(
+                        int(os.environ.get("FAULT_ERRNO", str(errno.EIO))),
+                        "unsafe detail " + os.environ["TEST_API_TOKEN"],
+                        os.environ["PRIVATE_PATH"],
+                    )
+            return CloseProxy(original_operation(operation, action, fatal=fatal))
         if operation != os.environ["FAULT_OPERATION"]:
             return original_operation(operation, action, fatal=fatal)
         def fail():
@@ -176,19 +198,15 @@ if scenario in ("injected-io", "verify-io"):
             )
         return original_operation(operation, fail, fatal=fatal)
     module.file_operation = injected_operation
-    original_close_file = module.close_file
-    def injected_close_file(handle, operation, *, fatal=True):
-        if operation != os.environ.get("FAULT_OPERATION"):
-            return original_close_file(handle, operation, fatal=fatal)
-        handle.close()
-        error = OSError(
-            int(os.environ.get("FAULT_ERRNO", str(errno.EIO))),
-            "unsafe detail " + os.environ["TEST_API_TOKEN"],
-            os.environ["PRIVATE_PATH"],
-        )
-        module.safe_os_error(error, operation, fatal=fatal)
-        raise error
-    module.close_file = injected_close_file
+    original_diagnostic_file = module.diagnostic_file
+    def injected_diagnostic_file(path, operation, mode, *, fatal=True):
+        class OpenPath:
+            def open(self, requested_mode):
+                return injected_operation(
+                    f"{operation}-open", lambda: path.open(requested_mode), fatal=fatal,
+                )
+        return original_diagnostic_file(OpenPath(), operation, mode, fatal=fatal)
+    module.diagnostic_file = injected_diagnostic_file
 
 original_engine_result = module.append_engine_result
 def engine_result(completed):
@@ -258,12 +276,18 @@ if scenario != "missing-copilot":
             {"type": "result", "is_error": True,
              "permission_denials": [{"tool_name": "Bash", "tool_input": "PRIVATE_COMMAND"}]},
         ]
+        if "CLAUDE_EVENTS" in os.environ:
+            stream_events = json.loads(os.environ["CLAUDE_EVENTS"].replace(
+                '"/awf/out"', json.dumps(str(module.OUT_PATH))))
         copilot.write_text(
             "#!/usr/bin/python3\nimport json, sys, time\n"
             + ("sys.stdout.write('x' * (512 * 1024) + '\\n'); sys.stdout.flush()\n"
                if scenario == "claude-stream-flood" else "")
+            + ("for _ in range(4096): print(json.dumps({'type': 'assistant', 'message': {'content': 'PRIVATE_MODEL' * 40}}))\n"
+               if scenario == "claude-stream-budget" else "")
             + "for event in " + repr(stream_events * 2) + ": print(json.dumps(event), flush=True)\n"
             + ("time.sleep(30)\n" if scenario == "claude-stream-timeout" else
+               "" if scenario == "claude-stream-no-output" else
                "open(" + repr(str(module.OUT_PATH)) + ", 'w').write('true')\n"),
             encoding="utf-8",
         )
@@ -464,7 +488,7 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     expect(result.arguments.split('\n')).toContain('--dangerously-bypass-approvals-and-sandbox');
   });
 
-  it('requires explicit opt-in for unattended Claude shell and file writes', () => {
+  it('accepts the trusted unattended Claude shell and file policy', () => {
     const result = runHarness('model-limits', {
       ...providerEnv('claude'),
       AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS: 'none',
@@ -641,6 +665,73 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     expect(result.transcript).not.toContain('PRIVATE_');
   });
 
+  it.each([
+    ['Bash', {}, 'shell'],
+    ['Read', {}, 'file-read'],
+    ['Write', {}, 'file-write'],
+    ['Edit', {}, 'file-write'],
+    ['Glob', {}, 'search'],
+    ['Grep', {}, 'search'],
+    ['PRIVATE_TOOL', { command: 'PRIVATE_COMMAND' }, 'unknown'],
+    [['PRIVATE_TOOL'], {}, 'unknown'],
+  ])('classifies denied tools without retaining payloads: %j', (tool, input, toolClass) => {
+    const result = runHarness('claude-stream-no-output', {
+      ...providerEnv('claude'),
+      CLAUDE_EVENTS: JSON.stringify([
+        { type: 'system', subtype: 'init', tools: ['Bash'] },
+        { type: 'system', subtype: 'permission_denied', tool_name: tool, tool_input: input },
+        { type: 'result', is_error: false, permission_denials: [
+          { tool_name: tool, tool_input: input }, null,
+        ] },
+      ]),
+    });
+    expect(result.exitCode).toBe(33);
+    expect(result.output).toBe('');
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-permission-denied', toolClass,
+    }));
+    expect(events(result)).toContainEqual({ event: 'failure', category: 'result-empty' });
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      event: 'engine-result', exitCode: 0,
+    }));
+    expect(result.transcript).not.toContain('PRIVATE_');
+  });
+
+  it('distinguishes an output-file tool error from native tool refusal', () => {
+    const result = runHarness('claude-stream-no-output', {
+      ...providerEnv('claude'),
+      CLAUDE_EVENTS: JSON.stringify([
+        { type: 'assistant', message: { content: [
+          { type: 'tool_use', id: 'output', name: 'Write', input: { file_path: '/awf/out' } },
+        ] } },
+        { type: 'user', message: { content: [
+          { type: 'tool_result', tool_use_id: 'output', is_error: true, content: 'PRIVATE_ERROR' },
+        ] } },
+        { type: 'result', is_error: false },
+      ]),
+    });
+    expect(result.exitCode).toBe(33);
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-tool-completed', toolError: true, toolClass: 'output-write',
+    }));
+    expect(events(result).some(event => event.stage === 'claude-permission-denied')).toBe(false);
+    expect(result.transcript).not.toContain('PRIVATE_');
+  });
+
+  it('retains final denial and result milestones after the cumulative stream byte budget', () => {
+    const result = runHarness('claude-stream-budget', providerEnv('claude'));
+    expect(result.exitCode).toBe(0);
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-stream-summary', captureTruncated: true, outputState: 'present',
+    }));
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-permission-denied', toolClass: 'shell',
+    }));
+    expect(events(result)).toContainEqual(expect.objectContaining({ stage: 'claude-result' }));
+    expect(result.transcriptBytes).toBeLessThan(16 * 1024);
+    expect(result.transcript).not.toContain('PRIVATE_');
+  });
+
   it('does not turn a silent successful Claude exit into a result', () => {
     const result = runHarness('silent-success', providerEnv('claude'));
     expect(result.exitCode).toBe(33);
@@ -676,6 +767,8 @@ describe('enclave agent protected entrypoint diagnostics', () => {
       { AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'true' },
       { AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'true', AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE: 'scoped-bearer' },
       { AWF_ENCLAVE_AGENT_DYNAMIC_ENABLED: 'true' },
+      { AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE: 'scoped-bearer' },
+      { AWF_GITHUB_MCP_AUTHORIZATION: 'private-delegated-bearer-sentinel' },
     ];
     for (const githubEnv of githubModes) {
       const result = runHarness('model-limits', { ...providerEnv(engine), ...githubEnv });
@@ -1110,6 +1203,44 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     }));
     expect(result.transcript).not.toContain('"result":"true"');
   });
+
+  it.each(['github-mcp-config-chown', 'runtime-path-ownership-home-directory'])(
+    'preserves ownership-operation diagnostics for %s without returning a resource',
+    operation => {
+      const result = spawnSync('python3', ['-c', String.raw`
+import errno, importlib.util, io, json, os
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("entrypoint", os.environ["ENTRYPOINT"])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.agent_identity = lambda: (65534, 65534)
+calls = []
+module.os.chown = lambda path, uid, gid: calls.append([str(path), uid, gid])
+result = module.chown_runtime_path(Path("/fixture"), os.environ["OPERATION"])
+captured = io.StringIO()
+module.append_event = lambda event: captured.write(json.dumps(event))
+def fail(*args):
+    raise OSError(errno.EACCES, "private error detail", "/private/path")
+module.os.chown = fail
+try:
+    module.chown_runtime_path(Path("/fixture"), os.environ["OPERATION"])
+except OSError as error:
+    failure = error.errno
+print(json.dumps({"result": result, "calls": calls, "failure": failure,
+                 "transcript": captured.getvalue()}))
+`], {
+        env: { PATH: process.env.PATH, ENTRYPOINT: entrypoint, OPERATION: operation },
+        encoding: 'utf8',
+      });
+      expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
+      const observed = JSON.parse(result.stdout);
+      expect(observed).toMatchObject({ result: null, calls: [['/fixture', 65534, 65534]], failure: 13 });
+      expect(JSON.parse(observed.transcript)).toMatchObject({
+        event: 'operation-error', operation, category: 'permission-denied', errno: 13, fatal: true,
+      });
+      expect(observed.transcript).not.toContain('private');
+    },
+  );
 
   it.each(['stat', 'open', 'write', 'close'])(
     'reports session-log %s failures through safe stderr without recursion',

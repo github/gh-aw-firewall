@@ -117,7 +117,9 @@ interface InvocationAuthorityState {
   dockerState?: { running: false; exitCode: number | null; oomKilled: boolean | null };
 }
 
-function privateFile(directory: string, name: string, value: string, mode: 0o400 | 0o444 | 0o600 = 0o444): void {
+function privateFile(
+  directory: string, name: string, value: string, mode: 0o400 | 0o444 | 0o600 | 0o644 = 0o444,
+): void {
   const target = path.join(directory, name);
   fs.writeFileSync(target, value, { flag: 'wx', mode });
   fs.chmodSync(target, mode);
@@ -228,7 +230,12 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
       }
       const entry = entries.get(record.entryId)!;
       for (const name of secrets.length === 0 ? [] : ['stdout.log', 'stderr.log', ...(entry.executorKind === 'agent' ? ['session.jsonl'] : [])]) {
-        try { await ownDockerHostStorageFile(record.mount!, name, entry.uid, entry.gid, true); }
+        try {
+          await ownDockerHostStorageFile(
+            record.mount!, name, name === 'session.jsonl' ? process.getuid?.() ?? 0 : entry.uid,
+            name === 'session.jsonl' ? process.getgid?.() ?? 0 : entry.gid, true,
+          );
+        }
         catch (error) {
           if (!fs.existsSync(path.join(record.storageTarget, name))) continue;
           throw error;
@@ -500,9 +507,15 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
       delete record.expected;
       journal.write(record);
       diagnostic?.event('authority-handoff', 'started');
-      const stageFile = async (name: string, value: string, mode: 0o400 | 0o444 | 0o600 = 0o444) => {
+      const stageFile = async (
+        name: string, value: string, mode: 0o400 | 0o444 | 0o600 | 0o644 = 0o444,
+        uid = entry.uid, gid = entry.gid,
+      ) => {
+        if (name === 'session.jsonl' && uid === entry.uid) {
+          throw new Error('Enclave session transcript requires a separate supervisor identity');
+        }
         privateFile(record.storageTarget, name, value, mode);
-        if (mode !== 0o444) await ownDockerHostStorageFile(record.mount!, name, entry.uid, entry.gid);
+        if (mode !== 0o444) await ownDockerHostStorageFile(record.mount!, name, uid, gid);
       };
       await stageFile('out', '', 0o600);
       if (options.publicDebug) {
@@ -518,7 +531,9 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
         if (Buffer.byteLength(task) > 64 * 1024) throw new Error('Docker enclave scoped task exceeds the audited input bound');
         await stageFile('task.txt', task);
         await stageFile('schema.json', JSON.stringify(serializeFiniteSchema(plan.schema)));
-        await stageFile('session.jsonl', '', 0o600);
+        await stageFile(
+          'session.jsonl', '', 0o644, process.getuid?.() ?? 0, process.getgid?.() ?? 0,
+        );
         const agentDirectory = path.join(record.storageTarget, 'agent');
         fs.mkdirSync(agentDirectory, { mode: 0o700 });
         fs.chmodSync(agentDirectory, 0o700);
@@ -560,7 +575,9 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
       if (diagnostic) await diagnostic.check('cleanup', reclaimOutput, true);
       else await reclaimOutput();
       if (entry.executorKind === 'agent') {
-        const reclaimSession = () => ownDockerHostStorageFile(record.mount!, 'session.jsonl', entry.uid, entry.gid, true);
+        const reclaimSession = () => ownDockerHostStorageFile(
+          record.mount!, 'session.jsonl', process.getuid?.() ?? 0, process.getgid?.() ?? 0, true,
+        );
         if (diagnostic) await diagnostic.check('cleanup', reclaimSession, true);
         else await reclaimSession();
       }
