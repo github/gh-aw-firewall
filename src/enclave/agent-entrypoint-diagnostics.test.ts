@@ -228,6 +228,17 @@ if scenario != "missing-copilot":
     copilot = Path(module.engine_binary(os.environ["AWF_ENCLAVE_AGENT_ENGINE"]))
     if scenario == "timeout":
         copilot.write_text("#!/bin/sh\nsleep 30 &\nwait\n", encoding="utf-8")
+    elif scenario.startswith("claude-startup-error") or scenario == "claude-error-after-init":
+        copilot.write_text(
+            "#!/usr/bin/python3\nimport os, sys\n"
+            + ("print('{\"type\":\"system\",\"subtype\":\"init\"}', flush=True)\n"
+               if scenario == "claude-error-after-init" else "")
+            + ("sys.stderr.write('x' * (512 * 1024))\n"
+               if scenario == "claude-startup-error-flood" else "")
+            + "sys.stderr.write(os.environ['STARTUP_STDERR'])\n"
+            + "sys.exit(int(os.environ.get('NATIVE_EXIT', '1')))\n",
+            encoding="utf-8",
+        )
     elif scenario.startswith("claude-stream"):
         stream_events = [
             {"type": ["untrusted"]},
@@ -435,7 +446,7 @@ describe('enclave agent protected entrypoint diagnostics', () => {
       expect(result.arguments).toContain('--bare');
       expect(result.arguments).not.toContain('--dangerously-skip-permissions');
       expect(result.arguments).toContain('--permission-mode\ndefault\n');
-      expect(result.arguments).toContain('--permission-prompts\nauto\n');
+      expect(result.arguments).toContain('--permission-prompts\nhost\n');
       expect(result.arguments).toContain('--allowedTools\nRead,Glob,Grep\n');
       expect(result.arguments).toContain('--output-format\nstream-json\n');
       expect(result.arguments).toContain('--strict-mcp-config');
@@ -467,6 +478,7 @@ describe('enclave agent protected entrypoint diagnostics', () => {
 
   it.each<Record<string, string>>([
     { AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS: 'invalid' },
+    { AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS: 'auto' },
     { AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS: '--dangerously-skip-permissions' },
     { AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS: '' },
   ])('rejects invalid Claude permission policy %j', policy => {
@@ -522,6 +534,59 @@ describe('enclave agent protected entrypoint diagnostics', () => {
         stage: 'claude-stream-summary', stdoutObserved: false, stderrObserved: false, outputState: 'empty',
       }));
     }
+  });
+
+  it.each([
+    ["error: option '--permission-prompts <target>' argument 'auto' is invalid. Allowed choices are host, none.", 'invalid-option-value'],
+    ["error: unknown option '--private-option'", 'unknown-option'],
+    ["error: option '--model <model>' argument missing", 'missing-option-value'],
+    ['Invalid settings: PRIVATE_CONFIGURATION', 'invalid-settings'],
+    ['Error: Settings file not found: PRIVATE_CONFIGURATION', 'invalid-settings'],
+    ['Error parsing MCP config: PRIVATE_CONFIGURATION', 'invalid-mcp-config'],
+    ['Error: Invalid MCP configuration:\nPRIVATE_CONFIGURATION', 'invalid-mcp-config'],
+    ['arbitrary PRIVATE_EXCEPTION', 'unknown'],
+  ])('classifies pre-initialization failure without retaining stderr: %s', (stderr, classification) => {
+    const result = runHarness('claude-startup-error', {
+      ...providerEnv('claude'), STARTUP_STDERR: `${stderr}\nPRIVATE_TOKEN PRIVATE_PROMPT`,
+      AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS: 'true',
+    });
+    expect(result.exitCode).toBe(24);
+    expect(result.output).toBe('');
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-startup-failure', classification,
+    }));
+    expect(events(result)).toContainEqual({ event: 'failure', category: 'engine-failed' });
+    expect(result.transcript).not.toContain(stderr);
+    expect(result.transcript).not.toContain('PRIVATE_');
+    expect(result.transcriptBytes).toBeLessThan(16 * 1024);
+  });
+
+  it.each([
+    ['claude-error-after-init', '1', 24],
+    ['claude-startup-error', '0', 33],
+  ])('does not classify an initialized or successful engine as a startup failure: %s', (scenario, nativeExit, exitCode) => {
+    const result = runHarness(String(scenario), {
+      ...providerEnv('claude'), STARTUP_STDERR: "error: unknown option 'PRIVATE_OPTION'",
+      NATIVE_EXIT: String(nativeExit),
+    });
+    expect(result.exitCode).toBe(exitCode);
+    expect(events(result).some(event => event.stage === 'claude-startup-failure')).toBe(false);
+    expect(result.transcript).not.toContain('PRIVATE_');
+  });
+
+  it('bounds startup classification input without retaining oversized stderr', () => {
+    const result = runHarness('claude-startup-error-flood', {
+      ...providerEnv('claude'), STARTUP_STDERR: "\nerror: unknown option 'PRIVATE_OPTION'",
+    });
+    expect(result.exitCode).toBe(24);
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-startup-failure', classification: 'unknown',
+    }));
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-stream-summary', captureTruncated: true,
+    }));
+    expect(result.transcriptBytes).toBeLessThan(16 * 1024);
+    expect(result.transcript).not.toContain('PRIVATE_');
   });
 
   it('projects Claude lifecycle events without retaining any engine content, even with raw debugging enabled', () => {

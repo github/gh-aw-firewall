@@ -208,7 +208,6 @@ async function main(environment = process.env) {
   fs.chmodSync(directory, 0o700);
   const workDir = path.join(directory, 'work');
   const stop = path.join(workspace, '.awf-enclave-regression-stop');
-  fs.mkdirSync(workDir, { mode: 0o700 });
   fs.mkdirSync(path.dirname(stop), { recursive: true, mode: 0o700 });
   fs.rmSync(stop, { force: true });
   const identity = `gh-aw-${environment.GITHUB_RUN_ID}-${environment.GITHUB_RUN_ATTEMPT}-enclave-regression`;

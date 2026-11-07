@@ -360,6 +360,14 @@ guest, or provider failure. The daily regression's ordinary-job OIDC identity
 uses signed `workflow_ref` and `workflow_sha` claims; reusable-job identity is
 not admitted. Signature, source commit, artifact attestation, exact profile,
 storage bounds, runtime matching, and no-fallback checks remain mandatory.
+New daily-profile rejections use the same version-1 marker with the finite
+`cloud-hypervisor-enclave-admission-` suffixes `workflow-source`,
+`configuration-profile`, `token-acquisition`, `signature`, or `claims`.
+These identify the failed check, not an inferred provider or KVM failure.
+Token acquisition accepts HTTPS endpoints under GitHub's
+`.actions.githubusercontent.com` namespace, including regional hosted-runner
+endpoints; redirects and curl configuration files are not followed or loaded.
+Tokens, request URLs, headers, and curl stderr are never included in the projection.
 
 After finalization, the daily regression also emits
 `AWF_ENCLAVE_REGRESSION_FINALIZATION` and retains a bounded `finalization.json`.
@@ -370,6 +378,10 @@ Both harness records are validated independently when invocation collection fail
 The harness keeps its audit directory outside `workDir`, which AWF removes on
 shutdown; valid invocation output alone cannot override missing audit or incomplete
 cleanup.
+The harness does not pre-create AWF's work directory: admission rejection before
+AWF initialization leaves no harness-owned work directory to remove. If AWF has
+created state, the existing cleanup check still fails on residue; the harness
+never recursively deletes unverified recovery state to suppress that failure.
 
 ```text
 node collector.cjs prepare BACKEND RUN_ID-RUN_ATTEMPT RUNNER_UID RUNNER_GID

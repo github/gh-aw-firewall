@@ -17,6 +17,7 @@ export interface EnclaveSessionDiagnostics {
   events?: SafeEvent[];
   lastEvent?: SafeEvent;
   claudeStreamSummary?: SafeEvent;
+  claudeStartupFailure?: SafeEvent;
   failure?: SafeEvent;
   operationErrors?: SafeEvent[];
   storageProbe?: {

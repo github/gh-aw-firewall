@@ -16,7 +16,8 @@
  * Model-specific guards (model_multiplier_cap, retired_model,
  * model_policy_violation) are only included when `model` is truthy (non-null
  * and non-empty string). WebSocket upgrades identify models from the query
- * string; callers pass null when no model is identified.
+ * string; callers pass null when no model is identified. They come before the
+ * pricing check, so a pricing failure never hides a decision about the model.
  *
  * @param {object} deps - Guard state getter and error-builder functions.
  * @param {Function} deps.getMaxRunsBlockState
@@ -111,14 +112,6 @@ function buildCommonGuardChecks(deps, model, provider = null) {
         hard_cap: block.hardCap === true,
       }),
     },
-    {
-      block: pricingError,
-      isBlocked: block => !!block,
-      statusCode: 500,
-      eventName: 'pricing_resolution_error',
-      buildError: block => block,
-      buildLogFields: () => ({ reason: 'accounting_unavailable' }),
-    },
     // Model-specific guards — only active when a model was identified in the request.
     ...(model ? [
       {
@@ -156,6 +149,14 @@ function buildCommonGuardChecks(deps, model, provider = null) {
         }),
       },
     ] : []),
+    {
+      block: pricingError,
+      isBlocked: block => !!block,
+      statusCode: 500,
+      eventName: 'pricing_resolution_error',
+      buildError: block => block,
+      buildLogFields: () => ({ reason: 'accounting_unavailable' }),
+    },
   ];
 }
 

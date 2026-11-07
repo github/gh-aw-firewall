@@ -1416,6 +1416,12 @@ catalog uses these rates as a fallback for AI credits calculation.
 
 ### 10.3.3 Missing Model Pricing Warnings
 
+Copilot listings with `billing.token_prices.batch_size: 0` and explicit zero
+input, output, cache-read and cache-write prices in every supplied tier have no
+usable runtime tariff. They follow the missing-pricing rules below, not free
+accounting. Other malformed tariffs still fail closed. Model-specific guards
+(multiplier cap, retirement and model policy) take precedence over pricing errors.
+
 Missing pricing does not make a model unavailable. When a request's model
 cannot be priced using provider overlays, runtime metadata, or the pricing
 catalogs:
