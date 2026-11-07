@@ -198,6 +198,15 @@ if scenario in ("injected-io", "verify-io"):
             )
         return original_operation(operation, fail, fatal=fatal)
     module.file_operation = injected_operation
+    original_diagnostic_file = module.diagnostic_file
+    def injected_diagnostic_file(path, operation, mode, *, fatal=True):
+        class OpenPath:
+            def open(self, requested_mode):
+                return injected_operation(
+                    f"{operation}-open", lambda: path.open(requested_mode), fatal=fatal,
+                )
+        return original_diagnostic_file(OpenPath(), operation, mode, fatal=fatal)
+    module.diagnostic_file = injected_diagnostic_file
 
 original_engine_result = module.append_engine_result
 def engine_result(completed):

@@ -165,11 +165,19 @@ def managed_file(handle, operation: str, *, fatal: bool = True):
 
 @contextmanager
 def diagnostic_file(path: Path, operation: str, mode: str, *, fatal: bool = True):
+    phase = f"{operation}-open"
+    pending_error = False
     try:
         with path.open(mode) as opened:
-            yield opened
+            phase = f"{operation}-close"
+            try:
+                yield opened
+            except BaseException:
+                pending_error = True
+                raise
     except OSError as error:
-        safe_os_error(error, f"{operation}-open", fatal=fatal)
+        if not pending_error:
+            safe_os_error(error, phase, fatal=fatal)
         raise
 
 
