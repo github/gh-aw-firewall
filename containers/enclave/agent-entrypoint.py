@@ -165,9 +165,12 @@ def managed_file(handle, operation: str, *, fatal: bool = True):
 
 @contextmanager
 def diagnostic_file(path: Path, operation: str, mode: str, *, fatal: bool = True):
-    handle = file_operation(f"{operation}-open", lambda: path.open(mode), fatal=fatal)
-    with managed_file(handle, operation, fatal=fatal) as opened:
-        yield opened
+    try:
+        with path.open(mode) as opened:
+            yield opened
+    except OSError as error:
+        safe_os_error(error, f"{operation}-open", fatal=fatal)
+        raise
 
 
 def read_file(path: Path, operation: str, *, limit: int = -1, fatal: bool = True) -> bytes:
