@@ -5,11 +5,13 @@
 // No PR-head checkout or GitHub mutation is performed by this helper.
 const { execFileSync } = require('node:child_process');
 const { createHash } = require('node:crypto');
-const { appendFileSync, mkdirSync, readFileSync, writeFileSync } = require('node:fs');
-const { join } = require('node:path');
+const { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } = require('node:fs');
+const { dirname, join } = require('node:path');
 
 const IDLE = 10 * 60_000;
 const STALE = 14 * 24 * 60 * 60_000;
+const FAILURE_TTL = 24 * 60 * 60_000;
+const POLL = 15 * 60_000;
 const ACTIVE = new Set(['queued', 'in_progress', 'pending', 'requested']);
 const AGENT = /copilot|coding.agent|claude|codex|gemini|reviewer|(^|[/ -])agent([/ -]|$)/i;
 const FAILURES = new Set(['failure', 'error', 'timed_out', 'startup_failure']);
@@ -37,6 +39,38 @@ function commentTime(value) {
 function connection(value, name) {
   requireValue(Array.isArray(value?.nodes) && value.pageInfo?.hasNextPage === false, `Incomplete ${name}; refusing to act`);
   return value.nodes;
+}
+
+function failureReason(error) {
+  if (/^Incomplete PR #\d+ metadata$/.test(error.message)) return 'incomplete_pr_metadata';
+  const match = /^Incomplete (labels|commits|review threads|reviews|thread comments); refusing to act$/.exec(error.message);
+  if (match) return `incomplete_${match[1].replaceAll(' ', '_')}`;
+  if (error.message === 'Incomplete final PR refresh') return 'incomplete_final_pr_refresh';
+  throw error;
+}
+
+function pruneFailures(state, now) {
+  requireValue(Array.isArray(state), 'Invalid PR failure state');
+  return state.filter(item => item && Number.isSafeInteger(item.pr) && item.pr > 0 &&
+    /^[a-f0-9]{40,64}$/.test(item.headSha) && /^incomplete_[a-z_]+$/.test(item.failureReason) &&
+    Number.isSafeInteger(item.count) && item.count > 0 && item.count <= 8 &&
+    Number.isSafeInteger(item.failedAt) && item.failedAt <= now && now - item.failedAt < FAILURE_TTL &&
+    Number.isSafeInteger(item.retryAt) && item.retryAt > item.failedAt && item.retryAt <= item.failedAt + 4 * 60 * 60_000)
+    .slice(-100);
+}
+
+function recordFailure(state, pr, headSha, error, now) {
+  const reason = failureReason(error);
+  if (/^[a-f0-9]{40,64}$/.test(headSha ?? '')) {
+    const previous = state.find(item => item.pr === pr && item.headSha === headSha);
+    const count = Math.min(8, (previous?.count ?? 0) + 1);
+    state.splice(0, state.length, ...state.filter(item => item.pr !== pr), {
+      pr, headSha, failureReason: reason, count, failedAt: now,
+      retryAt: now + Math.min(4 * 60 * 60_000, POLL * 2 ** count),
+    });
+    if (state.length > 100) state.shift();
+  }
+  return { number: pr, status: 'refresh_incomplete', reason };
 }
 
 function trustedGitHubUrl(value) {
@@ -249,7 +283,10 @@ async function inspect(repo, number, api, now, writer) {
   requireValue(!response.errors?.length, `GraphQL read failed: ${JSON.stringify(response.errors)}`);
   const pr = response.data?.repository?.pullRequest;
   requireValue(pr?.number === number && typeof pr.isDraft === 'boolean' &&
-    ['OPEN', 'CLOSED', 'MERGED'].includes(pr.state) && /^[a-f0-9]{40,64}$/.test(pr.headRefOid) &&
+    ['OPEN', 'CLOSED', 'MERGED'].includes(pr.state), `Incomplete PR #${number} metadata`);
+  // Closed PRs can have null branch/mergeability fields after branch deletion.
+  if (pr.state !== 'OPEN' || pr.isDraft) return { number, status: 'closed_or_draft' };
+  requireValue(/^[a-f0-9]{40,64}$/.test(pr.headRefOid) &&
     pr.headRefName && pr.baseRefName && pr.author?.login &&
     (pr.headRepository === null || typeof pr.headRepository?.nameWithOwner === 'string') &&
     ['MERGEABLE', 'CONFLICTING', 'UNKNOWN'].includes(pr.mergeable),
@@ -285,7 +322,8 @@ async function inspect(repo, number, api, now, writer) {
   return result;
 }
 
-async function fetchQueue({ repo, number, mode = 'dry-run', writer = '', writerConfigured = false, now = Date.now() }, api = gh) {
+async function fetchQueue({ repo, number, mode = 'dry-run', writer = '', writerConfigured = false,
+  now = Date.now(), failureState }, api = gh) {
   requireValue(/^[a-z0-9][a-z0-9-]*\/[a-z0-9_][a-z0-9_.-]*$/i.test(repo ?? ''), 'Expected repository owner/repo');
   requireValue(['dry-run', 'pilot'].includes(mode), 'PR_SOUS_CHEF_MODE must be dry-run or pilot');
   requireValue(number === undefined || (Number.isSafeInteger(number) && number > 0), 'Expected a positive PR number');
@@ -295,13 +333,15 @@ async function fetchQueue({ repo, number, mode = 'dry-run', writer = '', writerC
   const output = { mode, generated_at: new Date(now).toISOString(), prs: [], statuses: [], deferred: 0 };
   output.rate_limit = await budget(api);
   if (output.rate_limit.low) return output;
-  const listed = number ? [] : await pages(api, `repos/${repo}/pulls?state=open&sort=updated&direction=desc&per_page=100`);
-  requireValue(listed.every(pr => Number.isSafeInteger(pr.number) && typeof pr.draft === 'boolean' &&
+  const listed = number ? (failureState ? [await api(['api', `repos/${repo}/pulls/${number}`])] : [])
+    : await pages(api, `repos/${repo}/pulls?state=open&sort=updated&direction=desc&per_page=100`);
+  requireValue(number || listed.every(pr => Number.isSafeInteger(pr.number) && typeof pr.draft === 'boolean' &&
     Array.isArray(pr.labels) && pr.labels.every(label => typeof label.name === 'string') &&
     (pr.author_association === undefined || typeof pr.author_association === 'string') &&
     (pr.head === undefined || pr.head === null || pr.head.repo === undefined || pr.head.repo === null ||
       typeof pr.head.repo.full_name === 'string')), 'Malformed PR list');
-  const numbers = number ? [number] : listed
+  const heads = new Map(listed.map(pr => [pr.number ?? number, pr.head?.sha]));
+  const numbers = (number ? [number] : listed
     .filter(pr => {
       const association = (pr.author_association ?? '').toUpperCase();
       const headRepository = pr.head?.repo?.full_name?.toLowerCase();
@@ -309,7 +349,12 @@ async function fetchQueue({ repo, number, mode = 'dry-run', writer = '', writerC
         ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(association)) &&
         now - time(pr.updated_at) >= IDLE && now - time(pr.updated_at) <= STALE;
     })
-    .map(pr => pr.number);
+    .map(pr => pr.number)).filter(candidate => {
+      const failed = failureState?.find(item => item.pr === candidate && item.headSha === heads.get(candidate) && item.retryAt > now);
+      if (!failed) return true;
+      output.statuses.push({ number: candidate, status: 'failure_backoff', reason: failed.failureReason });
+      return false;
+    });
   // Bound detailed reads as well as writes; the next poll can service deferred PRs.
   const start = numbers.length ? (Math.floor(now / (15 * 60_000)) * 20) % numbers.length : 0;
   const candidates = [...numbers.slice(start), ...numbers.slice(0, start)].slice(0, 20);
@@ -317,7 +362,13 @@ async function fetchQueue({ repo, number, mode = 'dry-run', writer = '', writerC
   for (const candidate of candidates) {
     output.rate_limit = await budget(api);
     if (output.rate_limit.low) { output.prs = []; return output; }
-    const result = await inspect(repo, candidate, api, now, writer);
+    let result;
+    try {
+      result = await inspect(repo, candidate, api, now, writer);
+    } catch (error) {
+      if (!failureState) throw error;
+      result = recordFailure(failureState, candidate, heads.get(candidate), error, now);
+    }
     output.statuses.push({ number: result.number, status: result.status, reason: result.reason });
     if (result.body) output.prs.push(result);
   }
@@ -326,6 +377,25 @@ async function fetchQueue({ repo, number, mode = 'dry-run', writer = '', writerC
   output.prs = output.prs.slice(0, 1);
   output.rate_limit = await budget(api);
   if (output.rate_limit.low) output.prs = [];
+  return output;
+}
+
+async function prefilterQueue(options, failureState = [], api = gh) {
+  const now = options.now ?? Date.now();
+  const output = await fetchQueue({ ...options, now, failureState }, api);
+  if (output.mode !== 'pilot' || output.rate_limit.low || !output.prs.length) return output;
+  const target = output.prs[0];
+  try {
+    const refreshed = await fetchQueue({ ...options, now, number: target.number }, api);
+    output.prs = refreshed.prs;
+    output.rate_limit = refreshed.rate_limit;
+    output.statuses = output.statuses.filter(item => item.number !== target.number).concat(refreshed.statuses);
+    failureState.splice(0, failureState.length, ...failureState.filter(item => item.pr !== target.number));
+  } catch (error) {
+    output.prs = [];
+    output.statuses = output.statuses.filter(item => item.number !== target.number)
+      .concat(recordFailure(failureState, target.number, target.head, error, now));
+  }
   return output;
 }
 
@@ -354,7 +424,7 @@ async function verifyTarget({ repo, number, writer = '', writerConfigured = fals
 }
 
 function formatSummary(output) {
-  const rows = output.statuses.map(pr => `| #${pr.number} | ${pr.status} |`);
+  const rows = output.statuses.map(pr => `| #${pr.number} | ${pr.status}${pr.status === 'refresh_incomplete' || pr.status === 'failure_backoff' ? ` (${pr.reason})` : ''} |`);
   return `### PR Sous Chef (${output.mode})\n\n${output.mode === 'dry-run' ? 'Read-only preview; no agent or comments.' : 'Opt-in pilot; comments only, no CI authorization.'}\n\nProposed comments: ${output.prs.length}; deferred: ${output.deferred}.\n\n| PR | State |\n|---|---|\n${rows.join('\n')}\n\n${output.rate_limit.low ? '**API budget low: no writes or agent startup.**\n\n' : ''}${output.rate_limit.resources.map(value => `${value.name}: ${value.remaining}/${value.limit}; reset ${new Date(value.reset * 1000).toISOString()}`).join('\n\n')}\n`;
 }
 
@@ -385,13 +455,20 @@ async function main() {
     rawNumber = String(queue.prs[0].number);
   }
   requireValue(!rawNumber || /^[1-9]\d*$/.test(rawNumber), 'Invalid scoped PR number');
-  const output = await fetchQueue({
+  const options = {
     repo: process.env.PR_SOUS_CHEF_REPOSITORY ?? process.env.GITHUB_REPOSITORY,
     number: rawNumber ? Number(rawNumber) : undefined,
     mode: process.env.PR_SOUS_CHEF_MODE ?? 'dry-run',
     writer: process.env.PR_SOUS_CHEF_WRITER_LOGIN ?? '',
     writerConfigured: process.env.PR_SOUS_CHEF_WRITER_CONFIGURED === 'true',
-  });
+  };
+  const statePath = !args.length && process.env.PR_SOUS_CHEF_FAILURE_STATE_PATH;
+  const failureState = pruneFailures(statePath && existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8')) : [], Date.now());
+  const output = args.length ? await fetchQueue(options) : await prefilterQueue(options, failureState);
+  if (statePath) {
+    mkdirSync(dirname(statePath), { recursive: true, mode: 0o700 });
+    writeFileSync(statePath, JSON.stringify(failureState), { mode: 0o600 });
+  }
   if (args.length) { console.log(JSON.stringify(output)); return; }
   const directory = process.env.PR_SOUS_CHEF_OUTPUT_DIR ?? '/tmp/gh-aw/agent';
   mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -403,5 +480,5 @@ async function main() {
   console.log(JSON.stringify(output));
 }
 
-module.exports = { budget, classify, fetchQueue, formatSummary, gh, inspect, metadataSkip, pages, sanitizeCommentBody, trustedGitHubUrl, verifyTarget };
+module.exports = { budget, classify, fetchQueue, formatSummary, gh, inspect, metadataSkip, pages, prefilterQueue, pruneFailures, sanitizeCommentBody, trustedGitHubUrl, verifyTarget };
 if (require.main === module) main().catch(error => { console.error(error.message); process.exitCode = 1; });
