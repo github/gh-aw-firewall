@@ -79,11 +79,13 @@ describe('shared public enclave diagnostic conformance', () => {
       session: { status: 'captured' as const, contents: Buffer.from(`session ${capability}\n`) },
     };
     await preservePublicEnclaveArtifacts(input);
-    for (const name of ['stdout.log', 'stderr.log', 'enclave-session.log']) {
+    for (const name of ['stdout.log', 'stderr.log']) {
       const { contents } = readArtifact(path.join(input.directory, name));
       expect(contents).not.toContain(capability);
       expect(contents).toContain('[REDACTED]');
     }
+    expect(JSON.parse(readArtifact(path.join(input.directory, 'enclave-session.log')).contents))
+      .toMatchObject({ status: 'invalid', rejected: 1 });
   });
   it('supports safe retry after retention failed without treating the exception as a workload exit', async () => {
     const input = options('docker');
@@ -97,6 +99,19 @@ describe('shared public enclave diagnostic conformance', () => {
     fail = false;
     await preservePublicEnclaveArtifacts({ ...input, dependencies: failing });
     expect(JSON.parse(fs.readFileSync(path.join(input.directory, 'diagnostics.json'), 'utf8')).exitCode).toBeNull();
+  });
+  it('does not trust guest JSON claiming to be projected session metadata', async () => {
+    const input = options('cloud-hypervisor');
+    await preservePublicEnclaveArtifacts({
+      ...input,
+      session: { status: 'captured', contents: Buffer.from(JSON.stringify({
+        status: 'captured', events: [{ event: 'progress', stage: 'PRIVATE_GUEST_TEXT' }],
+        claudeStreamSummary: { event: 'progress', stage: 'PRIVATE_GUEST_TEXT' },
+      })) },
+    });
+    const session = JSON.parse(fs.readFileSync(path.join(input.directory, 'enclave-session.log'), 'utf8'));
+    expect(session).toMatchObject({ status: 'invalid', rejected: 1, events: [] });
+    expect(JSON.stringify(session)).not.toContain('PRIVATE_GUEST_TEXT');
   });
   it.each(['symlink', 'hardlink', 'wrong-mode', 'oversized'] as const)('rejects unsafe or bounded-out %s sources', async kind => {
     const file = path.join(root, 'stdout.log');
@@ -232,7 +247,7 @@ describe('shared public enclave diagnostic conformance', () => {
     })).toThrow(/operation evidence/);
     expect(JSON.stringify(evidence)).not.toContain('PRIVATE_SECRET');
   });
-  it.each(['docker', 'cloud-hypervisor'] as const)('uses covered %s session streams with explicit source coverage', async runtime => {
+  it.each(['docker', 'cloud-hypervisor'] as const)('never exports %s session payloads as streams', async runtime => {
     const input = options(runtime);
     await preservePublicEnclaveArtifacts({
       ...input, stdout: { status: 'unavailable' }, stderr: { status: 'captured', contents: Buffer.alloc(0) },
@@ -241,16 +256,23 @@ describe('shared public enclave diagnostic conformance', () => {
         stdout: { raw: 'covered stdout PRIVATE_SECRET' }, stderr: { raw: 'covered stderr PRIVATE_SECRET' },
       }) + '\n' + JSON.stringify({ event: 'engine-diagnostics', log: { raw: 'covered Copilot PRIVATE_SECRET' } }) + '\n') },
     });
-    expect(fs.readFileSync(path.join(input.directory, 'stdout.log'), 'utf8')).toContain('covered stdout');
-    expect(fs.readFileSync(path.join(input.directory, 'stderr.log'), 'utf8')).toContain('covered stderr');
-    expect(fs.readFileSync(path.join(input.directory, 'enclave-session.log'), 'utf8')).not.toContain('PRIVATE_SECRET');
+    expect(fs.readFileSync(path.join(input.directory, 'stdout.log'), 'utf8')).toBe('');
+    expect(fs.readFileSync(path.join(input.directory, 'stderr.log'), 'utf8')).toBe('');
+    for (const name of PUBLIC_ENCLAVE_ARTIFACT_NAMES) {
+      const contents = fs.readFileSync(path.join(input.directory, name), 'utf8');
+      expect(contents).not.toContain('covered stdout');
+      expect(contents).not.toContain('covered stderr');
+      expect(contents).not.toContain('covered Copilot');
+    }
     const evidence = JSON.parse(fs.readFileSync(path.join(input.directory, 'diagnostics.json'), 'utf8'));
-    expect(evidence.streams).toEqual({ stdout: 'captured', stderr: 'captured', session: 'captured' });
+    expect(evidence.streams).toEqual({ stdout: 'unavailable', stderr: 'captured', session: 'captured' });
     expect(evidence.streamCoverage).toEqual({
-      stdout: { artifactSource: 'agent-session', agentSession: 'captured' },
-      stderr: { artifactSource: 'agent-session', agentSession: 'captured' },
-      copilotDiagnostics: 'agent-session',
+      stdout: { artifactSource: 'unavailable', agentSession: 'unavailable' },
+      stderr: { artifactSource: runtime === 'docker' ? 'workload-file' : 'backend-stream', agentSession: 'unavailable' },
+      copilotDiagnostics: 'unavailable',
     });
+    expect(JSON.parse(fs.readFileSync(path.join(input.directory, 'enclave-session.log'), 'utf8')))
+      .toEqual(evidence.session);
   });
   it('keeps oversized source evidence empty while documenting bounded session coverage', async () => {
     const input = options('docker');
@@ -263,7 +285,7 @@ describe('shared public enclave diagnostic conformance', () => {
     expect(fs.readFileSync(path.join(input.directory, 'stdout.log'), 'utf8')).toBe('');
     const evidence = JSON.parse(fs.readFileSync(path.join(input.directory, 'diagnostics.json'), 'utf8'));
     expect(evidence.streams.stdout).toBe('oversized');
-    expect(evidence.streamCoverage.stdout).toEqual({ artifactSource: 'unavailable', agentSession: 'captured' });
+    expect(evidence.streamCoverage.stdout).toEqual({ artifactSource: 'unavailable', agentSession: 'unavailable' });
   });
   it('does not retain incomplete pipe-drain prefixes', async () => {
     const input = options('docker');

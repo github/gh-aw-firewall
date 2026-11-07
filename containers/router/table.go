@@ -36,7 +36,7 @@ type rankGroup struct {
 	Choices   List[string] `json:"choices"`
 }
 
-// schemaVersion accepts only the JSON integer 1. An omitted version means 1.
+// schemaVersion accepts only the JSON integer 2. An omitted version means 2.
 type schemaVersion struct{}
 
 func (schemaVersion) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
@@ -44,8 +44,8 @@ func (schemaVersion) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 	if err != nil {
 		return err
 	}
-	if tok.Kind() != '0' || tok.String() != "1" {
-		return errors.New("schema_version must be 1")
+	if tok.Kind() != '0' || tok.String() != "2" {
+		return errors.New("schema_version must be 2")
 	}
 	return nil
 }

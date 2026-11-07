@@ -3,7 +3,7 @@ import * as path from 'path';
 import {
   prepareRootOwnedDebugDirectory, writeAuditFile, type AuditDependencies,
 } from '../cloud-hypervisor/diagnostics';
-import { projectEnclaveSessionDiagnostics } from '../cloud-hypervisor/enclave-session-diagnostics';
+import { projectEnclaveSessionDiagnostics, type EnclaveSessionDiagnostics } from '../cloud-hypervisor/enclave-session-diagnostics';
 import { PUBLIC_ENCLAVE_CAPTURE_BYTES, redactPublicEnclaveText } from './public-debug-redaction';
 export { PUBLIC_ENCLAVE_CAPTURE_BYTES, redactPublicEnclaveText } from './public-debug-redaction';
 import {
@@ -70,7 +70,7 @@ export async function readPublicEnclaveFile(
 }
 
 function publicSessionCoverage(session: PublicEnclaveStream): {
-  stdout?: Buffer; stderr?: Buffer; copilotDiagnostics: boolean; oversized?: ('stdout' | 'stderr')[];
+  copilotDiagnostics: false; oversized?: ('stdout' | 'stderr')[];
   captureErrors?: Partial<Record<'stdout' | 'stderr', PublicEnclaveErrorCategory>>;
   captureDrain?: 'unavailable';
 } {
@@ -84,8 +84,6 @@ function publicSessionCoverage(session: PublicEnclaveStream): {
       if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) continue;
       value = decoded as Record<string, unknown>;
     } catch { continue; }
-    if (value.event === 'engine-diagnostics' && value.log && typeof value.log === 'object'
-      && 'raw' in value.log && typeof value.log.raw === 'string') coverage.copilotDiagnostics = true;
     if (value.event === 'capture-bound' && value.status === 'oversized'
       && (value.stream === 'stdout' || value.stream === 'stderr')) {
       coverage.oversized ??= [];
@@ -97,18 +95,11 @@ function publicSessionCoverage(session: PublicEnclaveStream): {
       coverage.captureErrors ??= {};
       coverage.captureErrors[value.stream] = value.category as PublicEnclaveErrorCategory;
     }
-    if (value.event !== 'engine-result') continue;
-    for (const stream of ['stdout', 'stderr'] as const) {
-      const source = value[stream];
-      if (source && typeof source === 'object' && 'raw' in source && typeof source.raw === 'string') {
-        coverage[stream] = Buffer.from(source.raw);
-      }
-    }
   }
   return coverage;
 }
 
-/** Both backends retain through this protected, credential-redacting projection. */
+/** Both backends project untrusted sessions before retaining any artifacts. */
 export async function preservePublicEnclaveArtifacts(options: {
   directory: string;
   protectedRoot: string;
@@ -116,6 +107,8 @@ export async function preservePublicEnclaveArtifacts(options: {
   stdout: PublicEnclaveStream;
   stderr: PublicEnclaveStream;
   session: PublicEnclaveStream;
+  /** Trusted host projection, passed directly from the session reader, never decoded from a workload file. */
+  sessionMetadata?: EnclaveSessionDiagnostics;
   secrets: readonly string[];
   dependencies: AuditDependencies;
   owner?: { uid: number; gid: number };
@@ -154,10 +147,6 @@ export async function preservePublicEnclaveArtifacts(options: {
     if (coverage.oversized?.includes(name)) {
       return { stream: { status: 'oversized' as const }, source: 'unavailable' };
     }
-    if ((stream.status === 'missing' || stream.status === 'unavailable'
-      || (stream.status === 'captured' && !stream.contents?.length)) && coverage[name] !== undefined) {
-      return { stream: { status: 'captured' as const, contents: coverage[name] }, source: 'agent-session' };
-    }
     return {
       stream,
       source: stream.status === 'captured' ? envelope.runtime === 'docker' ? 'workload-file' : 'backend-stream' : 'unavailable',
@@ -165,13 +154,17 @@ export async function preservePublicEnclaveArtifacts(options: {
   };
   const stdout = resolved('stdout');
   const stderr = resolved('stderr');
+  const session = options.sessionMetadata ?? (options.session.status === 'captured' && options.session.contents
+    ? projectEnclaveSessionDiagnostics(options.session.contents) : { status: options.session.status });
   for (const [name, stream] of [
-    ['stdout.log', stdout.stream], ['stderr.log', stderr.stream], ['enclave-session.log', options.session],
+    ['stdout.log', stdout.stream], ['stderr.log', stderr.stream],
   ] as const) {
     await writeAuditFile(options.dependencies, path.join(prepared.directory, name),
       stream.status === 'captured' && stream.contents ? redactPublicEnclaveText(stream.contents, options.secrets) : '',
       prepared.identity);
   }
+  await writeAuditFile(options.dependencies, path.join(prepared.directory, 'enclave-session.log'),
+    options.sessionMetadata || options.session.status === 'captured' ? `${JSON.stringify(session)}\n` : '', prepared.identity);
   const projection = {
     version: 1, runId: envelope.runId, invocationId: envelope.invocationId,
     entryId: envelope.entryId, executorKind: envelope.executorKind, runtime: envelope.runtime,
@@ -187,14 +180,13 @@ export async function preservePublicEnclaveArtifacts(options: {
     }) } : {}),
     streams: { stdout: stdout.stream.status, stderr: stderr.stream.status, session: options.session.status },
     streamCoverage: {
-      stdout: { artifactSource: stdout.source, agentSession: coverage.stdout !== undefined ? 'captured' : 'unavailable' },
-      stderr: { artifactSource: stderr.source, agentSession: coverage.stderr !== undefined ? 'captured' : 'unavailable' },
+      stdout: { artifactSource: stdout.source, agentSession: 'unavailable' },
+      stderr: { artifactSource: stderr.source, agentSession: 'unavailable' },
       copilotDiagnostics: coverage.copilotDiagnostics ? 'agent-session' : 'unavailable',
       ...(Object.keys(coverage.captureErrors).length ? { captureErrors: coverage.captureErrors } : {}),
       ...(coverage.captureDrain ? { captureDrain: coverage.captureDrain } : {}),
     },
-    session: options.session.status === 'captured' && options.session.contents
-      ? projectEnclaveSessionDiagnostics(options.session.contents) : { status: options.session.status },
+    session,
     backendEvidence: {
       dockerInspect: envelope.runtime !== 'docker' ? { status: 'not-applicable' }
         : envelope.dockerState ? {

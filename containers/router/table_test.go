@@ -16,7 +16,7 @@ func syntheticDocument(choices ...string) map[string]any {
 		choices = []string{"provider/fast", "provider/reasoning:medium"}
 	}
 	return map[string]any{
-		"schema_version":         1,
+		"schema_version":         2,
 		"profile":                map[string]any{"goal": "cost", "mode": "balanced"},
 		"repository":             "global",
 		"classification_choices": anys(choices),
@@ -101,10 +101,10 @@ func TestParseTableRejections(t *testing.T) {
 		{"missing applies_to", func(d map[string]any) { delete(group(d, 0), "applies_to") }, "applies_to"},
 		{"missing choices", func(d map[string]any) { delete(group(d, 0), "choices") }, "choices"},
 		{"schema_version 0", func(d map[string]any) { d["schema_version"] = 0 }, "schema_version"},
-		{"schema_version 2", func(d map[string]any) { d["schema_version"] = 2 }, "schema_version"},
+		{"schema_version 1", func(d map[string]any) { d["schema_version"] = 1 }, "schema_version"},
 		{"schema_version 5", func(d map[string]any) { d["schema_version"] = 5 }, "schema_version"},
 		{"schema_version as a float", func(d map[string]any) { d["schema_version"] = 1.5 }, "schema_version"},
-		{"schema_version as a string", func(d map[string]any) { d["schema_version"] = "1" }, "schema_version"},
+		{"schema_version as a string", func(d map[string]any) { d["schema_version"] = "2" }, "schema_version"},
 		{"schema_version as a boolean", func(d map[string]any) { d["schema_version"] = true }, "schema_version"},
 		{"auto profile", func(d map[string]any) { d["profile"].(map[string]any)["mode"] = "auto" }, "must declare a fixed"},
 		{"unknown mode", func(d map[string]any) { d["profile"].(map[string]any)["mode"] = "custom" }, "must declare a fixed"},
@@ -175,7 +175,7 @@ func TestParseTableAcceptsOmittedSchemaVersion(t *testing.T) {
 
 func TestParseTableRepeatedKeys(t *testing.T) {
 	valid := marshal(t, syntheticDocument())
-	earlier := append([]byte(`{"schema_version":2,`), valid[1:]...)
+	earlier := append([]byte(`{"schema_version":1,`), valid[1:]...)
 	if _, err := ParseTable(earlier); err != nil {
 		t.Errorf("an earlier repeated schema_version was not replaced: %v", err)
 	}
@@ -321,14 +321,14 @@ func TestBundledTables(t *testing.T) {
 	if got := s.Capabilities().RoutingProfiles; !slices.Equal(got, Profiles) {
 		t.Errorf("profiles = %v", got)
 	}
-	if s.primary.Repository != "global" || s.primary.LabelCells() != 210 {
+	if s.primary.Repository != "global" || s.primary.LabelCells() != 240 {
 		t.Errorf("repository %q, %d cells", s.primary.Repository, s.primary.LabelCells())
 	}
 }
 
 func FuzzParseTable(f *testing.F) {
 	f.Add(marshal(f, syntheticDocument()))
-	f.Add([]byte(`{"schema_version":1}`))
+	f.Add([]byte(`{"schema_version":2}`))
 	f.Add([]byte(`{"rankings":[{"applies_to":["fix/local/easy"],"choices":["p/m:high","p/m"]}]}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		ParseTable(data)

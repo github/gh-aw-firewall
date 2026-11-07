@@ -17,6 +17,7 @@ import (
 // changes: a format change adds a new file and pins its hash here.
 var publishedSchemas = map[string]string{
 	"routing-table.v1.schema.json": "c76de15239db5d6ee9bfc3fa4f4b797887efe04f40334e2ca9e8afe5377461cd",
+	"routing-table.v2.schema.json": "f9e8b9fc5927b88f11beb25c9b369b43f30e80f1602a1c0cd9bc0cfca9b1b142",
 }
 
 func TestPublishedSchemasAreFrozen(t *testing.T) {
@@ -67,15 +68,15 @@ func TestSchemaMatchesRuntime(t *testing.T) {
 			Pattern string `json:"pattern"`
 		} `json:"$defs"`
 	}
-	data, err := os.ReadFile(filepath.Join("schemas", "routing-table.v1.schema.json"))
+	data, err := os.ReadFile(filepath.Join("schemas", "routing-table.v2.schema.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := json.Unmarshal(data, &schema); err != nil {
 		t.Fatal(err)
 	}
-	if schema.Properties.SchemaVersion.Const != 1 || !strings.HasSuffix(schema.ID, "/routing-table.v1.schema.json") ||
-		!strings.HasSuffix(schema.Title, "schema version 1") {
+	if schema.Properties.SchemaVersion.Const != 2 || !strings.HasSuffix(schema.ID, "/routing-table.v2.schema.json") ||
+		!strings.HasSuffix(schema.Title, "schema version 2") {
 		t.Errorf("schema version metadata: const %d, $id %q, title %q", schema.Properties.SchemaVersion.Const, schema.ID, schema.Title)
 	}
 

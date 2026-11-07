@@ -10,6 +10,7 @@ import {
 } from '../../src/enclave/host-executor-journal';
 import { resolveDockerEnclavePaths } from '../../src/enclave/docker-lifecycle';
 import { resolveDockerPublicEnclaveDebugPaths } from '../../src/enclave/public-debug';
+import { projectEnclaveSessionDiagnostics } from '../../src/cloud-hypervisor/enclave-session-diagnostics';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const collector = require('./collect-enclave-smoke-debug.cjs');
@@ -48,12 +49,13 @@ describe('host-only public enclave debug collector', () => {
     return source;
   }
   const collectRun = () => collect(run, uid, gid, roots, uid, temp);
-  function retainStartup(structured = false) {
+  function retainStartup(structured = false, earlyFailure?: Record<string, unknown>) {
     const binding = { backend: 'cloud-hypervisor', runnerUid: uid, runnerGid: gid };
     prepare(run, roots, uid, temp, binding);
     const stderr = path.join(temp, 'private.stderr');
     const startup = path.join(temp, 'private-startup.json');
-    fs.writeFileSync(stderr, 'PRIVATE_PROMPT_AND_CREDENTIAL_SENTINEL\n', { mode: 0o600 });
+    fs.writeFileSync(stderr, 'PRIVATE_PROMPT_AND_CREDENTIAL_SENTINEL\n' +
+      (earlyFailure ? `AWF_EARLY_STARTUP_FAILURE ${JSON.stringify(earlyFailure)}\n` : ''), { mode: 0o600 });
     if (structured) fs.writeFileSync(startup, JSON.stringify({
       phase: 'startup', message: 'Trusted enclave MCP gateway container is unavailable',
       timestamp: '2026-01-01T00:00:00Z',
@@ -66,6 +68,20 @@ describe('host-only public enclave debug collector', () => {
     };
     collector.retainStartup(run, value, uid, temp);
     return value;
+  }
+  function finalization() {
+    return {
+      schemaVersion: 1, backend: 'cloud-hypervisor', agent: 'copilot', resultValidated: true,
+      checks: Object.fromEntries(Object.keys(collector.FINALIZATION_REASONS).map(gate =>
+        [gate, [gate === 'audit-presence' ? 'failed' : 'passed', gate === 'audit-presence' ? 'missing' : 'none']])),
+      primaryFailure: { gate: 'audit-presence', reason: 'missing' }, secondaryFailures: [],
+      detail: 'PRIVATE_PROMPT_AND_CREDENTIAL_SENTINEL',
+    };
+  }
+  function retainFinalization() {
+    const binding = { backend: 'cloud-hypervisor', runnerUid: uid, runnerGid: gid };
+    prepare(run, roots, uid, temp, binding);
+    collector.retainFinalization(run, finalization(), uid, temp);
   }
   function absentEvidence() {
     let error: unknown;
@@ -88,6 +104,253 @@ describe('host-only public enclave debug collector', () => {
         network: { status: 'unavailable' } },
     };
   }
+
+  it('preserves finite Claude lifecycle evidence without engine payloads', () => {
+    const envelope = {
+      ...commonEnvelope(),
+      session: { status: 'captured', events: [
+        { event: 'progress', stage: 'claude-initialized', permissionMode: 'default',
+          shellAvailable: true, cwd: 'PRIVATE_PATH', headers: 'PRIVATE_HEADER' },
+        { event: 'progress', stage: 'claude-permission-denied', input: 'PRIVATE_COMMAND' },
+        { event: 'progress', stage: 'claude-api-retry', httpStatus: 403, error: 'PRIVATE_ERROR' },
+        { event: 'progress', stage: 'claude-api-retry', httpStatus: 529, error: 'PRIVATE_OVERLOAD' },
+        { event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
+          stderrObserved: false, captureTruncated: false, outputState: 'empty', raw: 'PRIVATE_MODEL' },
+      ] },
+    };
+    const projected = JSON.parse(projectDiagnostics(envelope, {
+      runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor',
+    }).toString());
+    expect(projected.session.events).toEqual([
+      { event: 'progress', stage: 'claude-initialized', permissionMode: 'default', shellAvailable: true },
+      { event: 'progress', stage: 'claude-permission-denied' },
+      { event: 'progress', stage: 'claude-api-retry', httpStatus: 403 },
+      { event: 'progress', stage: 'claude-api-retry', httpStatus: 529 },
+      { event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
+        stderrObserved: false, captureTruncated: false, outputState: 'empty' },
+    ]);
+    expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+    envelope.session.events[0].permissionMode = 'PRIVATE_MODE';
+    expect(() => projectDiagnostics(envelope, { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' }))
+      .toThrow(/session-schema/);
+  });
+
+  it('excludes guest-controlled progress integers from exported audit artifacts', () => {
+    const privateSeedChunks = [3141592653, 2718281828];
+    const transcript = Buffer.from(JSON.stringify({
+      event: 'progress', stage: 'engine-completed',
+      attempt: privateSeedChunks[0], runtimeMs: privateSeedChunks[1],
+    }));
+    const session = projectEnclaveSessionDiagnostics(transcript);
+    const identity = { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' };
+    const projected = JSON.parse(projectDiagnostics({ ...commonEnvelope(), session }, identity).toString());
+    expect(projected.session.events).toEqual([{ event: 'progress', stage: 'engine-completed' }]);
+    for (const chunk of privateSeedChunks) {
+      expect(JSON.stringify(projected)).not.toContain(String(chunk));
+    }
+
+    const direct = JSON.parse(projectDiagnostics({
+      ...commonEnvelope(),
+      session: { status: 'captured', events: [{
+        event: 'progress', stage: 'engine-completed',
+        attempt: privateSeedChunks[0], runtimeMs: privateSeedChunks[1],
+      }] },
+    }, identity).toString());
+    expect(direct.session.events).toEqual([{ event: 'progress', stage: 'engine-completed' }]);
+    for (const chunk of privateSeedChunks) {
+      expect(JSON.stringify(direct)).not.toContain(String(chunk));
+    }
+  });
+
+  it('preserves the successful Claude summary after two complete silent startup crash attempts', () => {
+    const snapshots = (stage: string, outputState = 'empty') => [
+      { event: 'resource-snapshot', stage, memory: { currentBytes: 4096, events: { oom_kill: 0 } },
+        filesystems: ['agent-directory', 'temporary-directory', 'shared-memory'].map(identifier => ({
+          path: identifier, capacityBytes: 8192, availableBytes: 4096,
+        })) },
+      { event: 'output-snapshot', stage, uid: 65534, gid: 65534,
+        paths: ['output-parent', 'output-directory', 'output-link', 'output-file'].map(identifier => ({
+          path: identifier, uid: 65534, gid: 65534, mode: 0o700,
+          type: identifier === 'output-link' ? 'symlink' : identifier === 'output-file' ? 'file' : 'directory',
+          readable: true, writable: true, executable: false,
+          ...(identifier === 'output-file' ? { size: outputState } : {}),
+        })) },
+      { event: 'output-verification', stage, symlink: true, targetMatches: true, sameFile: true,
+        directReadable: true, aliasReadable: true, contentsMatch: true,
+        directState: outputState, aliasState: outputState },
+    ];
+    const silentCrash = (attempt: number, signal: number) => [
+      { event: 'progress', stage: 'engine-launch-attempt', attempt },
+      { event: 'progress', stage: 'engine-started', attempt },
+      { event: 'progress', stage: 'claude-stream-summary', stdoutObserved: false,
+        stderrObserved: false, captureTruncated: false, outputState: 'empty' },
+      { event: 'engine-result', exitCode: -signal, signal, stdoutObserved: false, stderrObserved: false },
+      ...snapshots('after-engine'),
+      { event: 'storage-probe', status: 'missing', milestones: [] },
+      { event: 'progress', stage: 'engine-completed', attempt, exitCode: -signal, runtimeMs: 100 },
+      { event: 'engine-retry', category: 'startup-crash', signal },
+    ];
+    const summary = {
+      event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
+      stderrObserved: false, captureTruncated: false, outputState: 'present',
+    };
+    const transcript = [
+      { event: 'progress', stage: 'configuration-accepted', engine: 'claude' },
+      { event: 'progress', stage: 'input-accepted', taskBytes: 123, schemaBytes: 456 },
+      { event: 'progress', stage: 'runtime-paths-ready', paths: ['home-directory', 'claude-log-directory'] },
+      { event: 'session', engine: 'claude', sensitivity: 'redacted' },
+      ...['claude-executable', 'seed-directory', 'task-input', 'schema-input', 'output-file',
+        'session-log', 'agent-directory', 'claude-log-directory'].map(identifier => ({
+        event: 'preflight', path: identifier, exists: true,
+        type: identifier.endsWith('directory') ? 'directory' : 'file', executable: true, writable: true,
+      })),
+      { event: 'progress', stage: 'preflight-completed', valid: true },
+      ...snapshots('before-engine'),
+      ...silentCrash(1, 6),
+      ...silentCrash(2, 11),
+      { event: 'progress', stage: 'engine-launch-attempt', attempt: 3 },
+      { event: 'progress', stage: 'engine-started', attempt: 3 },
+      { event: 'progress', stage: 'claude-first-byte', runtimeMs: 10 },
+      { event: 'progress', stage: 'claude-initialized', permissionMode: 'default', shellAvailable: true },
+      { event: 'progress', stage: 'claude-api-retry', httpStatus: 529 },
+      { event: 'progress', stage: 'claude-response' },
+      { event: 'progress', stage: 'claude-tool-requested' },
+      { event: 'progress', stage: 'claude-tool-completed', toolError: false },
+      { event: 'progress', stage: 'claude-result', resultError: false, outputState: 'present' },
+      { ...summary, raw: 'PRIVATE_STREAM', message: 'PRIVATE_MODEL', sha256: 'PRIVATE_HASH' },
+      { event: 'engine-result', exitCode: 0, stdout: 'PRIVATE_STDOUT' },
+      ...snapshots('after-engine', 'within-limit'),
+      { event: 'storage-probe', status: 'missing', milestones: [] },
+      { event: 'progress', stage: 'engine-completed', attempt: 3, exitCode: 0, runtimeMs: 1000 },
+      { event: 'progress', stage: 'output-normalization-started' },
+      { event: 'output-normalization', inputState: 'within-limit', stdoutState: 'empty' },
+      { event: 'progress', stage: 'output-normalized', outputBytes: 42 },
+      { event: 'progress', stage: 'output-write-attempt' },
+      { event: 'progress', stage: 'output-written', outputBytes: 42 },
+      { event: 'success' },
+    ];
+    const session = projectEnclaveSessionDiagnostics(Buffer.from(
+      transcript.map(event => JSON.stringify(event)).join('\n')));
+    expect(session.events).toHaveLength(32);
+    expect(session.events?.filter(event => event.event === 'engine-retry')).toEqual([
+      { event: 'engine-retry', signal: 6 }, { event: 'engine-retry', signal: 11 },
+    ]);
+    expect(session.events?.some(event => event.httpStatus === 529)).toBe(true);
+    expect(session.events?.some(event => event.stage === 'claude-stream-summary'
+      && event.stdoutObserved === true)).toBe(false);
+    expect(session.claudeStreamSummary).toEqual(summary);
+    expect(session.lastEvent).toEqual({ event: 'success' });
+    expect(session.failure).toBeUndefined();
+    expect(session.dropped).toBeGreaterThan(0);
+    const projected = JSON.parse(projectDiagnostics({ ...commonEnvelope(), session }, {
+      runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor',
+    }).toString());
+    expect(projected.session).toEqual({
+      ...session,
+      events: session.events?.map(event => Object.fromEntries(
+        Object.entries(event).filter(([key]) => !['attempt', 'runtimeMs'].includes(key)))),
+    });
+    expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+    expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThan(8192);
+  });
+
+  it('retains the final event after the event cap without exporting progress integers', () => {
+    const transcript = [
+      ...Array.from({ length: 32 }, (_, index) => ({
+        event: 'progress', stage: 'engine-started', attempt: index + 1,
+      })),
+      { event: 'progress', stage: 'engine-completed', attempt: 3, exitCode: 1, runtimeMs: 100 },
+    ];
+    const session = projectEnclaveSessionDiagnostics(Buffer.from(
+      transcript.map(event => JSON.stringify(event)).join('\n')));
+
+    expect(session.events).toHaveLength(32);
+    expect(session.dropped).toBe(1);
+    expect(session.lastEvent).toEqual({ event: 'progress', stage: 'engine-completed', exitCode: 1 });
+  });
+
+  it.each([
+    'unknown-option', 'invalid-option-value', 'missing-option-value',
+    'invalid-settings', 'invalid-mcp-config', 'unknown',
+  ])('preserves startup classification %s through host and protected artifact projection', classification => {
+    const event = { event: 'progress', stage: 'claude-startup-failure', classification,
+      stderr: 'PRIVATE_STDERR', prompt: 'PRIVATE_PROMPT', exception: 'PRIVATE_EXCEPTION' };
+    const session = projectEnclaveSessionDiagnostics(Buffer.from(JSON.stringify(event)));
+    const identity = { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' };
+    const projected = JSON.parse(projectDiagnostics({ ...commonEnvelope(), session }, identity).toString());
+    expect(projected.session.events).toEqual([
+      { event: 'progress', stage: 'claude-startup-failure', classification },
+    ]);
+    expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+    expect(() => projectDiagnostics({
+      ...commonEnvelope(), session: { status: 'captured', events: [
+        { ...event, classification: 'PRIVATE_CLASS' },
+      ] },
+    }, identity)).toThrow(/session-schema/);
+  });
+
+  it('projects the independent Claude summary and rejects incorrect summary schema', () => {
+    const envelope = { ...commonEnvelope(), session: {
+      status: 'captured', claudeStreamSummary: {
+        event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true,
+        httpStatus: 529, raw: 'PRIVATE_STREAM',
+      },
+    } };
+    const identity = { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' };
+    const projected = JSON.parse(projectDiagnostics(envelope, identity).toString());
+    expect(projected.session.claudeStreamSummary).toEqual({
+      event: 'progress', stage: 'claude-stream-summary', stdoutObserved: true, httpStatus: 529,
+    });
+    expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+    for (const malformed of [
+      { event: 'success' },
+      { event: 'progress', stage: 'claude-response' },
+      { event: 'progress', stage: 'claude-stream-summary', httpStatus: 530 },
+      'PRIVATE_SUMMARY',
+    ]) {
+      expect(() => projectDiagnostics({
+        ...envelope, session: { status: 'captured', claudeStreamSummary: malformed },
+      }, identity)).toThrow(/session-schema/);
+    }
+  });
+
+  it('retains the final Claude startup failure after event-cap saturation', () => {
+    const startupFailure = {
+      event: 'progress', stage: 'claude-startup-failure', classification: 'invalid-option-value',
+      stderr: 'PRIVATE_STDERR', prompt: 'PRIVATE_PROMPT',
+    };
+    const transcript = [
+      { event: 'engine-retry', signal: 6 },
+      { event: 'engine-retry', signal: 11 },
+      ...Array.from({ length: 30 }, () => ({
+        event: 'operation-error', operation: 'resource-memory.events-read', category: 'os-error',
+        errno: 5, fatal: false, detail: 'PRIVATE_DETAIL',
+      })),
+      startupFailure,
+      { event: 'progress', stage: 'engine-completed', attempt: 3, exitCode: 1 },
+    ];
+    const session = projectEnclaveSessionDiagnostics(Buffer.from(
+      transcript.map(event => JSON.stringify(event)).join('\n')));
+    expect(session.events).toHaveLength(32);
+    expect(session.events?.some(event => event.stage === 'claude-startup-failure')).toBe(false);
+    expect(session.lastEvent).toEqual({ event: 'progress', stage: 'engine-completed', exitCode: 1 });
+    expect(session.claudeStartupFailure).toEqual({
+      event: 'progress', stage: 'claude-startup-failure', classification: 'invalid-option-value',
+    });
+
+    const projected = JSON.parse(projectDiagnostics({
+      ...commonEnvelope(), session,
+    }, { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' }).toString());
+    expect(projected.session.claudeStartupFailure).toEqual(session.claudeStartupFailure);
+    expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+    expect(() => projectDiagnostics({
+      ...commonEnvelope(), session: {
+        status: 'captured', claudeStartupFailure: {
+          ...session.claudeStartupFailure, classification: 'PRIVATE_CLASS',
+        },
+      },
+    }, { runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor' })).toThrow(/session-schema/);
+  });
 
   it('collects a failed invocation but excludes stale directories and journals', () => {
     fs.mkdirSync(path.join(roots.debug, 'c'.repeat(32)), { mode: 0o700 });
@@ -138,6 +401,98 @@ describe('host-only public enclave debug collector', () => {
       .toMatchObject({ diagnostic: { category: 'broker', exitCode: 1 } });
     expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8')).toContain('failedCheck=stop-proof');
   });
+  it.each([
+    'cloud-hypervisor-enclave-admission',
+    ...['workflow-source', 'configuration-profile', 'token-acquisition', 'signature', 'claims']
+      .map(reason => `cloud-hypervisor-enclave-admission-${reason}`),
+  ])('exports the allowlisted early admission reason independently of invocation evidence (%s)', reason => {
+    const earlyFailure = {
+      schemaVersion: 1, phase: 'backend-selection', reason,
+    };
+    retainStartup(false, earlyFailure);
+    expect(collectRun()).toBe(1);
+    const text = fs.readFileSync(path.join(run, 'upload/startup.json'), 'utf8');
+    expect(JSON.parse(text)).toMatchObject({
+      diagnostic: { category: 'configuration', earlyFailure },
+      evidence: { record: { final: 'missing' } },
+    });
+    expect(text).not.toContain('PRIVATE_');
+    expect(Buffer.byteLength(text)).toBeLessThan(collector.MAX_STATUS_BYTES);
+  });
+
+  it('exports bounded post-result finalization evidence without invocation artifacts', () => {
+    retainFinalization();
+    expect(collectRun()).toBe(1);
+    const file = path.join(run, 'upload/finalization.json');
+    const text = fs.readFileSync(file, 'utf8');
+    expect(text).not.toContain('PRIVATE_');
+    expect(Buffer.byteLength(text)).toBeLessThan(collector.MAX_STATUS_BYTES);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expect(JSON.parse(text)).toMatchObject({
+      resultValidated: true, primaryFailure: { gate: 'audit-presence', reason: 'missing' },
+    });
+  });
+  it('retains startup and finalization independently when invocation collection fails', () => {
+    retainStartup(true);
+    collector.retainFinalization(run, finalization(), uid, temp);
+    invocation(false);
+    let failure: unknown;
+    try { collectRun(); } catch (error) { failure = error; }
+    collector.publishCollectionFailure(run, uid, gid, failure, uid, temp);
+    expect(fs.readdirSync(path.join(run, 'upload')).sort())
+      .toEqual(['collection-status.txt', 'finalization.json', 'startup.json']);
+  });
+  it('keeps finalization evidence even when startup validation fails', () => {
+    retainStartup();
+    collector.retainFinalization(run, finalization(), uid, temp);
+    fs.chmodSync(path.join(run, 'startup.json'), 0o644);
+    let failure: unknown;
+    try { collectRun(); } catch (error) { failure = error; }
+    collector.publishCollectionFailure(run, uid, gid, failure, uid, temp);
+    expect(fs.readdirSync(path.join(run, 'upload')).sort())
+      .toEqual(['collection-status.txt', 'finalization.json']);
+  });
+  it.each(['symlink', 'hardlink', 'permissions', 'oversized', 'backend', 'reason', 'inherited-gate', 'owner', 'ancestor-symlink'])(
+    'rejects unsafe finalization evidence %s without disclosing input', kind => {
+      retainFinalization();
+      const file = path.join(run, 'finalization.json');
+      if (kind === 'symlink') {
+        fs.renameSync(file, path.join(temp, 'outside'));
+        fs.symlinkSync(path.join(temp, 'outside'), file);
+      } else if (kind === 'hardlink') fs.linkSync(file, path.join(temp, 'linked'));
+      else if (kind === 'permissions') fs.chmodSync(file, 0o644);
+      else if (kind === 'oversized') fs.writeFileSync(file, Buffer.alloc(collector.MAX_STATUS_BYTES + 1));
+      else if (kind === 'ancestor-symlink') {
+        fs.renameSync(run, path.join(temp, 'original-run'));
+        fs.symlinkSync(path.join(temp, 'original-run'), run);
+      } else if (kind === 'owner') {
+        const fstat = mutableFs.fstatSync;
+        jest.spyOn(mutableFs, 'fstatSync').mockImplementation(fd =>
+          Object.assign(fstat(fd), { uid: uid + 1 }));
+      } else {
+        const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (kind === 'backend') value.backend = 'docker';
+        else if (kind === 'inherited-gate') value.primaryFailure = { gate: 'constructor', reason: 'invalid' };
+        else value.primaryFailure.reason = 'PRIVATE_PROMPT_AND_CREDENTIAL_SENTINEL';
+        fs.writeFileSync(file, JSON.stringify(value));
+      }
+      let failure: unknown;
+      try { collectRun(); } catch (error) { failure = error; }
+      expect(failure).toBeDefined();
+      jest.restoreAllMocks();
+      if (kind === 'ancestor-symlink') {
+        fs.unlinkSync(run);
+        fs.renameSync(path.join(temp, 'original-run'), run);
+        fs.chmodSync(file, 0o644);
+      } else if (kind === 'owner') fs.chmodSync(file, 0o644);
+      collector.publishCollectionFailure(run, uid, gid, failure, uid, temp);
+      expect(fs.readdirSync(path.join(run, 'upload'))).toEqual(['collection-status.txt']);
+      const status = fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8');
+      expect(status).not.toContain('PRIVATE_');
+      if (kind === 'inherited-gate') {
+        expect(status).toContain('failedCheck=finalization-schema category=invalid-evidence');
+      }
+    });
   it.each(['symlink', 'hardlink', 'permissions', 'oversized', 'backend', 'category'])(
     'rejects unsafe startup evidence %s without disclosing raw input', kind => {
       retainStartup();
@@ -1255,11 +1610,12 @@ describe('standalone public enclave diagnostics collector', () => {
   });
 
   it('bounds all published files and bytes including the fixed run projection reserve and status', () => {
-    expect(collector.MAX_PUBLISHED_FILES).toBe(MAX_FILES + 4 + 2);
-    expect(collector.MAX_PUBLISHED_BYTES).toBe((MAX_FILES + 4) * MAX_STREAM_BYTES + 2 * collector.MAX_STATUS_BYTES);
+    expect(collector.MAX_PUBLISHED_FILES).toBe(MAX_FILES + 4 + 3);
+    expect(collector.MAX_PUBLISHED_BYTES).toBe((MAX_FILES + 4) * MAX_STREAM_BYTES + 3 * collector.MAX_STATUS_BYTES);
     const bytes = Buffer.alloc(MAX_STREAM_BYTES);
     const files = [...Array.from({ length: MAX_FILES + 4 }, (_, index) => [`file-${index}`, bytes]),
-      ['startup.json', Buffer.alloc(collector.MAX_STATUS_BYTES)]];
+      ['startup.json', Buffer.alloc(collector.MAX_STATUS_BYTES)],
+      ['finalization.json', Buffer.alloc(collector.MAX_STATUS_BYTES)]];
     const status = 'x'.repeat(collector.MAX_STATUS_BYTES);
     expect(() => collector.assertPublicationBounds(files, status)).not.toThrow();
     expect(() => collector.assertPublicationBounds([...files, ['extra', Buffer.alloc(0)]], status))

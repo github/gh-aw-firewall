@@ -228,8 +228,66 @@ if scenario != "missing-copilot":
     copilot = Path(module.engine_binary(os.environ["AWF_ENCLAVE_AGENT_ENGINE"]))
     if scenario == "timeout":
         copilot.write_text("#!/bin/sh\nsleep 30 &\nwait\n", encoding="utf-8")
+    elif scenario.startswith("claude-startup-error") or scenario == "claude-error-after-init":
+        copilot.write_text(
+            "#!/usr/bin/python3\nimport os, sys\n"
+            + ("print('{\"type\":\"system\",\"subtype\":\"init\"}', flush=True)\n"
+               if scenario == "claude-error-after-init" else "")
+            + ("sys.stderr.write('x' * (512 * 1024))\n"
+               if scenario == "claude-startup-error-flood" else "")
+            + "sys.stderr.write(os.environ['STARTUP_STDERR'])\n"
+            + "sys.exit(int(os.environ.get('NATIVE_EXIT', '1')))\n",
+            encoding="utf-8",
+        )
+    elif scenario.startswith("claude-stream"):
+        stream_events = [
+            {"type": ["untrusted"]},
+            {"type": "system", "subtype": "init", "permissionMode": {"private": "PRIVATE_MODE"},
+             "tools": ["Bash"], "cwd": "PRIVATE_PATH", "apiKeySource": "PRIVATE_KEY"},
+            {"type": "system", "subtype": "init", "permissionMode": "default", "tools": ["Bash"]},
+            {"type": "stream_event", "event": {"type": "message_start", "message": "PRIVATE_MODEL"}},
+            {"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "name": "Bash", "input": {"command": "PRIVATE_COMMAND"}},
+                {"type": "text", "text": "PRIVATE_MODEL"},
+            ]}},
+            {"type": "user", "message": {"content": [
+                {"type": "tool_result", "content": "PRIVATE_SUCCESS", "is_error": False},
+                {"type": "tool_result", "content": "PRIVATE_REPOSITORY", "is_error": True},
+            ]}},
+            {"type": "system", "subtype": "api_retry", "error_status": 529, "error": "PRIVATE_HEADER"},
+            {"type": "result", "is_error": True,
+             "permission_denials": [{"tool_name": "Bash", "tool_input": "PRIVATE_COMMAND"}]},
+        ]
+        copilot.write_text(
+            "#!/usr/bin/python3\nimport json, sys, time\n"
+            + ("sys.stdout.write('x' * (512 * 1024) + '\\n'); sys.stdout.flush()\n"
+               if scenario == "claude-stream-flood" else "")
+            + "for event in " + repr(stream_events * 2) + ": print(json.dumps(event), flush=True)\n"
+            + ("time.sleep(30)\n" if scenario == "claude-stream-timeout" else
+               "open(" + repr(str(module.OUT_PATH)) + ", 'w').write('true')\n"),
+            encoding="utf-8",
+        )
+    elif scenario == "silent-success":
+        copilot.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    elif scenario in ("claude-crash-after-output", "claude-startup-crash"):
+        copilot.write_text(
+            "#!/usr/bin/python3\nimport os, resource, signal\n"
+            "resource.setrlimit(resource.RLIMIT_CORE, (0, 0))\n"
+            + ("print('protected engine output', flush=True)\n"
+               if scenario == "claude-crash-after-output" else "")
+            + "os.kill(os.getpid(), signal.SIGABRT)\n",
+            encoding="utf-8",
+        )
     elif scenario == "stdout-only":
         copilot.write_text("#!/bin/sh\nprintf '%s\\n' true\n", encoding="utf-8")
+    elif scenario == "shell-launch-failed":
+        copilot.write_text(
+            "#!/bin/sh\n"
+            "printf '%s\\n' 'bwrap: Failed to make / slave: Operation not permitted' >&2\n"
+            "printf '%s\\n' true\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
     else:
         copilot.write_text(
             "#!/bin/sh\n"
@@ -379,17 +437,55 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     expect(result.arguments).not.toContain('--max-model-requests');
     expect(result.arguments).not.toContain('--max-model-tokens');
     if (engine === 'codex') {
-      expect(result.arguments).not.toContain('--dangerously-bypass-approvals-and-sandbox');
+      expect(result.arguments.split('\n')).not.toContain('--dangerously-bypass-approvals-and-sandbox');
+      expect(result.arguments).not.toContain('--approve-for-me');
       expect(result.arguments).toContain('model_providers.awf.env_key="OPENAI_API_KEY"');
       expect(result.arguments).toContain('--ephemeral');
     } else {
       expect(result.arguments).toContain('--print');
       expect(result.arguments).toContain('--bare');
       expect(result.arguments).not.toContain('--dangerously-skip-permissions');
+      expect(result.arguments).toContain('--permission-mode\ndefault\n');
+      expect(result.arguments).toContain('--permission-prompts\nhost\n');
+      expect(result.arguments).toContain('--allowedTools\nRead,Glob,Grep\n');
+      expect(result.arguments).toContain('--output-format\nstream-json\n');
       expect(result.arguments).toContain('--strict-mcp-config');
       expect(result.arguments).toContain('{"mcpServers":{}}');
       expect(result.arguments).toContain('--no-session-persistence');
     }
+  });
+
+  it('requires explicit opt-in for Codex approval and sandbox bypass', () => {
+    const result = runHarness('model-limits', {
+      ...providerEnv('codex'),
+      AWF_ENCLAVE_AGENT_CODEX_BYPASS_APPROVALS: 'true',
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.arguments.split('\n')).toContain('--dangerously-bypass-approvals-and-sandbox');
+  });
+
+  it('requires explicit opt-in for unattended Claude shell and file writes', () => {
+    const result = runHarness('model-limits', {
+      ...providerEnv('claude'),
+      AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS: 'none',
+      AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS: 'Bash,Read,Write,Edit,Glob,Grep',
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.arguments).toContain('--permission-mode\ndefault\n');
+    expect(result.arguments).toContain('--permission-prompts\nnone\n');
+    expect(result.arguments).toContain('--allowedTools\nBash,Read,Write,Edit,Glob,Grep\n');
+  });
+
+  it.each<Record<string, string>>([
+    { AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS: 'invalid' },
+    { AWF_ENCLAVE_AGENT_CLAUDE_PERMISSION_PROMPTS: 'auto' },
+    { AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS: '--dangerously-skip-permissions' },
+    { AWF_ENCLAVE_AGENT_CLAUDE_ALLOWED_TOOLS: '' },
+  ])('rejects invalid Claude permission policy %j', policy => {
+    const result = runHarness('model-limits', { ...providerEnv('claude'), ...policy });
+    expect(result.exitCode).toBe(10);
+    expect(result.arguments).toBe('');
+    expect(events(result)).toContainEqual({ event: 'failure', category: 'configuration-invalid' });
   });
 
   it.each(['codex', 'claude'])('rejects stdout-only results from %s', engine => {
@@ -399,14 +495,31 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     expect(result.transcript).toContain('result-empty');
   });
 
+  it('rejects a Codex shell-launch failure even when the CLI exits zero and prints a result', () => {
+    const result = runHarness('shell-launch-failed', providerEnv('codex'));
+    expect(result.exitCode).toBe(33);
+    expect(result.output).toBe('');
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      event: 'engine-result', exitCode: 0,
+    }));
+    const transcript = events(result);
+    expect(transcript[transcript.length - 1]).toEqual({ event: 'failure', category: 'result-empty' });
+    expect(result.transcript).not.toContain('bwrap:');
+  });
+
   it.each(['codex', 'claude'])('redacts %s capabilities even in trusted raw diagnostics', engine => {
     const result = runHarness('provider-debug', {
       ...providerEnv(engine),
       AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS: 'true',
     });
     expect(result.exitCode).toBe(0);
-    expect(result.transcript).toContain('protected conversational output');
-    expect(result.transcript).toContain('[REDACTED]');
+    if (engine === 'claude') {
+      expect(result.transcript).not.toContain('protected conversational output');
+      expect(result.transcript).not.toContain('Authorization');
+    } else {
+      expect(result.transcript).toContain('protected conversational output');
+      expect(result.transcript).toContain('[REDACTED]');
+    }
     expect(result.transcript).not.toContain('model-budget-capability-sentinel');
     expect(result.transcript).not.toContain('test-secret-token-value');
   });
@@ -415,6 +528,137 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     const result = runHarness('timeout', providerEnv(engine));
     expect(result.exitCode).toBe(20);
     expect(result.transcript).toContain('deadline-exceeded');
+    expect(result.output).toBe('');
+    if (engine === 'claude') {
+      expect(events(result)).toContainEqual(expect.objectContaining({
+        stage: 'claude-stream-summary', stdoutObserved: false, stderrObserved: false, outputState: 'empty',
+      }));
+    }
+  });
+
+  it.each([
+    ["error: option '--permission-prompts <target>' argument 'auto' is invalid. Allowed choices are host, none.", 'invalid-option-value'],
+    ["error: unknown option '--private-option'", 'unknown-option'],
+    ["error: option '--model <model>' argument missing", 'missing-option-value'],
+    ['Invalid settings: PRIVATE_CONFIGURATION', 'invalid-settings'],
+    ['Error: Settings file not found: PRIVATE_CONFIGURATION', 'invalid-settings'],
+    ['Error parsing MCP config: PRIVATE_CONFIGURATION', 'invalid-mcp-config'],
+    ['Error: Invalid MCP configuration:\nPRIVATE_CONFIGURATION', 'invalid-mcp-config'],
+    ['arbitrary PRIVATE_EXCEPTION', 'unknown'],
+  ])('classifies pre-initialization failure without retaining stderr: %s', (stderr, classification) => {
+    const result = runHarness('claude-startup-error', {
+      ...providerEnv('claude'), STARTUP_STDERR: `${stderr}\nPRIVATE_TOKEN PRIVATE_PROMPT`,
+      AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS: 'true',
+    });
+    expect(result.exitCode).toBe(24);
+    expect(result.output).toBe('');
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-startup-failure', classification,
+    }));
+    expect(events(result)).toContainEqual({ event: 'failure', category: 'engine-failed' });
+    expect(result.transcript).not.toContain(stderr);
+    expect(result.transcript).not.toContain('PRIVATE_');
+    expect(result.transcriptBytes).toBeLessThan(16 * 1024);
+  });
+
+  it.each([
+    ['claude-error-after-init', '1', 24],
+    ['claude-startup-error', '0', 33],
+  ])('does not classify an initialized or successful engine as a startup failure: %s', (scenario, nativeExit, exitCode) => {
+    const result = runHarness(String(scenario), {
+      ...providerEnv('claude'), STARTUP_STDERR: "error: unknown option 'PRIVATE_OPTION'",
+      NATIVE_EXIT: String(nativeExit),
+    });
+    expect(result.exitCode).toBe(exitCode);
+    expect(events(result).some(event => event.stage === 'claude-startup-failure')).toBe(false);
+    expect(result.transcript).not.toContain('PRIVATE_');
+  });
+
+  it('bounds startup classification input without retaining oversized stderr', () => {
+    const result = runHarness('claude-startup-error-flood', {
+      ...providerEnv('claude'), STARTUP_STDERR: "\nerror: unknown option 'PRIVATE_OPTION'",
+    });
+    expect(result.exitCode).toBe(24);
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-startup-failure', classification: 'unknown',
+    }));
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-stream-summary', captureTruncated: true,
+    }));
+    expect(result.transcriptBytes).toBeLessThan(16 * 1024);
+    expect(result.transcript).not.toContain('PRIVATE_');
+  });
+
+  it('projects Claude lifecycle events without retaining any engine content, even with raw debugging enabled', () => {
+    const result = runHarness('claude-stream', {
+      ...providerEnv('claude'), AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS: 'true',
+    });
+    const progress = events(result).filter(event => String(event.stage).startsWith('claude-'));
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe('true');
+    for (const stage of ['claude-initialized', 'claude-response', 'claude-tool-requested',
+      'claude-api-retry', 'claude-permission-denied', 'claude-result']) {
+      expect(progress.filter(event => event.stage === stage)).toHaveLength(1);
+    }
+    expect(progress).toContainEqual(expect.objectContaining({
+      stage: 'claude-initialized', permissionMode: 'unknown', shellAvailable: true,
+    }));
+    expect(progress).toContainEqual(expect.objectContaining({ stage: 'claude-api-retry', httpStatus: 529 }));
+    expect(progress.filter(event => event.stage === 'claude-tool-completed')).toEqual([
+      expect.objectContaining({ toolError: false }),
+      expect.objectContaining({ toolError: true }),
+    ]);
+    expect(events(result)).toContainEqual({
+      event: 'output-normalization', inputState: 'within-limit', stdoutState: 'present',
+    });
+    expect(result.transcript).not.toContain('PRIVATE_');
+    expect(result.transcript).not.toContain('tool_input');
+    expect(result.transcript).not.toContain('raw');
+  });
+
+  it('retains Claude progress at the deadline without accepting an empty output', () => {
+    const result = runHarness('claude-stream-timeout', {
+      ...providerEnv('claude'), AWF_ENCLAVE_AGENT_DEADLINE_SECONDS: '1',
+    });
+    expect(result.exitCode).toBe(20);
+    expect(result.output).toBe('');
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-stream-summary', stdoutObserved: true, outputState: 'empty',
+    }));
+    const transcript = events(result);
+    expect(transcript[transcript.length - 1]).toEqual({ event: 'failure', category: 'deadline-exceeded' });
+    expect(result.transcript).not.toContain('PRIVATE_');
+  });
+
+  it('bounds Claude stream capture and resumes projection after an oversized line', () => {
+    const result = runHarness('claude-stream-flood', providerEnv('claude'));
+    expect(result.exitCode).toBe(0);
+    expect(events(result)).toContainEqual(expect.objectContaining({
+      stage: 'claude-stream-summary', captureTruncated: true,
+    }));
+    expect(events(result)).toContainEqual(expect.objectContaining({ stage: 'claude-result' }));
+    expect(result.transcriptBytes).toBeLessThan(16 * 1024);
+    expect(result.transcript).not.toContain('PRIVATE_');
+  });
+
+  it('does not turn a silent successful Claude exit into a result', () => {
+    const result = runHarness('silent-success', providerEnv('claude'));
+    expect(result.exitCode).toBe(33);
+    expect(result.output).toBe('');
+    expect(events(result)).toContainEqual({
+      event: 'output-normalization', inputState: 'empty', stdoutState: 'empty',
+    });
+    const transcript = events(result);
+    expect(transcript[transcript.length - 1]).toEqual({ event: 'failure', category: 'result-empty' });
+  });
+
+  it.each([
+    ['claude-crash-after-output', 0], ['claude-startup-crash', 2],
+  ])('preserves startup retry semantics for %s without exposing streams', (scenario, retries) => {
+    const result = runHarness(String(scenario), providerEnv('claude'));
+    expect(result.exitCode).toBe(24);
+    expect(events(result).filter(event => event.event === 'engine-retry')).toHaveLength(Number(retries));
+    expect(result.transcript).not.toContain('protected engine output');
   });
 
   it.each(['codex', 'claude'])('rejects non-proxy endpoints for %s', engine => {

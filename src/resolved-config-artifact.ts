@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from './logger';
+import { parseOperatorId } from './sudo-identity';
 
 export const RESOLVED_CONFIG_PUBLICATION_ROOT = '/run/awf-config-audit';
 const FILE_NAME = 'awf-resolved-config.json';
@@ -13,15 +14,10 @@ export function resolveArtifactOwner(): { uid: number; gid: number } {
   if (uid !== 0 || (process.env.SUDO_UID === undefined && process.env.SUDO_GID === undefined)) {
     return { uid, gid };
   }
-  const parse = (value: string | undefined): number => {
-    if (value === undefined || !/^(0|[1-9][0-9]*)$/.test(value)) {
-      throw new Error('Invalid sudo artifact identity');
-    }
-    const id = Number(value);
-    if (!Number.isSafeInteger(id) || id >= 0xffffffff) throw new Error('Invalid sudo artifact identity');
-    return id;
-  };
-  return { uid: parse(process.env.SUDO_UID), gid: parse(process.env.SUDO_GID) };
+  const sudoUid = parseOperatorId(process.env.SUDO_UID, true);
+  const sudoGid = parseOperatorId(process.env.SUDO_GID, true);
+  if (sudoUid === undefined || sudoGid === undefined) throw new Error('Invalid sudo artifact identity');
+  return { uid: sudoUid, gid: sudoGid };
 }
 
 /**

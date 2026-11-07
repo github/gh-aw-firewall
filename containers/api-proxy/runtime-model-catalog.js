@@ -4,6 +4,7 @@ const { selectPricingFact } = require('./catalogue-contract/pricing-resolution')
 const exact = require('./catalogue-contract/exact-pricing');
 const NANO_AIU_PER_AIU = 1_000_000_000;
 const GEMINI_MODEL_NAME_PREFIX = 'models/';
+const MISSING_PRICING = Symbol('missing_pricing');
 
 const runtimeCatalog = Object.create(null);
 const captureTimes = new WeakMap();
@@ -58,7 +59,18 @@ function normalizeCopilotPricing(entry) {
   if (!tokenPrices || typeof tokenPrices !== 'object') return null;
   const batchSize = tokenPrices.batch_size;
   if (batchSize === undefined || batchSize === null) return null;
-  if (exact.compare(exact.decimal(batchSize), exact.ZERO) <= 0) throw new Error('pricing_decimal_invalid_batch');
+  if (exact.compare(exact.decimal(batchSize), exact.ZERO) === 0) {
+    const tiers = [tokenPrices.default ?? tokenPrices];
+    if (tokenPrices.long_context != null) tiers.push(tokenPrices.long_context);
+    // Copilot advertises unavailable tariffs with a zero batch and zero prices.
+    // They are missing pricing, not evidence that the model is free.
+    if (tiers.every(tier => {
+      const normalized = normalizeTier(tier, 1, 'aiu');
+      return normalized && ['input', 'output', 'cachedInput', 'cacheWrite'].every(field =>
+        Object.hasOwn(normalized, field) && exact.compare(exact.rate(normalized, field), exact.ZERO) === 0);
+    })) return MISSING_PRICING;
+    throw new Error('pricing_decimal_invalid_batch');
+  }
 
   let defaultTier;
   let longContext;
@@ -106,8 +118,11 @@ function parseProviderModelMetadata(provider, json, options = {}) {
     if (!id) return null;
     let pricing;
     let pricingError = false;
+    let pricingMissing = false;
     try {
-      pricing = format === 'copilot' ? normalizeCopilotPricing(entry) : null;
+      const normalizedPricing = format === 'copilot' ? normalizeCopilotPricing(entry) : null;
+      if (normalizedPricing === MISSING_PRICING) pricingMissing = true;
+      else pricing = normalizedPricing;
     } catch {
       // Discovery catches fetch failures. Retain an invalid tariff as a fact so
       // accounting cannot silently reuse old/lower-priority/free pricing.
@@ -136,6 +151,7 @@ function parseProviderModelMetadata(provider, json, options = {}) {
         : {}),
       ...(pricing ? { pricing } : {}),
       ...(pricingError ? { pricingError: true } : {}),
+      ...(pricingMissing ? { pricingMissing: true } : {}),
       ...(promotion ? { promotion } : {}),
     };
   }).filter(Boolean);
@@ -151,6 +167,11 @@ function replaceRuntimeModels(provider, records) {
   );
   runtimeCatalog[provider] = records.map(record => {
     const previous = previousById.get(canonicalizeModel(record.id));
+    if (record.pricingMissing) {
+      const missingPricingRecord = { ...record };
+      delete missingPricingRecord.pricingMissing;
+      return missingPricingRecord;
+    }
     if (record.pricingError || !previous?.pricing) return record;
     const defaultTier = chooseTier(record.pricing?.default, previous.pricing.default);
     const longContext = chooseTier(record.pricing?.longContext, previous.pricing.longContext);

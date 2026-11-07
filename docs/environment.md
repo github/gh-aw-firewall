@@ -103,6 +103,18 @@ sudo -E awf --allow-domains github.com 'copilot --prompt "..."'
 - Working with untrusted code
 - In production/CI environments
 
+## AI-credit hard cap (operator only)
+
+Set `AWF_AI_CREDITS_HARD_CAP` in the **host environment** before invoking AWF
+to lower or raise the per-run AI-credit ceiling (default: 10,000). Preserve it
+when using sudo, for example `sudo --preserve-env=AWF_AI_CREDITS_HARD_CAP awf ...`.
+Only positive finite numbers are accepted; missing, empty, invalid, zero,
+negative, or non-finite values keep the default. The guard always remains active.
+AWF forwards this variable only to the api-proxy, not the agent, even with
+`--env-all`; `--env` and `--env-file` do not configure it. A positive
+`apiProxy.maxAiCredits` can impose a lower budget but cannot raise the hard cap.
+See [AI-credit hard cap](api-proxy-sidecar.md#ai-credit-hard-cap) for details.
+
 ## Provider-neutral API key (API proxy)
 
 Set `AWF_AGENT_API_KEY` and `AWF_AGENT_API_PROVIDER` in the **host environment**

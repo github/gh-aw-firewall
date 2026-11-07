@@ -86,7 +86,7 @@ const definitions = {
     properties: {
       task_type: {
         type: 'string',
-        enum: ['explain', 'plan', 'fix', 'refactor', 'chore', 'implement', 'unknown'],
+        enum: ['analyze', 'review', 'plan', 'fix', 'refactor', 'chore', 'implement', 'unknown'],
       },
       scope: {
         type: 'string',

@@ -24,20 +24,185 @@ const { resetModelPricingCatalogForTests } = require('../model-pricing-catalog')
 
 describe('ai-credits-guard', () => {
   let originalMaxAiCredits;
+  let originalHardCap;
   let originalDefaultPricing;
   let originalModelPricingCatalog;
 
   beforeEach(() => {
     originalMaxAiCredits = process.env.AWF_MAX_AI_CREDITS;
+    originalHardCap = process.env.AWF_AI_CREDITS_HARD_CAP;
     originalDefaultPricing = process.env.AWF_DEFAULT_AI_CREDITS_PRICING;
     originalModelPricingCatalog = process.env.AWF_MODEL_PRICING_CATALOG;
     delete process.env.AWF_MAX_AI_CREDITS;
+    delete process.env.AWF_AI_CREDITS_HARD_CAP;
     delete process.env.AWF_DEFAULT_AI_CREDITS_PRICING;
     delete process.env.AWF_MODEL_PRICING_CATALOG;
     resetAiCreditsGuardForTests();
     clearRuntimeModels();
     resetProviderPricingOverlaysForTests();
     resetModelPricingCatalogForTests();
+  });
+
+  describe('reviewed Copilot tariff accounting', () => {
+    let fixture;
+    let guard;
+    let environment;
+
+    function loadProjection(projection) {
+      jest.isolateModules(() => {
+        jest.doMock('../model-information.pricing.generated.json', () => projection);
+        jest.doMock('../catalogue-loader', () => ({
+          getCatalogueLoader: () => ({ capture: () => null }),
+        }));
+        guard = require('./ai-credits-guard');
+      });
+    }
+
+    beforeEach(() => {
+      environment = { ...process.env };
+      for (const key of ['AWF_API_PROXY_PROVIDERS', 'AWF_MODEL_PRICING_CATALOG',
+        'AWF_DEFAULT_AI_CREDITS_PRICING', 'AWF_MAX_AI_CREDITS', 'AWF_AI_CREDITS_HARD_CAP',
+        'COPILOT_PROVIDER_API_KEY', 'COPILOT_API_TARGET', 'GITHUB_SERVER_URL']) delete process.env[key];
+      fixture = require('../test-helpers/copilot-pricing-fixture').reviewedCopilotFixture();
+      jest.spyOn(Date, 'now').mockReturnValue(Date.parse(fixture.capture.retrievedAt));
+      loadProjection(fixture.projection);
+    });
+
+    afterEach(() => {
+      jest.dontMock('../model-information.pricing.generated.json');
+      jest.dontMock('../catalogue-loader');
+      jest.restoreAllMocks();
+      process.env = environment;
+    });
+
+    it('uses maintained Copilot prices for charges budgets steering and reflection when live billing is absent', () => {
+      for (const model of fixture.reviewed) {
+        guard.resetAiCreditsGuardForTests();
+        process.env.AWF_MAX_AI_CREDITS = '0.1';
+        const id = model.identity.rawId;
+        const rates = model.tariffs.find(tariff => tariff.tier === 'default').components;
+        const expected = Number(((10000 * Number(rates.input.price) +
+          1000 * Number(rates.cachedInput.price) + 10000 * Number(rates.output.price)) / 10000).toFixed(6));
+        const usage = guard.applyAiCreditsUsage({
+          input_tokens: 10000, cache_read_tokens: 1000, output_tokens: 10000,
+        }, id, 'copilot', { catalogue: null, runtimeCatalog: {} });
+        expect(usage).toMatchObject({
+          pricingSource: 'curated', pricingTier: 'default', accountingPolicy: 'concrete_model',
+        });
+        expect(usage.aiCreditsThisResponse).toBeCloseTo(expected, 6);
+        expect(guard.getAiCreditsBlockState()).toMatchObject({ maxExceeded: true, maxAiCredits: 0.1 });
+        expect(guard.getPendingAiCreditSteeringWarning().threshold).toBe(99);
+        const reflected = guard.getAiCreditsReflectState().by_model[id];
+        expect(reflected).toMatchObject({
+          total: expected, pricing_source: 'curated', pricing_tier: 'default',
+          accounting_policy: 'concrete_model', fallback_pricing_used: false,
+          pricing_catalog_version: expect.any(String),
+        });
+        expect(reflected).not.toHaveProperty('pricing_estimate');
+        process.env.AWF_AI_CREDITS_HARD_CAP = '0.1';
+        expect(guard.getAiCreditsBlockState()).toMatchObject({ maxExceeded: true, hardCap: true });
+        delete process.env.AWF_AI_CREDITS_HARD_CAP;
+      }
+    });
+
+    it.each([272000, 272001])('charges Terra at the strict maintained threshold %s', input_tokens => {
+      const usage = guard.applyAiCreditsUsage({ input_tokens }, 'gpt-6.1-terra', 'copilot', {
+        catalogue: null, runtimeCatalog: {},
+      });
+      expect(usage).toMatchObject({
+        pricingSource: 'curated', pricingTier: input_tokens > 272000 ? 'long_context' : 'default',
+      });
+      expect(usage.aiCreditsThisResponse).toBe(input_tokens * (input_tokens > 272000 ? 2 : 1) / 10000);
+    });
+
+    it('preserves complete provider pricing priority', () => {
+      for (const id of fixture.ids) {
+        const usage = guard.applyAiCreditsUsage({ input_tokens: 10000 }, id, 'copilot', {
+          catalogue: null,
+          runtimeCatalog: { copilot: [{
+            id, provider: 'copilot', observedAt: fixture.capture.retrievedAt,
+            pricing: { default: { input: 9, cachedInput: 0, cacheWrite: null, output: 9 } },
+          }] },
+        });
+        expect(usage).toMatchObject({ pricingSource: 'provider', aiCreditsThisResponse: 9 });
+      }
+    });
+
+    it.each([
+      { kind: 'partial', inputTokens: 11, providerThreshold: 10, tier: 'long_context', cached: 0.02 },
+      { kind: 'partial', inputTokens: 272001, providerThreshold: 500000, tier: 'default', cached: 0.01 },
+      { kind: 'complete', inputTokens: 11, providerThreshold: 10, tier: 'long_context', cached: 0.9 },
+      { kind: 'complete', inputTokens: 272001, providerThreshold: 500000, tier: 'default', cached: 0.9 },
+    ])('preserves $kind provider $tier selection with different dated maintained thresholds', ({
+      kind, inputTokens, providerThreshold, tier, cached,
+    }) => {
+      const model = structuredClone(require('../../../shared/model-information/sources/copilot-main.json')
+        .models.find(item => item.identity.rawId === 'gpt-6.1-sol'));
+      for (const tariff of model.tariffs) tariff.effectiveUntil = '2027-01-01T00:00:00Z';
+      loadProjection({ 'gpt-6.1-sol': { tariffs: model.tariffs } });
+      const usage = guard.applyAiCreditsUsage({
+        input_tokens: inputTokens, cache_read_tokens: 1000,
+      }, 'gpt-6.1-sol', 'copilot', {
+        catalogue: null, runtimeCatalog: { copilot: [{
+          id: 'gpt-6.1-sol', provider: 'copilot', observedAt: fixture.capture.retrievedAt,
+          pricing: {
+            default: { input: 1, output: 3, threshold: providerThreshold,
+              ...(kind === 'complete' ? { cachedInput: 9, cacheWrite: null } : {}) },
+            longContext: { input: 6, output: 8, cacheWrite: 0,
+              ...(kind === 'complete' ? { cachedInput: 9 } : {}) },
+          },
+        }] },
+      });
+      expect(usage).toMatchObject({
+        pricingSource: 'provider', pricingTier: tier, cachedInputCreditsThisResponse: cached,
+      });
+    });
+
+    it('does not reuse an expired Copilot promo without a verified successor', () => {
+      process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify({ input: 9, output: 9 });
+      for (const id of ['gemini-3.8-flash', 'gemini-4-argon']) {
+        const end = Date.parse(fixture.projection[id].tariffs[0].effectiveUntil);
+        for (const time of [end - 1, end, end + 1]) {
+          Date.now.mockReturnValue(time);
+          guard.resetAiCreditsGuardForTests();
+          const usage = guard.applyAiCreditsUsage({ input_tokens: 10000 }, id, 'copilot', {
+            catalogue: null, runtimeCatalog: {},
+          });
+          expect(usage.pricingSource).toBe(time < end ? 'curated' : 'configured_default');
+          expect(guard.checkModelPricing(id, 'copilot')).toBeNull();
+          expect(guard.getAiCreditsReflectState().by_model[id].pricing_source)
+            .toBe(time < end ? 'curated' : 'configured_default');
+        }
+      }
+    });
+
+    it('selects a reviewed successor only within its effective interval', () => {
+      // Immutable estimated contract fixture, not a successor claimed by the captured page.
+      const staged = require('../test-helpers/copilot-pricing-fixture').copilotPromotionContractFixture();
+      const successor = staged.tariffs.find(tariff => tariff.tier === 'post_promotion');
+      const provenance = require('../../../shared/model-information/fixtures.v1.json').model.provenance;
+      successor.provenance = provenance;
+      successor.effectiveUntil = '2027-02-01T00:00:00Z';
+      for (const component of Object.values(successor.components)) component.provenance = provenance;
+      loadProjection({ 'gemini-3.8-flash': { tariffs: staged.tariffs } });
+      process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify({ input: 9, output: 9 });
+      const start = Date.parse(successor.effectiveFrom);
+      for (const time of [start - 1, start, start + 1, Date.parse(successor.effectiveUntil)]) {
+        Date.now.mockReturnValue(time);
+        guard.resetAiCreditsGuardForTests();
+        const usage = guard.applyAiCreditsUsage({ input_tokens: 10000 }, 'gemini-3.8-flash', 'copilot', {
+          catalogue: null, runtimeCatalog: {},
+        });
+        expect(usage.pricingSource).toBe(time < Date.parse(successor.effectiveUntil)
+          ? 'curated' : 'configured_default');
+        if (time >= start && time < Date.parse(successor.effectiveUntil)) {
+          expect(usage).toMatchObject({
+            pricingTier: 'post_promotion', pricingObservedAt: provenance.at,
+            pricingCatalogId: provenance.source, aiCreditsThisResponse: Number(successor.components.input.price),
+          });
+        }
+      }
+    });
   });
 
   afterEach(() => {
@@ -50,6 +215,11 @@ describe('ai-credits-guard', () => {
       delete process.env.AWF_MAX_AI_CREDITS;
     } else {
       process.env.AWF_MAX_AI_CREDITS = originalMaxAiCredits;
+    }
+    if (originalHardCap === undefined) {
+      delete process.env.AWF_AI_CREDITS_HARD_CAP;
+    } else {
+      process.env.AWF_AI_CREDITS_HARD_CAP = originalHardCap;
     }
     if (originalDefaultPricing === undefined) {
       delete process.env.AWF_DEFAULT_AI_CREDITS_PRICING;
@@ -728,8 +898,16 @@ describe('ai-credits-guard', () => {
   });
 
   it('warns and estimates usage for concrete models without prices', () => {
+    process.env.AWF_MODEL_PRICING_CATALOG = JSON.stringify({
+      catalogId: 'median-fixture', version: 'v1',
+      schemaVersion: 1, unit: 'USD_PER_1M_TOKENS', providers: {
+        'median-test': { models: {
+          donor: { input: 2, cachedInput: 0.2, cacheWrite: null, output: 11, reasoning: 11 },
+        } },
+      },
+    });
     const { lines } = collectLogOutput();
-    const usage = applyAiCreditsUsage({ input_tokens_include_cache: true, input_tokens: 100 }, 'unknown-model', 'copilot');
+    const usage = applyAiCreditsUsage({ input_tokens_include_cache: true, input_tokens: 100 }, 'unknown-model', 'median-test');
 
     expect(usage).toMatchObject({ pricingSource: 'median_estimate', aiCreditsThisResponse: 0.02 });
     expect(getAiCreditsReflectState().total).toBe(0.02);
@@ -859,6 +1037,125 @@ describe('ai-credits-guard', () => {
     expect(state.maxAiCredits).toBe(HARD_CAP_AI_CREDITS);
   });
 
+  it.each([undefined, '', ' ', 'invalid', '20000credits', '0', '-1', 'NaN', 'Infinity', '1e309'])(
+    'retains the default hard cap for invalid operator value %s', (rawCap) => {
+      if (rawCap !== undefined) process.env.AWF_AI_CREDITS_HARD_CAP = rawCap;
+      expect(getAiCreditsReflectState().effective_max_ai_credits).toBe(HARD_CAP_AI_CREDITS);
+      applyAiCreditsUsage({ input_tokens: 400_000_000 }, 'gpt-5-mini', 'copilot');
+      expect(getAiCreditsBlockState()).toMatchObject({
+        maxAiCredits: HARD_CAP_AI_CREDITS, maxExceeded: true, hardCap: true,
+      });
+    },
+  );
+
+  it('enforces a tiny positive hard cap instead of restoring the default', () => {
+    process.env.AWF_AI_CREDITS_HARD_CAP = '1e-350';
+
+    applyAiCreditsUsage({ input_tokens: 1 }, 'gpt-5-mini', 'copilot');
+
+    expect(getAiCreditsBlockState()).toMatchObject({
+      maxAiCredits: 0,
+      maxExceeded: true,
+      hardCap: true,
+    });
+  });
+
+  it('preserves exact hard-cap precision when clamping budgets and rejecting usage', () => {
+    process.env.AWF_AI_CREDITS_HARD_CAP = '1.0000000000000000000000000001';
+    process.env.AWF_MAX_AI_CREDITS = '1.0000000000000000000000000002';
+
+    applyAiCreditsUsage({ input_tokens: 40_000 }, 'gpt-5-mini', 'copilot');
+
+    expect(getAiCreditsBlockState()).toMatchObject({
+      maxAiCredits: 1,
+      maxExceeded: false,
+    });
+    expect(getAiCreditsReflectState()).toMatchObject({
+      max_ai_credits: 1,
+      effective_max_ai_credits: 1,
+    });
+
+    applyAiCreditsUsage({ input_tokens: 1 }, 'gpt-5-mini', 'copilot');
+
+    expect(getAiCreditsBlockState()).toMatchObject({
+      maxAiCredits: 1,
+      maxExceeded: true,
+      hardCap: true,
+    });
+  });
+
+  it('invalidates cached steering limits when the raw hard cap changes without changing its number projection', () => {
+    process.env.AWF_AI_CREDITS_HARD_CAP = '1.0000000000000000000000000001';
+    applyAiCreditsUsage({ input_tokens: 32_000 }, 'gpt-5-mini', 'copilot');
+
+    expect(getPendingAiCreditSteeringWarning()).toBeNull();
+
+    process.env.AWF_AI_CREDITS_HARD_CAP = '1';
+
+    expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
+  });
+
+  it.each([undefined, '0', '-1'])('enforces a raised hard cap with budget %s', (rawMax) => {
+    process.env.AWF_AI_CREDITS_HARD_CAP = '20000';
+    if (rawMax !== undefined) process.env.AWF_MAX_AI_CREDITS = rawMax;
+    applyAiCreditsUsage({ input_tokens: 400_000_000 }, 'gpt-5-mini', 'copilot');
+    expect(getAiCreditsBlockState()).toBeNull();
+    expect(getAiCreditsReflectState().effective_max_ai_credits).toBe(20000);
+    applyAiCreditsUsage({ input_tokens: 400_000_000 }, 'gpt-5-mini', 'copilot');
+    expect(getAiCreditsBlockState()).toEqual({
+      maxAiCredits: 20000, totalAiCredits: 20000, maxExceeded: true, hardCap: true,
+    });
+  });
+
+  it.each([undefined, '0', '-1'])('enforces a lowered fractional hard cap with budget %s', (rawMax) => {
+    process.env.AWF_AI_CREDITS_HARD_CAP = '0.1';
+    if (rawMax !== undefined) process.env.AWF_MAX_AI_CREDITS = rawMax;
+    applyAiCreditsUsage({ input_tokens: 4000 }, 'gpt-5-mini', 'copilot');
+    expect(getAiCreditsBlockState()).toEqual({
+      maxAiCredits: 0.1, totalAiCredits: 0.1, maxExceeded: true, hardCap: true,
+    });
+  });
+
+  it.each([
+    ['20000', '30000', 20000],
+    ['20000', '15000', 15000],
+    ['100', '200', 100],
+    ['100', '50', 50],
+  ])('clamps budget %s / %s to the operator ceiling', (rawCap, rawMax, effective) => {
+    process.env.AWF_AI_CREDITS_HARD_CAP = rawCap;
+    process.env.AWF_MAX_AI_CREDITS = rawMax;
+    expect(getAiCreditsBlockState()).toMatchObject({ maxAiCredits: effective, maxExceeded: false });
+    expect(getAiCreditsReflectState()).toMatchObject({
+      max_ai_credits: effective, effective_max_ai_credits: effective,
+    });
+  });
+
+  it('invalidates cached budget clamping when the hard cap changes', () => {
+    process.env.AWF_MAX_AI_CREDITS = '30000';
+    expect(getAiCreditsReflectState().max_ai_credits).toBe(10000);
+    process.env.AWF_AI_CREDITS_HARD_CAP = '20000';
+    expect(getAiCreditsReflectState().max_ai_credits).toBe(20000);
+    process.env.AWF_AI_CREDITS_HARD_CAP = '100';
+    expect(getAiCreditsReflectState().max_ai_credits).toBe(100);
+    delete process.env.AWF_AI_CREDITS_HARD_CAP;
+    expect(getAiCreditsReflectState().max_ai_credits).toBe(10000);
+  });
+
+  it.each([
+    ['20000', 640_000_000],
+    ['100', 3_200_000],
+  ])('uses operator hard cap %s for reflection and steering', (rawCap, inputTokens) => {
+    process.env.AWF_AI_CREDITS_HARD_CAP = rawCap;
+    applyAiCreditsUsage({ input_tokens: inputTokens }, 'gpt-5-mini', 'copilot');
+    expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
+    expect(getAiCreditsReflectState()).toMatchObject({
+      effective_max_ai_credits: Number(rawCap),
+      percent_used: 80,
+      thresholds_crossed: [80],
+    });
+    expect(getAiCreditsBlockState()).toBeNull();
+  });
+
   it('builds a structured max ai credits limit error payload', () => {
     expect(buildAiCreditsLimitError({
       totalAiCredits: 0.125,
@@ -882,7 +1179,7 @@ describe('ai-credits-guard', () => {
     })).toEqual({
       error: {
         type: 'ai_credits_limit_exceeded',
-        message: 'Hard cap on AI credits reached (10000.500000 / 10000). This limit cannot be overridden.',
+        message: 'Hard cap on AI credits reached (10000.500000 / 10000). This limit is set by the operator and cannot be raised from inside the run.',
         total_ai_credits: 10000.5,
         max_ai_credits: 10000,
         hard_cap: true,
@@ -989,13 +1286,21 @@ describe('ai-credits-guard', () => {
   describe('missing model pricing warnings', () => {
     it('warns once and charges estimated usage when maxAiCredits is active', () => {
       process.env.AWF_MAX_AI_CREDITS = '10';
+      process.env.AWF_MODEL_PRICING_CATALOG = JSON.stringify({
+        catalogId: 'median-fixture', version: 'v1',
+        schemaVersion: 1, unit: 'USD_PER_1M_TOKENS', providers: {
+          'median-test': { models: {
+            donor: { input: 2, cachedInput: 0.2, cacheWrite: null, output: 11, reasoning: 11 },
+          } },
+        },
+      });
       resetAiCreditsGuardForTests();
 
       const { lines } = collectLogOutput();
-      expect(checkModelPricing('brand-new-model-xyz', 'copilot')).toBeNull();
-      expect(checkModelPricing('brand-new-model-xyz', 'copilot')).toBeNull();
+      expect(checkModelPricing('brand-new-model-xyz', 'median-test')).toBeNull();
+      expect(checkModelPricing('brand-new-model-xyz', 'median-test')).toBeNull();
       expect(applyAiCreditsUsage(
-        { input_tokens_include_cache: true, input_tokens: 1000, output_tokens: 500 }, 'brand-new-model-xyz', 'copilot',
+        { input_tokens_include_cache: true, input_tokens: 1000, output_tokens: 500 }, 'brand-new-model-xyz', 'median-test',
       )).toMatchObject({ pricingSource: 'median_estimate', aiCreditsThisResponse: 0.75 });
       expect(getAiCreditsReflectState().total).toBe(0.75);
       expect(getAiCreditsBlockState()).toMatchObject({ maxExceeded: false, totalAiCredits: 0.75 });

@@ -133,7 +133,8 @@ describe('Claude hosted-web policy through the Anthropic adapter', () => {
     expect(hostedTool.cache_control).toEqual({ type: 'ephemeral', ttl: '1h' });
   });
 
-  it('rejects a disabled hosted tool with a structured error before upstream dispatch', async () => {
+  it.each(['web_search_20250305', 'web_fetch_20250910'])(
+    'rejects disabled %s before upstream dispatch', async type => {
     const adapter = createAnthropicAdapter({
       ANTHROPIC_API_KEY: 'sk-ant-test',
       AWF_CLAUDE_HOSTED_WEB_POLICY: '{"enabled":false}',
@@ -141,17 +142,19 @@ describe('Claude hosted-web policy through the Anthropic adapter', () => {
 
     const { res, upstreamBody } = await dispatch(
       adapter.getBodyTransform(),
-      messagesBody([{ type: 'web_search_20250305', name: 'web_search' }]),
+      messagesBody([{ type, name: type.startsWith('web_search') ? 'web_search' : 'web_fetch' }]),
     );
 
     expect(upstreamBody).toBeNull();
+    expect(https.request).not.toHaveBeenCalled();
     expect(res.writeHead).toHaveBeenCalledWith(403, expect.objectContaining({
       'Content-Type': 'application/json',
     }));
     const payload = JSON.parse(res.end.mock.calls[0][0]);
     expect(payload.error.code).toBe('claude_hosted_web_disabled');
     expect(payload.error.message).not.toContain('find something');
-  });
+    },
+  );
 
   it('rejects an empty allowlist intersection before upstream dispatch', async () => {
     const adapter = createAnthropicAdapter({

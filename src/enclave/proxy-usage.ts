@@ -247,6 +247,10 @@ function project(bytes: Buffer, tokens: boolean): EnclaveProxyUsage['tokens'] | 
         add(statuses, String(value.status), 1);
       } else if (value.event === 'WS_TRACK_START') {
         websocketSessions += 1;
+      } else if (value.event === 'WS_UPSTREAM_RESPONSE') {
+        if (value.status !== null && (!count(value.status) || value.status < 100 || value.status > 599)) {
+          return { status: 'malformed' };
+        }
       } else if (value.event === 'TRACK_SKIP_ENCODING') {
         add(results, 'skip_encoding', 1);
       } else if (value.event === 'TRACK_END' || value.event === 'WS_TRACK_END') {

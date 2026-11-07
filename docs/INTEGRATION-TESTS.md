@@ -220,6 +220,55 @@ Live acceptance is established only by successful jobs and their artifacts for
 the exact tested commit; local deterministic results or an unavailable Docker
 daemon must not be reported as live acceptance.
 
+#### Recorded Docker evidence (2026-11-07 UTC)
+
+The producer and provider-free infrastructure were already merged in
+[#11072](https://github.com/github/gh-aw-firewall/pull/11072) and
+[#11075](https://github.com/github/gh-aw-firewall/pull/11075).
+Existing automatic push [run 42321568663, attempt 1](https://github.com/github/gh-aw-firewall/actions/runs/42321568663)
+tested commit `e593eb212a99e121d1f87d2a874ac2ddb2ad3953` on `main`.
+Both jobs executed their test steps successfully, rather than being skipped.
+The downloaded artifact ZIPs were checked against their GitHub-reported SHA-256
+digests; their JSON results and the job logs support these separate conclusions:
+
+| Evidence level | Result | Run evidence |
+|----------------|--------|--------------|
+| Deterministic fixtures | 280 tests passed across 7 suites; not live proof | [Workflow run](https://github.com/github/gh-aw-firewall/actions/runs/42321568663) (`harness-deterministic` artifact; retained temporarily) |
+| Native Docker | 16 cases passed; `cleanupVerified: true` | [Job log](https://github.com/github/gh-aw-firewall/actions/runs/42321568663/job/128247197726) (`harness-live-native` artifact; retained temporarily) |
+| Split-filesystem DinD | 17 cases passed, including rejection of an untranslated bind source; `cleanupVerified: true` | [Job log](https://github.com/github/gh-aw-firewall/actions/runs/42321568663/job/128247197939) (`harness-live-split-dind` artifact; retained temporarily) |
+| Actual Kubernetes ARC deployment | **Unverified**; neither job runs on ARC | Both live environment records explicitly set `kubernetesArcDeployment: false` |
+
+Both live environments were Linux x64 with Node `v22.23.4`. Native Docker used
+Docker `28.0.4` and agent image
+`sha256:6101d4aee0c484ac07d7899587ea2187206e4e9a60887399bb99906362ab593e`;
+the isolated Debian runner used Docker `28.5.1` and agent image
+`sha256:dd0b4fc307ac9ac0da6b24e8d637b8327ee3d63e65c90d8e2d2e9b29f8950ceb`.
+Each environment record identifies the exact tested commit above. The artifacts
+have seven-day retention and expire on 2026-11-14; this summary is scoped to that
+revision, not a verification of later changes.
+
+The canonical reports observed fixture versions `copilot-cli` `1.2.3`,
+`claude-code` `2.1.3` and `codex-cli` `0.89.0` in each actual agent container.
+These are test outputs, not production minimums. Both suites passed context
+equality, publication-before-release, output/exit propagation, unavailable-probe
+classification (missing, malformed, oversized, failed and timed out), test-only
+incompatible/unverified admission blocking, shell-pinned selection, cancellation,
+early startup exit, stale-run isolation and immutable proxy evidence checks.
+The native job also passed its build and bundle/version checks. These remain
+the focused networkless producer tests described above, not full CLI/firewall,
+provider-inference or enclave acceptance.
+
+No new workflow was dispatched to collect this record. The user-directed order
+remains Cloud Hypervisor validation
+[#11091](https://github.com/github/gh-aw-firewall/issues/11091), NVX as-is execution
+tests [#11092](https://github.com/github/gh-aw-firewall/issues/11092), then
+Docker/ARC-DinD live acceptance. Existing automatic Docker/DinD evidence does not
+complete [#11068](https://github.com/github/gh-aw-firewall/issues/11068): a supported
+actual ARC deployment and its revision-bound execution evidence remain missing.
+No new producer, production harness constraint or feed activation is claimed;
+bundled constraints stay empty and feed constraints remain rejected as
+`catalogue_harness_unsupported`.
+
 ### Unified enclave coverage
 
 Cloud Hypervisor enclave contract coverage runs in
@@ -538,9 +587,30 @@ Each cell checks allowed and denied HTTPS access, credential isolation, real
 provider inference through the API proxy, and an agent tool writing a unique
 proof file through the live workspace share. Missing credentials, nonzero exits,
 missing proof files, and incorrect model responses fail the job rather than
-merely producing a FAIL summary. Evidence artifacts identify the tested source
-commit and retain logs for seven days. A failed VM artifact build does not
+merely producing a FAIL summary. Primary evidence artifacts identify the tested
+source commit and retain bounded, redacted evidence for seven days, not raw host
+or proxy logs. A failed VM artifact build does not
 suppress Docker jobs or the other VM runtime's jobs.
+
+Primary `marker-check.json` separates proof/response mismatches from missing,
+partial, embedded/decorated, unterminated, or rejected completion evidence.
+Only an exact standalone LF- or CRLF-terminated completion line passes; response
+and proof files allow trailing LF bytes only. NVX console CRLF is not equal to
+the old `grep -Fx` LF-only pattern, even when Actions renders the same text.
+The retained classification distinguishes that case without exposing log bytes;
+rendered historical logs alone cannot establish which private bytes were present.
+
+Codex `codex-routing.json` projects only fixed transport, endpoint and status
+fields from the sidecar's `token-tracker-audit.jsonl`: HTTP `TRACK_START`
+records contain the received upstream status, and `WS_UPSTREAM_RESPONSE`
+records contain the parsed upstream handshake status. HTTP 2xx or WebSocket 101
+is required in addition to the exact inference proof. Token usage is not required
+for routing evidence, and a WebSocket start/close alone cannot pass. The report
+distinguishes unavailable, rejected, empty, failed and successful evidence, with
+bounded counts for malformed/wrong-source/provider/path/status records, no-usage
+finalization and pending requests, plus partial-line and truncation indicators.
+Missing or unflushed telemetry is not a successful route or proof of a routing
+defect. Raw URLs, request IDs, headers, bodies and keys are not projected.
 
 After all builds and matrix jobs finish, a deterministic reporting job creates
 one GitHub issue if any build or regression job failed, without changing the

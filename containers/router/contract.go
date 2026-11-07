@@ -14,7 +14,8 @@ type TaskType string
 
 // The task types.
 const (
-	TaskExplain   TaskType = "explain"
+	TaskAnalyze   TaskType = "analyze"
+	TaskReview    TaskType = "review"
 	TaskPlan      TaskType = "plan"
 	TaskFix       TaskType = "fix"
 	TaskRefactor  TaskType = "refactor"
@@ -24,7 +25,7 @@ const (
 )
 
 // TaskTypes lists the task types in table order.
-var TaskTypes = []TaskType{TaskExplain, TaskPlan, TaskFix, TaskRefactor, TaskChore, TaskImplement, TaskUnknown}
+var TaskTypes = []TaskType{TaskAnalyze, TaskReview, TaskPlan, TaskFix, TaskRefactor, TaskChore, TaskImplement, TaskUnknown}
 
 // TaskScope is the breadth of a request.
 type TaskScope string

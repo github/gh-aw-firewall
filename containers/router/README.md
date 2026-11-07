@@ -379,21 +379,22 @@ order, so they differ only in their routing order. Select a directory or a singl
 `--routing-tables` or `GH_AW_ROUTER_ROUTING_TABLES`, and mount or publish generated tables
 read-only.
 
-Only `schema_version` 1 is supported, and the loader rejects any other value. A table declares
-one fixed `cost` or `cost-speed` profile and carries no default-effort aliases. This format
-marker remains independent because tables can be supplied through a file or mount without
+Only `schema_version` 2 is supported, and the loader rejects any other value. Version 2 replaced
+the `explain` task type with `analyze` and `review`, so version 1 tables no longer load. A table
+declares one fixed `cost` or `cost-speed` profile and carries no default-effort aliases. This
+format marker remains independent because tables can be supplied through a file or mount without
 replacing the router image.
 
-[schemas/routing-table.v1.schema.json](schemas/routing-table.v1.schema.json) specifies the
+[schemas/routing-table.v2.schema.json](schemas/routing-table.v2.schema.json) specifies the
 table file format as a JSON Schema. The loader also enforces rules that relate parts of a table
 to each other, which the schema can't express: every label cell appears in exactly one ranking
 group, every ranking and the classifier order are permutations of the first group's choices,
 no two groups have the same ranking, and a model listed with explicit efforts isn't also listed
-without one. The schema requires `schema_version`, which the loader defaults to 1 when it's
+without one. The schema requires `schema_version`, which the loader defaults to 2 when it's
 missing.
 
 A published schema file never changes. A format change adds a new schema file, such as
-`routing-table.v2.schema.json`, and bumps `schema_version`. Every table must validate against
+`routing-table.v3.schema.json`, and bumps `schema_version`. Every table must validate against
 the schema for its `schema_version`.
 
 ## Container

@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { createReadStream, constants, promises as fs } from 'fs';
 import * as path from 'path';
 import type { CloudHypervisorArtifactDigests } from '../types/runtime-options';
+import { parseOperatorId } from '../sudo-identity';
 import { hostPreflightReason, markHostPreflightError } from './host-preflight-progress';
 
 export interface CloudHypervisorArtifactTrustDependencies {
@@ -121,12 +122,11 @@ export async function assertTrustedRegularFile(
 }
 
 export function parsePositiveUid(value: string | undefined): number | undefined {
-  if (!value || !/^[1-9]\d*$/.test(value)) return undefined;
-  return Number(value);
+  return parseOperatorId(value);
 }
 
 export function resolveTrustedOperatorUid(): number {
-  return parsePositiveUid(process.env.SUDO_UID) ?? (process.getuid?.() ?? -1);
+  return parseOperatorId(process.env.SUDO_UID) ?? (process.getuid?.() ?? -1);
 }
 
 export async function assertTrustedAncestorChain(

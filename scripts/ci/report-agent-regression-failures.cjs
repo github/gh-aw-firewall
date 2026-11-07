@@ -14,7 +14,7 @@ function escapeMarkdown(value) {
 }
 
 module.exports = async function reportAgentRegressionFailures({
-  github, context, core, sourceSha, runAttempt,
+  github, context, core, sourceSha, sourceAttempt, runAttempt,
 }) {
   const repository = context.repo;
   const { data: run } = await github.rest.actions.getWorkflowRun({
@@ -31,9 +31,12 @@ module.exports = async function reportAgentRegressionFailures({
   }
 
   const marker = `<!-- awf-agent-runtime-regression:${repository.owner}/${repository.repo}:${context.runId} -->`;
-  const source = /^[0-9a-f]{40}$/i.test(sourceSha ?? '')
+  const sourceValid = /^[0-9a-f]{40}$/i.test(sourceSha ?? '') &&
+    Number.isSafeInteger(sourceAttempt) && sourceAttempt > 0;
+  const source = sourceValid
     ? `[\`${sourceSha}\`](${context.serverUrl}/${repository.owner}/${repository.repo}/commit/${sourceSha})`
     : 'Unavailable: the shared build did not publish its pinned source revision.';
+  const sourceAttemptText = sourceValid ? `\`${sourceAttempt}\`` : '`Unavailable`';
   const rows = failures.map(job => {
     const steps = (job.steps ?? [])
       .filter(step => FAILURE_CONCLUSIONS.has(step.conclusion))
@@ -47,6 +50,7 @@ module.exports = async function reportAgentRegressionFailures({
     '## Daily agent/runtime regression failures',
     '',
     `Run: [${context.runId}, attempt ${runAttempt}](${run.html_url}/attempts/${runAttempt})`,
+    `Build source job attempt: ${sourceAttemptText}`,
     `Tested source revision: ${source}`,
     `Workflow revision: \`${run.head_sha}\``,
     '',

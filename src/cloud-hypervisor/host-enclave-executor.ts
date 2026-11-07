@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import { resolveOperatorIdentity } from '../sudo-identity';
 import { normalizeAgentPolicy } from '../enclave/execution-policy';
 import { readBoundedEnclaveResult as readBoundedCloudHypervisorEnclaveResult } from '../enclave/invocation-result';
 export { readBoundedEnclaveResult as readBoundedCloudHypervisorEnclaveResult } from '../enclave/invocation-result';
@@ -21,11 +22,11 @@ import {
 } from '../enclave/host-executor-journal';
 import { HostPreflightReporter, markHostPreflightError } from './host-preflight-progress';
 import { guestExecutionFailureReason } from '../microvm/vsock-client';
-import { projectEnclaveSessionDiagnostics, readEnclaveSessionDiagnostics } from './enclave-session-diagnostics';
+import { projectEnclaveSessionDiagnostics, readEnclaveSessionDiagnostics, type EnclaveSessionDiagnostics } from './enclave-session-diagnostics';
 import { Writable } from 'stream';
 import { preservePublicEnclaveSession } from './diagnostics';
 import { preservePublicEnclaveArtifacts, readPublicEnclaveFile, type PublicEnclaveFailure,
-  type PublicEnclaveStage } from '../enclave/public-debug-artifacts';
+  type PublicEnclaveStage, type PublicEnclaveStream } from '../enclave/public-debug-artifacts';
 import { PublicEnclaveOperationRecorder, type PublicEnclaveOperationStage } from '../enclave/public-debug-events';
 import { DurableCloudHypervisorCleanupRegistry } from './cleanup-registry';
 import {
@@ -146,12 +147,11 @@ const defaultDependencies: HostEnclaveExecutorDependencies = {
   chown: fs.chown,
   rm: fs.rm,
   resolveIdentity: () => {
-    const uid = Number(process.env.SUDO_UID ?? process.getuid?.());
-    const gid = Number(process.env.SUDO_GID ?? process.getgid?.());
-    if (!Number.isSafeInteger(uid) || !Number.isSafeInteger(gid) || uid < 1 || gid < 1) {
+    const identity = resolveOperatorIdentity();
+    if (!identity) {
       throw new Error('Cloud Hypervisor enclave storage requires a non-root operator uid/gid');
     }
-    return { uid, gid };
+    return identity;
   },
 };
 
@@ -442,6 +442,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
     let guestWorkloadFailed = false;
     let cleanupError: unknown;
     let publicArtifact: Parameters<typeof preservePublicEnclaveArtifacts>[0] | undefined;
+    let publicSessionMetadata: EnclaveSessionDiagnostics | undefined;
     let publicStage: PublicEnclaveStage = 'setup';
     let publicFailure: PublicEnclaveFailure = 'setup-failed';
     let workloadExitCode: number | null = null;
@@ -782,10 +783,12 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
             undefined,
             undefined,
             this.options.publicDebugArtifactDirectory
-              ? (contents) => (dependencies.preservePublicSession ?? preservePublicEnclaveSession)(
+              ? (metadata) => {
+                publicSessionMetadata = JSON.parse(metadata) as EnclaveSessionDiagnostics;
+                return (dependencies.preservePublicSession ?? preservePublicEnclaveSession)(
                   path.join(this.options.publicDebugArtifactDirectory!, plan.runId, plan.invocationId),
                   this.options.publicDebugArtifactProtectedRoot!,
-                  contents,
+                  `${metadata}\n`,
                   policy ? [
                     policy.githubBearer ?? '', policy.githubAgentId ?? '', policy.modelBudgetSecret ?? '',
                     ...agentEnvironmentSecrets(policy, plan),
@@ -793,7 +796,8 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
                   resolveCloudHypervisorManagerDependencies(
                     invocationStorage?.managerDependencies ?? this.options.managerDependencies,
                   ),
-                )
+                );
+              }
               : undefined,
           ));
         } catch (error) {
@@ -811,18 +815,19 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
           const [stdout, stderr, session] = await Promise.all([
             readPublicEnclaveFile(directory, 'stdout.log', 0, 0),
             readPublicEnclaveFile(directory, 'stderr.log', 0, 0),
-            role === 'agent' ? readPublicEnclaveFile(directory, 'enclave-session.log', 0, 0)
+            publicSessionMetadata ? Promise.resolve<PublicEnclaveStream>({ status: 'captured' })
+              : role === 'agent' ? readPublicEnclaveFile(directory, 'enclave-session.log', 0, 0)
               : Promise.resolve({ status: 'not-applicable' as const }),
           ]);
-          const entrypoint = session.status === 'captured' && session.contents
+          const entrypoint = publicSessionMetadata ?? (session.status === 'captured' && session.contents
             ? projectEnclaveSessionDiagnostics(session.contents)
-            : stderr.status === 'captured' && stderr.contents ? projectEnclaveSessionDiagnostics(stderr.contents) : undefined;
+            : stderr.status === 'captured' && stderr.contents ? projectEnclaveSessionDiagnostics(stderr.contents) : undefined);
           publicOperations?.event('entrypoint-initialization', entrypoint?.events?.some(event =>
             event.event === 'progress' && ['runtime-paths-ready', 'preflight-completed', 'engine-started'].includes(String(event.stage)))
             ? 'succeeded' : 'unavailable');
           publicArtifact = {
             directory, protectedRoot: this.options.publicDebugArtifactProtectedRoot!,
-            stdout, stderr, session,
+            stdout, stderr, session, sessionMetadata: publicSessionMetadata,
             secrets: policy ? [
               policy.githubBearer ?? '', policy.githubAgentId ?? '', policy.modelBudgetSecret ?? '',
               ...agentEnvironmentSecrets(policy, plan),

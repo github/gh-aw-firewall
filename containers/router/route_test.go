@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json/jsontext"
-	"maps"
 	"math"
 	"reflect"
 	"slices"
@@ -168,7 +167,7 @@ func TestRouteUsesClassificationOrHeuristicLabels(t *testing.T) {
 	if got := ids(table.Route(req)); !slices.Equal(got, []string{"reasoning", "fast"}) {
 		t.Errorf("heuristic labels: ranked %v", got)
 	}
-	req.Classification = &ClassifierOutput{Labels: Labels{TaskType: TaskExplain, Scope: ScopeLocal, TaskComplexity: ComplexityUnknown}, Mode: RecommendBalanced}
+	req.Classification = &ClassifierOutput{Labels: Labels{TaskType: TaskAnalyze, Scope: ScopeLocal, TaskComplexity: ComplexityUnknown}, Mode: RecommendBalanced}
 	if got := ids(table.Route(req)); !slices.Equal(got, []string{"fast", "reasoning"}) {
 		t.Errorf("classified labels: ranked %v", got)
 	}
@@ -395,13 +394,8 @@ func TestBundledProfilesRouteAndClassify(t *testing.T) {
 		}
 	}
 
-	// The classifier order is the balanced table's order for the classifier cell.
-	balanced := s.tables[Profile{GoalCost, ModeBalanced}]
-	order := balanced.positions[ClassificationLabels.Key()]
-	ranking := slices.SortedFunc(maps.Keys(order), func(a, b Pair) int { return order[a] - order[b] })
-	if !slices.Equal(s.primary.Classification, ranking) {
-		t.Error("classifier order is not the balanced classifier cell")
-	}
+	// Training writes the classifier order, and every loaded table shares it.
+	ranking := s.primary.Classification
 	explicit := map[string]bool{}
 	for _, p := range ranking {
 		if p.Effort != "" {

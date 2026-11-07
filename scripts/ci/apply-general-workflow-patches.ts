@@ -53,6 +53,7 @@ const publishedAwfWorkflowLockFiles = new Set([
   'smoke-enclave-cloud-hypervisor.lock.yml',
   'smoke-enclave-cloud-hypervisor-copilot.lock.yml',
   'auth-doctor-updater.lock.yml',
+  'daily-agent-runtime-triage.lock.yml',
   'doc-maintainer.lock.yml',
   'model-api-mapping-updater.lock.yml',
   'pr-sous-chef.lock.yml',
