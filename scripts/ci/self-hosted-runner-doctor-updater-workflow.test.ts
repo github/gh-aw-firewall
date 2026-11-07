@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { spawnSync } from 'child_process';
 import * as yaml from 'js-yaml';
 
@@ -7,7 +8,99 @@ const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const sourcePath = path.join(workflowsDir, 'self-hosted-runner-doctor-updater.md');
 const lockPath = path.join(workflowsDir, 'self-hosted-runner-doctor-updater.lock.yml');
 
+function preparationScript(filePath: string): string {
+  const content = fs.readFileSync(filePath, 'utf-8');
+  const document = filePath === sourcePath ? content.split('---')[1] : content;
+  const workflow = yaml.load(document) as {
+    jobs: { prepare_candidates: { steps: { id?: string; run?: string }[] } };
+  };
+  const script = workflow.jobs.prepare_candidates.steps.find((step) => step.id === 'prepare')?.run;
+  if (!script) {
+    throw new Error(`Missing runner doctor preparation script in ${filePath}`);
+  }
+  return script;
+}
+
 describe('runner doctor updater workflow config', () => {
+  it.each([sourcePath, lockPath])('keeps every search within the Boolean limit in %s', (filePath) => {
+    const queries = preparationScript(filePath).match(/queries=\([\s\S]*?\n\)/)?.[0];
+    expect(queries).toBeDefined();
+    const result = spawnSync('bash', ['-c', `${queries}\nprintf '%s\\n' "\${queries[@]}"`], {
+      encoding: 'utf-8',
+      timeout: 10000,
+    });
+    expect(result.status).toBe(0);
+    const searches = result.stdout.trim().split('\n');
+    const terms: string[] = [];
+    for (const search of searches) {
+      expect((search.match(/\b(?:AND|OR|NOT)\b/g) ?? []).length).toBeLessThanOrEqual(5);
+      const queryTerms = [...search.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+      expect(queryTerms.length).toBeGreaterThan(0);
+      expect(queryTerms.length).toBeLessThanOrEqual(6);
+      expect(search).toBe(queryTerms.map((term) => `"${term}"`).join(' OR '));
+      terms.push(...queryTerms);
+    }
+    expect(terms).toEqual([
+      'ARC', 'DinD', 'self-hosted', 'GHES', 'GHEC', 'ghe.com',
+      'DOCKER_HOST', 'docker-host-path-prefix', 'chroot', 'musl', 'Alpine', 'IPv6',
+      'corporate proxy', 'cache_peer', 'GH_HOST', 'resolv.conf', 'toolcache', '_tool',
+      'one-shot-token', 'capsh', 'passwd',
+    ]);
+  });
+
+  it('preserves source/lock searches, filters, pagination, and candidate deduplication', () => {
+    const sourceScript = preparationScript(sourcePath);
+    expect(preparationScript(lockPath)).toBe(sourceScript);
+    const searchScript = sourceScript.slice(
+      sourceScript.indexOf('CANDIDATE_RESULTS='),
+      sourceScript.indexOf('rm "$CANDIDATE_RESULTS"')
+    );
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-doctor-search-'));
+    try {
+      const result = spawnSync('bash', ['-c', `
+        set -euo pipefail
+        gh() {
+          printf '%s\\n' "$@" >> "$CONTEXT_DIR/search-args.txt"
+          printf '%s\\n' '{"number":7,"title":"Closed issue","state":"closed","is_pull_request":false}'
+          printf '%s\\n' '{"number":3,"title":"Open PR","state":"open","is_pull_request":true}'
+        }
+        ${searchScript.replace(
+          'CANDIDATE_RESULTS=/tmp/gh-aw/candidate-results.jsonl',
+          'CANDIDATE_RESULTS="$CONTEXT_DIR/candidate-results.jsonl"'
+        )}
+      `], {
+        encoding: 'utf-8',
+        timeout: 10000,
+        env: {
+          PATH: process.env.PATH,
+          CONTEXT_DIR: directory,
+          GITHUB_REPOSITORY: 'github/gh-aw-firewall',
+          SINCE: '2026-11-05',
+        },
+      });
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+      const args = fs.readFileSync(path.join(directory, 'search-args.txt'), 'utf-8').trim().split('\n');
+      const queries = args.filter((arg) => arg.startsWith('q='));
+      expect(queries).toHaveLength(5);
+      for (const query of queries) {
+        expect(query).toMatch(/^q=repo:github\/gh-aw-firewall updated:>=2026-11-05 \(.+\)$/);
+      }
+      for (const argument of ['--method', 'GET', '--paginate', 'search/issues', 'per_page=100']) {
+        expect(args.filter((arg) => arg === argument)).toHaveLength(queries.length);
+      }
+      expect(args.filter((arg) => arg ===
+        '.items[] | {number, title, url, state, updated_at, is_pull_request: has("pull_request")}'
+      )).toHaveLength(queries.length);
+      expect(JSON.parse(fs.readFileSync(path.join(directory, 'candidates.json'), 'utf-8'))).toEqual([
+        { number: 3, title: 'Open PR', state: 'open', is_pull_request: true },
+        { number: 7, title: 'Closed issue', state: 'closed', is_pull_request: false },
+      ]);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('prepares compact runner-doctor context and gates the agent on candidates', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
