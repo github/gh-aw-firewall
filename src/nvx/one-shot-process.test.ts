@@ -40,6 +40,25 @@ describe('NVX one-shot process supervision', () => {
     expect(result).toMatchObject({ timedOut: true, cancelled: false });
   });
 
+  linuxIt('force-kills a timed-out process that ignores SIGTERM', async () => {
+    const result = await runNvxProcess({
+      command: process.execPath,
+      args: ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1_000)"],
+      cwd: process.cwd(),
+      env: process.env,
+      timeoutMs: 100,
+      onStdout: async () => {},
+      onStderr: async () => {},
+    });
+
+    expect(result).toMatchObject({
+      exitCode: null,
+      signal: 'SIGKILL',
+      timedOut: true,
+      cancelled: false,
+    });
+  });
+
   it('maps absent and known termination signals to shell exit codes', () => {
     expect(signalExitCode(null)).toBe(128);
     expect(signalExitCode('SIGTERM')).toBe(128 + osConstants.signals.SIGTERM);
