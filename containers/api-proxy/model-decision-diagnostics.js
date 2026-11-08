@@ -51,6 +51,10 @@ const ADVICE = Object.freeze({
     'Routing found no eligible choice. The summary does not establish whether policy, capability, or discovery caused it.'],
   provider_unavailable: ['unavailable', 'unknown', 'unknown',
     'The existing runtime path reported provider unavailability. This does not establish permanent model removal or a guaranteed retry.'],
+  routing_policy_violation: ['unknown', 'unknown', 'do_not_repeat',
+    'Routing reported a policy violation. The summary does not identify a rejected request or whether AWF or the provider supplied the reason. Do not repeat unchanged routing input.'],
+  routing_provider_unavailable: ['unknown', 'unknown', 'unknown',
+    'Routing reported provider_unavailable, which can also mean missing catalogue evidence. Actual provider availability and a valid retry condition are unknown.'],
   routing_timeout: ['unavailable', 'unknown', 'unknown',
     'The routing deadline elapsed. This summary supplies no authorized retry condition.'],
   routing_configuration_error: ['unavailable', 'operator_required', 'after_operator_change',
@@ -161,13 +165,12 @@ function projectModelDecisionDiagnostics(reflection, { context = 'unknown', rece
     // Copy only explicit exact runtime advertisements. Maintained/family routing
     // fallbacks must not become reasoning-support evidence in this projection.
     if (context === 'primary-agent' && endpoint.configured === true) {
-      for (const record of (runtimeMetadata[endpoint.provider] || []).slice(0, MAX_CURRENT)) {
+      for (const record of runtimeMetadata[endpoint.provider] || []) {
+        if (current.length > MAX_CURRENT) break;
         const model = visibleIdentity(endpoint.provider, record?.id, endpoints);
         if (!model || !Array.isArray(record.supportedReasoningEfforts) ||
             !Array.isArray(record.supportedEndpoints)) continue;
-        for (const path of record.supportedEndpoints.slice(0, 3)) {
-          const normalized = endpointFor(path);
-          if (!normalized) continue;
+        for (const normalized of new Set(record.supportedEndpoints.map(endpointFor).filter(Boolean))) {
           current.push({
             ...decision('capability_snapshot', { ...base, model, endpoint: normalized, observed: record.observedAt }),
             effort: effortEvidence(record.supportedReasoningEfforts, normalized),
@@ -183,7 +186,8 @@ function projectModelDecisionDiagnostics(reflection, { context = 'unknown', rece
   }
   if (reflection.routing?.status === 'failed') {
     const code = reflection.routing.failure_code;
-    current.push(decision(code === 'model_policy_violation' ? 'policy_denied' : code,
+    current.push(decision(code === 'model_policy_violation' ? 'routing_policy_violation'
+      : code === 'provider_unavailable' ? 'routing_provider_unavailable' : code,
       { context, source: 'routing' }));
   } else if (reflection.routing?.status === 'selected') {
     const selection = reflection.routing.selection;
@@ -195,6 +199,11 @@ function projectModelDecisionDiagnostics(reflection, { context = 'unknown', rece
   // The dedicated proxy is shared by invocations: its aggregate buckets cannot
   // establish the querying enclave's usage or execution-environment evidence.
   if (context === 'primary-agent') {
+    if (reflection.ai_credits?.pricing_error === 'pricing_resolution_error') {
+      accounting.push(decision('pricing_resolution_error', {
+        kind: 'accounting_summary', context: 'unknown', source: 'ai_credits',
+      }));
+    }
     for (const [key, usage] of Object.entries(reflection.ai_credits?.by_model || {}).slice(0, MAX_CURRENT + 1)) {
       const slash = key.indexOf('/');
       const provider = slash > 0 ? key.slice(0, slash) : null;

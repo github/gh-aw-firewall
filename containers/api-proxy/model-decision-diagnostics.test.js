@@ -228,14 +228,14 @@ test('existing routing pool failures distinguish policy denial from provider/cat
   try { buildRoutingCandidates({ catalogue }); } catch (error) { code = error.code; }
   expect(code).toBe('provider_unavailable');
   expect(reflect({ routing: { status: 'failed', failure_code: code } }).current.decisions.at(-1))
-    .toMatchObject({ reason: 'provider_unavailable', status: 'unavailable', action: { retry: 'unknown' } });
+    .toMatchObject({ reason: 'routing_provider_unavailable', status: 'unknown', action: { retry: 'unknown' } });
   try {
     buildRoutingCandidates({ catalogue: { ...catalogue, configured: true, discovery: 'complete',
       models: [{ id: 'effort-model' }] }, policy: { disallowedModels: ['*'] } });
   } catch (error) { code = error.code; }
   expect(code).toBe('model_policy_violation');
   expect(reflect({ routing: { status: 'failed', failure_code: code } }).current.decisions.at(-1))
-    .toMatchObject({ reason: 'policy_denied', action: { retry: 'do_not_repeat' } });
+    .toMatchObject({ reason: 'routing_policy_violation', status: 'unknown', action: { retry: 'do_not_repeat' } });
 });
 
 test('a supplied real family estimate stays accounting-only and contributes no effort or replacement evidence', () => {
@@ -313,6 +313,34 @@ test('projection is JSON-safe, strictly schema validated and bounded without mut
   expect(validateDiagnostics(JSON.parse(JSON.stringify(diagnostics)))).toBe(true);
   expect(validateDiagnostics({ ...diagnostics, prompt: 'forbidden' })).toBe(false);
   expect(validateDiagnostics({ ...diagnostics, context: 'forged-session' })).toBe(false);
+});
+
+test('hidden runtime records do not consume the public capability bound', () => {
+  const records = [
+    ...Array.from({ length: 64 }, (_, i) => ({ ...runtime[0], id: `hidden-${i}` })),
+    runtime[0],
+  ];
+  const diagnostics = reflect({}, { runtimeMetadata: { copilot: records } });
+  expect(diagnostics.current.decisions[1].effort.supported_values).toEqual(['low', 'high']);
+  expect(diagnostics.current.truncated).toBe(false);
+  expect(JSON.stringify(diagnostics)).not.toContain('hidden-');
+});
+
+test('endpoint evidence is normalized before bounding and deduplicated without losing valid endpoints', () => {
+  const diagnostics = reflect({}, { runtimeMetadata: { copilot: [{
+    ...runtime[0], supportedEndpoints: ['unknown-a', 'unknown-b', 'unknown-c', '/responses', '/v1/responses'],
+  }] } });
+  expect(diagnostics.current.decisions.filter(item => item.effort)).toHaveLength(1);
+  expect(diagnostics.current.decisions[1].scope.endpoint).toBe('/responses');
+  expect(diagnostics.current.truncated).toBe(false);
+});
+
+test('inference query identifiers and trailing slashes do not leak or prevent outcome capture', () => {
+  const observer = createModelDecisionObservation({ context: 'primary-agent' });
+  observe(observer, { type: 'model_policy_violation' }, { url: '/v1/responses/?nonce=private-query' });
+  const diagnostics = reflect({}, { recent: observer.getRecent() });
+  expect(diagnostics.recent.decisions[0].scope.endpoint).toBe('/responses');
+  expect(JSON.stringify(diagnostics)).not.toContain('private-query');
 });
 
 test('older-response absence remains unavailable, never zero-cost, support or permission', () => {

@@ -75,7 +75,9 @@ function createModelDecisionObservation({ context = 'unknown', getModels = () =>
     if (!reason) return;
     // A policy-denied model is intentionally never named, even if a later
     // policy/current inventory changes. We explain the rejection, not the rule.
-    const requestedModel = reason === 'policy_denied' ? null : modelId(error.model) || modelId(selected?.model);
+    // The initial selection is not the identity of a later fallback attempt.
+    // Only a structured identity on the rejecting response can name it.
+    const requestedModel = reason === 'policy_denied' ? null : modelId(error.model);
     const models = getModels()[provider];
     const visible = requestedModel && Array.isArray(models) && models.includes(requestedModel) &&
       isModelPermittedByPolicy(requestedModel, modelPolicy?.allowedModels ?? null,
@@ -85,7 +87,8 @@ function createModelDecisionObservation({ context = 'unknown', getModels = () =>
   }
 
   function observeRequest(req, res, provider) {
-    const endpoint = endpointFor(req.url);
+    const pathname = typeof req.url === 'string' ? req.url.split(/[?#]/, 1)[0].replace(/\/+$/, '') : null;
+    const endpoint = endpointFor(pathname);
     if (!enabled || req.method !== 'POST' || !endpoint || typeof res.once !== 'function') return;
     let pending = [];
     const originalEnd = res.end;

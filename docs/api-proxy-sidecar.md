@@ -1161,6 +1161,8 @@ captured local request rejections. It keeps at most 32 distinct outcomes for
 900 seconds; repeats with the same scope and request pins are coalesced
 (`occurrences` saturates at 1,000). Current and accounting summaries are each
 limited to 64 entries, with `truncated` indicating omitted entries.
+`recent.status: available` means the bounded observer is integrated, not that
+every request, session, or inference outcome is represented.
 
 For example, after a model-policy rejection, the relevant `/reflect` excerpt is:
 
@@ -1230,6 +1232,10 @@ constraints allow it. Do not assume omission is supported or guaranteed
 success. Without matching evidence, actionability is unknown: do not guess.
 The provider-free regression examples validate this correction against the
 real validator; they do not measure live-agent success rates.
+The rejecting attempt's identity remains null unless its response supplies a
+verified structured model ID. In particular, a fallback rejection is not
+evidence against the initially selected model. If the caller cannot establish
+which attempt was rejected, do not apply the correction example by guessing.
 
 Other responses:
 
@@ -1239,8 +1245,10 @@ Other responses:
   not a request header declaring a different harness.
 - `discovery_pending` permits re-evaluation after the existing
   `models_fetch_complete` field becomes true. Missing listings and
-  `provider_state_unknown` do not confirm unavailability. `provider_unavailable`
-  is a reported runtime/routing condition, not proof of permanent removal.
+  `provider_state_unknown` do not confirm unavailability. Routing summaries
+  label ambiguous `routing_provider_unavailable` and
+  `routing_policy_violation` separately: their coarse codes cannot establish
+  the underlying provider/decision authority or prove permanent removal.
 - `action.kind: unknown` and `retry: unknown` mean no valid corrective action or
   retry condition is established. They are not permission to retry indefinitely.
 - `accounting.decisions` copies the existing `ai_credits.by_model` pricing
@@ -1251,9 +1259,11 @@ Other responses:
   their context remains `unknown`, and a bucket without a qualified backend
   has `identity.provider: null`. Family membership establishes neither reasoning
   support, availability, nor replacement eligibility.
-- A `pricing_resolution_error` still returns the original HTTP **500** error
-  body, not a success-shaped diagnostics response. Stop and surface the
-  operator-required accounting failure.
+- When reflection itself encounters `pricing_resolution_error`, it still
+  returns the original HTTP **500** error body, not a success-shaped diagnostics
+  response. A latched `ai_credits.pricing_error` is also projected as an
+  operator-required accounting diagnostic without changing the legacy HTTP
+  status. Stop and surface the accounting failure.
 
 `evidence.eligibility_revision` and `catalogue_revision` retain request pins for
 captured outcomes where supplied; `observed_at` identifies the observation time.

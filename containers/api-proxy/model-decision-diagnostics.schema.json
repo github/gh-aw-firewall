@@ -68,6 +68,7 @@
             "policy_denied", "provider_not_configured", "provider_state_unknown", "discovery_pending",
             "capability_snapshot", "automatic_selection_no_candidates", "routing_selected", "no_route",
             "provider_unavailable", "routing_timeout", "routing_configuration_error", "routing_contract_error",
+            "routing_policy_violation", "routing_provider_unavailable",
             "unsupported_reasoning_effort", "harness_incompatible", "harness_unverified",
             "harness_constraint_invalid", "harness_selection_invalid", "harness_observation_invalid",
             "lifecycle_retired", "lifecycle_removed", "discovery_unavailable", "discovery_unknown",

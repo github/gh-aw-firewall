@@ -3,7 +3,7 @@
 const http = require('node:http');
 const https = require('node:https');
 const { EventEmitter } = require('node:events');
-const { makeReq, makeProxyReq, flushPromises } = require('./test-helpers/server-mock-factories');
+const { makeReq, makeProxyReq, makeProxyRes, flushPromises } = require('./test-helpers/server-mock-factories');
 const { collectLogOutput } = require('./test-helpers/log-test-helpers');
 
 let originalEnv, serverModule, requestSpy, logs;
@@ -97,7 +97,7 @@ test('production server injection captures real effort rejection without upstrea
   const rejected = before.model_decision_diagnostics.recent.decisions[0];
   expect(rejected).toMatchObject({
     kind: 'request_outcome', reason: 'unsupported_reasoning_effort', status: 'rejected',
-    identity: { provider: 'copilot', model_id: 'effort-model' },
+    identity: { provider: 'copilot', model_id: null },
     scope: { context: 'primary-agent', endpoint: '/responses', channel: 'copilot-api' },
     action: { kind: 'change_request', retry: 'do_not_repeat' },
     evidence: { eligibility_revision: req.awfEligibility.revision },
@@ -128,6 +128,49 @@ test('production policy guard records denial without publishing hidden inventory
   });
   expect(JSON.stringify(reflection.model_decision_diagnostics)).not.toContain('effort-model');
   expect(JSON.stringify(reflection.model_decision_diagnostics)).not.toContain('effort-*');
+  expect(requestSpy).not.toHaveBeenCalled();
+});
+
+test('real fallback effort rejection cannot become unsupported-effort evidence against the initial model', async () => {
+  process.env.AWF_FALLBACK_MODELS = JSON.stringify(['initial-model', 'fallback-model']);
+  load();
+  serverModule.cachedModels.copilot = ['initial-model', 'fallback-model'];
+  require('./runtime-model-catalog').replaceRuntimeModels('copilot', [
+    { id: 'initial-model', supportedEndpoints: ['/responses'], supportedReasoningEfforts: ['high'],
+      capabilities: { supports: { reasoning_effort: ['high'] } } },
+    { id: 'fallback-model', supportedEndpoints: ['/responses'], supportedReasoningEfforts: ['low'],
+      capabilities: { supports: { reasoning_effort: ['low'] } } },
+  ]);
+  require('./proxy-request')._setSleepForTests(() => Promise.resolve());
+  let respond;
+  requestSpy.mockImplementation((_options, callback) => { respond = callback; return makeProxyReq(); });
+  const server = productionServer();
+  const { req, res } = await post(server, 'initial-model', 'high');
+  expect(req.awfSelectedModelEligibility.model).toBe('initial-model');
+  expect(requestSpy).toHaveBeenCalledTimes(1);
+  const failure = makeProxyRes(400);
+  respond(failure);
+  failure.emit('data', Buffer.from(JSON.stringify({ error: { code: 'model_not_supported' } })));
+  failure.emit('end');
+  await flushPromises();
+  expect(res.statusCode).toBe(400);
+  expect(JSON.parse(res.body).error).toMatchObject({ code: 'unsupported_reasoning_effort' });
+  expect(JSON.parse(res.body).error.message).toContain('fallback-model');
+  expect(getReflection(server).model_decision_diagnostics.recent.decisions[0]).toMatchObject({
+    reason: 'unsupported_reasoning_effort', identity: { provider: 'copilot', model_id: null },
+  });
+  expect(requestSpy).toHaveBeenCalledTimes(1);
+});
+
+test('latched real accounting failure remains operator-required without changing legacy reflection status', () => {
+  const server = productionServer();
+  const { applyAiCreditsUsage } = require('./guards/ai-credits-guard');
+  expect(() => applyAiCreditsUsage({ input_tokens: Number.MAX_SAFE_INTEGER + 1 }, 'gpt-5.4', 'copilot')).toThrow();
+  const reflection = getReflection(server);
+  expect(reflection.ai_credits.pricing_error).toBe('pricing_resolution_error');
+  expect(reflection.model_decision_diagnostics.accounting.decisions[0]).toMatchObject({
+    reason: 'pricing_resolution_error', action: { kind: 'operator_required' },
+  });
   expect(requestSpy).not.toHaveBeenCalled();
 });
 
