@@ -104,7 +104,7 @@ export function applyGeneralWorkflowPatches(
     log.push('  Excluded OTLP credentials from both auditor sandboxes');
   }
 
-  const preparedSmokeImages = /(?:^|[/\\])smoke-(?:claude|copilot(?:-network-isolation)?|otel-tracing|services)\.lock\.yml$/.test(workflowPath)
+  const preparedSmokeImages = /(?:^|[/\\])smoke-(?:claude|copilot(?:-byok|-network-isolation)?|otel-tracing|services)\.lock\.yml$/.test(workflowPath)
     && content.includes('- name: Build local AWF smoke images\n');
   const preparedSmokeImageArgs =
     '--image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG:?}" --skip-pull';
@@ -591,6 +591,15 @@ export function applyGeneralWorkflowPatches(
       }
       content = content.replace(preparation[0], '');
       content = content.replace(localInstall, step => step + preparation[0]);
+      if (workflowPath.endsWith('smoke-services.lock.yml')) {
+        const connectivity = content.match(
+          /^ {6}- name: Require sandbox service connectivity\n(?: {8}.*\n|\n)*/m,
+        );
+        if (connectivity) {
+          content = content.replace(connectivity[0], '');
+          content = content.replace(preparation[0], step => step + connectivity[0]);
+        }
+      }
       content = content.split('\n').map(line => line.replace(
         /--build-local\b/g,
         /^\s*run: "/.test(line)
