@@ -1,18 +1,28 @@
 'use strict';
 
 const { resolveReasoning, assessReasoningEffort } = require('./catalogue-contract/reasoning');
-const { resolveModelIdentity } = require('./model-identity');
+const { identity: createIdentity } = require('./catalogue-contract/identity');
 const { resolveIdentity } = require('./catalogue-contract/resolution');
 const { getModelEligibilityScope } = require('./model-eligibility');
 const { lookupModelRoutingMetadata, getModelApiMapping } = require('./model-api-mapping');
 const { getRuntimeModels } = require('./runtime-model-catalog');
 const { isGithubCopilotCatalogTarget } = require('./providers/copilot-auth');
+const naming = require('./model-information.naming.generated.json');
 
 const modelPins = new WeakMap();
 const requestPins = new WeakMap();
 const NATIVE_PROVIDER_HOSTS = Object.freeze({
   openai: 'api.openai.com',
   anthropic: 'api.anthropic.com',
+});
+const REASONING_NATIVE_PROVIDER_HOSTS = Object.freeze({
+  ...NATIVE_PROVIDER_HOSTS,
+  gemini: 'generativelanguage.googleapis.com',
+  vertex: 'aiplatform.googleapis.com',
+});
+const DIRECT_MAINTAINED_EFFORTS = Object.freeze({
+  'anthropic/claude-opus-4-7': Object.freeze(['xhigh']),
+  'anthropic/claude-opus-4-8': Object.freeze(['xhigh']),
 });
 
 function runtimeFact(record, identity, scope) {
@@ -40,8 +50,8 @@ function runtimeFact(record, identity, scope) {
     field = 'capabilities.supports.reasoningEffort';
   } else if (scope.provider === 'copilot' && supports &&
       typeof supports === 'object' && !Array.isArray(supports)) {
-    rawEfforts = [];
     field = 'capabilities.supports';
+    if (scope.channel === 'copilot-api' && scope.deployment === undefined) rawEfforts = [];
   }
   if (!field) return null;
   if (Array.isArray(rawEfforts)) {
@@ -56,21 +66,60 @@ function runtimeFact(record, identity, scope) {
   };
 }
 
-function capturedIdentity(model, provider, scope, identities) {
-  const resolved = resolveModelIdentity(model, provider, { scope, policy: { providerPrefix: false } });
-  return resolved.matchKind === 'unmatched'
-    ? resolveIdentity(model, scope, { models: identities.map(identity => ({ identity })) },
-      { caseInsensitive: true, providerPrefix: false })
-    : resolved;
+function capturedIdentity(model, scope, identities = []) {
+  return resolveIdentity(model, scope, {
+    models: [...naming.models, ...identities.map(identity => ({ identity }))],
+  }, { caseInsensitive: true, providerPrefix: false });
+}
+
+function isNativeTarget(provider, targetHost, targetScheme) {
+  if (targetHost === undefined) return true;
+  if (targetScheme !== undefined && targetScheme !== 'https') return false;
+  let target;
+  try {
+    target = new URL(`${targetScheme || 'https'}://${targetHost}`);
+  } catch {
+    return false;
+  }
+  if (provider === 'copilot') {
+    return isGithubCopilotCatalogTarget(`${target.protocol}//${target.host}`);
+  }
+  const nativeHost = REASONING_NATIVE_PROVIDER_HOSTS[provider];
+  return nativeHost
+    ? target.hostname.toLowerCase() === nativeHost && (!target.port || target.port === '443')
+    : true;
+}
+
+function getReasoningScope(provider, targetHost, targetScheme, req = {}) {
+  const scope = getModelEligibilityScope(provider, req);
+  if (targetHost === undefined || isNativeTarget(provider, targetHost, targetScheme)) return scope;
+  let deploymentHost = targetHost.toLowerCase();
+  try {
+    deploymentHost = new URL(`${targetScheme || 'https'}://${targetHost}`).host.toLowerCase();
+  } catch {
+    return { ...scope, deployment: `${targetScheme || 'https'}://${deploymentHost}` };
+  }
+  return {
+    ...scope,
+    deployment: `${targetScheme || 'https'}://${deploymentHost}`,
+  };
 }
 
 function resolveModelReasoning(model, provider, { records = getRuntimeModels(provider) || [], scope, maintained = true } = {}) {
   scope = { ...getModelEligibilityScope(provider), ...scope, provider };
-  const captured = records.filter(record => !record.provider || record.provider === provider).map(record => ({
+  const providerRecords = records.filter(record => !record.provider || record.provider === provider);
+  const capturedIdentities = providerRecords.map(record => {
+    try {
+      return createIdentity(provider, record.id);
+    } catch {
+      return null;
+    }
+  }).filter(Boolean);
+  const captured = providerRecords.map(record => ({
     record,
-    identity: resolveModelIdentity(record.id, provider, { scope, policy: { providerPrefix: false } }).identity,
+    identity: capturedIdentity(record.id, scope, capturedIdentities).identity,
   }));
-  const resolution = capturedIdentity(model, provider, scope, captured.map(entry => entry.identity).filter(Boolean));
+  const resolution = capturedIdentity(model, scope, capturedIdentities);
   const facts = [];
   for (const { record, identity: exact } of captured) {
     if (!exact || !resolution.identity || exact.key !== resolution.identity.key) continue;
@@ -104,18 +153,21 @@ function getModelReasoning(model, provider) {
   });
 }
 
+function getDirectMaintainedEfforts(decision) {
+  if (!decision.observations.some(observation =>
+    observation.selected && observation.authority === 'maintained')) return [];
+  return DIRECT_MAINTAINED_EFFORTS[decision.identity?.key] || [];
+}
+
 function getRequestReasoning(model, provider, runtimeCatalog, req = {}, options = {}) {
-  const scope = getModelEligibilityScope(provider, req);
-  const nativeTarget = options.targetHost === undefined || (
-    (provider === 'copilot' ? isGithubCopilotCatalogTarget(options.targetHost)
-      : options.targetHost.toLowerCase() === NATIVE_PROVIDER_HOSTS[provider]) &&
-    (options.targetScheme === undefined || options.targetScheme === 'https'));
+  const nativeTarget = isNativeTarget(provider, options.targetHost, options.targetScheme);
+  const scope = getReasoningScope(provider, options.targetHost, options.targetScheme, req);
   const key = JSON.stringify([provider, model, scope, nativeTarget]);
   let pins = requestPins.get(req);
   if (!pins) requestPins.set(req, pins = new Map());
   if (!pins.has(key)) {
     const selected = req.awfReasoning;
-    const resolved = capturedIdentity(model, provider, scope, selected?.identity ? [selected.identity] : []);
+    const resolved = capturedIdentity(model, scope, selected?.identity ? [selected.identity] : []);
     const matches = nativeTarget && selected?.identity && resolved.identity &&
       selected.identity.key === resolved.identity.key &&
       selected.scope.provider === scope.provider && selected.scope.channel === scope.channel &&
@@ -130,5 +182,5 @@ function getRequestReasoning(model, provider, runtimeCatalog, req = {}, options 
 
 module.exports = {
   resolveModelReasoning, pinModelReasoning, getModelReasoning, getRequestReasoning, assessReasoningEffort,
-  NATIVE_PROVIDER_HOSTS,
+  getReasoningScope, getDirectMaintainedEfforts, NATIVE_PROVIDER_HOSTS,
 };

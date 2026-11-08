@@ -1753,21 +1753,25 @@ and do not activate lower-authority maintained evidence. Provider facts outrank
 the existing maintained native-API routing mappings. Those mappings apply only
 to their reviewed patterns on the matching provider/channel without a custom
 deployment; they never establish support on another backend. Imported or
-target-only records are not active evidence. Legacy unscoped runtime observations
-are confined to their provider's default API channel and deployment, never
-re-scoped to the requesting deployment. Native selection pins are not adopted
-on custom targets. Same-authority contradictions
-produce an unknown decision, with structured reason codes. Non-string elements
-in an otherwise usable effort array are ignored with a reason, preserving the
-router's existing mixed-array behavior.
+target-only records are not active evidence. Model-list observations carry the
+backend/deployment scope derived from their fetch target; legacy unscoped runtime
+observations remain confined to their provider's default API channel and
+deployment. Native selection pins are not adopted on custom targets.
+Same-authority contradictions produce an unknown decision, with structured
+reason codes. Non-string elements in an otherwise usable effort array are
+ignored with a reason, preserving the router's existing mixed-array behavior.
 
-Intentional direct-validation corrections are regression-backed: it now rejects
-efforts outside active maintained native evidence, and rejects explicit efforts
-when Copilot advertises a valid supports object without effort control, as
-routing already did. Exact/scoped identity resolution replaces the broad
-runtime pricing normalizer for this decision; dated, dotted or same-slug IDs
-do not borrow support without a reviewed alias. Provider-native IDs are not
-prefix-stripped again after the request adapter resolves them.
+Intentional direct-validation corrections are regression-backed: it rejects
+explicit efforts when native Copilot advertises a valid supports object without
+effort control. Maintained native routing lists are not exhaustive direct
+rejection lists: exact, reviewed direct-support exceptions can admit an effort
+without making it selectable for automatic routing. This keeps Opus 4.7/4.8
+`xhigh` support from being rejected while it remains unavailable for automatic
+selection; other efforts outside active evidence continue to be rejected.
+Exact/scoped identity resolution replaces the broad runtime pricing normalizer
+for this decision; dated, dotted or same-slug IDs do not borrow support without
+a reviewed alias. Provider-native IDs are not prefix-stripped again after the
+request adapter resolves them.
 
 Genuinely absent, unknown, malformed or unverified conditional support retains
 the direct unknown-support pass-through policy. Automatic routing requires
@@ -1776,13 +1780,17 @@ their provenance survive observations and decisions but cannot become automatic
 choices. Explicit unsupported requests are still rejected, including `none`;
 `none` is not omitted effort. Chat Completions, Responses and Messages retain
 their existing fields, non-string handling and `unsupported_reasoning_effort`
-400 error contract. No consumer strips, substitutes or inserts an effort.
+400 error contract, including the original space-separated supported-values
+format. Reflected supported values have controls stripped and bounded before
+rendering. No consumer strips, substitutes or inserts an effort.
 
 Required/optional modes and defaults are exposed only when evidenced. Current
 active maintained mappings do not reliably supply them, so they remain unknown
 and no default is inserted. In particular, the staged specialized GPT, Haiku,
 and Opus/Fable/Mythos `xhigh` refinements above remain inactive; active Opus 4.6,
-4.7 and 4.8 mappings still share their existing effort list.
+4.7 and 4.8 mappings still share their existing effort list. Direct validation
+admits the reviewed `xhigh` exception but does not interpret other omissions
+from that routing list as direct support.
 
 Decisions copy and deeply freeze their facts. Routing snapshots and classifier
 requests retain their selected reasoning decision; direct requests cache

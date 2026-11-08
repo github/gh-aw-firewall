@@ -40,5 +40,6 @@ export interface ReasoningDecision {
 }
 export function resolveReasoning(input: ReasoningInput): ReasoningDecision;
 export function assessReasoningEffort(
-  decision: ReasoningDecision, effort: string | undefined, options?: { automatic?: boolean },
+  decision: ReasoningDecision, effort: string | undefined,
+  options?: { automatic?: boolean; directMaintainedEfforts?: readonly string[] },
 ): Readonly<{ admitted: boolean; reasons: readonly ReasoningReason[] }>;

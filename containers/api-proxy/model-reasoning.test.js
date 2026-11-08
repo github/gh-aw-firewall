@@ -3,7 +3,10 @@
 const {
   parseProviderModelMetadata, replaceRuntimeModels, clearRuntimeModels, captureRuntimePricing,
 } = require('./runtime-model-catalog');
-const { resolveModelReasoning, getModelReasoning, getRequestReasoning } = require('./model-reasoning');
+const {
+  resolveModelReasoning, getModelReasoning, getRequestReasoning, assessReasoningEffort,
+  getReasoningScope,
+} = require('./model-reasoning');
 const { normalizeModel } = require('./routing-catalogue');
 const { getModelRoutingChoices, buildRoutingCandidates } = require('./routing-candidates');
 const { validateReasoningEffort } = require('./reasoning-effort-validation');
@@ -98,7 +101,6 @@ describe('shared direct and routing reasoning adapters', () => {
         models: [
           { identity: { ...identity('copilot', 'exact'),
             aliases: [{ id: 'literal', match: 'exact', scope }] } },
-          { identity: identity('copilot', 'literal') },
         ],
       }));
       const resolve = require('./model-reasoning').resolveModelReasoning;
@@ -145,6 +147,53 @@ describe('shared direct and routing reasoning adapters', () => {
     expect(getRequestReasoning('gpt-5.4', 'openai', {}, {}, {
       targetHost: 'api.openai.com', targetScheme: 'http',
     }).support).toBe('absent');
+  });
+
+  it('does not reject direct efforts omitted from maintained native routing lists', () => {
+    for (const model of ['claude-opus-4-7', 'claude-opus-4-8']) {
+      const decision = getRequestReasoning(model, 'anthropic', { anthropic: [] }, {}, {
+        targetHost: 'api.anthropic.com',
+      });
+      expect(decision.support).toBe('supported');
+      expect(decision.supportedEfforts).not.toContain('xhigh');
+      expect(assessReasoningEffort(decision, 'xhigh', { automatic: true }).admitted).toBe(false);
+      expect(assessReasoningEffort(decision, 'xhigh', {
+        directMaintainedEfforts: ['xhigh'],
+      }).admitted).toBe(true);
+      expect(() => validateReasoningEffort(Buffer.from(JSON.stringify({
+        model, output_config: { effort: 'xhigh' },
+      })), 'anthropic', '/messages', { anthropic: [] }, {}, {
+        targetHost: 'api.anthropic.com',
+      })).not.toThrow();
+    }
+    expect(() => validateReasoningEffort(Buffer.from(JSON.stringify({
+      model: 'claude-opus-4-6', output_config: { effort: 'xhigh' },
+    })), 'anthropic', '/messages', { anthropic: [] }, {}, {
+      targetHost: 'api.anthropic.com',
+    })).toThrow(expect.objectContaining({ code: 'unsupported_reasoning_effort' }));
+  });
+
+  it('scopes custom runtime evidence to its backend and limits Copilot omission to native catalogs', () => {
+    expect(getReasoningScope('gemini', 'generativelanguage.googleapis.com', 'https'))
+      .toEqual({ provider: 'gemini', channel: 'native-api' });
+    expect(getReasoningScope('openai', 'api.openai.com:443', 'https'))
+      .toEqual({ provider: 'openai', channel: 'native-api' });
+    expect(getReasoningScope('gemini', 'custom.example', 'https')).toEqual({
+      provider: 'gemini', channel: 'native-api', deployment: 'https://custom.example',
+    });
+    const scope = getReasoningScope('copilot', 'byok.example', 'https');
+    expect(scope).toEqual({
+      provider: 'copilot', channel: 'copilot-api', deployment: 'https://byok.example',
+    });
+    const decision = getRequestReasoning('byok-model', 'copilot', { copilot: [{
+      id: 'byok-model', scope, capabilities: { supports: { streaming: true } },
+    }] }, {}, { targetHost: 'byok.example', targetScheme: 'https' });
+    expect(decision.support).toBe('unknown');
+
+    const native = getRequestReasoning('native-model', 'copilot', { copilot: [{
+      id: 'native-model', capabilities: { supports: { streaming: true } },
+    }] }, {}, { targetHost: 'api.githubcopilot.com', targetScheme: 'https' });
+    expect(native.support).toBe('unsupported');
   });
 
   it('pins direct decisions and candidate pools while refresh affects subsequent requests', () => {

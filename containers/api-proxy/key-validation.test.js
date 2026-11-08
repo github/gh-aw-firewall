@@ -11,6 +11,8 @@ const discovery = require('./model-discovery');
 const { logRequest } = require('./logging');
 const validation = require('./key-validation');
 const { createCopilotTokenBrokerAdapter } = require('./providers/copilot-token-broker');
+const { getRuntimeModels } = require('./runtime-model-catalog');
+const { getRequestReasoning } = require('./model-reasoning');
 
 function deferred() {
   let resolve, reject;
@@ -148,6 +150,26 @@ describe('renewable startup key validation', () => {
     expect(adapter.isReady()).toBe(true);
     expect(exit).not.toHaveBeenCalled();
     adapter.shutdown();
+  });
+
+  test('scopes BYOK model metadata to the fetched target', async () => {
+    discovery.fetchJson.mockResolvedValue({
+      data: [{ id: 'byok-model', capabilities: { supports: { streaming: true } } }],
+    });
+    await validation.fetchStartupModels([{
+      name: 'copilot',
+      getModelsFetchConfig: () => ({
+        url: 'https://byok.example/v1/models', cacheKey: 'copilot', modelMetadataFormat: 'openai',
+      }),
+    }]);
+
+    const records = getRuntimeModels('copilot');
+    expect(records[0].scope).toEqual({
+      provider: 'copilot', channel: 'copilot-api', deployment: 'https://byok.example',
+    });
+    expect(getRequestReasoning('byok-model', 'copilot', { copilot: records }, {}, {
+      targetHost: 'byok.example', targetScheme: 'https',
+    }).support).toBe('unknown');
   });
 
   test.each([401, 403])('late HTTP %s rejection revokes concurrently accepted renewable auth', async status => {

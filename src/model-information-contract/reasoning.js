@@ -103,8 +103,14 @@ function resolveReasoning({ identity, scope, facts = [] }) {
   });
 }
 
-function assessReasoningEffort(decision, effort, { automatic = false } = {}) {
+function assessReasoningEffort(decision, effort, {
+  automatic = false,
+  directMaintainedEfforts = [],
+} = {}) {
   let code;
+  const maintainedEvidence = decision.observations?.some(observation =>
+    observation.selected && observation.authority === 'maintained');
+  const directMaintainedEffort = maintainedEvidence && directMaintainedEfforts.includes(effort);
   if (effort === undefined) {
     if (decision.mode === 'required') code = 'reasoning_effort_required';
     else if (automatic && decision.support !== 'unsupported' &&
@@ -113,7 +119,8 @@ function assessReasoningEffort(decision, effort, { automatic = false } = {}) {
     }
   } else if (decision.mode === 'forbidden' || decision.support === 'unsupported') {
     code = 'reasoning_effort_forbidden';
-  } else if (decision.support === 'supported' && !decision.supportedEfforts.includes(effort)) {
+  } else if (decision.support === 'supported' && !decision.supportedEfforts.includes(effort) &&
+      !directMaintainedEffort) {
     code = 'reasoning_effort_unsupported';
   } else if (automatic && decision.support !== 'supported') {
     code = 'reasoning_automatic_requires_known_support';

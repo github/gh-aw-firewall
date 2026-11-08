@@ -360,7 +360,7 @@ describe('budget steering and injectSteeringMessage', () => {
       error: {
         type: 'invalid_request_error',
         code: 'unsupported_reasoning_effort',
-        message: 'reasoning_effort "short" is not supported by model gpt-5-mini; supported values: ["low","medium","high"]',
+        message: 'reasoning_effort "short" is not supported by model gpt-5-mini; supported values: [low medium high]',
       },
     });
     expect(getAiCreditsReflectState().thresholds_pending).toEqual([]);

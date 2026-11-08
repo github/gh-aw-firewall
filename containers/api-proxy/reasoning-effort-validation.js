@@ -1,6 +1,8 @@
 'use strict';
 
-const { getRequestReasoning, assessReasoningEffort } = require('./model-reasoning');
+const {
+  getRequestReasoning, assessReasoningEffort, getDirectMaintainedEfforts,
+} = require('./model-reasoning');
 
 function getReasoningEffort(parsed, url) {
   let pathname;
@@ -34,20 +36,33 @@ function validateReasoningEffort(body, provider, url, runtimeCatalog, req, optio
   const requested = getReasoningEffort(parsed, url);
   if (!requested || (requested.value !== undefined && typeof requested.value !== 'string')) return;
   const decision = getRequestReasoning(parsed.model, provider, runtimeCatalog, req, options);
-  if (assessReasoningEffort(decision, requested.value).admitted) return;
+  if (assessReasoningEffort(decision, requested.value, {
+    directMaintainedEfforts: getDirectMaintainedEfforts(decision),
+  }).admitted) return;
   const supported = Array.isArray(decision.supportedEfforts) ? decision.supportedEfforts : [];
-  const safeSupported = supported
-    .slice(0, 20)
-    .map((value) =>
-      String(value)
-        .replace(/[\u0000-\u001F\u007F]/g, ' ')
-        .trim()
-        .slice(0, 64),
-    );
+  const safeSupported = [];
+  let remaining = 256;
+  for (const value of supported.slice(0, 20)) {
+    if (remaining <= 0) break;
+    let item;
+    try {
+      item = String(value);
+    } catch {
+      continue;
+    }
+    item = item.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '').slice(0, 64);
+    const separatorLength = safeSupported.length ? 1 : 0;
+    if (item.length + separatorLength > remaining) {
+      item = item.slice(0, remaining - separatorLength);
+    }
+    if (!item) continue;
+    safeSupported.push(item);
+    remaining -= item.length + separatorLength;
+  }
 
   const error = new Error(
     `${requested.field} ${JSON.stringify(requested.value)} is not supported by model ${parsed.model}; ` +
-    `supported values: ${JSON.stringify(safeSupported)}`,
+    `supported values: [${safeSupported.join(' ')}]`,
   );
   error.statusCode = 400;
   error.type = 'invalid_request_error';

@@ -23,7 +23,7 @@ describe('validateReasoningEffort', () => {
     )).toThrow(expect.objectContaining({
       statusCode: 400,
       code: 'unsupported_reasoning_effort',
-      message: `${field} "short" is not supported by model gpt-5-mini; supported values: ["low","medium","high"]`,
+      message: `${field} "short" is not supported by model gpt-5-mini; supported values: [low medium high]`,
     }));
   });
 
@@ -85,6 +85,23 @@ describe('validateReasoningEffort', () => {
         statusCode: 400, type: 'invalid_request_error', code: 'unsupported_reasoning_effort',
         message: `${field} "future" is not supported by model exact-test; supported values: []`,
       }));
+  });
+
+  it('sanitizes and bounds provider values while preserving the error format', () => {
+    const longEfforts = Array.from({ length: 24 }, (_, index) => `${index}-${'v'.repeat(62)}`);
+    replaceRuntimeModels('copilot', [{
+      id: 'gpt-5-mini',
+      supportedReasoningEfforts: ['low\ninjected\u202e', 'x'.repeat(80), ...longEfforts],
+    }]);
+
+    expect(() => validateReasoningEffort(
+      Buffer.from(JSON.stringify({ model: 'gpt-5-mini', reasoning_effort: 'short' })),
+      'copilot',
+      '/v1/chat/completions',
+    )).toThrow(expect.objectContaining({
+      message: `reasoning_effort "short" is not supported by model gpt-5-mini; supported values: [` +
+        ['lowinjected', 'x'.repeat(64), longEfforts[0], longEfforts[1], longEfforts[2].slice(0, 49)].join(' ') + ']',
+    }));
   });
 
   it('uses active maintained native evidence but still passes genuinely unknown support through', () => {
