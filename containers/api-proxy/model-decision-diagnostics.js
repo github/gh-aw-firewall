@@ -189,9 +189,16 @@ function projectModelDecisionDiagnostics(reflection, { context = 'unknown', rece
   }
   if (reflection.routing?.status === 'failed') {
     const code = reflection.routing.failure_code;
-    current.push(decision(code === 'model_policy_violation' ? 'routing_policy_violation'
-      : code === 'provider_unavailable' ? 'routing_provider_unavailable' : code,
-      { context, source: 'routing' }));
+    const routingReasons = {
+      model_policy_violation: 'routing_policy_violation',
+      provider_unavailable: 'routing_provider_unavailable',
+      no_route: 'no_route',
+      routing_timeout: 'routing_timeout',
+      routing_configuration_error: 'routing_configuration_error',
+      routing_contract_error: 'routing_contract_error',
+    };
+    current.push(decision(Object.hasOwn(routingReasons, code)
+      ? routingReasons[code] : 'decision_unknown', { context, source: 'routing' }));
   } else if (reflection.routing?.status === 'selected') {
     const selection = reflection.routing.selection;
     current.push(decision('routing_selected', { context, source: 'routing', provider: selection?.provider,
