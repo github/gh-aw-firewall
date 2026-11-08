@@ -38,6 +38,25 @@ const latestTimestamp = provenances => provenances
   .map(item => new Date(item.at).toISOString()).sort().at(-1);
 
 function compile() {
+  if (process.argv.includes('--contracts-only') || process.argv.includes('--reasoning-types-only')) {
+    const typesOnly = process.argv.includes('--reasoning-types-only');
+    const directories = typesOnly ? ['dist/model-information-contract']
+      : ['containers/api-proxy/catalogue-contract', 'src/model-information-contract'];
+    const files = typesOnly ? ['identity.d.ts', 'resolution.d.ts', 'reasoning.d.ts']
+      : ['reasoning.js', 'reasoning.d.ts'];
+    for (const directory of directories) {
+      for (const file of files) {
+        const content = fs.readFileSync(path.join(root, 'shared/model-information', file), 'utf8');
+        const filename = path.join(root, directory, file);
+        if (process.argv.includes('--check')) {
+          if (!fs.existsSync(filename) || fs.readFileSync(filename, 'utf8') !== content) {
+            throw new Error(`${directory}/${file}: stale reasoning contract`);
+          }
+        } else fs.writeFileSync(filename, content);
+      }
+    }
+    return;
+  }
   const files = fs.readdirSync(sources).filter(file => file.endsWith('.json')).sort();
   const importedFile = 'shared/model-information/imported/legacy-models-dev.snapshot.v1.json';
   const expectedImport = importLegacySnapshot(
@@ -502,6 +521,7 @@ function compile() {
   errors.push(...validate('resolvedExport', JSON.parse(output['shared/model-information/catalog.generated.json'])));
   errors.push(...validate('resolvedExport', JSON.parse(output['shared/model-information/target.generated.json'])));
   for (const file of ['contracts.js', 'contracts.d.ts', 'identity.js', 'identity.d.ts', 'resolution.js', 'resolution.d.ts',
+    'reasoning.js', 'reasoning.d.ts',
     'eligibility.js', 'eligibility.d.ts', 'harness-observation.js', 'harness-observation.d.ts',
     'pricing-resolution.js', 'pricing-resolution.d.ts', 'exact-pricing.js', 'schema.v1.json',
     'publication.v1.schema.json', 'publication-contract.cjs', 'publication.cjs']) {
@@ -509,6 +529,7 @@ function compile() {
       fs.readFileSync(path.join(root, 'shared/model-information', file), 'utf8');
   }
   for (const file of ['identity.js', 'identity.d.ts', 'resolution.js', 'resolution.d.ts', 'eligibility.js', 'eligibility.d.ts',
+    'reasoning.js', 'reasoning.d.ts',
     'harness-observation.js', 'harness-observation.d.ts', 'pricing-resolution.js', 'pricing-resolution.d.ts',
     'exact-pricing.js']) {
     output[`src/model-information-contract/${file}`] =

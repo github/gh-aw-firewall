@@ -2,11 +2,7 @@
 
 const { createRoutingError } = require('./routing-errors');
 const { lookupModelEndpoints, lookupModelRoutingMetadata } = require('./model-api-mapping');
-
-const NATIVE_PROVIDER_HOSTS = Object.freeze({
-  openai: 'api.openai.com',
-  anthropic: 'api.anthropic.com',
-});
+const { resolveModelReasoning, pinModelReasoning, NATIVE_PROVIDER_HOSTS } = require('./model-reasoning');
 
 function isNativeAdapter(adapter, provider) {
   if (
@@ -33,23 +29,14 @@ function freezeModel(model) {
   return Object.freeze(model);
 }
 
-// Copilot /models advertises efforts as capabilities.supports.reasoning_effort
-// and omits that key for models without effort control.
-function normalizeEfforts(metadata, mapped, provider) {
-  if (Array.isArray(metadata?.supportedReasoningEfforts)) return [...metadata.supportedReasoningEfforts];
-  const supports = metadata?.capabilities?.supports;
-  if (!supports || typeof supports !== 'object' || Array.isArray(supports)) return mapped?.reasoningEfforts;
-  if (Array.isArray(supports.reasoning_effort)) return [...supports.reasoning_effort];
-  if (supports.reasoningEffort === false) return [];
-  if (Object.hasOwn(supports, 'reasoning_effort') || Object.hasOwn(supports, 'reasoningEffort')) return undefined;
-  return provider === 'copilot' ? [] : mapped?.reasoningEfforts;
-}
-
-function normalizeModel(id, metadata, provider) {
+function normalizeModel(id, metadata, provider, scope, records) {
   const mapped = lookupModelRoutingMetadata(id, provider);
   const endpointMapping = lookupModelEndpoints(id, provider);
   const limits = metadata?.capabilities?.limits;
-  const efforts = normalizeEfforts(metadata, mapped, provider);
+  const reasoning = resolveModelReasoning(id, provider, {
+    records: records || (metadata ? [{ ...metadata, id: metadata.id || id }] : []), scope,
+  });
+  const efforts = ['absent', 'unknown'].includes(reasoning.support) ? undefined : reasoning.supportedEfforts;
   const runtimeContextWindow = limits?.max_context_window_tokens;
   const contextWindow = Number.isInteger(runtimeContextWindow) && runtimeContextWindow > 0
     ? runtimeContextWindow
@@ -72,7 +59,7 @@ function normalizeModel(id, metadata, provider) {
       ? new Set(['responses', 'chat-completions', 'messages'])
       : new Set(['responses', 'chat-completions']);
 
-  return freezeModel({
+  return pinModelReasoning(freezeModel({
     id,
     ...(efforts === undefined ? {} : { efforts }),
     ...(Number.isInteger(contextWindow) && contextWindow > 0 ? { contextWindow } : {}),
@@ -80,7 +67,7 @@ function normalizeModel(id, metadata, provider) {
     ...(typeof metadata?.modelPickerEnabled === 'boolean'
       ? { modelPickerEnabled: metadata.modelPickerEnabled }
       : {}),
-  });
+  }), reasoning);
 }
 
 function createRoutingCatalogue({ getAdapter, getCopilotAdapter, getDiscoveredModels, getRuntimeModels }) {
@@ -97,7 +84,7 @@ function createRoutingCatalogue({ getAdapter, getCopilotAdapter, getDiscoveredMo
   }
 
   return Object.freeze({
-    async getSnapshot({ signal, provider = 'copilot' } = {}) {
+    async getSnapshot({ signal, provider = 'copilot', scope } = {}) {
       if (signal?.aborted) {
         throw createRoutingError('routing_cancelled', 'Model routing was cancelled');
       }
@@ -113,10 +100,9 @@ function createRoutingCatalogue({ getAdapter, getCopilotAdapter, getDiscoveredMo
         });
       }
 
-      const metadataById = new Map(
-        (getRuntimeModels(provider) || []).map(model => [model.id.toLowerCase(), model]),
-      );
-      const models = discovered.map(id => normalizeModel(id, metadataById.get(id.toLowerCase()), provider));
+      const records = getRuntimeModels(provider) || [];
+      const metadataById = new Map(records.map(model => [model.id.toLowerCase(), model]));
+      const models = discovered.map(id => normalizeModel(id, metadataById.get(id.toLowerCase()), provider, scope, records));
       return Object.freeze({
         provider,
         configured: true,

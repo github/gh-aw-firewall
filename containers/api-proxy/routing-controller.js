@@ -3,6 +3,7 @@
 const { createHash } = require('crypto');
 const { buildRoutingCandidates } = require('./routing-candidates');
 const { pinRequestEligibility, proxyEligibilityStore } = require('./model-eligibility');
+const { getModelReasoning } = require('./model-reasoning');
 const { extractClassifierOutput, preflightClassifierRequest } = require('./routing-classifier');
 const {
   assertPlanningRequestSize,
@@ -158,7 +159,7 @@ function createRoutingController(dependencies) {
       validateCapabilities(rawCapabilities, config.objective, routerIdentity);
 
       const snapshot = await runPhase(({ signal: phaseSignal }) =>
-        catalogue.getSnapshot({ signal: phaseSignal, provider: config.provider || 'copilot' }));
+        catalogue.getSnapshot({ signal: phaseSignal, provider: config.provider || 'copilot', scope: eligibilityRequest.awfEligibilityScope }));
       const pool = buildRoutingCandidates({ catalogue: snapshot, policy, candidateModels: config.candidateModels, eligibilityRequest });
       catalogueOverlap = countCatalogueOverlap(rawCapabilities, pool.choices);
 
@@ -215,6 +216,7 @@ function createRoutingController(dependencies) {
               provider: mapping.provider,
               awfEligibility: eligibilityRequest.awfEligibility,
               awfEligibilityScope: eligibilityRequest.awfEligibilityScope,
+              awfReasoning: getModelReasoning(mapping, mapping.provider),
             }, { signal: phaseSignal, timeoutMs }),
             {
               signal,

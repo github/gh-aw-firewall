@@ -116,6 +116,7 @@ function createRoutingProviderExecutor({
       req.awfRequestContext = Object.freeze({ purpose: 'routing_classification', signal });
       req.awfEligibility = request.awfEligibility;
       req.awfEligibilityScope = request.awfEligibilityScope;
+      req.awfReasoning = request.awfReasoning;
       const res = new BufferedResponse(MAX_CLASSIFIER_RESPONSE_BYTES);
       return new Promise((resolve, reject) => {
         let settled = false;

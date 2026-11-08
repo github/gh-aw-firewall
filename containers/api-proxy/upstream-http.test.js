@@ -716,6 +716,7 @@ describe('upstream-http', () => {
       requestBytes: body.length,
       req,
       res,
+      targetHost: 'api.githubcopilot.com',
     }));
 
     expect(httpsRequest).not.toHaveBeenCalled();
@@ -848,6 +849,7 @@ describe('upstream-http', () => {
         requestBytes: body.length,
         req,
         res,
+        targetHost: 'api.githubcopilot.com',
       }));
 
       if (fallbackType === 'ordered fallback') {

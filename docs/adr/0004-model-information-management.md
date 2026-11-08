@@ -1736,6 +1736,78 @@ Unify routing, validation, and reflection on resolved reasoning data. Add the
 feature compatibility model and connect translator rejection to declared
 requirements for each directed protocol pair and translator revision.
 
+#### Bounded exact-model reasoning slice
+
+`shared/model-information/reasoning.{js,d.ts}` supplies an internal, read-only
+decision for exact provider-qualified identities and captured scoped facts.
+Direct effort validation and routing use the same proxy adapter and decision.
+This does not complete Gate 6, activate staged targets, or add a public export
+or reflection endpoint. Accounting-family membership is opaque to reasoning.
+
+The characterized precedence is the top-level runtime effort array, then the
+runtime `capabilities.supports.reasoning_effort` array, then the explicit
+`reasoningEffort: false` flag. Copilot's valid `supports` object with no effort
+key is existing routing evidence that effort control is forbidden; a missing
+supports object is unknown. Explicit malformed effort fields remain unknown
+and do not activate lower-authority maintained evidence. Provider facts outrank
+the existing maintained native-API routing mappings. Those mappings apply only
+to their reviewed patterns on the matching provider/channel without a custom
+deployment; they never establish support on another backend. Imported or
+target-only records are not active evidence. Model-list observations carry the
+backend/deployment scope derived from their fetch target; legacy unscoped runtime
+observations remain confined to their provider's default API channel and
+deployment. Native selection pins are not adopted on custom targets.
+Same-authority contradictions produce an unknown decision, with structured
+reason codes. Non-string elements in an otherwise usable effort array are
+ignored with a reason, preserving the router's existing mixed-array behavior.
+
+Intentional direct-validation corrections are regression-backed: it rejects
+explicit efforts when native Copilot advertises a valid supports object without
+effort control. Maintained native routing lists are not exhaustive direct
+rejection lists: exact, reviewed direct-support exceptions can admit an effort
+without making it selectable for automatic routing. This keeps Opus 4.7/4.8
+`xhigh` support from being rejected while it remains unavailable for automatic
+selection; other efforts outside active evidence continue to be rejected.
+Exact/scoped identity resolution replaces the broad runtime pricing normalizer
+for this decision; dated, dotted or same-slug IDs do not borrow support without
+a reviewed alias. Provider-native IDs are not prefix-stripped again after the
+request adapter resolves them.
+
+Genuinely absent, unknown, malformed or unverified conditional support retains
+the direct unknown-support pass-through policy. Automatic routing requires
+known model support and router-understood values. Supported future strings and
+their provenance survive observations and decisions but cannot become automatic
+choices. Explicit unsupported requests are still rejected, including `none`;
+`none` is not omitted effort. Chat Completions, Responses and Messages retain
+their existing fields, non-string handling and `unsupported_reasoning_effort`
+400 error contract, including the original space-separated supported-values
+format. Reflected supported values have controls stripped and bounded before
+rendering. No consumer strips, substitutes or inserts an effort.
+
+Required/optional modes and defaults are exposed only when evidenced. Current
+active maintained mappings do not reliably supply them, so they remain unknown
+and no default is inserted. In particular, the staged specialized GPT, Haiku,
+and Opus/Fable/Mythos `xhigh` refinements above remain inactive; active Opus 4.6,
+4.7 and 4.8 mappings still share their existing effort list. Direct validation
+admits the reviewed `xhigh` exception but does not interpret other omissions
+from that routing list as direct support.
+
+Decisions copy and deeply freeze their facts. Routing snapshots and classifier
+requests retain their selected reasoning decision; direct requests cache
+decisions against their accounting capture. Refresh affects later decisions,
+not a selected in-flight request. Existing eligibility re-evaluation, model
+policy and accounting captures remain independent gates. Sanitized reusable
+reasons are internal handoff data for later additive Gate 7 consumers.
+
+The standard compiler projects the module and declarations into the proxy
+`catalogue-contract` and host `model-information-contract` layouts. Use
+`node scripts/model-information/compile.cjs --contracts-only` to copy just this
+contract without regenerating family/source assets; add `--check` to verify it.
+The build copies the reasoning declaration and its identity/scope type
+dependencies after TypeScript emits JavaScript, preserving the typed contract
+instead of inferred JavaScript declarations. Provider-free off-tree tests
+exercise both built and proxy module layouts and type-check their declarations.
+
 ### Gate 7: Exports
 
 Extend `/reflect` additively, add versioned persisted snapshots, CLI

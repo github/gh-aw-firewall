@@ -9,6 +9,7 @@ const {
 } = require('./runtime-model-catalog');
 const { logRequest } = require('./logging');
 const { resolveModel } = require('./model-resolver');
+const { getReasoningScope } = require('./model-reasoning');
 
 /** @type {Record<string, string[]|null>} */
 const cachedModels = {};
@@ -20,6 +21,15 @@ let keyValidationComplete = false;
 
 let getRegisteredAdapters = () => [];
 let getModelAliases = () => null;
+
+function getModelMetadataScope(provider, url) {
+  try {
+    const target = new URL(url);
+    return getReasoningScope(provider, target.host, target.protocol.slice(0, -1));
+  } catch {
+    return undefined;
+  }
+}
 
 const brokerFailures = Object.freeze({
   ERR_TOKEN_BROKER_CONFIGURATION: ['inconclusive', 'Token broker configuration is invalid. Check the broker configuration.'],
@@ -88,6 +98,7 @@ async function refreshProviderModelsForResolution(provider) {
     const metadata = extractModelMetadata(provider, json, {
       format: config.modelMetadataFormat,
       apiVersion: config.apiVersion,
+      scope: getModelMetadataScope(provider, config.url),
     });
     if (Array.isArray(extracted) && extracted.length > 0) {
       cachedModels[config.cacheKey] = extracted;
@@ -229,6 +240,7 @@ async function fetchStartupModels(adapters = []) {
         const metadata = extractModelMetadata(adapter.name, json, {
           format: config.modelMetadataFormat,
           apiVersion: config.apiVersion,
+          scope: getModelMetadataScope(adapter.name, config.url),
         });
         if (Array.isArray(extracted) && extracted.length > 0) {
           cachedModels[config.cacheKey] = extracted;

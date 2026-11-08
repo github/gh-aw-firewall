@@ -136,12 +136,13 @@ function parseProviderModelMetadata(provider, json, options = {}) {
       ...(typeof displayName === 'string' && displayName.length > 0 ? { displayName } : {}),
       source: 'provider',
       observedAt,
+      ...(options.scope ? { scope: { ...options.scope, provider } } : {}),
       ...(options.apiVersion ? { apiVersion: options.apiVersion } : {}),
       ...(entry.capabilities && typeof entry.capabilities === 'object'
         ? { capabilities: entry.capabilities }
         : {}),
-      ...(Array.isArray(entry.supportedReasoningEfforts)
-        ? { supportedReasoningEfforts: [...entry.supportedReasoningEfforts] }
+      ...(Object.hasOwn(entry, 'supportedReasoningEfforts')
+        ? { supportedReasoningEfforts: structuredClone(entry.supportedReasoningEfforts) }
         : {}),
       ...(Array.isArray(entry.supported_endpoints)
         ? { supportedEndpoints: [...entry.supported_endpoints] }
