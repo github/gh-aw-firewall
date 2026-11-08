@@ -73,6 +73,26 @@ steps:
         > /tmp/gh-aw/agent/test-quality/recent-commits.txt
       git ls-files .github/workflows/ docs/test-analysis/ schemas/ tests/setup/ \
         > /tmp/gh-aw/agent/test-quality/entrypoints.txt
+  - name: Prepare locked root test dependencies
+    run: |
+      set -euo pipefail
+      lock_backup="$(mktemp "${RUNNER_TEMP}/test-quality-package-lock.XXXXXX")"
+      cp package-lock.json "$lock_backup"
+      trap 'cp "$lock_backup" package-lock.json; rm -f "$lock_backup"' EXIT
+      node <<'NODE'
+      const fs = require('fs');
+      const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+      for (const entry of Object.values(lock.packages)) {
+        if (typeof entry.resolved === 'string') {
+          entry.resolved = entry.resolved.replace(
+            /^https:\/\/ms-feed-\d+\.pkgs\.visualstudio\.com\/1es-public\/_packaging\/npm-public\/npm\/registry\//,
+            'https://registry.npmjs.org/',
+          );
+        }
+      }
+      fs.writeFileSync('package-lock.json', JSON.stringify(lock, null, 2) + '\n');
+      NODE
+      npm ci --ignore-scripts --registry=https://registry.npmjs.org --no-audit --no-fund
 ---
 
 # Test Quality Improver
@@ -171,7 +191,8 @@ package scripts and lockfiles. Do not run full-suite coverage as a discovery
 step or use a coverage percentage as evidence of test quality.
 
 - Root Jest covers `src/` and `scripts/`, not the separate container packages.
-  For root tests, build with `npm run build`, then use
+  Root dependencies are already installed from the lockfile by the preparation
+  step; do not reinstall them inside the agent sandbox. Build with `npm run build`, then use
   `./node_modules/.bin/jest --runInBand --no-coverage --runTestsByPath <paths>`.
 - For `containers/api-proxy/` or `containers/cli-proxy/`, inspect and use that
   package's own test script and dependencies with the relevant path selector.

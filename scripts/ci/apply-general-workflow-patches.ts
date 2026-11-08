@@ -60,6 +60,7 @@ const publishedAwfWorkflowLockFiles = new Set([
   'mount-docs-maintainer.lock.yml',
   'schema-sync.lock.yml',
   'self-hosted-runner-doctor-updater.lock.yml',
+  'test-quality-improver.lock.yml',
   'update-release-notes.lock.yml',
 ]);
 

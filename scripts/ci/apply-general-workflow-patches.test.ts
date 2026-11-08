@@ -263,6 +263,7 @@ describe('applyGeneralWorkflowPatches published AWF maintenance workflows', () =
     'mount-docs-maintainer.lock.yml',
     'schema-sync.lock.yml',
     'self-hosted-runner-doctor-updater.lock.yml',
+    'test-quality-improver.lock.yml',
     'update-release-notes.lock.yml',
     'daily-agent-runtime-triage.lock.yml',
   ])('preserves the published release for %s', workflowFile => {
