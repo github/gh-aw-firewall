@@ -5,13 +5,13 @@ const { getRetiredModelBlockState } = require('./guards/retired-model-guard');
 const { stripRedundantProviderPrefix } = require('./model-utils');
 const { createRoutingError } = require('./routing-errors');
 const { isModelEligible } = require('./model-eligibility');
+const { getModelReasoning, pinModelReasoning, assessReasoningEffort } = require('./model-reasoning');
 
 const PROVIDERS = Object.freeze({
   copilot: Object.freeze({ canonical: 'github-copilot', alias: 'copilot' }),
   openai: Object.freeze({ canonical: 'openai', alias: 'openai' }),
   anthropic: Object.freeze({ canonical: 'anthropic', alias: 'anthropic' }),
 });
-const EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
 function normalizePolicyList(value, name) {
   if (value === undefined || value === null) return null;
@@ -30,15 +30,6 @@ function normalizePolicyList(value, name) {
   });
 }
 
-// Unknown live efforts cannot be represented by this version of the contract.
-function normalizeEfforts(value) {
-  const efforts = [];
-  for (const effort of value) {
-    if (EFFORTS.has(effort) && !efforts.includes(effort)) efforts.push(effort);
-  }
-  return efforts;
-}
-
 function protocolFor(provider, effort, protocols) {
   if (provider === 'anthropic') return 'messages';
   if (effort === undefined) return protocols.includes('chat-completions') ? 'chat-completions' : null;
@@ -50,10 +41,11 @@ function protocolFor(provider, effort, protocols) {
 
 function getModelRoutingChoices(providerModel, provider) {
   if (provider === 'copilot' && providerModel.modelPickerEnabled === false) return [];
-  if (!Array.isArray(providerModel.efforts) || !Array.isArray(providerModel.protocols)) return [];
-  const efforts = normalizeEfforts(providerModel.efforts);
-  if (providerModel.efforts.length > 0 && efforts.length === 0) return [];
-  return (efforts.length === 0 ? [undefined] : efforts).flatMap(effort => {
+  if (!Array.isArray(providerModel.protocols)) return [];
+  const decision = getModelReasoning(providerModel, provider);
+  const efforts = decision.support === 'unsupported' ? [undefined] : decision.selectableEfforts;
+  return efforts.flatMap(effort => {
+    if (!assessReasoningEffort(decision, effort, { automatic: true }).admitted) return [];
     const protocol = protocolFor(provider, effort, providerModel.protocols);
     return protocol && providerModel.protocols.includes(protocol) ? [{ effort, protocol }] : [];
   });
@@ -151,14 +143,14 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, eligi
     const contextWindow = Number.isInteger(pair.providerModel.contextWindow) && pair.providerModel.contextWindow > 0
       ? pair.providerModel.contextWindow
       : undefined;
-    byId[id] = Object.freeze({
+    byId[id] = pinModelReasoning(Object.freeze({
       choice,
       provider: pair.provider,
       wireModel: pair.providerModel.id,
       ...(pair.effort === undefined ? {} : { effort: pair.effort }),
       ...(contextWindow === undefined ? {} : { contextWindow }),
       protocol: pair.protocol,
-    });
+    }), getModelReasoning(pair.providerModel, pair.provider));
     return choice;
   });
 

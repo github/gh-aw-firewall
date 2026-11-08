@@ -1,6 +1,6 @@
 'use strict';
 
-const { findRuntimeModel } = require('./runtime-model-catalog');
+const { getRequestReasoning, assessReasoningEffort } = require('./model-reasoning');
 
 function getReasoningEffort(parsed, url) {
   let pathname;
@@ -22,15 +22,7 @@ function getReasoningEffort(parsed, url) {
   return null;
 }
 
-function getSupportedEfforts(model) {
-  if (Array.isArray(model?.supportedReasoningEfforts)) return model.supportedReasoningEfforts;
-  const supports = model?.capabilities?.supports;
-  if (Array.isArray(supports?.reasoning_effort)) return supports.reasoning_effort;
-  if (supports?.reasoningEffort === false) return [];
-  return null;
-}
-
-function validateReasoningEffort(body, provider, url, runtimeCatalog) {
+function validateReasoningEffort(body, provider, url, runtimeCatalog, req, options) {
   let parsed;
   try {
     parsed = JSON.parse(body.toString('utf8'));
@@ -40,10 +32,10 @@ function validateReasoningEffort(body, provider, url, runtimeCatalog) {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || typeof parsed.model !== 'string') return;
 
   const requested = getReasoningEffort(parsed, url);
-  if (!requested || typeof requested.value !== 'string') return;
-  const model = findRuntimeModel(provider, parsed.model, runtimeCatalog);
-  const supported = getSupportedEfforts(model);
-  if (!supported || supported.includes(requested.value)) return;
+  if (!requested || (requested.value !== undefined && typeof requested.value !== 'string')) return;
+  const decision = getRequestReasoning(parsed.model, provider, runtimeCatalog, req, options);
+  if (assessReasoningEffort(decision, requested.value).admitted) return;
+  const supported = decision.supportedEfforts;
 
   const error = new Error(
     `${requested.field} ${JSON.stringify(requested.value)} is not supported by model ${parsed.model}; ` +

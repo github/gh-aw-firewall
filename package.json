@@ -7,7 +7,7 @@
     "awf": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/model-information/compile.cjs --reasoning-types-only",
     "dev": "tsc --watch",
     "type-check": "tsc --noEmit -p tsconfig.check.json",
     "test": "npm run build && jest",

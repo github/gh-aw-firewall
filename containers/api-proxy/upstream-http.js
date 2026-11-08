@@ -205,7 +205,7 @@ function createSendUpstreamRequest({
     if (cancellation.cancelled) return;
 
     try {
-      validateReasoningEffort(body, provider, upstreamPath, req.awfRuntimePricing);
+      validateReasoningEffort(body, provider, upstreamPath, req.awfRuntimePricing, req, { targetHost, targetScheme });
     } catch (err) {
       if (err.code !== 'unsupported_reasoning_effort') throw err;
       if (res.headersSent) return;
