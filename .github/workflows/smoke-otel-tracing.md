@@ -63,6 +63,9 @@ safe-outputs:
     run-failure: "📡 [{workflow_name}]({run_url}) reports {status}. OTel tracing regression detected. ⚠️"
 timeout-minutes: 15
 steps:
+  - name: Build local AWF smoke images
+    timeout-minutes: 35
+    run: bash "${RUNNER_TEMP}/awf-smoke/build-smoke-images.sh"
   - name: Install api-proxy dependencies
     run: |
       cd containers/api-proxy
