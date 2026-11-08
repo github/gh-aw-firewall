@@ -114,23 +114,24 @@ function createModelDecisionObservation({ context = 'unknown', getModels = () =>
     const pathname = typeof req.url === 'string' ? req.url.split(/[?#]/, 1)[0].replace(/\/+$/, '') : null;
     const endpoint = endpointFor(pathname);
     if (!enabled || req.method !== 'POST' || !endpoint || typeof res.once !== 'function') return;
-    if (!eligibleContext(req) ||
-        getReasoningScope(provider, targetHost, targetScheme, req).deployment !== undefined) return;
+    if (!eligibleContext(req)) return;
     let pending = [];
     let capturedDecisions = [];
     let completed = false;
-    req.awfObserveModelDecision = record => {
-      try {
-        if (completed || !eligibleContext(req)) return;
-        const sanitized = sanitizeModelDecisionRecord(record, { visibleModel, endpoint });
-        if (!sanitized) return;
-        capturedDecisions.push(freezeRecord({ ...sanitized,
-          observedAt: observedAt(new Date(now()).toISOString()) }));
-        if (capturedDecisions.length > MAX_RECENT) capturedDecisions.shift();
-      } catch {
-        // Optional diagnostics cannot alter dispatch or retain unsafe input.
-      }
-    };
+    if (getReasoningScope(provider, targetHost, targetScheme, req).deployment === undefined) {
+      req.awfObserveModelDecision = record => {
+        try {
+          if (completed || !eligibleContext(req)) return;
+          const sanitized = sanitizeModelDecisionRecord(record, { visibleModel, endpoint });
+          if (!sanitized) return;
+          capturedDecisions.push(freezeRecord({ ...sanitized,
+            observedAt: observedAt(new Date(now()).toISOString()) }));
+          if (capturedDecisions.length > MAX_RECENT) capturedDecisions.shift();
+        } catch {
+          // Optional diagnostics cannot alter dispatch or retain unsafe input.
+        }
+      };
+    }
     const originalEnd = res.end;
     res.end = function(chunk, encoding, callback) {
       try {
