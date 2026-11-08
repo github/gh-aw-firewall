@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "context", "current", "recent", "accounting"],
+  "properties": {
+    "schema": { "const": "awf-model-decision-diagnostics/v1" },
+    "context": { "$ref": "#/definitions/context" },
+    "current": { "$ref": "#/definitions/summary" },
+    "accounting": { "$ref": "#/definitions/summary" },
+    "recent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "decisions", "limit", "retention_seconds"],
+      "properties": {
+        "status": { "enum": ["available", "unavailable"] },
+        "decisions": {
+          "type": "array", "maxItems": 32,
+          "items": { "$ref": "#/definitions/decision" }
+        },
+        "limit": { "const": 32 },
+        "retention_seconds": { "const": 900 }
+      }
+    }
+  },
+  "definitions": {
+    "context": { "enum": ["primary-agent", "dedicated-enclave", "unknown"] },
+    "provider": { "enum": ["openai", "anthropic", "copilot", "gemini", "vertex", null] },
+    "endpoint": { "enum": ["/chat/completions", "/responses", "/v1/messages", null] },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decisions", "truncated"],
+      "properties": {
+        "decisions": {
+          "type": "array", "maxItems": 64,
+          "items": { "$ref": "#/definitions/decision" }
+        },
+        "truncated": { "type": "boolean" }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "identity", "scope", "status", "reason", "explanation", "action", "evidence"],
+      "properties": {
+        "kind": { "enum": ["current_state", "request_outcome", "accounting_summary"] },
+        "identity": {
+          "type": "object", "additionalProperties": false,
+          "required": ["provider", "model_id"],
+          "properties": {
+            "provider": { "$ref": "#/definitions/provider" },
+            "model_id": { "type": ["string", "null"], "maxLength": 200, "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" }
+          }
+        },
+        "scope": {
+          "type": "object", "additionalProperties": false,
+          "required": ["context", "channel", "endpoint"],
+          "properties": {
+            "context": { "$ref": "#/definitions/context" },
+            "channel": { "enum": ["copilot-api", "native-api", null] },
+            "endpoint": { "$ref": "#/definitions/endpoint" }
+          }
+        },
+        "status": { "enum": ["rejected", "unavailable", "unknown", "observed", "estimated"] },
+        "reason": {
+          "enum": [
+            "policy_denied", "provider_not_configured", "provider_state_unknown", "discovery_pending",
+            "capability_snapshot", "automatic_selection_no_candidates", "routing_selected", "no_route",
+            "provider_unavailable", "routing_timeout", "routing_configuration_error", "routing_contract_error",
+            "routing_policy_violation", "routing_provider_unavailable",
+            "unsupported_reasoning_effort", "harness_incompatible", "harness_unverified",
+            "harness_constraint_invalid", "harness_selection_invalid", "harness_observation_invalid",
+            "lifecycle_retired", "lifecycle_removed", "discovery_unavailable", "discovery_unknown",
+            "identity_scope_mismatch", "pricing_resolution_error", "direct_pricing", "estimated_pricing",
+            "fallback_pricing", "pricing_unknown", "decision_unknown"
+          ]
+        },
+        "explanation": { "type": "string", "maxLength": 400 },
+        "action": {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "retry"],
+          "properties": {
+            "kind": { "enum": ["change_request", "re_evaluate", "operator_required", "none", "unknown"] },
+            "retry": { "enum": ["do_not_repeat", "after_models_fetch", "after_operator_change", "unknown", "not_applicable"] }
+          }
+        },
+        "evidence": {
+          "type": "object", "additionalProperties": false,
+          "required": ["source", "eligibility_revision", "catalogue_revision", "observed_at"],
+          "properties": {
+            "source": { "enum": ["reflection", "awf_response", "eligibility", "ai_credits", "routing"] },
+            "eligibility_revision": { "type": ["integer", "null"], "minimum": 0 },
+            "catalogue_revision": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+            "observed_at": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d(?:\\.\\d{3})?Z$" }
+          }
+        },
+        "effort": {
+          "type": "object", "additionalProperties": false,
+          "required": ["support", "supported_values", "field", "omission_supported"],
+          "properties": {
+            "support": { "enum": ["known_unsupported", "reported_supported", "unknown"] },
+            "supported_values": {
+              "type": ["array", "null"], "maxItems": 7, "uniqueItems": true,
+              "items": { "enum": ["none", "minimal", "low", "medium", "high", "xhigh", "max"] }
+            },
+            "field": { "enum": ["reasoning_effort", "reasoning.effort", "output_config.effort", null] },
+            "omission_supported": { "const": null }
+          }
+        },
+        "pricing": {
+          "type": "object", "additionalProperties": false,
+          "required": ["basis", "donor_count", "budget_accounted"],
+          "properties": {
+            "basis": { "enum": ["direct", "family", "backend", "fallback", "unknown"] },
+            "donor_count": { "type": ["integer", "null"], "minimum": 0 },
+            "budget_accounted": { "type": ["boolean", "null"] }
+          }
+        },
+        "occurrences": { "type": "integer", "minimum": 1, "maximum": 1000 }
+      }
+    }
+  }
+}

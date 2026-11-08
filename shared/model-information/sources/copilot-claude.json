@@ -14,7 +14,8 @@
         "key": "copilot/claude-fable-5",
         "provider": "copilot",
         "rawId": "claude-fable-5",
-        "lookupId": "claude-fable-5"
+        "lookupId": "claude-fable-5",
+        "family": "claude-fable-5"
       },
       "lifecycle": {
         "status": "active"
@@ -112,7 +113,8 @@
         "key": "copilot/claude-fable-5-1",
         "provider": "copilot",
         "rawId": "claude-fable-5-1",
-        "lookupId": "claude-fable-5-1"
+        "lookupId": "claude-fable-5-1",
+        "family": "claude-fable-5"
       },
       "lifecycle": {
         "status": "active"
@@ -565,7 +567,8 @@
         "key": "copilot/claude-opus-4-5",
         "provider": "copilot",
         "rawId": "claude-opus-4-5",
-        "lookupId": "claude-opus-4-5"
+        "lookupId": "claude-opus-4-5",
+        "family": "claude-opus-4"
       },
       "lifecycle": {
         "status": "active"
@@ -645,7 +648,8 @@
         "key": "copilot/claude-opus-4-6",
         "provider": "copilot",
         "rawId": "claude-opus-4-6",
-        "lookupId": "claude-opus-4-6"
+        "lookupId": "claude-opus-4-6",
+        "family": "claude-opus-4"
       },
       "lifecycle": {
         "status": "active"
@@ -725,7 +729,8 @@
         "key": "copilot/claude-opus-4-7",
         "provider": "copilot",
         "rawId": "claude-opus-4-7",
-        "lookupId": "claude-opus-4-7"
+        "lookupId": "claude-opus-4-7",
+        "family": "claude-opus-4"
       },
       "lifecycle": {
         "status": "active"
@@ -805,7 +810,8 @@
         "key": "copilot/claude-opus-4.8",
         "provider": "copilot",
         "rawId": "claude-opus-4.8",
-        "lookupId": "claude-opus-4-8"
+        "lookupId": "claude-opus-4-8",
+        "family": "claude-opus-4"
       },
       "lifecycle": {
         "status": "active"
@@ -903,7 +909,8 @@
         "key": "copilot/claude-opus-5",
         "provider": "copilot",
         "rawId": "claude-opus-5",
-        "lookupId": "claude-opus-5"
+        "lookupId": "claude-opus-5",
+        "family": "claude-opus-5"
       },
       "lifecycle": {
         "status": "active"
@@ -1001,7 +1008,8 @@
         "key": "copilot/claude-opus-5-5",
         "provider": "copilot",
         "rawId": "claude-opus-5-5",
-        "lookupId": "claude-opus-5-5"
+        "lookupId": "claude-opus-5-5",
+        "family": "claude-opus-5"
       },
       "lifecycle": {
         "status": "active"
@@ -1081,7 +1089,8 @@
         "key": "copilot/claude-sonnet-4",
         "provider": "copilot",
         "rawId": "claude-sonnet-4",
-        "lookupId": "claude-sonnet-4"
+        "lookupId": "claude-sonnet-4",
+        "family": "claude-sonnet-4"
       },
       "lifecycle": {
         "status": "active"
@@ -1161,7 +1170,8 @@
         "key": "copilot/claude-sonnet-4.5",
         "provider": "copilot",
         "rawId": "claude-sonnet-4.5",
-        "lookupId": "claude-sonnet-4-5"
+        "lookupId": "claude-sonnet-4-5",
+        "family": "claude-sonnet-4"
       },
       "lifecycle": {
         "status": "active"
@@ -1259,7 +1269,8 @@
         "key": "copilot/claude-sonnet-4.6",
         "provider": "copilot",
         "rawId": "claude-sonnet-4.6",
-        "lookupId": "claude-sonnet-4-6"
+        "lookupId": "claude-sonnet-4-6",
+        "family": "claude-sonnet-4"
       },
       "lifecycle": {
         "status": "active"
@@ -1357,7 +1368,8 @@
         "key": "copilot/claude-sonnet-5",
         "provider": "copilot",
         "rawId": "claude-sonnet-5",
-        "lookupId": "claude-sonnet-5"
+        "lookupId": "claude-sonnet-5",
+        "family": "claude-sonnet-5"
       },
       "lifecycle": {
         "status": "active"
@@ -1455,7 +1467,8 @@
         "key": "copilot/claude-sonnet-5-5",
         "provider": "copilot",
         "rawId": "claude-sonnet-5-5",
-        "lookupId": "claude-sonnet-5-5"
+        "lookupId": "claude-sonnet-5-5",
+        "family": "claude-sonnet-5"
       },
       "lifecycle": {
         "status": "active"

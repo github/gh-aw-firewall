@@ -260,7 +260,8 @@
         "key": "copilot/gemini-3.1-pro",
         "provider": "copilot",
         "rawId": "gemini-3.1-pro",
-        "lookupId": "gemini-3-1-pro"
+        "lookupId": "gemini-3-1-pro",
+        "family": "gemini-3.1-pro"
       },
       "lifecycle": {
         "status": "active"
@@ -342,7 +343,8 @@
         "key": "copilot/gemini-3.1-pro-preview",
         "provider": "copilot",
         "rawId": "gemini-3.1-pro-preview",
-        "lookupId": "gemini-3-1-pro-preview"
+        "lookupId": "gemini-3-1-pro-preview",
+        "family": "gemini-3.1-pro"
       },
       "lifecycle": {
         "status": "active"

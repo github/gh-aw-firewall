@@ -220,13 +220,21 @@ function getMedianPricingFact(provider, model, inputTokens, options = {}) {
   if (!requested.identity) return null;
   const family = resolved => resolved.family === undefined ? undefined
     : normalizeId(resolved.family, { caseInsensitive: true, separators: true });
+  // The canonical compiler keys maintained Claude prices by lookupId, not rawId.
+  // Recover that explicit projection's owner without normalizing request/source IDs.
+  const maintainedIds = Object.keys(maintainedPrices.get(provider)?.records || {}).map(id => {
+    if (declared.has(`${provider}/${id}`)) return id;
+    return naming.models.find(record => record.identity.provider === provider &&
+      record.identity.rawId.startsWith('claude-') && record.identity.lookupId === id)
+      ?.identity.rawId ?? id;
+  });
   const ids = new Set([
     ...getProviderPricingModelIds(provider), ...getConfiguredPricingModelIds(provider),
     ...(runtime[provider] || []).map(record => record.id),
     ...(catalogue?.snapshot.models || []).filter(record => record.identity.provider === provider)
       .map(record => record.identity.rawId),
-    ...Object.keys(maintainedPrices.get(provider)?.records ||
-      compatibilityPrices.get(provider)?.records || {}),
+    ...(maintainedPrices.has(provider) ? maintainedIds
+      : Object.keys(compatibilityPrices.get(provider)?.records || {})),
     ...Object.keys(fallbackPricing.imported[provider] || {}),
   ]);
   const identities = new Map();

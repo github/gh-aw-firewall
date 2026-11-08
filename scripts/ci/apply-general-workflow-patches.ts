@@ -104,7 +104,7 @@ export function applyGeneralWorkflowPatches(
     log.push('  Excluded OTLP credentials from both auditor sandboxes');
   }
 
-  const preparedSmokeImages = /(?:^|[/\\])smoke-(?:claude|copilot(?:-byok|-network-isolation)?|services)\.lock\.yml$/.test(workflowPath)
+  const preparedSmokeImages = /(?:^|[/\\])smoke-(?:claude|copilot(?:-byok|-network-isolation)?|otel-tracing|services)\.lock\.yml$/.test(workflowPath)
     && content.includes('- name: Build local AWF smoke images\n');
   const preparedSmokeImageArgs =
     '--image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG:?}" --skip-pull';
@@ -268,6 +268,38 @@ export function applyGeneralWorkflowPatches(
   }
 
   const workflowFile = workflowPath.split(/[/\\]/).pop();
+  if (workflowFile === 'copilot-token-optimizer.lock.yml') {
+    const copilotInstallStep =
+      /^([ \t]+)- name: Install GitHub Copilot CLI\n\1  run: (bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/install_copilot_cli\.sh" [^\n]+)\n/m;
+    if (copilotInstallStep.test(content)) {
+      content = content.replace(
+        copilotInstallStep,
+        (_match, indent: string, command: string) =>
+          `${indent}- name: Install GitHub Copilot CLI\n` +
+          `${indent}  timeout-minutes: 7\n` +
+          `${indent}  run: |\n` +
+          `${indent}    for attempt in 1 2 3; do\n` +
+          `${indent}      install_status=0\n` +
+          `${indent}      timeout --kill-after=10s 90s ${command} || install_status=$?\n` +
+          `${indent}      if [ "$install_status" -eq 0 ]; then\n` +
+          `${indent}        exit 0\n` +
+          `${indent}      fi\n` +
+          `${indent}      # Retry curl download failures, never verification or installation errors.\n` +
+          `${indent}      case "$install_status" in\n` +
+          `${indent}        5|6|7|18|22|28|35|52|55|56) ;;\n` +
+          `${indent}        *) exit "$install_status" ;;\n` +
+          `${indent}      esac\n` +
+          `${indent}      if [ "$attempt" -eq 3 ]; then\n` +
+          `${indent}        exit "$install_status"\n` +
+          `${indent}      fi\n` +
+          `${indent}      echo "Copilot CLI download failed (exit $install_status); retrying after attempt $attempt" >&2\n` +
+          `${indent}      sleep $((attempt * 30))\n` +
+          `${indent}    done\n`,
+      );
+      log.push('  Added bounded Copilot CLI download retries for the token optimizer');
+    }
+  }
+
   const shouldRetryCloudHypervisorBundle =
     workflowFile !== undefined &&
     cloudHypervisorBundleRetryWorkflowLockFiles.has(workflowFile);

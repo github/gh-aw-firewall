@@ -77,6 +77,24 @@ describe('shared direct and routing reasoning adapters', () => {
     }
   });
 
+  it('does not inherit reasoning evidence from a reviewed accounting-family sibling', () => {
+    const records = [{ id: 'gpt-5.4', supportedReasoningEfforts: ['high'] }];
+    const sibling = resolveModelReasoning('gpt-5.4', 'copilot', { records });
+    const exact = resolveModelReasoning('gpt-5.4-mini', 'copilot', { records });
+    expect(exact.identity.family).toBe(sibling.identity.family);
+    expect(exact.identity.key).not.toBe(sibling.identity.key);
+    expect(sibling.support).toBe('supported');
+    expect(exact.support).toBe('absent');
+    expect(exact.supportedEfforts).toEqual([]);
+    expect(assessReasoningEffort(exact, 'future').admitted).toBe(true);
+    expect(assessReasoningEffort(exact, 'high', { automatic: true }).admitted).toBe(false);
+    const observed = resolveModelReasoning('gpt-5.4-mini', 'copilot', {
+      records: [...records, { id: 'gpt-5.4-mini', supportedReasoningEfforts: ['low'] }],
+    });
+    expect(observed.supportedEfforts).toEqual(['low']);
+    expect(assessReasoningEffort(observed, 'high').admitted).toBe(false);
+  });
+
   it('reuses scoped alias resolution and raw exact-ID precedence for captured facts', () => {
     const { identity } = require('./catalogue-contract/identity');
     const scope = { provider: 'copilot', channel: 'copilot-api' };

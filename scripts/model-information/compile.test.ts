@@ -77,6 +77,38 @@ describe('maintained model compilation', () => {
     expect(require('../../containers/api-proxy/model-information.eligibility.generated.json')).toEqual(projected);
   });
 
+  it('projects the reviewed finite accounting families without authorizing additional model facts', () => {
+    const naming = require('../../shared/model-information/naming.generated.json');
+    const catalogue = require('../../shared/model-information/catalog.generated.json');
+    const members = naming.models.filter((model: { identity: { family?: string } }) => model.identity.family);
+    expect(naming.models).toHaveLength(56);
+    expect(members).toHaveLength(22);
+    expect(new Set(members.map((model: { identity: { family: string } }) => model.identity.family)).size).toBe(9);
+    expect(naming.rules).toEqual([]);
+    for (const member of members) {
+      expect(member.identity.provider).toBe('copilot');
+      expect(catalogue.models.find((model: { identity: { key: string } }) =>
+        model.identity.key === member.identity.key).identity).toEqual(member.identity);
+    }
+    const scoped = { provider: 'copilot', channel: 'copilot-api' };
+    const { resolveIdentity } = require('../../shared/model-information/resolution');
+    const withoutFamilies = { ...naming, models: naming.models.map(
+      (model: { identity: { family?: string } }) => {
+        const { family, ...identity } = model.identity;
+        return { identity };
+      },
+    ) };
+    for (const model of naming.models) {
+      for (const requested of [model.identity.rawId, `copilot/${model.identity.rawId}?effort=high`]) {
+        const before = resolveIdentity(requested, scoped, withoutFamilies);
+        const after = resolveIdentity(requested, scoped, naming);
+        const { family, identity, ...resolved } = after;
+        const { family: identityFamily, ...originalIdentity } = identity;
+        expect({ ...resolved, identity: originalIdentity }).toEqual(before);
+      }
+    }
+  });
+
   it('packages dependency-free eligibility for a standalone proxy context', () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'eligibility-package-'));
     try {
@@ -580,7 +612,9 @@ describe('maintained model compilation', () => {
     const dockerfile = fs.readFileSync(path.join(root, 'containers/api-proxy/Dockerfile'), 'utf8');
     expect(dockerfile).toMatch(/model-information\.pricing\.generated\.json model-information\.fallback-pricing\.generated\.json model-information\.retired\.generated\.json/);
     expect(dockerfile).toMatch(/model-eligibility\.js/);
+    expect(dockerfile).toMatch(/model-reasoning\.js/);
     expect(dockerfile).toMatch(/harness-observation\.js/);
+    expect(dockerfile).toMatch(/model-decision-diagnostics\.js model-decision-diagnostics\.schema\.json model-decision-observation\.js/);
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-assets-'));
     try {
       const fixturePath = fs.realpathSync(temp);

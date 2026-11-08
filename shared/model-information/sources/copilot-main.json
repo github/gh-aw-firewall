@@ -128,7 +128,8 @@
         "key": "copilot/gpt-4o",
         "provider": "copilot",
         "rawId": "gpt-4o",
-        "lookupId": "gpt-4o"
+        "lookupId": "gpt-4o",
+        "family": "gpt-4o"
       },
       "lifecycle": {
         "status": "active"
@@ -166,7 +167,8 @@
         "key": "copilot/gpt-4o-mini",
         "provider": "copilot",
         "rawId": "gpt-4o-mini",
-        "lookupId": "gpt-4o-mini"
+        "lookupId": "gpt-4o-mini",
+        "family": "gpt-4o"
       },
       "lifecycle": {
         "status": "active"
@@ -745,7 +747,8 @@
         "key": "copilot/gpt-5.4",
         "provider": "copilot",
         "rawId": "gpt-5.4",
-        "lookupId": "gpt-5-4"
+        "lookupId": "gpt-5-4",
+        "family": "gpt-5.4"
       },
       "lifecycle": {
         "status": "active"
@@ -845,7 +848,8 @@
         "key": "copilot/gpt-5.4-mini",
         "provider": "copilot",
         "rawId": "gpt-5.4-mini",
-        "lookupId": "gpt-5-4-mini"
+        "lookupId": "gpt-5-4-mini",
+        "family": "gpt-5.4"
       },
       "lifecycle": {
         "status": "active"
@@ -945,7 +949,8 @@
         "key": "copilot/gpt-5.4-nano",
         "provider": "copilot",
         "rawId": "gpt-5.4-nano",
-        "lookupId": "gpt-5-4-nano"
+        "lookupId": "gpt-5-4-nano",
+        "family": "gpt-5.4"
       },
       "lifecycle": {
         "status": "active"
@@ -2246,7 +2251,8 @@
         "key": "copilot/o3",
         "provider": "copilot",
         "rawId": "o3",
-        "lookupId": "o3"
+        "lookupId": "o3",
+        "family": "o3"
       },
       "lifecycle": {
         "status": "active"
@@ -2284,7 +2290,8 @@
         "key": "copilot/o3-mini",
         "provider": "copilot",
         "rawId": "o3-mini",
-        "lookupId": "o3-mini"
+        "lookupId": "o3-mini",
+        "family": "o3"
       },
       "lifecycle": {
         "status": "active"
