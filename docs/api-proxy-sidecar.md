@@ -121,6 +121,15 @@ must never select `http://host.docker.internal:10002` as the inference gateway.
 
 ## Usage
 
+### Copilot Decisions (evals)
+
+The Copilot listener (port `10002`) forwards `POST /v1/decisions` with
+sidecar-owned credentials and preserves upstream plain-text errors. It does
+not turn a PAT into an endpoint-supported credential. See the
+[Decisions authentication limits](./auth-matrix.md#v1decisions-evals) for the
+fine-grained PAT rejection, OAuth/App-token caveats, and `pat_unsupported` log
+reason.
+
 ### Restrict BYOK models
 
 Set `apiProxy.allowedModels` in the AWF config file to an operator-approved

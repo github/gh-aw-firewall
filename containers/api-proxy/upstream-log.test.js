@@ -169,6 +169,37 @@ describe('upstream-log', () => {
     expect(applyPermissionDenied).not.toHaveBeenCalled();
   });
 
+  test.each([
+    { responseBodyTruncated: false, expectedLogs: 0 },
+    { responseBodyTruncated: true, expectedLogs: 1 },
+  ])('logUpstreamAuthError handles PAT diagnostics only for complete bodies: %j', ({
+    responseBodyTruncated, expectedLogs,
+  }) => {
+    const logRequest = jest.fn();
+    const logUpstreamAuthError = createLogUpstreamAuthError({
+      logRequest,
+      sanitizeForLog: value => value,
+      applyPermissionDenied: jest.fn(),
+      parseModelNotSupportedFromBody: () => false,
+    });
+
+    logUpstreamAuthError(400, {
+      requestId: 'req-1',
+      provider: 'copilot',
+      targetHost: 'api.githubcopilot.com',
+      req: { url: '/v1/decisions' },
+      responseBody: Buffer.from('Personal Access Tokens are not supported for this endpoint'),
+      responseBodyTruncated,
+    });
+
+    expect(logRequest).toHaveBeenCalledTimes(expectedLogs);
+    if (expectedLogs) {
+      expect(logRequest).toHaveBeenCalledWith('warn', 'upstream_auth_error', expect.objectContaining({
+        status: 400,
+      }));
+    }
+  });
+
   test('logUpstreamErrorResponse logs redacted body and sanitized headers', () => {
     const logRequest = jest.fn();
     const auditTrack = jest.fn();
@@ -220,6 +251,43 @@ describe('upstream-log', () => {
   // Recorded verbatim from github/gh-aw run 38327292581 (upstream-errors.jsonl).
   const COPILOT_INVALID_REASONING_EFFORT_BODY = '{"error":{"message":"output_config.effort \\"high\\" was provided, but model claude-haiku-4.5 does not support reasoning effort","code":"invalid_reasoning_effort"}}';
   const ERROR_FIELD_KEYS = ['error_code', 'error_type', 'error_param', 'error_source'];
+
+  test.each([
+    { status: 400, provider: 'copilot', classified: true },
+    { status: 401, provider: 'copilot', classified: true },
+    { status: 403, provider: 'copilot', classified: true },
+    { status: 422, provider: 'copilot', classified: true },
+    { status: 500, provider: 'copilot', classified: false },
+    { status: 400, provider: 'openai', classified: false },
+    { status: 400, provider: 'copilot', responseBodyTruncated: true, classified: false },
+    { status: 400, provider: 'copilot', providerErrorBody: null, classified: false },
+    { status: 400, provider: 'copilot', body: 'Unrelated bad request', classified: false },
+    { status: 400, provider: 'copilot', contentEncoding: 'unknown', classified: false },
+  ])('PAT diagnostic respects capture and provider boundaries: %j', ({
+    status, provider, classified, responseBodyTruncated, providerErrorBody, body, contentEncoding,
+  }) => {
+    const logRequest = jest.fn();
+    const auditTrack = jest.fn();
+    const logError = createLogUpstreamErrorResponse({
+      logRequest, auditTrack, sanitizeForLog: value => value,
+    });
+    const responseBody = Buffer.from(body ||
+      'checking third-party user token: bad request: Personal Access Tokens are not supported for this endpoint');
+    logError(status, {
+      requestId: 'pat-test', provider, targetHost: 'api.githubcopilot.com',
+      req: { method: 'POST', url: '/v1/decisions' },
+      responseHeaders: { 'content-type': 'text/plain', 'content-encoding': contentEncoding },
+      responseBody, responseBodyBytes: responseBody.length,
+      responseBodyTruncated, providerErrorBody,
+    });
+    const fields = logRequest.mock.calls[0][2];
+    expect(fields.reason_code).toBe(classified ? 'pat_unsupported' : undefined);
+    if (classified) {
+      expect(fields.message).toContain('does not convert a PAT');
+      expect(fields.message).not.toContain('checking third-party user token');
+    }
+    expect(auditTrack).toHaveBeenCalledWith('UPSTREAM_ERROR_RESPONSE', fields);
+  });
 
   function logCopilotError(body, { contentType = 'text/plain; charset=utf-8', bytes } = {}) {
     const auditTrack = jest.fn();

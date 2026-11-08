@@ -8,6 +8,7 @@ const { classifyCopilotAuthError } = require('./copilot-auth-diagnostics');
 
 const DEFAULT_MAX_ERROR_RESPONSE_CAPTURE_BYTES = 64 * 1024;
 const REDACTED = '[REDACTED]';
+const COPILOT_PAT_UNSUPPORTED_PATTERN = /\bPersonal Access Tokens are not supported for this endpoint\b/i;
 const OMITTED_RESPONSE_HEADERS = new Set([
   'authorization',
   'proxy-authorization',
@@ -24,6 +25,11 @@ const REQUEST_ID_HEADER_PATTERNS = [
   /correlation-id$/i,
   /trace-id$/i,
 ];
+
+function isCopilotPatUnsupportedBody(body) {
+  const text = Buffer.isBuffer(body) ? body.toString('utf8') : body;
+  return typeof text === 'string' && COPILOT_PAT_UNSUPPORTED_PATTERN.test(text);
+}
 
 // Paths that represent actual LLM inference calls (should count against maxRuns).
 // Non-inference endpoints (e.g., GET /models) are excluded.
@@ -268,10 +274,10 @@ function createLogUpstreamErrorResponse({
       contentEncoding: safeHeaders['content-encoding'],
     });
     const bodyFields = formatResponseBodyLogFields(bodyCapture, sanitizeForLog);
+    const originalCapture = providerErrorBody === undefined ? bodyCapture
+      : providerErrorBody ? captureResponseBody(providerErrorBody)
+      : { bodyOmitted: true };
     if (provider === 'copilot' && copilotAuthDiagnostic && [400, 401, 403].includes(statusCode)) {
-      const originalCapture = providerErrorBody === undefined ? bodyCapture
-        : providerErrorBody ? captureResponseBody(providerErrorBody)
-        : { bodyOmitted: true };
       logRequest('warn', 'copilot_auth_diagnostic', {
         ...copilotAuthDiagnostic,
         status: statusCode,
@@ -293,9 +299,16 @@ function createLogUpstreamErrorResponse({
       response_transformed: !!transformed,
       ...buildRequestToolLogFields(requestTools, sanitizeForLog),
       ...bodyFields,
-      ...extractCapturedErrorFields(providerErrorBody === undefined ? bodyCapture
-        : providerErrorBody ? captureResponseBody(providerErrorBody) : { bodyOmitted: true }),
+      ...extractCapturedErrorFields(originalCapture),
     };
+    if (provider === 'copilot' && statusCode >= 400 && statusCode < 500 &&
+        !originalCapture.bodyOmitted && !originalCapture.truncated &&
+        isCopilotPatUnsupportedBody(originalCapture.bodyValue)) {
+      fields.reason_code = 'pat_unsupported';
+      fields.message = 'Copilot rejected personal access token authentication for this endpoint. ' +
+        'AWF forwards the configured credential; it does not convert a PAT into an OAuth or GitHub App token. ' +
+        'Use an authentication method supported by the endpoint; changing the model will not fix this rejection.';
+    }
     logRequest('warn', 'upstream_error_response', fields);
     if (typeof auditTrack === 'function') {
       auditTrack('UPSTREAM_ERROR_RESPONSE', fields);
@@ -309,7 +322,9 @@ function createLogUpstreamAuthError({
   applyPermissionDenied,
   parseModelNotSupportedFromBody,
 }) {
-  return function logUpstreamAuthError(statusCode, { requestId, provider, targetHost, req, responseBody }) {
+  return function logUpstreamAuthError(statusCode, {
+    requestId, provider, targetHost, req, responseBody, responseBodyTruncated = false,
+  }) {
     const authErrorMessage = provider === 'copilot'
       ? buildCopilotAuthErrorMessage(statusCode)
       : `Upstream returned ${statusCode} — check that the API key is valid and correctly formatted`;
@@ -322,9 +337,12 @@ function createLogUpstreamAuthError({
         message: authErrorMessage,
       });
     } else if (statusCode === 400) {
-      // Suppress generic auth-error message when the 400 is a model-not-supported
-      // error — that case is handled by the model_unavailable diagnostic.
-      if (responseBody && parseModelNotSupportedFromBody(responseBody)) return;
+      // Suppress the generic auth-error message when a specific diagnostic
+      // handles the response.
+      if (responseBody && (
+        (provider === 'copilot' && !responseBodyTruncated && isCopilotPatUnsupportedBody(responseBody)) ||
+        parseModelNotSupportedFromBody(responseBody)
+      )) return;
       logRequest('warn', 'upstream_auth_error', {
         request_id: requestId, provider, status: statusCode,
         upstream_host: targetHost, path: sanitizeForLog(req.url),
