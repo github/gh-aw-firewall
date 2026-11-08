@@ -17,6 +17,6 @@ contract.features[0].conditions.push('anything');
 // @ts-expect-error Implementation revision is immutable.
 contract.implementation.sha256 = 'anything';
 // @ts-expect-error Assessment is not a whole-request success verdict.
-assessment.compatible;
+void (assessment.compatible);
 // @ts-expect-error Request versus return response is explicit.
 assessFeature({ source: 'responses', target: 'chat_completions', direction: 'reverse', feature: 'message_text' });
