@@ -376,10 +376,9 @@ function createSendUpstreamRequest({
             let lastDecision = null;
             let exhausted = false;
             const recordExhaustion = () => {
-              if (exhausted) return;
+              if (exhausted || !lastDecision) return;
               exhausted = true;
-              const candidate = lastDecision?.candidate || { provider, model: current.model };
-              observeDecision(candidate, 'exhausted', lastDecision?.assessment || assessCandidate(candidate, null));
+              observeDecision(lastDecision.candidate, 'exhausted', lastDecision.assessment);
             };
             const logSkip = (candidate, skipReason, assessment = null) => {
               exclude.add(attemptKey(candidate.provider, candidate.model));
