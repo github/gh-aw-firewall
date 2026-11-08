@@ -807,7 +807,7 @@ describe('upstream-http', () => {
   });
 
   test.each(['ordered fallback', 'endpoint-blocked fallback'])(
-    'rejects unsupported reasoning effort after %s rewrites the model',
+    'skips unsupported reasoning effort before %s dispatches a replacement',
     (fallbackType) => {
       replaceRuntimeModels('copilot', [
         { id: 'initial-model', supportedReasoningEfforts: ['low', 'high'] },
@@ -834,6 +834,7 @@ describe('upstream-http', () => {
       const req = {
         method: 'POST',
         url: '/v1/chat/completions',
+        awfObserveModelDecision: jest.fn(),
         ...(fallbackType === 'endpoint-blocked fallback'
           ? { awfModelCandidates: ['initial-model', 'fallback-model'] }
           : {}),
@@ -861,13 +862,10 @@ describe('upstream-http', () => {
       }
 
       expect(httpsRequest).toHaveBeenCalledTimes(1);
-      expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
-      expect(JSON.parse(res.end.mock.calls[0][0])).toMatchObject({
-        error: {
-          code: 'unsupported_reasoning_effort',
-          message: 'reasoning_effort "high" is not supported by model fallback-model; supported values: [low]',
-        },
-      });
+      expect(res.writeHead).not.toHaveBeenCalled();
+      expect(req.awfObserveModelDecision).toHaveBeenCalledWith(expect.objectContaining({
+        model: 'fallback-model', outcome: 'skipped', reason: 'fallback_incompatible',
+      }));
     },
   );
 

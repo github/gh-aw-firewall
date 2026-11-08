@@ -28,7 +28,9 @@ const {
   translateResponsesRequest,
   transformWireApiResponseBody,
   createWireApiSseTransform,
+  endpointForPath,
 } = require('./wire-api-compat');
+const { findRuntimeModel } = require('./runtime-model-catalog');
 const {
   chatRequestToAnthropic,
   anthropicResponseToChat,
@@ -69,6 +71,51 @@ function protocolForPath(path) {
   if (pathname.endsWith('/responses')) return 'responses';
   if (pathname.endsWith('/messages')) return 'messages';
   return null;
+}
+
+// Mirror the translator's endpoint rules using exact request-pinned records when available.
+function getFallbackUpstreamEndpoint(provider, model, endpoint, preserveEndpoint = false, runtimeCatalog = null) {
+  const requestedEndpoint = endpointForPath(endpoint);
+  if (provider !== 'copilot' || preserveEndpoint || !requestedEndpoint || typeof model !== 'string') return endpoint;
+  const records = Array.isArray(runtimeCatalog?.copilot) ? runtimeCatalog.copilot : [];
+  const record = runtimeCatalog
+    ? records.find(record => typeof record.id === 'string' && record.id.toLowerCase() === model.toLowerCase())
+    : findRuntimeModel('copilot', model);
+  if (!Array.isArray(record?.supportedEndpoints)) return endpoint;
+  const endpoints = new Set(record.supportedEndpoints.map(value => {
+    if (typeof value !== 'string') return null;
+    if (value.endsWith('/responses')) return '/responses';
+    if (value.endsWith('/chat/completions')) return '/chat/completions';
+    return null;
+  }));
+  const opposite = requestedEndpoint === '/responses' ? '/chat/completions' : '/responses';
+  return endpoints.has(requestedEndpoint) || !endpoints.has(opposite) ? endpoint : opposite;
+}
+
+function getRequiredResponseFeatures(body, protocol) {
+  const parsed = parseBodyAsObject(body);
+  if (!parsed) return [];
+  const features = [];
+  if (parsed.stream_options?.include_usage === true || protocol === 'responses' && parsed.stream === true) {
+    features.push('usage');
+  }
+  let tools = Array.isArray(parsed.tools) && parsed.tools.length > 0;
+  const pending = [parsed.messages, parsed.input];
+  let remaining = 8192;
+  while (!tools && pending.length && remaining-- > 0) {
+    const item = pending.pop();
+    if (!item || typeof item !== 'object') continue;
+    if (Array.isArray(item)) {
+      for (const child of item.slice(0, Math.max(0, remaining + 1 - pending.length))) pending.push(child);
+      continue;
+    }
+    tools = item.role === 'tool' || Array.isArray(item.tool_calls) && item.tool_calls.length > 0 ||
+      !!item.function_call || ['function_call', 'function_call_output', 'custom_tool_call',
+        'custom_tool_call_output', 'tool_use', 'tool_result'].includes(item.type);
+    if (Array.isArray(item.content)) pending.push(item.content);
+  }
+  if (tools) features.push('function_tools');
+  return features;
 }
 
 /**
@@ -137,9 +184,11 @@ function pinModel(body, model) {
  * @param {import('http').IncomingMessage} params.req - Agent request
  * @param {string} params.requestId
  * @param {boolean} [params.codexCompatibility] - Whether a Codex response transform will run
+ * @param {Function} [params.assessCompatibility] - Request-scoped concrete-endpoint admission callback
  * @returns {Promise<{
  *   body: Buffer, headers: object, targetHost: string, upstreamPath: string,
  *   requestSigner: Function|null, targetScheme: string,
+ *   upstreamEndpoint: string, compatibilityAssessment: object|null,
  *   wireApiCompatibility: object|null, wireApiSourceBody: Buffer|null,
  *   protocolTranslation: object, substitutedModel: string|null,
  * }>}
@@ -147,13 +196,31 @@ function pinModel(body, model) {
  */
 async function buildCrossProviderRequest({
   sourceBody, protocol, originProvider, targetProvider, model, adapter, req, requestId,
-  codexCompatibility = false,
+  codexCompatibility = false, assessCompatibility = null,
 }) {
   const endpoint = TARGET_ENDPOINTS[targetProvider]?.[protocol];
   if (!endpoint) throw new Error(`Provider ${targetProvider} cannot serve ${protocol} requests`);
   const parsed = parseBodyAsObject(sourceBody);
   if (!parsed) throw new Error('Request body is not a JSON object');
   parsed.model = model;
+  const targetHost = adapter.getTargetHost(req);
+  const targetScheme = typeof adapter.getTargetScheme === 'function' ? adapter.getTargetScheme(req) : 'https';
+  const plannedEndpoint = getFallbackUpstreamEndpoint(targetProvider, model, endpoint, false, req.awfRuntimePricing);
+  let compatibilityAssessment = null;
+  const checkCompatibility = upstreamEndpoint => {
+    if (!assessCompatibility) return;
+    compatibilityAssessment = assessCompatibility({
+      upstreamEndpoint, targetHost, targetScheme,
+      upstreamPath: buildUpstreamPath(upstreamEndpoint, targetHost, adapter.getBasePath(req) || ''),
+    });
+    if (compatibilityAssessment.status !== 'compatible') {
+      const error = new Error('Fallback request compatibility was not established');
+      error.code = 'fallback_compatibility_rejected';
+      error.compatibility = compatibilityAssessment;
+      throw error;
+    }
+  };
+  checkCompatibility(plannedEndpoint);
 
   const transformReq = {
     method: req.method,
@@ -187,7 +254,8 @@ async function buildCrossProviderRequest({
     ({ body, substituted: substitutedModel } = pinModel(body, model));
     if (targetProvider === 'copilot' && protocol !== 'messages') {
       wireApiSourceBody = body;
-      const translated = translateCopilotWireApi(body, endpoint);
+      const translated = plannedEndpoint === endpoint ? null
+        : translateCopilotWireApi(body, endpoint, { upstreamEndpoint: plannedEndpoint });
       if (translated) {
         body = translated.body;
         wireApiCompatibility = translated.compatibility;
@@ -196,8 +264,8 @@ async function buildCrossProviderRequest({
     }
   }
 
-  const targetHost = adapter.getTargetHost(req);
   const upstreamPath = buildUpstreamPath(upstreamEndpoint, targetHost, adapter.getBasePath(req) || '');
+  if (upstreamEndpoint !== plannedEndpoint) checkCompatibility(upstreamEndpoint);
   const protocolTranslation = {
     kind,
     originProvider,
@@ -227,7 +295,9 @@ async function buildCrossProviderRequest({
     targetHost,
     upstreamPath,
     requestSigner: typeof adapter.getRequestSigner === 'function' ? adapter.getRequestSigner() : null,
-    targetScheme: typeof adapter.getTargetScheme === 'function' ? adapter.getTargetScheme(req) : 'https',
+    targetScheme,
+    upstreamEndpoint,
+    compatibilityAssessment,
     wireApiCompatibility,
     wireApiSourceBody,
     protocolTranslation,
@@ -280,6 +350,8 @@ module.exports = {
   CROSS_PROVIDER_TARGETS,
   TARGET_ENDPOINTS,
   protocolForPath,
+  getFallbackUpstreamEndpoint,
+  getRequiredResponseFeatures,
   getCrossProviderRejection,
   buildCrossProviderRequest,
   needsResponseTranslation,

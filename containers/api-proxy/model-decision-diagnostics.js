@@ -2,6 +2,8 @@
 
 const Ajv = require('ajv');
 const schema = require('./model-decision-diagnostics.schema.json');
+const { FEATURES, CONTRACTS, REVISION } = require('./protocol-compatibility');
+const { REASON_CODES, ASSESSMENT_REVISION } = require('./protocol-compatibility/assessment');
 
 const validateDiagnostics = new Ajv({ strict: true }).compile(schema);
 const MAX_CURRENT = 64;
@@ -73,7 +75,170 @@ const ADVICE = Object.freeze({
     'The available accounting summary does not establish a pricing basis. Missing usage is not zero cost.'],
   decision_unknown: ['unknown', 'unknown', 'unknown',
     'The captured summary supplies no recognized model-decision evidence. No valid action or retry can be inferred.'],
+  fallback_compatible: ['observed', 'none', 'not_applicable',
+    'AWF admitted this fallback candidate against the captured request contract. Provider response behavior was not assessed; future responses are not guaranteed.'],
+  fallback_incompatible: ['rejected', 'change_request', 'do_not_repeat',
+    'AWF skipped this incompatible fallback candidate. Do not repeat the unchanged request; a correction requires evidence for the exact request and protocol. No replacement is recommended.'],
+  fallback_unverified: ['unknown', 'operator_required', 'after_operator_change',
+    'AWF skipped a fallback candidate whose request compatibility was unverified. Operator-supplied compatible evidence is required before re-evaluation; no response guarantee or replacement is inferred.'],
+  fallback_exhausted: ['rejected', 'change_request', 'do_not_repeat',
+    'The observed fallback chain was exhausted. Do not repeat the unchanged request; any correction requires compatible exact-request evidence. No replacement or successful retry is established.'],
 });
+
+const PROTOCOLS = new Set(['chat_completions', 'responses', 'anthropic_messages']);
+const FEATURE_SET = new Set(FEATURES);
+const REASONING_CODES = new Set(REASON_CODES.filter(code =>
+  schema.definitions.reasoning.properties.reason.enum.includes(code)));
+const FALLBACK_REASONS = new Set([
+  'fallback_compatible', 'fallback_incompatible', 'fallback_unverified', 'fallback_exhausted',
+]);
+const COMPATIBILITY_CODES = new Set(REASON_CODES);
+const REASONING_FIELDS = new Set([
+  'supportedReasoningEfforts', 'capabilities.supports.reasoning_effort',
+  'capabilities.supports.reasoningEffort', 'capabilities.supports', 'routing.reasoningEfforts',
+]);
+
+function pinProjection(record) {
+  return {
+    eligibility_revision: Number.isSafeInteger(record.eligibilityRevision) &&
+      record.eligibilityRevision >= 0 ? record.eligibilityRevision : null,
+    catalogue_revision: revision(record.catalogueRevision),
+  };
+}
+
+function compatibilityProjection(assessment, outcome, pins) {
+  if (!assessment || !['compatible', 'incompatible', 'unverified'].includes(assessment.status) ||
+      !['skipped', 'accepted', 'exhausted'].includes(outcome)) return null;
+  const contracts = (Array.isArray(assessment.contracts) ? assessment.contracts : [])
+    .slice(0, CONTRACTS.length).filter(contract => CONTRACTS.some(known => known.id === contract?.id));
+  if (contracts.some(contract => !CONTRACTS.some(known => known.id === contract?.id &&
+      known.revision === contract.revision &&
+      known.implementation.file === contract.implementation?.file &&
+      known.implementation.sha256 === contract.implementation?.sha256))) return null;
+  return {
+    outcome, status: assessment.status,
+    source: PROTOCOLS.has(assessment.source) ? assessment.source : null,
+    target: PROTOCOLS.has(assessment.target) ? assessment.target : null,
+    contract_revision: assessment.revision === REVISION ? REVISION : null,
+    assessment_revision: assessment.assessmentRevision === ASSESSMENT_REVISION
+      ? assessment.assessmentRevision : null,
+    contracts: contracts.map(contract => ({ id: contract.id, revision: contract.revision,
+        implementation: { file: contract.implementation.file, sha256: contract.implementation.sha256 } })),
+    features: [...new Set((Array.isArray(assessment.features) ? assessment.features : [])
+      .slice(0, FEATURES.length).filter(feature => FEATURE_SET.has(feature)))],
+    reasons: (Array.isArray(assessment.reasons) ? assessment.reasons : []).slice(0, 32)
+      .filter(reason => FEATURE_SET.has(reason?.feature) && COMPATIBILITY_CODES.has(reason?.code))
+      .map(reason => ({ feature: reason.feature, code: reason.code })),
+    pins: { ...pins },
+    return_conditions: assessment.returnConditions === 'not_applicable'
+      ? 'not_applicable' : 'provider_response_unobserved',
+  };
+}
+
+function reasoningProjection(result, pins) {
+  if (!result || !['supported', 'unsupported', 'unknown', 'absent'].includes(result.support) ||
+      !['optional', 'required', 'forbidden', 'unknown'].includes(result.mode) ||
+      !REASONING_CODES.has(result.code)) return null;
+  const denied = ['reasoning_effort_required', 'reasoning_effort_forbidden',
+    'reasoning_effort_unsupported', 'reasoning_future_effort_not_selectable'].includes(result.code);
+  const unverified = result.code === 'reasoning_automatic_requires_known_support';
+  const evidence = (Array.isArray(result.observations) ? result.observations : []).slice(0, 16)
+    .filter(item => item?.selected === true && ['provider', 'maintained'].includes(item.authority) &&
+      ['provider-model-list', 'model-api-mapping'].includes(item.provenance?.source))
+    .map(item => ({ authority: item.authority, source: item.provenance.source,
+      ...(REASONING_FIELDS.has(item.provenance.field) ? { field: item.provenance.field } : {}) }));
+  return {
+    support: result.support, mode: result.mode, reason: result.code,
+    action: { kind: denied ? 'change_request' : unverified ? 'operator_required' : 'none',
+      retry: denied ? 'do_not_repeat' : unverified ? 'after_operator_change' : 'not_applicable' },
+    pins: { ...pins },
+    ...(evidence.length ? { selected_evidence: evidence } : {}),
+  };
+}
+
+function projectRecentFields(item, endpoints) {
+  const compatibility = item.compatibility && compatibilityProjection({
+    status: item.compatibility.status, source: item.compatibility.source, target: item.compatibility.target,
+    revision: item.compatibility.contract_revision, assessmentRevision: item.compatibility.assessment_revision,
+    contracts: item.compatibility.contracts, features: item.compatibility.features, reasons: item.compatibility.reasons,
+    returnConditions: item.compatibility.return_conditions,
+  }, item.compatibility.outcome, pinProjection({
+    eligibilityRevision: item.compatibility.pins?.eligibility_revision,
+    catalogueRevision: item.compatibility.pins?.catalogue_revision,
+  }));
+  const reasoning = item.reasoning && reasoningProjection({
+    support: item.reasoning.support, mode: item.reasoning.mode, code: item.reasoning.reason,
+    observations: (Array.isArray(item.reasoning.selected_evidence) ? item.reasoning.selected_evidence : [])
+      .slice(0, 16).map(evidence => ({
+        selected: true, authority: evidence?.authority,
+        provenance: { source: evidence?.source, field: evidence?.field },
+      })),
+  }, pinProjection({
+    eligibilityRevision: item.reasoning.pins?.eligibility_revision,
+    catalogueRevision: item.reasoning.pins?.catalogue_revision,
+  }));
+  return {
+    ...(item.origin && PROVIDERS.has(item.origin.provider) ? { origin: {
+      provider: item.origin.provider,
+      model_id: visibleIdentity(item.origin.provider, item.origin.model_id, endpoints),
+    } } : {}),
+    ...(compatibility ? { compatibility } : {}),
+    ...(reasoning ? { reasoning } : {}),
+  };
+}
+
+// This projection must run before any record enters the pending/history buffers.
+function sanitizeModelDecisionRecord(input, { visibleModel = () => null, endpoint = null } = {}) {
+  if (!input || !FALLBACK_REASONS.has(input.reason) ||
+      !['skipped', 'accepted', 'exhausted'].includes(input.outcome) ||
+      !endpointFor(input.endpoint) || (endpoint && endpointFor(input.endpoint) !== endpoint)) return null;
+  if (input.reason === 'fallback_exhausted' ? input.outcome !== 'exhausted'
+    : !PROVIDERS.has(input.provider)) return null;
+  if (input.outcome === 'accepted' && input.reason !== 'fallback_compatible' ||
+      input.outcome === 'skipped' && !['fallback_incompatible', 'fallback_unverified'].includes(input.reason) ||
+      input.outcome === 'exhausted' && input.reason !== 'fallback_exhausted') return null;
+  if (input.compatibility && input.outcome !== 'exhausted' &&
+      input.compatibility.status !== {
+        fallback_compatible: 'compatible', fallback_incompatible: 'incompatible', fallback_unverified: 'unverified',
+      }[input.reason]) return null;
+  if (input.reasoning?.scope?.deployment !== undefined) return null;
+  if (input.outcome !== 'exhausted' && input.reasoning?.scope &&
+      (input.reasoning.scope.provider !== input.provider ||
+      input.reasoning.scope.channel !== (input.provider === 'copilot' ? 'copilot-api' : 'native-api'))) return null;
+  if (input.outcome !== 'exhausted' && input.reasoning?.identity && (input.reasoning.identity.provider !== input.provider ||
+      input.reasoning.identity.rawId !== input.model ||
+      input.reasoning.identity.key !== `${input.provider}/${input.model}`)) return null;
+  const provider = input.outcome === 'exhausted' ? null : input.provider;
+  const pins = pinProjection(input);
+  const compatibility = compatibilityProjection(input.compatibility, input.outcome, pins);
+  if (input.compatibility && !compatibility) return null;
+  const selectedReasoning = input.outcome === 'exhausted' ? null : input.reasoning;
+  const assessedReasoning = input.outcome === 'exhausted' ? null : input.compatibility?.reasoning;
+  const matchingReasoning = !selectedReasoning || !assessedReasoning ||
+    selectedReasoning.support === assessedReasoning.support && selectedReasoning.mode === assessedReasoning.mode &&
+    (!selectedReasoning.code || selectedReasoning.code === assessedReasoning.code);
+  const reasoningResult = !matchingReasoning ? null : selectedReasoning?.code
+    ? { support: selectedReasoning.support, mode: selectedReasoning.mode, code: selectedReasoning.code,
+      observations: selectedReasoning.identity && selectedReasoning.scope ? selectedReasoning.observations : undefined }
+    : assessedReasoning && (!selectedReasoning ||
+      selectedReasoning.support === assessedReasoning.support && selectedReasoning.mode === assessedReasoning.mode)
+      ? { support: assessedReasoning.support, mode: assessedReasoning.mode, code: assessedReasoning.code,
+        observations: selectedReasoning?.identity && selectedReasoning.scope ? selectedReasoning.observations : undefined } : null;
+  const reasoning = reasoningProjection(reasoningResult, pins);
+  const originProvider = PROVIDERS.has(input.originProvider) ? input.originProvider : null;
+  const candidate = input.compatibility?.candidate;
+  const matchedCandidate = !candidate ||
+    (candidate.provider === provider && candidate.model === input.model);
+  return {
+    provider, model: provider && matchedCandidate ? visibleModel(provider, modelId(input.model)) : null,
+    endpoint: endpointFor(input.endpoint), reason: input.reason, outcome: input.outcome,
+    eligibilityRevision: pins.eligibility_revision, catalogueRevision: pins.catalogue_revision,
+    ...(originProvider ? { origin: { provider: originProvider,
+      model_id: visibleModel(originProvider, modelId(input.originModel)) } } : {}),
+    ...(compatibility ? { compatibility } : {}),
+    ...(reasoning ? { reasoning } : {}),
+  };
+}
 
 function endpointFor(value) {
   if (typeof value !== 'string') return null;
@@ -240,6 +405,7 @@ function projectModelDecisionDiagnostics(reflection, { context = 'unknown', rece
       eligibilityRevision: item.eligibilityRevision, catalogueRevision: item.catalogueRevision, observed: item.observedAt }),
     ...(item.rejected === true ? { status: 'rejected' } : {}),
     ...(item.reason === 'unsupported_reasoning_effort' ? { effort: effortEvidence(null, item.endpoint, true) } : {}),
+    ...projectRecentFields(item, endpoints),
     occurrences: Number.isSafeInteger(item.occurrences) ? Math.max(1, Math.min(1000, item.occurrences)) : 1,
   }));
   let snapshotBudget = Math.max(0, MAX_CURRENT - current.filter(item =>
@@ -260,4 +426,5 @@ function projectModelDecisionDiagnostics(reflection, { context = 'unknown', rece
 module.exports = {
   MAX_RECENT, RETENTION_SECONDS, decision, endpointFor, modelId, revision, observedAt,
   projectCapturedEligibility, projectModelDecisionDiagnostics, validateDiagnostics,
+  sanitizeModelDecisionRecord,
 };

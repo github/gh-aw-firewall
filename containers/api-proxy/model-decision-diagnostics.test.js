@@ -38,10 +38,10 @@ function observe(observer, error, extra = {}, finish = true) {
   const res = response();
   const nativeEnd = res.end;
   const dispatch = jest.fn((_req, target) => target.end(JSON.stringify({ error })));
-  observer.wrapProxyRequest(dispatch)(req, res, 'target.invalid', {}, 'copilot');
+  observer.wrapProxyRequest(dispatch)(req, res, 'api.githubcopilot.com', {}, 'copilot');
   if (finish) res.emit('finish');
   expect(dispatch).toHaveBeenCalledTimes(1);
-  expect(nativeEnd).toHaveBeenCalledWith(JSON.stringify({ error }), undefined, undefined);
+  expect(nativeEnd.mock.calls[0][0]).toBe(JSON.stringify({ error }));
   return res;
 }
 

@@ -55,6 +55,7 @@ function rewriteModelInBody(body, provider, aliases, availableModels, modelFallb
     identity: resolution.identity, wireId: resolution.wireId, matchKind: resolution.matchKind,
     eligibilityDecision: resolution.eligibilityDecision,
     aliasKeys: resolution.aliasKeys || [],
+    ...(resolution.automaticReplacement === true ? { automaticReplacement: true } : {}),
   };
 }
 

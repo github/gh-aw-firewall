@@ -174,10 +174,10 @@ describe('proxyRequest copilot model-not-supported retry', () => {
     expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
     expect(JSON.parse(res.end.mock.calls[0][0].toString()).error).toMatchObject({
       code: 'unsupported_wire_api_feature',
-      message: expect.stringContaining("tools[custom]"),
+      message: expect.stringContaining('AWF will not drop request features'),
     });
     expect(JSON.parse(res.end.mock.calls[0][0].toString()).error.message)
-      .toContain('Choose a model supporting /chat/completions');
+      .toContain('choose a model supporting the requested endpoint');
   });
 
   it('rejects a custom-tool request before dispatch when the model only supports the other API', async () => {

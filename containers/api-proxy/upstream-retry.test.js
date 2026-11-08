@@ -150,6 +150,30 @@ describe('upstream-retry', () => {
       expect(opts.res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
     });
 
+    test('permanent endpoint compatibility exhaustion cannot fall into the transient retry loop', () => {
+      const opts = createBaseOptions();
+      opts.parseModelEndpointBlockedFromBody.mockReturnValue(true);
+      opts.parseModelNotSupportedFromBody.mockReturnValue(true);
+      opts.onWireApiEndpointRetry = jest.fn(() => false);
+      opts.onModelFallback = jest.fn(() => false);
+      expect(handle400WithRetry({ statusCode: 400, headers: {} }, {}, endpointBlockedBody, opts)).toBe(false);
+      expect(opts.onModelNotSupportedRetry).not.toHaveBeenCalled();
+      expect(JSON.parse(opts.res.end.mock.calls[0][0]).error.code).toBe('model_endpoint_incompatible');
+    });
+
+    test('an asynchronous exhausted fallback retains the endpoint-blocked AWF envelope', () => {
+      const opts = createBaseOptions();
+      opts.parseModelEndpointBlockedFromBody.mockReturnValue(true);
+      let abandon;
+      opts.onModelFallback = jest.fn(ctx => { abandon = ctx.abandon; return true; });
+      expect(handle400WithRetry({ statusCode: 400, headers: {} }, {}, endpointBlockedBody, opts)).toBe(true);
+      abandon();
+      expect(opts.res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+      expect(JSON.parse(opts.res.end.mock.calls[0][0]).error.code).toBe('model_endpoint_incompatible');
+      expect(opts.onModelNotSupportedRetry).not.toHaveBeenCalled();
+      expect(opts.onModelFallback).toHaveBeenCalledTimes(1);
+    });
+
     test('does not trigger when provider is not copilot', () => {
       const opts = createBaseOptions();
       opts.provider = 'openai';

@@ -241,6 +241,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
   req.awfModelCatalogAuthoritative = provider === 'copilot' && isGithubCopilotCatalogTarget(targetHost);
   if (!Object.hasOwn(req, 'awfCatalogue')) req.awfCatalogue = getCatalogueLoader().capture();
   if (!req.awfRuntimePricing) req.awfRuntimePricing = captureRuntimePricing();
+  req.awfFallbackTarget = Object.freeze({ targetHost, targetScheme });
   const clientRequestId = req.headers['x-request-id'];
   const requestId = req.awfRouting?.requestId
     || (isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId());

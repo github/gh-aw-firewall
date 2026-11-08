@@ -16,7 +16,12 @@ const {
   buildCrossProviderRequest,
   getCrossProviderRejection,
   protocolForPath,
+  TARGET_ENDPOINTS,
+  getFallbackUpstreamEndpoint,
+  getRequiredResponseFeatures,
 } = require('./cross-provider-fallback');
+const { assessRequestCompatibility } = require('./protocol-compatibility/assessment');
+const { getRequestReasoning } = require('./model-reasoning');
 const { validateReasoningEffort } = require('./reasoning-effort-validation');
 const { sanitizeForLog, logRequestShape } = require('./logging');
 const { mergeInjectedHeaders } = require('./request-headers');
@@ -45,6 +50,17 @@ const invocationModelBudget = createInvocationModelBudget(
  * Index 0 → delay before the 1st retry, index 1 → delay before the 2nd retry.
  */
 const MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS = [1000, 2000];
+
+const ASSESSMENT_PROTOCOLS = Object.freeze({
+  chat: 'chat_completions', responses: 'responses', messages: 'anthropic_messages',
+});
+
+function canonicalEndpoint(path) {
+  const protocol = protocolForPath(path);
+  return protocol === 'chat' ? '/chat/completions'
+    : protocol === 'responses' ? '/responses'
+      : protocol === 'messages' ? '/v1/messages' : null;
+}
 
 function rebuildBodyFramingHeaders(headers, bodyLength) {
   const reframedHeaders = {};
@@ -104,7 +120,11 @@ function rebuildCopilotWireApiFallback(sourceBody, nextModel, req, upstreamPath,
 
   parsed.model = nextModel;
   const nextSourceBody = Buffer.from(JSON.stringify(parsed), 'utf8');
-  const translated = preserveEndpoint ? null : translateCopilotWireApi(nextSourceBody, req.url);
+  const plannedEndpoint = endpointForPath(getFallbackUpstreamEndpoint(
+    'copilot', nextModel, req.url, preserveEndpoint, req.awfRuntimePricing,
+  )) || requestedEndpoint;
+  const translated = plannedEndpoint === requestedEndpoint ? null
+    : translateCopilotWireApi(nextSourceBody, req.url, { upstreamEndpoint: plannedEndpoint });
   const compatibility = translated?.compatibility || {
     requestedEndpoint,
     upstreamEndpoint: requestedEndpoint,
@@ -246,8 +266,11 @@ function createSendUpstreamRequest({
     // from the agent's protocol rather than from a translated upstream body.
     const origin = fallbackOrigin || {
       provider,
-      protocol: protocolForPath(req?.url),
-      sourceBody: wireApiSourceBody || body,
+      protocol: protocolForPath(req?.url || upstreamPath),
+      sourceBody: req.awfFallbackSourceBody || wireApiSourceBody || body,
+      model: (req.awfResolverFallback?.provider === provider ? req.awfResolverFallback.fromModel : null) ||
+        req.awfRecoveryAttempts?.[0]?.model || getRequestModel(body, upstreamPath)?.model || null,
+      endpoint: canonicalEndpoint(req?.url || upstreamPath),
       body,
       upstreamPath,
       requestHeaders,
@@ -259,6 +282,46 @@ function createSendUpstreamRequest({
       wireApiSourceBody,
       wireApiEndpointRetryAttempted,
       failures: req.awfModelFallback?.failures || [],
+    };
+    const requiredResponseFeatures = getRequiredResponseFeatures(origin.sourceBody, origin.protocol);
+    const assessCandidate = (candidate, path, host = targetHost, scheme = targetScheme) => {
+      const nativePassthrough = ['gemini', 'vertex'].includes(origin.provider) &&
+        candidate.provider === origin.provider && host === origin.targetHost && scheme === origin.targetScheme &&
+        getRequestModel(origin.body, origin.upstreamPath)?.location === 'path' &&
+        /\/models\/[^/:?]+:(?:generateContent|streamGenerateContent)(?:\?|$)/.test(origin.upstreamPath) &&
+        rewriteRequestModel({ body: origin.body, upstreamPath: origin.upstreamPath }, 'path', candidate.model)
+          ?.upstreamPath === path;
+      const reasoning = path && typeof candidate.model === 'string'
+        ? getRequestReasoning(candidate.model, candidate.provider, req.awfRuntimePricing, req, {
+        targetHost: host, targetScheme: scheme,
+      }) : null;
+      return {
+        compatibility: assessRequestCompatibility({
+          body: origin.sourceBody,
+          source: ASSESSMENT_PROTOCOLS[origin.protocol] || null,
+          target: ASSESSMENT_PROTOCOLS[protocolForPath(path)] || null,
+          candidate: { provider: candidate.provider, model: candidate.model },
+          pins: { eligibilityRevision: req.awfEligibility?.revision, catalogueRevision: req.awfCatalogue?.revision },
+          reasoning, requiredResponseFeatures, nativePassthrough,
+        }),
+        reasoning,
+      };
+    };
+    const observeDecision = (candidate, outcome, assessment) => {
+      if (typeof req.awfObserveModelDecision !== 'function') return;
+      try {
+        req.awfObserveModelDecision({
+          provider: candidate.provider, model: outcome === 'exhausted' ? null : candidate.model,
+          endpoint: origin.endpoint, originProvider: origin.provider, originModel: origin.model,
+          outcome, compatibility: assessment.compatibility,
+          reason: outcome === 'exhausted' ? 'fallback_exhausted'
+            : `fallback_${assessment.compatibility.status}`,
+          eligibilityRevision: req.awfEligibility?.revision, catalogueRevision: req.awfCatalogue?.revision,
+          reasoning: assessment.reasoning,
+        });
+      } catch {
+        // Optional diagnostics cannot affect inference admission.
+      }
     };
 
     // Evaluate candidates only after an eligible failure so skipped-entry
@@ -311,7 +374,20 @@ function createSendUpstreamRequest({
               : [];
             const candidates = [...chain, ...automaticModels];
             const exclude = new Set();
-            const logSkip = (candidate, skipReason) => {
+            let lastDecision = null;
+            let exhausted = false;
+            const recordExhaustion = () => {
+              if (exhausted || !lastDecision) return;
+              exhausted = true;
+              observeDecision(lastDecision.candidate, 'exhausted', lastDecision.assessment);
+            };
+            const logSkip = (candidate, skipReason, assessment = null) => {
+              exclude.add(attemptKey(candidate.provider, candidate.model));
+              const observedCandidate = skipReason === 'guard_rejected'
+                ? { provider: candidate.provider, model: null } : candidate;
+              assessment ||= assessCandidate(observedCandidate, null);
+              lastDecision = { candidate: observedCandidate, assessment };
+              observeDecision(observedCandidate, 'skipped', assessment);
               logRequest?.('warn', 'model_fallback_skipped', {
                 request_id: requestId,
                 provider: origin.provider,
@@ -381,6 +457,10 @@ function createSendUpstreamRequest({
             const buildSameProviderAttempt = (candidate) => {
               const rewritten = rewriteRequestModel({ body, upstreamPath }, current.location, candidate.model);
               if (!rewritten) return null;
+              const assessment = assessCandidate(candidate, provider === 'copilot' && wireApiSourceBody
+                ? getFallbackUpstreamEndpoint(provider, candidate.model, req.url, !chain.includes(candidate.entry), req.awfRuntimePricing)
+                : rewritten.upstreamPath);
+              if (assessment.compatibility.status !== 'compatible') return { assessment };
               let wireFallback = null;
               if (provider === 'copilot' && wireApiSourceBody) {
                 wireFallback = rebuildCopilotWireApiFallback(
@@ -388,10 +468,11 @@ function createSendUpstreamRequest({
                 );
               }
               const retryBody = wireFallback?.body || rewritten.body;
-              return () => sendUpstreamRequest(
+              const retryPath = wireFallback?.upstreamPath || rewritten.upstreamPath;
+              return { assessment: assessCandidate(candidate, retryPath), dispatch: () => sendUpstreamRequest(
                 retryBody === body ? requestHeaders : rebuildBodyFramingHeaders(requestHeaders, retryBody.length),
                 {
-                  body: retryBody, targetHost, upstreamPath: wireFallback?.upstreamPath || rewritten.upstreamPath,
+                  body: retryBody, targetHost, upstreamPath: retryPath,
                   req, res, provider, requestId, startTime, span, requestBytes: retryBody.length, requestSigner,
                   hasRetried,
                   modelNotSupportedRetryCount,
@@ -408,7 +489,7 @@ function createSendUpstreamRequest({
                   fallbackOrigin: nextOrigin,
                   protocolTranslation,
                 },
-              );
+              ) };
             };
 
             // Back to the receiving provider after a cross-provider attempt:
@@ -419,6 +500,10 @@ function createSendUpstreamRequest({
                 ? rewriteRequestModel({ body: origin.body, upstreamPath: origin.upstreamPath }, located.location, candidate.model)
                 : null;
               if (!rewritten) return null;
+              const assessment = assessCandidate(candidate, origin.provider === 'copilot' && origin.wireApiSourceBody
+                ? getFallbackUpstreamEndpoint(origin.provider, candidate.model, req.url, !chain.includes(candidate.entry), req.awfRuntimePricing)
+                : rewritten.upstreamPath, origin.targetHost, origin.targetScheme);
+              if (assessment.compatibility.status !== 'compatible') return { assessment };
               let wireFallback = null;
               if (origin.provider === 'copilot' && origin.wireApiSourceBody) {
                 wireFallback = rebuildCopilotWireApiFallback(
@@ -426,9 +511,11 @@ function createSendUpstreamRequest({
                 );
               }
               const retryBody = wireFallback?.body || rewritten.body;
-              return () => sendUpstreamRequest(rebuildBodyFramingHeaders(origin.requestHeaders, retryBody.length), {
+              const retryPath = wireFallback?.upstreamPath || rewritten.upstreamPath;
+              return { assessment: assessCandidate(candidate, retryPath, origin.targetHost, origin.targetScheme),
+                dispatch: () => sendUpstreamRequest(rebuildBodyFramingHeaders(origin.requestHeaders, retryBody.length), {
                 body: retryBody, targetHost: origin.targetHost,
-                upstreamPath: wireFallback?.upstreamPath || rewritten.upstreamPath,
+                upstreamPath: retryPath,
                 req, res, provider: origin.provider, requestId, startTime, span, requestBytes: retryBody.length,
                 requestSigner: origin.requestSigner,
                 hasRetried: false,
@@ -443,10 +530,11 @@ function createSendUpstreamRequest({
                 attemptedModels: nextAttempts(candidate),
                 fallbackOrigin: nextOrigin,
                 protocolTranslation: null,
-              });
+              }) };
             };
 
             const giveUp = () => {
+              recordExhaustion();
               if (!(automaticRecovery && reason === 'model_not_supported') && typeof abandon === 'function') {
                 abandon();
                 return;
@@ -479,21 +567,26 @@ function createSendUpstreamRequest({
                 if (!candidate) return false;
                 const key = attemptKey(candidate.provider, candidate.model);
                 if (candidate.provider === provider || candidate.provider === origin.provider) {
-                  let dispatch = null;
+                  let built = null;
                   try {
-                    dispatch = candidate.provider === provider
+                    built = candidate.provider === provider
                       ? buildSameProviderAttempt(candidate)
                       : buildOriginAttempt(candidate);
                   } catch {
-                    dispatch = null;
+                    built = null;
                   }
-                  if (!dispatch) {
+                  if (!built) {
                     exclude.add(key);
                     logSkip(candidate, 'request_rewrite_failed');
                     continue;
                   }
+                  if (built.assessment.compatibility.status !== 'compatible') {
+                    logSkip(candidate, `fallback_${built.assessment.compatibility.status}`, built.assessment);
+                    continue;
+                  }
+                  observeDecision(candidate, 'accepted', built.assessment);
                   recordFallback(candidate);
-                  dispatch();
+                  built.dispatch();
                   return true;
                 }
 
@@ -501,6 +594,7 @@ function createSendUpstreamRequest({
                 // asynchronous, so the attempt is built before dispatch and the
                 // next candidate (or the original failure) is used if it cannot
                 // be built faithfully.
+                let crossAssessment = null;
                 buildCrossProviderRequest({
                   sourceBody: origin.sourceBody,
                   protocol: origin.protocol,
@@ -511,6 +605,10 @@ function createSendUpstreamRequest({
                   req,
                   requestId,
                   codexCompatibility: !!origin.codexCompatibility,
+                  assessCompatibility: ({ upstreamPath: path, targetHost: host, targetScheme: scheme }) => {
+                    crossAssessment = assessCandidate(candidate, path, host, scheme);
+                    return crossAssessment.compatibility;
+                  },
                 }).then((built) => {
                   if (cancellation.cancelled || res.headersSent || res.destroyed || res.writableEnded) {
                     finalizeCancellation();
@@ -525,6 +623,7 @@ function createSendUpstreamRequest({
                       message: `Provider body transform tried to substitute "${built.substitutedModel}"; kept configured fallback "${candidate.model}"`,
                     });
                   }
+                  observeDecision(candidate, 'accepted', crossAssessment);
                   recordFallback(candidate);
                   sendUpstreamRequest(built.headers, {
                     body: built.body, targetHost: built.targetHost, upstreamPath: built.upstreamPath,
@@ -550,10 +649,28 @@ function createSendUpstreamRequest({
                     failBrokerAuth({ res, req, provider, span });
                     return;
                   }
-                  exclude.add(key);
-                  logSkip(candidate, err?.code === 'unsupported_protocol_feature' || err?.code === 'unsupported_wire_api_feature'
-                    ? `protocol_translation_failed: ${err.feature || err.message}`
-                    : 'request_build_failed');
+                  if (!crossAssessment) {
+                    const adapter = getProviderAdapter(candidate.provider);
+                    try {
+                      crossAssessment = assessCandidate(candidate,
+                        err?.code === 'unsupported_protocol_feature' || err?.code === 'unsupported_wire_api_feature'
+                          ? TARGET_ENDPOINTS[candidate.provider]?.[origin.protocol] || null : null,
+                        adapter?.getTargetHost?.(req), adapter?.getTargetScheme?.(req) || 'https');
+                    } catch {
+                      crossAssessment = assessCandidate(candidate, null);
+                    }
+                  }
+                  if (crossAssessment.compatibility.status === 'compatible') {
+                    crossAssessment = { ...crossAssessment, compatibility: {
+                      ...crossAssessment.compatibility,
+                      status: 'unverified',
+                      features: [...new Set([...crossAssessment.compatibility.features, 'unknown_fields'])],
+                      reasons: [...crossAssessment.compatibility.reasons,
+                        { feature: 'unknown_fields', code: 'request_build_failed' }],
+                    } };
+                  }
+                  logSkip(candidate, crossAssessment.compatibility.status !== 'compatible'
+                    ? `fallback_${crossAssessment.compatibility.status}` : 'request_build_failed', crossAssessment);
                   if (res.headersSent || res.destroyed || res.writableEnded) {
                     finalizeCancellation();
                     return;
@@ -569,6 +686,7 @@ function createSendUpstreamRequest({
               giveUp();
               return true;
             }
+            recordExhaustion();
             return false;
           };
         }
@@ -752,6 +870,16 @@ function createSendUpstreamRequest({
           const rejectedEndpoint = endpointForPath(upstreamPath);
           if (!requestedEndpoint || !rejectedEndpoint) return false;
           const alternateEndpoint = rejectedEndpoint === '/responses' ? '/chat/completions' : '/responses';
+          const candidate = { provider, model: getRequestModel(body, upstreamPath)?.model };
+          if (!candidate.model) return false;
+          const assessment = assessCandidate(candidate, alternateEndpoint);
+          if (assessment.compatibility.status !== 'compatible') {
+            observeDecision(candidate, 'skipped', assessment);
+            if (!onModelFallback && !(req.awfModelCandidates?.length > 1)) {
+              observeDecision(candidate, 'exhausted', assessment);
+            }
+            throw new Error('Fallback request compatibility was not established');
+          }
           let retryBody = wireApiSourceBody;
           let retryCompatibility = {
             requestedEndpoint,
@@ -776,6 +904,7 @@ function createSendUpstreamRequest({
           });
           const retryHeaders = rebuildBodyFramingHeaders(requestHeaders, retryBody.length);
           retryHeaders['accept-encoding'] = 'identity';
+          observeDecision(candidate, 'accepted', assessment);
           sendUpstreamRequest(retryHeaders, {
             body: retryBody, targetHost,
             upstreamPath: replaceUpstreamEndpoint(upstreamPath, alternateEndpoint),
@@ -805,66 +934,97 @@ function createSendUpstreamRequest({
           const currentIdx = candidates.indexOf(currentModel);
           if (currentIdx < 0 || currentIdx >= candidates.length - 1) return false;
 
-          const nextModel = selectNextFallbackModel(
-            candidates.slice(currentIdx + 1), [currentModel], provider, isPermitted,
-          );
-          if (!nextModel) return false;
-          let wireFallback = null;
-          if (provider === 'copilot' && wireApiSourceBody) {
-            try {
-              wireFallback = rebuildCopilotWireApiFallback(
-                wireApiSourceBody,
-                nextModel,
-                req,
-                upstreamPath,
-              );
-            } catch {
+          const exclude = [currentModel];
+          let lastDecision = null;
+          const skipped = new Set();
+          const permitCandidate = (model, route) => {
+            let permitted = false;
+            try { permitted = isPermitted(model, route); } catch { /* fail closed */ }
+            const key = attemptKey(route, model);
+            if (!permitted && !skipped.has(key)) {
+              skipped.add(key);
+              exclude.push(model);
+              const candidate = { provider: route, model: null };
+              lastDecision = { candidate, assessment: assessCandidate(candidate, null) };
+              observeDecision(candidate, 'skipped', lastDecision.assessment);
+            }
+            return permitted;
+          };
+          for (;;) {
+            const nextModel = selectNextFallbackModel(candidates.slice(currentIdx + 1), exclude, provider, permitCandidate);
+            if (!nextModel) {
+              if (lastDecision && !onModelFallback) observeDecision(lastDecision.candidate, 'exhausted', lastDecision.assessment);
               return false;
             }
+            exclude.push(nextModel);
+            const candidate = { provider, model: nextModel };
+            let assessment;
+            try {
+              assessment = assessCandidate(candidate, provider === 'copilot' && wireApiSourceBody
+                ? getFallbackUpstreamEndpoint(provider, nextModel, req.url, false, req.awfRuntimePricing) : upstreamPath);
+            } catch {
+              assessment = assessCandidate(candidate, null);
+            }
+            lastDecision = { candidate, assessment };
+            if (assessment.compatibility.status !== 'compatible') {
+              observeDecision(candidate, 'skipped', assessment);
+              continue;
+            }
+            let wireFallback = null;
+            if (provider === 'copilot' && wireApiSourceBody) {
+              try {
+                wireFallback = rebuildCopilotWireApiFallback(wireApiSourceBody, nextModel, req, upstreamPath);
+              } catch {
+                lastDecision = { candidate, assessment: assessCandidate(candidate, null) };
+                observeDecision(candidate, 'skipped', lastDecision.assessment);
+                continue;
+              }
+            }
+
+            // Compatibility metadata belongs to the retry context, not buffer identity.
+            const newParsed = parseBodyAsObject(body);
+            if (!newParsed) return false;
+            newParsed.model = nextModel;
+            const newBody = wireFallback?.body || Buffer.from(JSON.stringify(newParsed), 'utf8');
+            const retryPath = wireFallback?.upstreamPath || upstreamPath;
+            const retryHeaders = rebuildBodyFramingHeaders(requestHeaders, newBody.length);
+            const actualAssessment = assessCandidate(candidate, retryPath);
+            if (actualAssessment.compatibility.status !== 'compatible') {
+              lastDecision = { candidate, assessment: actualAssessment };
+              observeDecision(candidate, 'skipped', actualAssessment);
+              continue;
+            }
+            observeDecision(candidate, 'accepted', actualAssessment);
+            req.awfRouting?.onModelFallback?.({
+              requested_model: req.awfRequestedModelSelector || currentModel,
+              model: nextModel,
+              provider,
+              from_model: currentModel,
+              reason: 'model_endpoint_incompatible',
+            });
+            sendUpstreamRequest(retryHeaders, {
+              body: newBody, targetHost, upstreamPath: retryPath, req, res, provider, requestId, startTime, span,
+              requestBytes: newBody.length, requestSigner,
+              hasRetried,
+              modelNotSupportedRetryCount,
+              targetScheme,
+              codexCompatibility: carryForwardCodexCompatibility(codexCompatibility),
+              wireApiCompatibility: wireFallback
+                ? wireFallback.wireApiCompatibility
+                : carryForwardWireApiCompatibility(wireApiCompatibility),
+              wireApiSourceBody: wireFallback?.wireApiSourceBody || wireApiSourceBody,
+              wireApiEndpointRetryAttempted,
+              attemptedModels: [
+                ...(Array.isArray(attemptedModels) && attemptedModels.length > 0
+                  ? attemptedModels.map(a => toAttempt(a, provider))
+                  : [{ provider, model: currentModel }]),
+                { provider, model: nextModel },
+              ],
+              fallbackOrigin: origin,
+              protocolTranslation,
+            });
+            return true;
           }
-
-          // Rewrite the body with the next candidate. This produces a new
-          // Buffer object, so Codex compatibility metadata (keyed on the
-          // request/retry context, not on buffer identity) must be carried
-          // forward explicitly — it does not depend on which model is used.
-          const newParsed = parseBodyAsObject(body);
-          if (!newParsed) return false;
-          newParsed.model = nextModel;
-          req.awfRouting?.onModelFallback?.({
-            requested_model: req.awfRequestedModelSelector || currentModel,
-            model: nextModel,
-            provider,
-            from_model: currentModel,
-            reason: 'model_endpoint_incompatible',
-          });
-          const newBody = wireFallback?.body || Buffer.from(JSON.stringify(newParsed), 'utf8');
-          const retryPath = wireFallback?.upstreamPath || upstreamPath;
-          const retryHeaders = rebuildBodyFramingHeaders(requestHeaders, newBody.length);
-
-          // Update the candidates list so if the next model also fails we can
-          // continue falling back (by shifting the current index forward).
-          sendUpstreamRequest(retryHeaders, {
-            body: newBody, targetHost, upstreamPath: retryPath, req, res, provider, requestId, startTime, span,
-            requestBytes: newBody.length, requestSigner,
-            hasRetried,
-            modelNotSupportedRetryCount,
-            targetScheme,
-            codexCompatibility: carryForwardCodexCompatibility(codexCompatibility),
-            wireApiCompatibility: wireFallback
-              ? wireFallback.wireApiCompatibility
-              : carryForwardWireApiCompatibility(wireApiCompatibility),
-            wireApiSourceBody: wireFallback?.wireApiSourceBody || wireApiSourceBody,
-            wireApiEndpointRetryAttempted,
-            attemptedModels: [
-              ...(Array.isArray(attemptedModels) && attemptedModels.length > 0
-                ? attemptedModels.map(a => toAttempt(a, provider))
-                : [{ provider, model: currentModel }]),
-              { provider, model: nextModel },
-            ],
-            fallbackOrigin: origin,
-            protocolTranslation,
-          });
-          return true;
         },
       });
     });

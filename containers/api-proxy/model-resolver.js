@@ -193,6 +193,7 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
       return {
         resolvedModel: appendModelParameters(fallback, parameterSuffix),
         log,
+        automaticReplacement: true,
         fallback: fallbackConfig.enabled
           ? { activated: false, selection_method: 'middle_power_median', reason: 'family_version_fallback' }
           : undefined,
@@ -244,6 +245,8 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
   log.push(`[model-resolver] alias: "${requestedModel}" → [${patterns.join(', ')}]`);
 
   const candidates = [];
+  const automaticCandidates = new Set();
+  const genuineCandidates = new Set();
   const aliasKeys = new Set([aliasKey]);
   // Candidates produced by a nested alias's middle-power fallback are synthesized
   // guesses, not genuine pattern matches. They are kept separate so they can never
@@ -278,6 +281,7 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
           synthesizedCandidates.push(sub.resolvedModel);
         } else {
           candidates.push(sub.resolvedModel);
+          (sub.automaticReplacement === true ? automaticCandidates : genuineCandidates).add(sub.resolvedModel);
         }
       }
     } else {
@@ -298,6 +302,7 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
       for (const model of providerModels) {
         if (globMatch(modelPattern, model)) {
           candidates.push(model);
+          genuineCandidates.add(model);
         }
       }
     }
@@ -377,6 +382,7 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
     candidates: unique.map(candidate => appendModelParameters(candidate, parameterSuffix)),
     log,
     aliasKeys: [...aliasKeys],
+    ...(automaticCandidates.has(resolved) && !genuineCandidates.has(resolved) ? { automaticReplacement: true } : {}),
     fallback: fallbackConfig.enabled
       ? {
         activated: resolvedViaSynthesis,

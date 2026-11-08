@@ -13,8 +13,37 @@
  * model-resolver-resolution.test.js.
  */
 
-const { selectMiddlePowerFallback } = require('./model-resolver');
+const { selectMiddlePowerFallback, resolveModel } = require('./model-resolver');
 const { rewriteModelInBody } = require('./model-body-rewriter');
+
+describe('automatic fallback provenance', () => {
+  const models = { copilot: ['gpt-5.4', 'gpt-4.1'] };
+  const enabled = { enabled: true, strategy: 'middle_power' };
+
+  it('propagates a selected nested family replacement without changing ranking', () => {
+    const result = resolveModel('outer', { outer: ['gpt-5.9', 'copilot/gpt-4.1'] }, models, 'copilot', [], enabled);
+    expect(result).toMatchObject({
+      resolvedModel: 'gpt-5.4', candidates: ['gpt-5.4', 'gpt-4.1'], automaticReplacement: true,
+    });
+    const rewritten = rewriteModelInBody(Buffer.from('{"model":"outer","messages":[]}'),
+      'copilot', { outer: ['gpt-5.9', 'copilot/gpt-4.1'] }, models, enabled);
+    expect(rewritten).toMatchObject({ originalModel: 'outer', automaticReplacement: true });
+  });
+
+  it('does not mark a genuine sibling authorizing the same selected model', () => {
+    const result = resolveModel('outer', { outer: ['gpt-5.9', 'copilot/gpt-5.4'] }, models, 'copilot', [], enabled);
+    expect(result.resolvedModel).toBe('gpt-5.4');
+    expect(result.automaticReplacement).toBeUndefined();
+    expect(result.fallback.activated).toBe(false);
+  });
+
+  it('does not mark ordinary aliases or native direct matches', () => {
+    const direct = resolveModel('gpt-5.4', {}, models, 'copilot', [], enabled);
+    const alias = resolveModel('outer', { outer: ['copilot/gpt-5.4'] }, models, 'copilot', [], enabled);
+    expect(direct.automaticReplacement).toBeUndefined();
+    expect(alias.automaticReplacement).toBeUndefined();
+  });
+});
 
 describe('selectMiddlePowerFallback', () => {
   it('sorts Anthropic tiers as opus > sonnet > haiku and picks median', () => {

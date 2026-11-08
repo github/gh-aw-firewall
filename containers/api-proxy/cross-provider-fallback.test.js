@@ -3,12 +3,14 @@
 const {
   ANTHROPIC_VERSION,
   protocolForPath,
+  getFallbackUpstreamEndpoint,
   getCrossProviderRejection,
   buildCrossProviderRequest,
   needsResponseTranslation,
   transformProtocolResponseBody,
   createProtocolSseTransforms,
 } = require('./cross-provider-fallback');
+const { replaceRuntimeModels, clearRuntimeModels, captureRuntimePricing } = require('./runtime-model-catalog');
 
 const bearer = token => ['Bearer', token].join(' ');
 
@@ -53,6 +55,35 @@ const CHAT_BODY = Buffer.from(JSON.stringify({
   stream_options: { include_usage: true },
   messages: [{ role: 'user', content: 'hi' }],
 }));
+
+describe('pinned Copilot endpoint planning', () => {
+  afterEach(() => clearRuntimeModels());
+
+  it('uses exact captured endpoint metadata, never a fuzzy accounting/model spelling match', () => {
+    replaceRuntimeModels('copilot', [{ id: 'candidate-20260101', supportedEndpoints: ['/chat/completions'] }]);
+    const pinned = captureRuntimePricing();
+    expect(getFallbackUpstreamEndpoint('copilot', 'candidate', '/responses', false, pinned)).toBe('/responses');
+    expect(getFallbackUpstreamEndpoint('copilot', 'candidate', '/responses')).toBe('/chat/completions');
+  });
+
+  it('does not fill absent captured metadata from a later global catalogue', () => {
+    const pinned = { copilot: [] };
+    replaceRuntimeModels('copilot', [{ id: 'candidate', supportedEndpoints: ['/chat/completions'] }]);
+    expect(getFallbackUpstreamEndpoint('copilot', 'candidate', '/responses', false, pinned)).toBe('/responses');
+  });
+
+  it('retains requested/native preference and the existing advertised-endpoint spelling rules', () => {
+    const pinned = { copilot: [
+      { id: 'both', supportedEndpoints: ['/v1/responses', '/v1/chat/completions'] },
+      { id: 'other', supportedEndpoints: ['/v1/responses'] },
+      { id: 'unknown', supportedEndpoints: ['/responses/'] },
+    ] };
+    expect(getFallbackUpstreamEndpoint('copilot', 'BOTH', '/chat/completions', false, pinned)).toBe('/chat/completions');
+    expect(getFallbackUpstreamEndpoint('copilot', 'other', '/chat/completions', false, pinned)).toBe('/responses');
+    expect(getFallbackUpstreamEndpoint('copilot', 'unknown', '/chat/completions', false, pinned)).toBe('/chat/completions');
+    expect(getFallbackUpstreamEndpoint('copilot', 'other', '/chat/completions', true, pinned)).toBe('/chat/completions');
+  });
+});
 
 describe('protocolForPath', () => {
   it.each([
