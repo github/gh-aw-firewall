@@ -628,10 +628,6 @@ jobs:
           path: /tmp/gh-aw
       - name: Pre-install service client tools
         run: "sudo apt-get update -qq && sudo apt-get install -y -qq redis-tools postgresql-client\necho \"redis-cli: $(redis-cli --version)\"\necho \"psql: $(psql --version)\"\n"
-      - name: Require sandbox service connectivity
-        run: "sudo /usr/local/bin/awf \\\n  --image-registry awf-smoke --image-tag \"${AWF_SMOKE_IMAGE_TAG:?}\" --skip-pull \\\n  --allow-domains github.com --allow-host-service-ports 5432,6379 \\\n  --legacy-security -- /bin/bash -ceu '\n    redis_reply=$(timeout 10 redis-cli -h host.docker.internal -p 6379 PING)\n    test \"$redis_reply\" = PONG\n    pg_isready -h host.docker.internal -p 5432 -U postgres -t 10\n    pg_reply=$(PGPASSWORD=testpass PGCONNECT_TIMEOUT=10 psql -h host.docker.internal -p 5432 -U postgres -d smoketest -v ON_ERROR_STOP=1 -t -A -c \"SELECT 1\")\n    test \"$pg_reply\" = 1\n  '\n"
-        timeout-minutes: 3
-
       - name: Configure Git credentials
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -697,6 +693,10 @@ jobs:
       - name: Build local AWF smoke images
         run: bash "${RUNNER_TEMP}/awf-smoke/build-smoke-images.sh"
         timeout-minutes: 35
+      - name: Require sandbox service connectivity
+        run: "sudo /usr/local/bin/awf \\\n  --image-registry awf-smoke --image-tag \"${AWF_SMOKE_IMAGE_TAG:?}\" --skip-pull \\\n  --allow-domains github.com --allow-host-service-ports 5432,6379 \\\n  --legacy-security -- /bin/bash -ceu '\n    redis_reply=$(timeout 10 redis-cli -h host.docker.internal -p 6379 PING)\n    test \"$redis_reply\" = PONG\n    pg_isready -h host.docker.internal -p 5432 -U postgres -t 10\n    pg_reply=$(PGPASSWORD=testpass PGCONNECT_TIMEOUT=10 psql -h host.docker.internal -p 5432 -U postgres -d smoketest -v ON_ERROR_STOP=1 -t -A -c \"SELECT 1\")\n    test \"$pg_reply\" = 1\n  '\n"
+        timeout-minutes: 3
+
       - name: Restore agent config folders from base branch
         if: steps.checkout-pr.outputs.checked_out == 'true'
         env:
