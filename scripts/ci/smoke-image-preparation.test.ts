@@ -115,6 +115,54 @@ ${preparation.run}
     for (const service of Object.values(execution.services)) expect(service.build).toBeUndefined();
   });
 
+  if (workflow === 'services') {
+    it('passes the prepared run-specific tag to the probe and reaches every service check', () => {
+      const { result } = runPreparation();
+      expect(result.status).toBe(0);
+      const probe = frontmatter.steps.find(step => step.name === 'Require sandbox service connectivity')!;
+      const callsPath = path.join(directory, 'probe-calls');
+      const probeResult = spawnSync('bash', ['-euc', `
+        set -a
+        source "$GITHUB_ENV"
+        set +a
+        sudo() {
+          while [ "$1" != -- ]; do
+            printf '%s ' "$1" >> "$CALLS"
+            shift
+          done
+          printf '%s\\n' -- >> "$CALLS"
+          shift
+          "$@"
+        }
+        timeout() { shift; "$@"; }
+        redis-cli() { printf 'redis-cli %s\\n' "$*" >> "$CALLS"; echo PONG; }
+        pg_isready() { printf 'pg_isready %s\\n' "$*" >> "$CALLS"; }
+        psql() { printf 'psql %s\\n' "$*" >> "$CALLS"; echo 1; }
+        export -f timeout redis-cli pg_isready psql
+        ${probe.run}
+      `], {
+        encoding: 'utf8',
+        timeout: 5000,
+        env: {
+          PATH: process.env.PATH,
+          GITHUB_ENV: path.join(directory, 'env'),
+          CALLS: callsPath,
+        },
+      });
+      expect(probeResult.error).toBeUndefined();
+      expect(probeResult.status).toBe(0);
+      const calls = fs.readFileSync(callsPath, 'utf8').trim().split('\n');
+      expect(calls).toHaveLength(4);
+      expect(calls[0]).toContain('--image-registry awf-smoke --image-tag run-12345-2 --skip-pull');
+      expect(calls[0]).toContain('--allow-domains github.com --allow-host-service-ports 5432,6379');
+      expect(calls.slice(1)).toEqual([
+        'redis-cli -h host.docker.internal -p 6379 PING',
+        'pg_isready -h host.docker.internal -p 5432 -U postgres -t 10',
+        'psql -h host.docker.internal -p 5432 -U postgres -d smoketest -v ON_ERROR_STOP=1 -t -A -c SELECT 1',
+      ]);
+    });
+  }
+
   it.each([
     'build --tag awf-smoke/squid',
     `build --build-arg USER_UID=${getSafeHostUid()} --build-arg USER_GID=${getSafeHostGid()} --tag awf-smoke/agent`,
