@@ -957,8 +957,13 @@ function createSendUpstreamRequest({
             }
             exclude.push(nextModel);
             const candidate = { provider, model: nextModel };
-            const assessment = assessCandidate(candidate, provider === 'copilot' && wireApiSourceBody
-              ? getFallbackUpstreamEndpoint(provider, nextModel, req.url, false, req.awfRuntimePricing) : upstreamPath);
+            let assessment;
+            try {
+              assessment = assessCandidate(candidate, provider === 'copilot' && wireApiSourceBody
+                ? getFallbackUpstreamEndpoint(provider, nextModel, req.url, false, req.awfRuntimePricing) : upstreamPath);
+            } catch {
+              assessment = assessCandidate(candidate, null);
+            }
             lastDecision = { candidate, assessment };
             if (assessment.compatibility.status !== 'compatible') {
               observeDecision(candidate, 'skipped', assessment);
