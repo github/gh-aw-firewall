@@ -727,7 +727,7 @@ describe('upstream-http', () => {
     expect(res.writeHead).toHaveBeenCalledWith(400, { 'Content-Type': 'application/json', 'X-Request-ID': 'req-1' });
     expect(written).toEqual([JSON.stringify({
       error: {
-        message: 'reasoning_effort "high" is not supported by model low-only-model; supported values: [low]',
+        message: 'reasoning_effort "high" is not supported by model low-only-model; supported values: ["low"]',
         type: 'invalid_request_error',
         code: 'unsupported_reasoning_effort',
       },
@@ -863,7 +863,7 @@ describe('upstream-http', () => {
       expect(JSON.parse(res.end.mock.calls[0][0])).toMatchObject({
         error: {
           code: 'unsupported_reasoning_effort',
-          message: 'reasoning_effort "high" is not supported by model fallback-model; supported values: [low]',
+          message: 'reasoning_effort "high" is not supported by model fallback-model; supported values: ["low"]',
         },
       });
     },

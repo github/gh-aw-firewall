@@ -579,7 +579,8 @@ describe('maintained model compilation', () => {
   it('resolves generated proxy assets independently of repository shared modules', () => {
     const dockerfile = fs.readFileSync(path.join(root, 'containers/api-proxy/Dockerfile'), 'utf8');
     expect(dockerfile).toMatch(/model-information\.pricing\.generated\.json model-information\.fallback-pricing\.generated\.json model-information\.retired\.generated\.json/);
-    expect(dockerfile).toMatch(/model-eligibility\.js harness-observation\.js/);
+    expect(dockerfile).toMatch(/model-eligibility\.js/);
+    expect(dockerfile).toMatch(/harness-observation\.js/);
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-assets-'));
     try {
       const fixturePath = fs.realpathSync(temp);

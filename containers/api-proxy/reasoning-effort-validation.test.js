@@ -23,7 +23,7 @@ describe('validateReasoningEffort', () => {
     )).toThrow(expect.objectContaining({
       statusCode: 400,
       code: 'unsupported_reasoning_effort',
-      message: `${field} "short" is not supported by model gpt-5-mini; supported values: [low medium high]`,
+      message: `${field} "short" is not supported by model gpt-5-mini; supported values: ["low","medium","high"]`,
     }));
   });
 
