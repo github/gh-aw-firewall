@@ -57,6 +57,61 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 
 afterEach(() => clearRuntimeModels());
 
+test.each([
+  ['gemini', '/v1beta/models/origin:generateContent'],
+  ['gemini', '/v1beta/models/origin:streamGenerateContent?alt=sse'],
+  ['vertex', '/v1/projects/private-project/locations/us-central1/publishers/google/models/origin:generateContent'],
+  ['vertex', '/v1/projects/private-project/locations/us-central1/publishers/google/models/origin:streamGenerateContent?alt=sse'],
+])('%s native %s fallback preserves the body and endpoint without inventing a contract', (provider, path) => {
+  const source = {
+    contents: [{ role: 'user', parts: [{ text: 'PRIVATE_PROMPT' }] }],
+    generationConfig: { responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 1024 } },
+    tools: [{ functionDeclarations: [{ name: 'lookup', parameters: { type: 'object' } }] }],
+  };
+  const h = harness({ source, path, provider, chain: ['next'], targetHost: 'generativelanguage.googleapis.com' });
+  expect(h.fail(0).onModelFallback({ reason: 'upstream_5xx' })).toBe(true);
+  expect(h.attempts.map(a => a.options.path)).toEqual([path, path.replace('/models/origin:', '/models/next:')]);
+  expect(h.attempts.map(a => a.body)).toEqual([source, source]);
+  expect(h.observe.mock.calls[0][0]).toMatchObject({
+    provider, model: 'next', originModel: 'origin', outcome: 'accepted',
+    compatibility: {
+      status: 'compatible', source: null, target: null, contracts: [], returnConditions: 'not_applicable',
+      pins: { eligibilityRevision: 'eligibility-pinned', catalogueRevision: 'catalogue-pinned' },
+    },
+  });
+  const evidence = JSON.stringify(h.observe.mock.calls);
+  expect(evidence).not.toContain('PRIVATE_PROMPT');
+  expect(evidence).not.toContain('private-project');
+});
+
+test.each(['gemini', 'vertex'])('%s native fallback still enforces candidate policy', provider => {
+  const h = harness({
+    source: { contents: [{ parts: [{ text: 'hello' }] }] },
+    path: '/v1beta/models/origin:generateContent', provider, chain: ['hidden-target', 'next'],
+    isPermitted: model => model !== 'hidden-target',
+  });
+  expect(h.fail(0).onModelFallback({ reason: 'upstream_5xx' })).toBe(true);
+  expect(h.attempts.map(a => a.options.path)).toEqual([
+    '/v1beta/models/origin:generateContent', '/v1beta/models/next:generateContent',
+  ]);
+  expect(h.observe.mock.calls.map(([r]) => [r.model, r.outcome])).toEqual([
+    [null, 'skipped'], ['next', 'accepted'],
+  ]);
+  expect(JSON.stringify(h.observe.mock.calls)).not.toContain('hidden-target');
+});
+
+test.each([
+  ['gemini', '/v1beta/models/origin:unknownMethod'],
+  ['openai', '/models/origin:generateContent'],
+])('%s unrecognized %s cannot claim native passthrough', (provider, path) => {
+  const h = harness({ source: { contents: [] }, provider, path, chain: ['next'] });
+  expect(h.fail(0).onModelFallback({ reason: 'upstream_5xx' })).toBe(false);
+  expect(h.attempts).toHaveLength(1);
+  expect(h.observe.mock.calls.map(([r]) => [r.outcome, r.compatibility.status])).toEqual([
+    ['skipped', 'unverified'], ['exhausted', 'unverified'],
+  ]);
+});
+
 test('skips an incompatible same-provider wire endpoint and dispatches the next native candidate', () => {
   replaceRuntimeModels('copilot', [{ id: 'chat-only', supportedEndpoints: ['/chat/completions'] }]);
   const h = harness({
@@ -226,6 +281,10 @@ test('async build failure observes safe skip and exhaustion before retaining the
   expect(h.attempts).toHaveLength(1);
   expect(abandon).toHaveBeenCalledTimes(1);
   expect(h.observe.mock.calls.map(([r]) => r.outcome)).toEqual(['skipped', 'exhausted']);
+  expect(h.observe.mock.calls[0][0]).toMatchObject({
+    outcome: 'skipped', reason: 'fallback_unverified',
+    compatibility: { status: 'unverified', reasons: [{ feature: 'unknown_fields', code: 'request_build_failed' }] },
+  });
   expect(JSON.stringify(h.observe.mock.calls)).not.toContain('PRIVATE_BUILD_ERROR');
 });
 

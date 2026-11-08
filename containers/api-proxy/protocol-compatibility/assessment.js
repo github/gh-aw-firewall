@@ -12,7 +12,7 @@ const ASSESSMENT_REVISION = 'awf-fallback-assessment-v1';
 const CONTRACT_DIGEST = 'bd6db2fe3fea4b4879b0ef4289fc06271f812019131fb73c553e05362f51891a';
 const REASON_CODES = Object.freeze([
   'assessment_limit', 'request_shape_unverified', 'direction_unimplemented', 'implementation_drift',
-  'condition_unverified', 'unknown_required_feature', 'unknown_nested_field', 'translator_rejected',
+  'condition_unverified', 'unknown_required_feature', 'unknown_nested_field', 'translator_rejected', 'request_build_failed',
   'role_priority_loss', 'turn_boundary_loss', 'content_loss', 'refusal_loss',
   'tool_shape_invalid', 'tool_choice_invalid', 'parallel_enablement_unverified',
   'structured_output_invalid', 'image_fields_lost', 'modality_unsupported', 'stateful_unsupported',

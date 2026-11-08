@@ -171,6 +171,48 @@ test('real fallback effort skip and exhaustion cannot reject the initial model o
   expect(requestSpy).toHaveBeenCalledTimes(1);
 });
 
+test('real async fallback build failure retains unverified skip and exhaustion in reflection', async () => {
+  process.env.OPENAI_API_KEY = 'fixture';
+  process.env.AWF_FALLBACK_MODELS = JSON.stringify(['openai/gpt-5.4']);
+  load();
+  serverModule.cachedModels.openai = ['gpt-5.4'];
+  require('./proxy-request').configureFallbackProviders({ getAdapter: () => ({
+    isEnabled: () => true, getTargetHost: () => 'api.openai.com', getBasePath: () => '',
+    getAuthHeaders: () => ({}),
+    getBodyTransform: () => async () => { throw new Error('PRIVATE_BUILD_ERROR'); },
+  }) });
+  let respond;
+  requestSpy.mockImplementation((_options, callback) => { respond = callback; return makeProxyReq(); });
+  const server = productionServer();
+  const { res } = await post(server, 'effort-model', 'high');
+  expect(requestSpy).toHaveBeenCalledTimes(1);
+  const failure = makeProxyRes(503);
+  respond(failure);
+  failure.emit('data', Buffer.from(JSON.stringify({ error: { code: 'upstream_unavailable' } })));
+  failure.emit('end');
+  await flushPromises();
+  expect(res.statusCode).toBe(503);
+  const reflection = getReflection(server);
+  const decisions = reflection.model_decision_diagnostics.recent.decisions;
+  expect(decisions).toHaveLength(2);
+  expect(decisions[0]).toMatchObject({
+    reason: 'fallback_unverified', identity: { provider: 'openai', model_id: 'gpt-5.4' },
+    origin: { provider: 'copilot', model_id: 'effort-model' },
+    compatibility: {
+      outcome: 'skipped', status: 'unverified',
+      reasons: [{ feature: 'unknown_fields', code: 'request_build_failed' }],
+    },
+    action: { kind: 'operator_required', retry: 'after_operator_change' },
+  });
+  expect(decisions[1]).toMatchObject({
+    reason: 'fallback_exhausted', identity: { provider: null, model_id: null },
+  });
+  expect(JSON.stringify(decisions)).not.toContain('PRIVATE_BUILD_ERROR');
+  expect(JSON.stringify(decisions)).not.toContain('private-prompt');
+  expect(getReflection(server)).toEqual(reflection);
+  expect(requestSpy).toHaveBeenCalledTimes(1);
+});
+
 test('latched real accounting failure remains operator-required without changing legacy reflection status', () => {
   const server = productionServer();
   const { applyAiCreditsUsage } = require('./guards/ai-credits-guard');

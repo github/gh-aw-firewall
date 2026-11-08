@@ -1204,13 +1204,23 @@ evidence is not a translation gap or proof that omission is supported. Native
 capability, availability and safety remain separate from translation compatibility.
 Request pins survive refresh for in-flight decisions.
 
+Same-provider Gemini/Vertex `generateContent` and `streamGenerateContent`
+fallbacks retain native passthrough when only the path's model identifier changes:
+the body, backend, method and query remain unchanged. No directed translation
+contract or native feature-support claim is invented. Candidate policy,
+eligibility and budget checks still apply; unknown methods and cross-provider
+native directions remain unverified or unroutable.
+
 Return contracts assess only known pre-dispatch requirements and adapter options.
 `provider_response_unobserved` explicitly leaves future output content, tool
 arguments, counters, refusal details and SSE terminal conditions unverified.
 Existing translators remain the execution/rejection boundary; post-dispatch
 errors, terminal frames and accounting behavior are unchanged.
 Exhaustion retains the existing public status/error envelope where applicable
-and exposes sanitized structured reasons through `/reflect`. A permanent
+and exposes sanitized structured reasons through `/reflect`. A request build
+failure after assessment records an unverified skip with `request_build_failed`,
+not an accepted compatibility decision; private exception details are omitted.
+A permanent
 endpoint rejection never justifies an unchanged transient retry loop.
 
 ### Health check

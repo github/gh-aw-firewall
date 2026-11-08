@@ -102,7 +102,7 @@
               "code": {
                 "enum": [
                   "assessment_limit", "request_shape_unverified", "direction_unimplemented", "implementation_drift",
-                  "condition_unverified", "unknown_required_feature", "unknown_nested_field", "translator_rejected",
+                  "condition_unverified", "unknown_required_feature", "unknown_nested_field", "translator_rejected", "request_build_failed",
                   "role_priority_loss", "turn_boundary_loss", "content_loss", "refusal_loss",
                   "tool_shape_invalid", "tool_choice_invalid", "parallel_enablement_unverified",
                   "structured_output_invalid", "image_fields_lost", "modality_unsupported", "stateful_unsupported",

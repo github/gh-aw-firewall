@@ -284,6 +284,12 @@ function createSendUpstreamRequest({
     };
     const requiredResponseFeatures = getRequiredResponseFeatures(origin.sourceBody, origin.protocol);
     const assessCandidate = (candidate, path, host = targetHost, scheme = targetScheme) => {
+      const nativePassthrough = ['gemini', 'vertex'].includes(origin.provider) &&
+        candidate.provider === origin.provider && host === origin.targetHost && scheme === origin.targetScheme &&
+        getRequestModel(origin.body, origin.upstreamPath)?.location === 'path' &&
+        /\/models\/[^/:?]+:(?:generateContent|streamGenerateContent)(?:\?|$)/.test(origin.upstreamPath) &&
+        rewriteRequestModel({ body: origin.body, upstreamPath: origin.upstreamPath }, 'path', candidate.model)
+          ?.upstreamPath === path;
       const reasoning = typeof candidate.model === 'string'
         ? getRequestReasoning(candidate.model, candidate.provider, req.awfRuntimePricing, req, {
         targetHost: host, targetScheme: scheme,
@@ -295,7 +301,7 @@ function createSendUpstreamRequest({
           target: ASSESSMENT_PROTOCOLS[protocolForPath(path)] || null,
           candidate: { provider: candidate.provider, model: candidate.model },
           pins: { eligibilityRevision: req.awfEligibility?.revision, catalogueRevision: req.awfCatalogue?.revision },
-          reasoning, requiredResponseFeatures,
+          reasoning, requiredResponseFeatures, nativePassthrough,
         }),
         reasoning,
       };
@@ -653,6 +659,15 @@ function createSendUpstreamRequest({
                     } catch {
                       crossAssessment = assessCandidate(candidate, null);
                     }
+                  }
+                  if (crossAssessment.compatibility.status === 'compatible') {
+                    crossAssessment = { ...crossAssessment, compatibility: {
+                      ...crossAssessment.compatibility,
+                      status: 'unverified',
+                      features: [...new Set([...crossAssessment.compatibility.features, 'unknown_fields'])],
+                      reasons: [...crossAssessment.compatibility.reasons,
+                        { feature: 'unknown_fields', code: 'request_build_failed' }],
+                    } };
                   }
                   logSkip(candidate, crossAssessment.compatibility.status !== 'compatible'
                     ? `fallback_${crossAssessment.compatibility.status}` : 'request_build_failed', crossAssessment);
