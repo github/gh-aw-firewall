@@ -211,11 +211,14 @@ describe('proxyRequest ordered model fallback chain', () => {
     });
   });
 
-  describe('gemini adapter', () => {
-    it('preserves the primary path but does not dispatch an uncharacterized automatic replacement protocol', async () => {
+  describe.each([
+    ['gemini', 'generativelanguage.googleapis.com'],
+    ['vertex', 'aiplatform.googleapis.com'],
+  ])('%s adapter', (provider, host) => {
+    it('falls back by replacing only the native model path and preserves the body', async () => {
       const req = makeReqFactory('/v1beta/models/gemini-primary:generateContent');
       const res = makeRes();
-      proxyRequest(req, res, 'generativelanguage.googleapis.com', { 'x-goog-api-key': 'test' }, 'gemini');
+      proxyRequest(req, res, host, { 'x-goog-api-key': 'test' }, provider);
       req.emit('data', Buffer.from('{"contents":[]}'));
       req.emit('end');
       await flushPromises();
@@ -224,9 +227,17 @@ describe('proxyRequest ordered model fallback chain', () => {
       respond(0, 404, '{"error":{"code":404,"message":"models/gemini-primary is not found for API version v1beta"}}');
       await flushPromises();
 
-      expect(capturedOptions).toHaveLength(1);
-      expect(req.awfModelFallback).toBeUndefined();
-      expect(res.writeHead).toHaveBeenCalledWith(404, expect.any(Object));
+      expect(capturedOptions).toHaveLength(2);
+      expect(capturedOptions[1].path).toBe('/v1beta/models/fallback-a:generateContent');
+      expect(capturedOptions[1].hostname).toBe(host);
+      expect(Buffer.concat(proxyReqs[1].write.mock.calls.map(([chunk]) => chunk))).toEqual(Buffer.from('{"contents":[]}'));
+      expect(req.awfModelFallback).toMatchObject({
+        requested_model: 'gemini-primary', model: 'fallback-a', provider,
+        attempt: 1, reason: 'model_not_supported', status: 404,
+      });
+      expect(res.writeHead).not.toHaveBeenCalled();
+      respond(1, 200, '{"candidates":[]}');
+      expect(res.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
     });
   });
 });

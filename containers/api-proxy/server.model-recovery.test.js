@@ -756,18 +756,18 @@ test('an explicitly authorized initial alias remains a direct primary request', 
   expect(observe).not.toHaveBeenCalled();
 });
 
-test('real synthesized middle-power fallback is marked and rejects unverified effort before inference', async () => {
-  load({ AWF_MODEL_ALIASES: JSON.stringify({ models: { direct: ['copilot/gpt-5.4'] } }) });
+test('real OpenAI synthesized middle-power fallback is marked and rejects unverified effort before inference', async () => {
+  load({ AWF_MODEL_ALIASES: JSON.stringify({ models: { direct: ['openai/gpt-5.4'] } }) });
   const ids = ['gpt-5.4', 'gpt-4.1', 'gpt-3.5-turbo'];
-  catalog.replaceRuntimeModels('copilot', ids.map(id => record(id, {
+  catalog.replaceRuntimeModels('openai', ids.map(id => record(id, {
     supportedEndpoints: ['/chat/completions'], supportedReasoningEfforts: ['future-effort'],
   })));
   const refresh = jest.fn(async () => {});
-  const transform = require('./model-config').makeModelBodyTransform('copilot', { copilot: ids },
-    refresh, null, catalog.getRuntimeModels, true);
+  const transform = require('./model-config').makeModelBodyTransform('openai', { openai: ids },
+    refresh, null, catalog.getRuntimeModels);
   const observe = jest.fn();
   const { req, res } = await start({ model: 'missing', messages: [], reasoning_effort: 'future-effort' },
-    'copilot', '/chat/completions', { transform, req: { awfObserveModelDecision: observe } });
+    'openai', '/chat/completions', { transform, host: 'api.openai.com', req: { awfObserveModelDecision: observe } });
   expect(requests).toHaveLength(0);
   expect(JSON.parse(res.end.mock.calls[0][0]).error.code).toBe('model_recovery_exhausted');
   expect(req.awfResolverFallback).toMatchObject({ originalModel: 'missing', model: 'gpt-4.1' });
