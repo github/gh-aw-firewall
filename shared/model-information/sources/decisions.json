@@ -87,7 +87,7 @@
           "features": {
             "predicate": {
               "state": "conditional",
-              "condition": "One predicate succeeded in the maintainer-reported live Actions job at the pinned revision; logs were not independently retrieved. This does not establish choice/score, general account availability or credential eligibility.",
+              "condition": "One predicate succeeded in the maintainer-reported live Actions job at the pinned revision using Copilot-Integration-Id: agentic-workflows; logs were not independently retrieved. This does not establish choice/score, general account availability or credential eligibility.",
               "provenance": {
                 "authority": "maintained",
                 "source": "https://github.com/github/gh-aw/blob/4c2be18cc2076f2a37e8f0258c298026a4ae413b/actions/setup/js/scripts/test_decisions_client.cjs",

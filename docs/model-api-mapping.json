@@ -495,7 +495,7 @@
           "source": "https://github.com/github/gh-aw/pull/75859",
           "authentication": {
             "reference": "https://github.com/github/gh-aw-firewall/blob/main/docs/auth-matrix.md",
-            "restriction": "Fine-grained PAT rejection is observed, not lack of model support. Classic PAT and other OAuth/GitHub App token acceptance remain unverified. One Actions job token with copilot-requests: write and agentic-workflows integration identity succeeded; this does not establish personal-account availability. Proxy injection does not make a credential endpoint-supported.",
+            "restriction": "Fine-grained PAT rejection is observed, not lack of model support. Classic PAT and other OAuth/GitHub App token acceptance remain unverified. One Actions job token with copilot-requests: write and Copilot-Integration-Id: agentic-workflows succeeded; this does not establish personal-account availability. Proxy injection does not make a credential endpoint-supported.",
             "evidence": [
               "https://github.com/github/gh-aw/issues/75637",
               "https://github.com/github/gh-aw/pull/75859"
@@ -521,7 +521,7 @@
             "features": {
               "predicate": {
                 "state": "conditional",
-                "condition": "One predicate succeeded in the maintainer-reported live Actions job at the pinned revision; logs were not independently retrieved. This does not establish choice/score, general account availability or credential eligibility.",
+                "condition": "One predicate succeeded in the maintainer-reported live Actions job at the pinned revision using Copilot-Integration-Id: agentic-workflows; logs were not independently retrieved. This does not establish choice/score, general account availability or credential eligibility.",
                 "provenance": {
                   "authority": "maintained",
                   "source": "https://github.com/github/gh-aw/blob/4c2be18cc2076f2a37e8f0258c298026a4ae413b/actions/setup/js/scripts/test_decisions_client.cjs",

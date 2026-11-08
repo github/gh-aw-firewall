@@ -474,7 +474,7 @@
             "source": "https://github.com/github/gh-aw/pull/75859",
             "authentication": {
               "reference": "https://github.com/github/gh-aw-firewall/blob/main/docs/auth-matrix.md",
-              "restriction": "Fine-grained PAT rejection is observed, not lack of model support. Classic PAT and other OAuth/GitHub App token acceptance remain unverified. One Actions job token with copilot-requests: write and agentic-workflows integration identity succeeded; this does not establish personal-account availability. Proxy injection does not make a credential endpoint-supported.",
+              "restriction": "Fine-grained PAT rejection is observed, not lack of model support. Classic PAT and other OAuth/GitHub App token acceptance remain unverified. One Actions job token with copilot-requests: write and Copilot-Integration-Id: agentic-workflows succeeded; this does not establish personal-account availability. Proxy injection does not make a credential endpoint-supported.",
               "evidence": [
                 "https://github.com/github/gh-aw/issues/75637",
                 "https://github.com/github/gh-aw/pull/75859"
