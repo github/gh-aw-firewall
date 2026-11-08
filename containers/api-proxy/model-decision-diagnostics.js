@@ -214,10 +214,8 @@ function projectModelDecisionDiagnostics(reflection, { context = 'unknown', rece
         kind: 'accounting_summary', context: 'unknown', source: 'ai_credits',
       }));
     }
-    for (const [key, usage] of Object.entries(reflection.ai_credits?.by_model || {}).slice(0, MAX_CURRENT + 1)) {
-      const slash = key.indexOf('/');
-      const provider = slash > 0 ? key.slice(0, slash) : null;
-      const model = slash > 0 ? key.slice(slash + 1) : null;
+    // Raw model buckets can aggregate usage across backends; their keys do not establish identity.
+    for (const usage of Object.values(reflection.ai_credits?.by_model || {}).slice(0, MAX_CURRENT + 1)) {
       const estimate = usage?.pricing_estimate;
       const basis = estimate?.basis === 'family' ? 'family'
         : estimate?.basis === 'backend' ? 'backend' : estimate ? 'unknown'
@@ -227,8 +225,8 @@ function projectModelDecisionDiagnostics(reflection, { context = 'unknown', rece
       const reason = estimate ? 'estimated_pricing' : basis === 'fallback' ? 'fallback_pricing'
         : basis === 'direct' ? 'direct_pricing' : 'pricing_unknown';
       accounting.push({
-        ...decision(reason, { kind: 'accounting_summary', provider, context: 'unknown', source: 'ai_credits',
-          model: visibleIdentity(provider, model, endpoints), catalogueRevision: usage?.pricing_catalog_version }),
+        ...decision(reason, { kind: 'accounting_summary', context: 'unknown', source: 'ai_credits',
+          catalogueRevision: usage?.pricing_catalog_version }),
         pricing: { basis,
           donor_count: Number.isSafeInteger(estimate?.donorCount) && estimate.donorCount >= 0 ? estimate.donorCount : null,
           budget_accounted: typeof usage?.total === 'number' && Number.isFinite(usage.total) ? true : null },
