@@ -280,7 +280,7 @@ export function applyGeneralWorkflowPatches(
           `${indent}  run: |\n` +
           `${indent}    for attempt in 1 2 3; do\n` +
           `${indent}      install_status=0\n` +
-          `${indent}      timeout --foreground --kill-after=10s 90s ${command} || install_status=$?\n` +
+          `${indent}      timeout --kill-after=10s 90s ${command} || install_status=$?\n` +
           `${indent}      if [ "$install_status" -eq 0 ]; then\n` +
           `${indent}        exit 0\n` +
           `${indent}      fi\n` +
