@@ -1,11 +1,12 @@
 'use strict';
 
 const { createSendUpstreamRequest } = require('./upstream-http');
-const { replaceRuntimeModels, clearRuntimeModels } = require('./runtime-model-catalog');
+const { replaceRuntimeModels, clearRuntimeModels, captureRuntimePricing } = require('./runtime-model-catalog');
 const { createProxyEligibilityStore } = require('./model-eligibility');
 
 function harness({ source, path = '/responses', provider = 'copilot', chain = [], req: extraReq = {}, translated = null,
-  adapters = {}, targetHost = 'api.githubcopilot.com', isPermitted = null }) {
+  adapters = {}, targetHost = 'api.githubcopilot.com', isPermitted = null,
+  sendFactory = createSendUpstreamRequest }) {
   const attempts = [];
   const responses = [];
   const observe = jest.fn();
@@ -21,7 +22,7 @@ function harness({ source, path = '/responses', provider = 'copilot', chain = []
     attempts.push(attempt);
     return { on: jest.fn(), end: jest.fn(), write: body => { attempt.body = JSON.parse(body); } };
   });
-  const send = createSendUpstreamRequest({
+  const send = sendFactory({
     https: { request }, http: { request }, proxyAgent: {},
     handleUpstreamResponse: (_res, _headers, ctx) => responses.push(ctx),
     sleep: () => Promise.resolve(), otel: { endSpan: jest.fn(), endSpanError: jest.fn() },
@@ -149,7 +150,7 @@ test('alternate-endpoint and ranked alias retries skip incompatible endpoints an
     req: { awfModelCandidates: ['origin', 'chat-only', 'native-responses'] },
   });
   const ctx = h.fail(0);
-  expect(ctx.onWireApiEndpointRetry()).toBe(false);
+  expect(() => ctx.onWireApiEndpointRetry()).toThrow('Fallback request compatibility was not established');
   expect(ctx.onModelEndpointBlockedRetry()).toBe(true);
   expect(h.attempts.map(a => a.body.model)).toEqual(['origin', 'native-responses']);
   expect(h.observe.mock.calls.map(([r]) => [r.model, r.outcome])).toEqual([
@@ -326,4 +327,150 @@ test.each(['system', 'developer'])('Chat-to-Responses fallback rejects %s priori
   expect(h.observe.mock.calls[0][0]).toMatchObject({
     outcome: 'skipped', compatibility: { reasons: [{ feature: 'message_roles', code: 'role_priority_loss' }] },
   });
+});
+
+test.each([
+  ['/chat/completions', { model: 'origin', stream: true, stream_options: { include_usage: true },
+    messages: [{ role: 'user', content: 'hi' }] }, ['usage']],
+  ['/responses', { model: 'origin', stream: true, input: 'hi' }, ['usage']],
+  ['/chat/completions', { model: 'origin', messages: [{ role: 'user', content: 'hi' }],
+    tools: [{ type: 'function', function: { name: 'check', parameters: { type: 'object' } } }] }, ['function_tools']],
+  ['/responses', { model: 'origin', input: [
+    { type: 'function_call', call_id: 'call_1', name: 'check', arguments: '{}' },
+    { type: 'function_call_output', call_id: 'call_1', output: 'done' },
+  ] }, ['function_tools']],
+  ['/responses', { model: 'origin', stream: true, input: 'hi',
+    tools: [{ type: 'function', name: 'check', parameters: { type: 'object' } }] }, ['usage', 'function_tools']],
+])('dispatch supplies captured return requirements for %s', async (path, source, required) => {
+  let assessed;
+  let sendFactory;
+  jest.isolateModules(() => {
+    const assessment = require('./protocol-compatibility/assessment');
+    assessed = jest.spyOn(assessment, 'assessRequestCompatibility');
+    sendFactory = require('./upstream-http').createSendUpstreamRequest;
+  });
+  const h = harness({
+    path, source, chain: ['anthropic/claude-sonnet-4.6', 'next'],
+    adapters: { anthropic: adapter('anthropic') }, sendFactory,
+  });
+  h.fail(0).onModelFallback({ reason: 'upstream_5xx' });
+  await flush();
+  expect(assessed).toHaveBeenCalledWith(expect.objectContaining({
+    body: expect.any(Buffer), candidate: { provider: 'anthropic', model: 'claude-sonnet-4.6' },
+    requiredResponseFeatures: required,
+  }));
+  assessed.mockRestore();
+});
+
+test('return-origin pre/post assessments both use the actual origin target reasoning scope', async () => {
+  const h = harness({
+    provider: 'openai', targetHost: 'api.openai.com',
+    source: { model: 'gpt-5.4', input: 'hi', reasoning: { effort: 'high' } },
+    chain: ['copilot/high-model', 'openai/gpt-5.5'],
+    adapters: { copilot: adapter('copilot') },
+    req: { awfRuntimePricing: {
+      openai: [{ id: 'gpt-5.4', supportedReasoningEfforts: ['high'] },
+        { id: 'gpt-5.5', supportedReasoningEfforts: ['high'] }],
+      copilot: [{ id: 'high-model', supportedReasoningEfforts: ['high'] }],
+    } },
+  });
+  h.fail(0).onModelFallback({ reason: 'upstream_5xx' });
+  await flush();
+  h.fail(1).onModelFallback({ reason: 'upstream_5xx' });
+  expect(h.attempts.map(a => a.body.model)).toEqual(['gpt-5.4', 'high-model', 'gpt-5.5']);
+  const returned = h.observe.mock.calls[1][0];
+  expect(returned).toMatchObject({
+    provider: 'openai', model: 'gpt-5.5', outcome: 'accepted',
+    reasoning: { support: 'supported', scope: { provider: 'openai', channel: 'native-api' } },
+  });
+  expect(returned.reasoning.scope).not.toHaveProperty('deployment');
+});
+
+test.each([
+  ['ordered', '/responses', '/chat/completions'],
+  ['ordered', '/chat/completions', '/responses'],
+  ['alias', '/responses', '/chat/completions'],
+  ['alias', '/chat/completions', '/responses'],
+])('%s fallback honors captured %s while the next request sees refreshed %s', (route, captured, refreshed) => {
+  replaceRuntimeModels('copilot', [{ id: 'candidate', supportedEndpoints: [captured] }]);
+  const source = { model: 'origin', input: 'hi' };
+  const options = {
+    source, chain: route === 'ordered' ? ['candidate'] : [],
+    req: {
+      awfRuntimePricing: captureRuntimePricing(),
+      ...(route === 'alias' ? { awfModelCandidates: ['origin', 'candidate'] } : {}),
+    },
+  };
+  const h = harness(options);
+  replaceRuntimeModels('copilot', [{ id: 'candidate', supportedEndpoints: [refreshed] }]);
+  const ctx = h.fail(0);
+  expect(route === 'ordered'
+    ? ctx.onModelFallback({ reason: 'upstream_5xx' }) : ctx.onModelEndpointBlockedRetry()).toBe(true);
+  expect(h.attempts[1].options.path).toBe(captured);
+  expect(h.attempts[1].body).toEqual(captured === '/responses'
+    ? { model: 'candidate', input: 'hi' }
+    : { model: 'candidate', messages: [{ role: 'user', content: 'hi' }] });
+  expect(h.req.awfRuntimePricing.copilot[0].supportedEndpoints).toEqual([captured]);
+  const next = harness({ ...options, req: { ...options.req, awfRuntimePricing: captureRuntimePricing() } });
+  const nextCtx = next.fail(0);
+  expect(route === 'ordered'
+    ? nextCtx.onModelFallback({ reason: 'upstream_5xx' }) : nextCtx.onModelEndpointBlockedRetry()).toBe(true);
+  expect(next.attempts[1].options.path).toBe(refreshed);
+});
+
+test.each(['/responses', '/chat/completions'])('async cross-provider build cannot drift from captured Copilot %s', async captured => {
+  replaceRuntimeModels('copilot', [{ id: 'candidate', supportedEndpoints: [captured] }]);
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const h = harness({
+    provider: 'openai', targetHost: 'api.openai.com', source: { model: 'origin', input: 'hi' },
+    chain: ['copilot/candidate'], req: { awfRuntimePricing: captureRuntimePricing() },
+    adapters: { copilot: adapter('copilot', { getBodyTransform: () => () => pending }) },
+  });
+  h.fail(0).onModelFallback({ reason: 'upstream_5xx' });
+  replaceRuntimeModels('copilot', [{ id: 'candidate', supportedEndpoints: [
+    captured === '/responses' ? '/chat/completions' : '/responses',
+  ] }]);
+  release(Buffer.from(JSON.stringify({ model: 'candidate', input: 'hi' })));
+  await flush();
+  expect(h.attempts).toHaveLength(2);
+  expect(h.attempts[1].options.path).toBe(captured);
+  expect(h.observe.mock.calls[0][0]).toMatchObject({
+    outcome: 'accepted', compatibility: {
+      target: captured === '/responses' ? 'responses' : 'chat_completions',
+    },
+  });
+});
+
+test.each(['/responses', '/chat/completions'])('return-origin build retains pinned Copilot %s after refresh', async captured => {
+  replaceRuntimeModels('copilot', [{ id: 'candidate', supportedEndpoints: [captured] }]);
+  const h = harness({
+    source: { model: 'origin', input: 'hi' }, chain: ['openai/gpt-5.4', 'candidate'],
+    req: { awfRuntimePricing: captureRuntimePricing() }, adapters: { openai: adapter('openai') },
+  });
+  h.fail(0).onModelFallback({ reason: 'upstream_5xx' });
+  await flush();
+  replaceRuntimeModels('copilot', [{ id: 'candidate', supportedEndpoints: [
+    captured === '/responses' ? '/chat/completions' : '/responses',
+  ] }]);
+  expect(h.fail(1).onModelFallback({ reason: 'upstream_5xx' })).toBe(true);
+  expect(h.attempts).toHaveLength(3);
+  expect(h.attempts[2].options.path).toBe(captured);
+});
+
+test('pinned incompatible endpoint remains skipped even when a refreshed catalogue would permit native dispatch', () => {
+  replaceRuntimeModels('copilot', [
+    { id: 'candidate', supportedEndpoints: ['/chat/completions'] },
+    { id: 'next', supportedEndpoints: ['/responses'] },
+  ]);
+  const source = { model: 'origin', input: 'hi', tools: [{ type: 'custom', name: 'apply_patch' }] };
+  const pinned = captureRuntimePricing();
+  const h = harness({ source, chain: ['candidate', 'next'], req: { awfRuntimePricing: pinned } });
+  replaceRuntimeModels('copilot', [{ id: 'candidate', supportedEndpoints: ['/responses'] }]);
+  h.fail(0).onModelFallback({ reason: 'upstream_5xx' });
+  expect(h.attempts.map(a => a.body.model)).toEqual(['origin', 'next']);
+  expect(h.observe.mock.calls[0][0]).toMatchObject({ model: 'candidate', outcome: 'skipped' });
+  const next = harness({ source, chain: ['candidate', 'next'], req: { awfRuntimePricing: captureRuntimePricing() } });
+  next.fail(0).onModelFallback({ reason: 'upstream_5xx' });
+  expect(next.attempts.map(a => a.body.model)).toEqual(['origin', 'candidate']);
 });

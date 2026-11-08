@@ -193,6 +193,7 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
       return {
         resolvedModel: appendModelParameters(fallback, parameterSuffix),
         log,
+        automaticReplacement: true,
         fallback: fallbackConfig.enabled
           ? { activated: false, selection_method: 'middle_power_median', reason: 'family_version_fallback' }
           : undefined,

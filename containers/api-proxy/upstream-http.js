@@ -61,6 +61,32 @@ function canonicalEndpoint(path) {
       : protocol === 'messages' ? '/v1/messages' : null;
 }
 
+function getRequiredResponseFeatures(body, protocol) {
+  const parsed = parseBodyAsObject(body);
+  if (!parsed) return [];
+  const features = [];
+  if (parsed.stream_options?.include_usage === true || protocol === 'responses' && parsed.stream === true) {
+    features.push('usage');
+  }
+  let tools = Array.isArray(parsed.tools) && parsed.tools.length > 0;
+  const pending = [parsed.messages, parsed.input];
+  let remaining = 8192;
+  while (!tools && pending.length && remaining-- > 0) {
+    const item = pending.pop();
+    if (!item || typeof item !== 'object') continue;
+    if (Array.isArray(item)) {
+      for (const child of item.slice(0, Math.max(0, remaining + 1 - pending.length))) pending.push(child);
+      continue;
+    }
+    tools = item.role === 'tool' || Array.isArray(item.tool_calls) && item.tool_calls.length > 0 ||
+      !!item.function_call || ['function_call', 'function_call_output', 'custom_tool_call',
+        'custom_tool_call_output', 'tool_use', 'tool_result'].includes(item.type);
+    if (Array.isArray(item.content)) pending.push(item.content);
+  }
+  if (tools) features.push('function_tools');
+  return features;
+}
+
 function rebuildBodyFramingHeaders(headers, bodyLength) {
   const reframedHeaders = {};
   for (const [name, value] of Object.entries(headers)) {
@@ -119,7 +145,11 @@ function rebuildCopilotWireApiFallback(sourceBody, nextModel, req, upstreamPath,
 
   parsed.model = nextModel;
   const nextSourceBody = Buffer.from(JSON.stringify(parsed), 'utf8');
-  const translated = preserveEndpoint ? null : translateCopilotWireApi(nextSourceBody, req.url);
+  const plannedEndpoint = endpointForPath(getFallbackUpstreamEndpoint(
+    'copilot', nextModel, req.url, preserveEndpoint, req.awfRuntimePricing,
+  )) || requestedEndpoint;
+  const translated = plannedEndpoint === requestedEndpoint ? null
+    : translateCopilotWireApi(nextSourceBody, req.url, { upstreamEndpoint: plannedEndpoint });
   const compatibility = translated?.compatibility || {
     requestedEndpoint,
     upstreamEndpoint: requestedEndpoint,
@@ -277,6 +307,7 @@ function createSendUpstreamRequest({
       wireApiEndpointRetryAttempted,
       failures: req.awfModelFallback?.failures || [],
     };
+    const requiredResponseFeatures = getRequiredResponseFeatures(origin.sourceBody, origin.protocol);
     const assessCandidate = (candidate, path, host = targetHost, scheme = targetScheme) => {
       const reasoning = typeof candidate.model === 'string'
         ? getRequestReasoning(candidate.model, candidate.provider, req.awfRuntimePricing, req, {
@@ -289,7 +320,7 @@ function createSendUpstreamRequest({
           target: ASSESSMENT_PROTOCOLS[protocolForPath(path)] || null,
           candidate: { provider: candidate.provider, model: candidate.model },
           pins: { eligibilityRevision: req.awfEligibility?.revision, catalogueRevision: req.awfCatalogue?.revision },
-          reasoning,
+          reasoning, requiredResponseFeatures,
         }),
         reasoning,
       };
@@ -446,7 +477,7 @@ function createSendUpstreamRequest({
               const rewritten = rewriteRequestModel({ body, upstreamPath }, current.location, candidate.model);
               if (!rewritten) return null;
               const assessment = assessCandidate(candidate, provider === 'copilot' && wireApiSourceBody
-                ? getFallbackUpstreamEndpoint(provider, candidate.model, req.url, !chain.includes(candidate.entry))
+                ? getFallbackUpstreamEndpoint(provider, candidate.model, req.url, !chain.includes(candidate.entry), req.awfRuntimePricing)
                 : rewritten.upstreamPath);
               if (assessment.compatibility.status !== 'compatible') return { assessment };
               let wireFallback = null;
@@ -489,7 +520,7 @@ function createSendUpstreamRequest({
                 : null;
               if (!rewritten) return null;
               const assessment = assessCandidate(candidate, origin.provider === 'copilot' && origin.wireApiSourceBody
-                ? getFallbackUpstreamEndpoint(origin.provider, candidate.model, req.url, !chain.includes(candidate.entry))
+                ? getFallbackUpstreamEndpoint(origin.provider, candidate.model, req.url, !chain.includes(candidate.entry), req.awfRuntimePricing)
                 : rewritten.upstreamPath, origin.targetHost, origin.targetScheme);
               if (assessment.compatibility.status !== 'compatible') return { assessment };
               let wireFallback = null;
@@ -857,7 +888,7 @@ function createSendUpstreamRequest({
             if (!onModelFallback && !(req.awfModelCandidates?.length > 1)) {
               observeDecision(candidate, 'exhausted', assessment);
             }
-            return false;
+            throw new Error('Fallback request compatibility was not established');
           }
           let retryBody = wireApiSourceBody;
           let retryCompatibility = {
@@ -938,7 +969,7 @@ function createSendUpstreamRequest({
             exclude.push(nextModel);
             const candidate = { provider, model: nextModel };
             const assessment = assessCandidate(candidate, provider === 'copilot' && wireApiSourceBody
-              ? getFallbackUpstreamEndpoint(provider, nextModel, req.url) : upstreamPath);
+              ? getFallbackUpstreamEndpoint(provider, nextModel, req.url, false, req.awfRuntimePricing) : upstreamPath);
             lastDecision = { candidate, assessment };
             if (assessment.compatibility.status !== 'compatible') {
               observeDecision(candidate, 'skipped', assessment);

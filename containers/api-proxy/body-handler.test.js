@@ -64,6 +64,112 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
     } finally { clearRuntimeModels(); }
   });
 
+  test('a marked resolver fallback cannot dispatch a role-collapsing primary wire translation', async () => {
+    replaceRuntimeModels('copilot', [{ id: 'response-only', supportedEndpoints: ['/responses'] }]);
+    try {
+      const observe = jest.fn();
+      const req = { method: 'POST', url: '/chat/completions',
+        awfResolverFallback: { provider: 'copilot', fromModel: 'missing-model', model: 'response-only' },
+        awfObserveModelDecision: observe };
+      const body = Buffer.from(JSON.stringify({ model: 'response-only', messages: [
+        { role: 'developer', content: 'priority instruction' }, { role: 'user', content: 'hello' },
+      ] }));
+      await expect(transformRequestBody(body, 'copilot', req, 'automatic-wire', null))
+        .rejects.toMatchObject({ statusCode: 400, code: 'model_recovery_exhausted' });
+      expect(observe.mock.calls.map(([record]) => record.outcome)).toEqual(['skipped', 'exhausted']);
+      expect(observe.mock.calls[0][0].compatibility.reasons)
+        .toContainEqual({ feature: 'message_roles', code: 'role_priority_loss' });
+      expect(observe.mock.calls[1][0].model).toBeNull();
+    } finally { clearRuntimeModels(); }
+  });
+
+  test('a marked resolver fallback still accepts established Codex normalization and native passthrough', async () => {
+    const observe = jest.fn();
+    const req = { method: 'POST', url: '/responses',
+      awfResolverFallback: { provider: 'copilot', fromModel: 'missing-model', model: 'native-model' },
+      awfObserveModelDecision: observe };
+    const body = Buffer.from(JSON.stringify({ model: 'native-model', input: 'edit a file',
+      tools: [{ type: 'custom', name: 'apply_patch', format: { type: 'text' } }] }));
+    const result = await transformRequestBody(body, 'copilot', req, 'automatic-native', null);
+    expect(json(result.body).tools).toEqual([APPLY_PATCH_FUNCTION_TOOL]);
+    expect(observe).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'accepted',
+      compatibility: expect.objectContaining({ status: 'compatible', contracts: [] }) }));
+  });
+
+  test('the real resolver marks synthesized fallback, but not an explicitly authorized alias match', async () => {
+    const saved = process.env.AWF_MODEL_ALIASES;
+    process.env.AWF_MODEL_ALIASES = JSON.stringify({ models: {
+      direct: ['copilot/gpt-5.4'],
+    } });
+    try {
+      await jest.isolateModulesAsync(async () => {
+        const { makeModelBodyTransform } = require('./model-config');
+        const runtime = require('./runtime-model-catalog');
+        runtime.replaceRuntimeModels('copilot', [{ id: 'gpt-5.4', supportedEndpoints: ['/responses'] }]);
+        const transform = makeModelBodyTransform('copilot', { copilot: ['gpt-5.4'] },
+          async () => null, null, runtime.getRuntimeModels, true);
+        const { transformRequestBody } = require('./body-handler').createBodyHandler({
+          handleRequestError() {}, otel: {},
+        });
+        const body = model => Buffer.from(JSON.stringify({ model, messages: [
+          { role: 'developer', content: 'instruction' }, { role: 'user', content: 'hello' },
+        ] }));
+        const automatic = { method: 'POST', url: '/chat/completions' };
+        await expect(transformRequestBody(body('gpt-5.3'), 'copilot', automatic, 'resolver-auto', transform))
+          .rejects.toMatchObject({ code: 'model_recovery_exhausted' });
+        expect(automatic.awfResolverFallback).toMatchObject({ fromModel: 'gpt-5.3', model: 'gpt-5.4' });
+        const authorized = { method: 'POST', url: '/chat/completions' };
+        const result = await transformRequestBody(body('direct'), 'copilot', authorized, 'resolver-alias', transform);
+        expect(authorized.awfResolverFallback).toBeUndefined();
+        expect(json(result.body).instructions).toBe('instruction');
+        runtime.clearRuntimeModels();
+      });
+    } finally {
+      if (saved === undefined) delete process.env.AWF_MODEL_ALIASES;
+      else process.env.AWF_MODEL_ALIASES = saved;
+    }
+  });
+
+  test('a same-provider native resolver fallback requires no invented translation direction', async () => {
+    const observe = jest.fn();
+    const req = { method: 'POST', url: '/v1beta/models/gemini-test:generateContent',
+      awfObserveModelDecision: observe };
+    const body = Buffer.from(JSON.stringify({ model: 'gemini-test',
+      contents: [{ role: 'user', parts: [{ text: 'hello' }] }] }));
+    const result = await transformRequestBody(body, 'gemini', req, 'resolver-native', async value => {
+      req.awfResolverFallback = Object.freeze({
+        provider: 'gemini', fromModel: 'gemini-old', model: 'gemini-test',
+      });
+      return value;
+    });
+    expect(result.body).toEqual(body);
+    expect(observe).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: 'accepted', compatibility: expect.objectContaining({
+        status: 'compatible', source: null, target: null, contracts: [],
+      }),
+    }));
+  });
+
+  test.each([['/chat/completions', '/responses'], ['/responses', '/chat/completions']])(
+    'initial automatic routing remains pinned to %s across a refresh to %s',
+    async (pinned, refreshed) => {
+      const model = 'pinned-candidate';
+      const req = { method: 'POST', url: '/chat/completions',
+        awfResolverFallback: { provider: 'copilot', fromModel: 'missing', model },
+        awfRuntimePricing: Object.freeze({ copilot: Object.freeze([
+          Object.freeze({ id: model, supportedEndpoints: Object.freeze([pinned]) }),
+        ]) }) };
+      replaceRuntimeModels('copilot', [{ id: model, supportedEndpoints: [refreshed] }]);
+      try {
+        const body = Buffer.from(JSON.stringify({ model, messages: [{ role: 'user', content: 'hello' }] }));
+        const result = await transformRequestBody(body, 'copilot', req, 'resolver-pinned', null);
+        expect(result.wireApiCompatibility?.upstreamEndpoint || req.url).toBe(pinned);
+        if (pinned === '/responses') expect(json(result.body).input[0].content).toBe('hello');
+        else expect(result.body).toEqual(body);
+      } finally { clearRuntimeModels(); }
+    },
+  );
+
   describe('transformRequestBody steering delivery', () => {
     const warningPrefix = '[AWF AI CREDIT WARNING]';
 

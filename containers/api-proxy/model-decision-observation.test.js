@@ -119,6 +119,30 @@ test('unverified and exhausted outcomes give no replacement, invented rejected c
   expect(exhausted).not.toHaveProperty('reasoning');
 });
 
+test('null-model exhaustion retains its outcome without treating the last candidate reasoning identity as a mismatch', () => {
+  const observer = createModelDecisionObservation(options);
+  const { req, res } = request(observer);
+  req.awfObserveModelDecision(record({
+    model: null, outcome: 'exhausted', reason: 'fallback_exhausted',
+    compatibility: assessment('incompatible'),
+    reasoning: {
+      identity: { key: 'openai/candidate-model', provider: 'openai', rawId: 'candidate-model' },
+      scope: { provider: 'openai', channel: 'native-api' },
+      support: 'supported', mode: 'optional',
+    },
+  }));
+  res.awfUpstreamResponse = true;
+  res.statusCode = 503;
+  res.emit('finish');
+  const [exhausted] = project(observer).recent.decisions;
+  expect(exhausted).toMatchObject({
+    reason: 'fallback_exhausted', identity: { provider: null, model_id: null },
+    action: { kind: 'change_request', retry: 'do_not_repeat' },
+    compatibility: { outcome: 'exhausted', reasons: [{ feature: 'message_text', code: 'content_loss' }] },
+  });
+  expect(exhausted).not.toHaveProperty('reasoning');
+});
+
 test('sanitization precedes pending retention and neither later public inventory nor policy can reveal hidden identities', () => {
   let models = { copilot: ['original-model'], openai: ['hidden-model', 'candidate-model'] };
   const policy = { disallowedModels: ['hidden-*'] };

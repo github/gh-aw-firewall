@@ -244,6 +244,12 @@ function makeModelBodyTransform(
       }
     }
     if (!result) return null;
+    if (req && (result.automaticReplacement === true || result.fallback?.activated === true ||
+        result.fallback?.reason === 'family_version_fallback')) {
+      req.awfResolverFallback = Object.freeze({
+        provider, fromModel: result.originalModel, model: result.resolvedModel,
+      });
+    }
     if (req && result.eligibilityDecision) {
       req.awfSelectedModelEligibility = Object.freeze({
         model: result.resolvedModel, provider, decision: result.eligibilityDecision,

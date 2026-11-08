@@ -28,7 +28,9 @@ const {
   translateResponsesRequest,
   transformWireApiResponseBody,
   createWireApiSseTransform,
+  endpointForPath,
 } = require('./wire-api-compat');
+const { findRuntimeModel } = require('./runtime-model-catalog');
 const {
   chatRequestToAnthropic,
   anthropicResponseToChat,
@@ -71,13 +73,23 @@ function protocolForPath(path) {
   return null;
 }
 
-function getFallbackUpstreamEndpoint(provider, model, endpoint, preserveEndpoint = false) {
-  if (provider !== 'copilot' || preserveEndpoint || !protocolForPath(endpoint) ||
-      protocolForPath(endpoint) === 'messages') return endpoint;
-  const minimal = protocolForPath(endpoint) === 'responses' ? { model, input: [] } : { model, messages: [] };
-  // Ask the shipped translator's routing logic without risking a feature rejection before assessment.
-  const planned = translateCopilotWireApi(Buffer.from(JSON.stringify(minimal)), endpoint);
-  return planned?.compatibility.upstreamEndpoint || endpoint;
+// Mirror the translator's endpoint rules using exact request-pinned records when available.
+function getFallbackUpstreamEndpoint(provider, model, endpoint, preserveEndpoint = false, runtimeCatalog = null) {
+  const requestedEndpoint = endpointForPath(endpoint);
+  if (provider !== 'copilot' || preserveEndpoint || !requestedEndpoint || typeof model !== 'string') return endpoint;
+  const records = Array.isArray(runtimeCatalog?.copilot) ? runtimeCatalog.copilot : [];
+  const record = runtimeCatalog
+    ? records.find(record => typeof record.id === 'string' && record.id.toLowerCase() === model.toLowerCase())
+    : findRuntimeModel('copilot', model);
+  if (!Array.isArray(record?.supportedEndpoints)) return endpoint;
+  const endpoints = new Set(record.supportedEndpoints.map(value => {
+    if (typeof value !== 'string') return null;
+    if (value.endsWith('/responses')) return '/responses';
+    if (value.endsWith('/chat/completions')) return '/chat/completions';
+    return null;
+  }));
+  const opposite = requestedEndpoint === '/responses' ? '/chat/completions' : '/responses';
+  return endpoints.has(requestedEndpoint) || !endpoints.has(opposite) ? endpoint : opposite;
 }
 
 /**
@@ -167,7 +179,7 @@ async function buildCrossProviderRequest({
   parsed.model = model;
   const targetHost = adapter.getTargetHost(req);
   const targetScheme = typeof adapter.getTargetScheme === 'function' ? adapter.getTargetScheme(req) : 'https';
-  const plannedEndpoint = getFallbackUpstreamEndpoint(targetProvider, model, endpoint);
+  const plannedEndpoint = getFallbackUpstreamEndpoint(targetProvider, model, endpoint, false, req.awfRuntimePricing);
   let compatibilityAssessment = null;
   const checkCompatibility = upstreamEndpoint => {
     if (!assessCompatibility) return;
@@ -216,7 +228,8 @@ async function buildCrossProviderRequest({
     ({ body, substituted: substitutedModel } = pinModel(body, model));
     if (targetProvider === 'copilot' && protocol !== 'messages') {
       wireApiSourceBody = body;
-      const translated = translateCopilotWireApi(body, endpoint);
+      const translated = plannedEndpoint === endpoint ? null
+        : translateCopilotWireApi(body, endpoint, { upstreamEndpoint: plannedEndpoint });
       if (translated) {
         body = translated.body;
         wireApiCompatibility = translated.compatibility;

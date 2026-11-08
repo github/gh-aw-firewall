@@ -35,7 +35,10 @@ const { translateCodexCustomToolsForCopilot } = require('./codex-compat');
 const { endpointForPath, translateCopilotWireApi } = require('./wire-api-compat');
 const { stripRedundantModelPrefixInBody } = require('./model-body-rewriter');
 const { parseBodyAsObject } = require('./body-utils');
-const { recoverRequestModel } = require('./model-recovery');
+const { recoverRequestModel, protocolForUrl } = require('./model-recovery');
+const { getFallbackUpstreamEndpoint } = require('./cross-provider-fallback');
+const { assessRequestCompatibility } = require('./protocol-compatibility/assessment');
+const { getRequestReasoning } = require('./model-reasoning');
 
 /** Maximum request body size: 10 MB to prevent DoS via large payloads. */
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
@@ -305,16 +308,72 @@ function createBodyHandler({ handleRequestError, otel }) {
     // request rather than a body whose translator has already discarded fields.
     if (isWritableMethod) req.awfFallbackSourceBody = Buffer.from(body);
 
+    const assessResolverFallback = (targetUrl) => {
+      if (!req.awfResolverFallback || req.awfRecoveryAttempts) return;
+      const parsed = parseBodyAsObject(req.awfFallbackSourceBody);
+      const model = parsed?.model;
+      const protocol = value => {
+        const name = protocolForUrl(value);
+        return name === 'chat-completions' ? 'chat_completions'
+          : name === 'messages' ? 'anthropic_messages' : name;
+      };
+      const source = protocol(req.url);
+      const target = protocol(targetUrl);
+      const reasoning = getRequestReasoning(model, provider, req.awfRuntimePricing, req, req.awfFallbackTarget || {});
+      const pins = { eligibilityRevision: req.awfEligibility?.revision, catalogueRevision: req.awfCatalogue?.revision };
+      const compatibility = assessRequestCompatibility({
+        body: req.awfFallbackSourceBody, source, target, candidate: { provider, model }, pins, reasoning,
+        nativePassthrough: source === null && target === null && targetUrl === req.url,
+      });
+      const publish = outcome => {
+        try {
+          req.awfObserveModelDecision?.({
+            provider, model: outcome === 'exhausted' ? null : model,
+            endpoint: source === 'anthropic_messages' ? '/v1/messages' : endpointForPath(req.url),
+            originProvider: provider, originModel: req.awfResolverFallback.fromModel,
+            outcome, compatibility, reasoning, ...pins,
+            reason: outcome === 'exhausted' ? 'fallback_exhausted' : `fallback_${compatibility.status}`,
+          });
+        } catch {
+          // Optional observation must not change request admission.
+        }
+      };
+      publish(compatibility.status === 'compatible' ? 'accepted' : 'skipped');
+      if (compatibility.status !== 'compatible') {
+        publish('exhausted');
+        const error = new Error('The selected automatic fallback cannot preserve the assessed request requirements');
+        error.statusCode = 400;
+        error.code = 'model_recovery_exhausted';
+        throw error;
+      }
+    };
+
     if (provider === 'copilot' && req.method === 'POST' && endpointForPath(req.url) &&
         !req.awfRecoveryAttempts) {
       wireApiSourceBody = Buffer.from(body);
-      const translated = translateCopilotWireApi(body, req.url);
+      const plannedEndpoint = req.awfResolverFallback
+        ? getFallbackUpstreamEndpoint(provider, parseBodyAsObject(body)?.model, req.url, false, req.awfRuntimePricing)
+        : null;
+      let translated;
+      try {
+        translated = plannedEndpoint && endpointForPath(plannedEndpoint) === endpointForPath(req.url)
+          ? null : translateCopilotWireApi(body, req.url, plannedEndpoint ? { upstreamEndpoint: plannedEndpoint } : {});
+      } catch (error) {
+        if (req.awfResolverFallback) {
+          try {
+            assessResolverFallback(plannedEndpoint ||
+              (endpointForPath(req.url) === '/responses' ? '/chat/completions' : '/responses'));
+          } catch { /* Preserve the authoritative translator's public rejection. */ }
+        }
+        throw error;
+      }
       if (translated) {
         body = translated.body;
         wireApiCompatibility = translated.compatibility;
         req.awfRouting?.onEndpointTranslation?.(wireApiCompatibility);
       }
     }
+    assessResolverFallback(wireApiCompatibility?.upstreamEndpoint || req.url);
 
     return { body, codexCompatibility, wireApiCompatibility, wireApiSourceBody, steering };
   }

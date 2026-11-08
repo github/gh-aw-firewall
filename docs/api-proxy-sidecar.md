@@ -1174,8 +1174,9 @@ Before an automatic upstream inference attempt, a candidate must have a
 `compatible` assessment for the captured request and concrete endpoint plan.
 Both `incompatible` and `unverified` candidates are skipped, preserving candidate
 order and all existing policy, retirement, harness, recovery opt-out and budget
-checks. This applies to ordered/automatic replacement, alias endpoint recovery
-and alternate wire-endpoint retry, not primary direct-request pass-through.
+checks. This applies to ordered/automatic replacement, synthesized initial
+resolver fallback, alias endpoint recovery and alternate wire-endpoint retry,
+not primary direct-request pass-through or an explicitly matched alias.
 No new opt-in flag or recovery trigger is introduced. Skips dispatch no inference
 and consume no inference usage or extra pricing selection.
 Existing same-provider Gemini/Vertex native model-path rewrites remain
