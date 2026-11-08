@@ -120,12 +120,14 @@ request contains only `Viewed image file successfully.` and no `input_image`.
 Tool success alone does not prove that Copilot CLI included the image in its
 request to the model.
 
-**Diagnosis:** The Copilot (port 10002) and OpenAI (port 10000) API proxies emit payload-free
-`request_shape` JSON records at debug level in its normal stdout log
-(`api-proxy-logs` in preserved AWF logs). These records are emitted automatically;
-no request-body logging or credential exposure is needed. Match `request_id`
-across `stage: "inbound"` (before body transforms) and `stage: "upstream"`
-(immediately before each upstream attempt). Records include:
+**Diagnosis:** The Copilot (port 10002) and OpenAI (port 10000) API proxies emit
+payload-free `request_shape` JSON records at debug level in their normal stdout
+log (`api-proxy-logs` in preserved AWF logs). These records are emitted
+automatically for buffered HTTP requests only; WebSocket Responses sessions do
+not emit `request_shape` records. No request-body logging or credential exposure
+is needed. Match `request_id` across `stage: "inbound"` (before body transforms)
+and `stage: "upstream"` (immediately before each upstream attempt). Records
+include:
 
 - `content_part_types`: counts of message content types such as `input_image`.
 - `tool_output_part_types`: counts inside Responses `function_call_output.output`
