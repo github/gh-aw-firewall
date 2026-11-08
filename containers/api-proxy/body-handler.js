@@ -362,7 +362,9 @@ function createBodyHandler({ handleRequestError, otel }) {
         const reasoning = getRequestReasoning(model, provider, req.awfRuntimePricing, req, req.awfFallbackTarget || {});
         const compatibility = assessRequestCompatibility({
           body: req.awfFallbackSourceBody, source, target, candidate: { provider, model }, pins, reasoning,
-          requiredResponseFeatures, nativePassthrough: source === null && target === null && targetUrl === req.url,
+          requiredResponseFeatures, nativePassthrough: ['gemini', 'vertex'].includes(provider) &&
+            source === null && target === null && targetUrl === req.url &&
+            /\/models\/[^/:?]+:(?:generateContent|streamGenerateContent)(?:\?|$)/.test(req.url),
         });
         lastCompatibility = compatibility;
         lastReasoning = reasoning;

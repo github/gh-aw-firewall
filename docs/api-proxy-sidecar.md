@@ -1209,7 +1209,10 @@ fallbacks retain native passthrough when only the path's model identifier change
 the body, backend, method and query remain unchanged. No directed translation
 contract or native feature-support claim is invented. Candidate policy,
 eligibility and budget checks still apply; unknown methods and cross-provider
-native directions remain unverified or unroutable.
+native directions remain unverified or unroutable. Initial synthesized resolver
+fallbacks use the same recognized native inference paths; an unchanged unknown
+endpoint does not establish passthrough compatibility. Primary direct requests
+on those endpoints retain their existing behavior.
 Native Gemini/Vertex endpoints remain outside the endpoint-scoped recent
 compatibility diagnostics.
 

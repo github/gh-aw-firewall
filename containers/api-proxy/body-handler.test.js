@@ -242,15 +242,19 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
     }
   });
 
-  test('a same-provider native resolver fallback requires no invented translation direction', async () => {
+  test.each([
+    ['gemini', '/v1beta/models/gemini-test:generateContent'],
+    ['gemini', '/v1beta/models/gemini-test:streamGenerateContent?alt=sse'],
+    ['vertex', '/v1/projects/project/locations/us-central1/publishers/google/models/gemini-test:generateContent'],
+    ['vertex', '/v1/projects/project/locations/us-central1/publishers/google/models/gemini-test:streamGenerateContent?alt=sse'],
+  ])('%s native resolver fallback on %s requires no invented translation direction', async (provider, url) => {
     const observe = jest.fn();
-    const req = { method: 'POST', url: '/v1beta/models/gemini-test:generateContent',
-      awfObserveModelDecision: observe };
+    const req = { method: 'POST', url, awfObserveModelDecision: observe };
     const body = Buffer.from(JSON.stringify({ model: 'gemini-test',
       contents: [{ role: 'user', parts: [{ text: 'hello' }] }] }));
-    const result = await transformRequestBody(body, 'gemini', req, 'resolver-native', async value => {
+    const result = await transformRequestBody(body, provider, req, 'resolver-native', async value => {
       req.awfResolverFallback = Object.freeze({
-        provider: 'gemini', fromModel: 'gemini-old', model: 'gemini-test',
+        provider, fromModel: 'gemini-old', model: 'gemini-test',
       });
       return value;
     });
@@ -260,6 +264,32 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
         status: 'compatible', source: null, target: null, contracts: [],
       }),
     }));
+  });
+
+  test.each([
+    ['gemini', '/v1beta/models/gemini-test:unknownMethod'],
+    ['vertex', '/v1/projects/project/locations/us-central1/publishers/google/models/gemini-test:unknownMethod'],
+    ['openai', '/models/gemini-test:generateContent'],
+    ['copilot', '/unknown'],
+  ])('%s resolver fallback cannot approve an unimplemented endpoint %s', async (provider, url) => {
+    const observe = jest.fn();
+    const req = { method: 'POST', url, awfObserveModelDecision: observe };
+    const body = Buffer.from(JSON.stringify({ model: 'gemini-test',
+      contents: [{ parts: [{ text: 'PRIVATE_PROMPT' }] }] }));
+    await expect(transformRequestBody(body, provider, req, 'resolver-unknown', async value => {
+      req.awfResolverFallback = Object.freeze({
+        provider, fromModel: 'missing', model: 'gemini-test',
+      });
+      return value;
+    })).rejects.toMatchObject({ statusCode: 400, code: 'model_recovery_exhausted' });
+    expect(observe.mock.calls.map(([record]) => [record.outcome, record.compatibility.status]))
+      .toEqual([['skipped', 'unverified'], ['exhausted', 'unverified']]);
+    expect(observe.mock.calls[0][0].compatibility.reasons)
+      .toContainEqual({ feature: 'unknown_fields', code: 'direction_unimplemented' });
+    expect(JSON.stringify(observe.mock.calls)).not.toContain('PRIVATE_PROMPT');
+
+    const direct = await transformRequestBody(body, provider, { method: 'POST', url }, 'direct-unknown', null);
+    expect(direct.body).toEqual(body);
   });
 
   test.each([['/chat/completions', '/responses'], ['/responses', '/chat/completions']])(
