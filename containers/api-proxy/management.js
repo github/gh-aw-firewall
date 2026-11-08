@@ -25,6 +25,7 @@ const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
 const { normalizeModel } = require('./routing-catalogue');
 const { getModelRoutingChoices } = require('./routing-candidates');
 const { reflectScopedAuto } = require('./scoped-auto-model');
+const { projectModelDecisionDiagnostics } = require('./model-decision-diagnostics');
 
 function filterModelCatalogue(entries, provider, modelPolicy, getModel) {
   if (!Array.isArray(entries) || !modelPolicy ||
@@ -102,6 +103,8 @@ function buildRoutingModelMetadata(provider, modelIds, runtimeRecords) {
  * @property {() => object}         getMaxCacheMissesUsage - Returns max-cache-misses usage summary
  * @property {() => object}         getPermissionDeniedUsage - Returns permission-denied usage summary
  * @property {{ allowedModels?: string[]|null, disallowedModels?: string[]|null }|null} [modelPolicy]
+ * @property {() => object[]|null} [getRecentModelDecisions] - Bounded, management-safe local outcomes
+ * @property {'primary-agent'|'dedicated-enclave'|'unknown'} [diagnosticsContext] - Trusted proxy context
  */
 
 /**
@@ -133,6 +136,8 @@ function createManagementHandlers(deps) {
     getRoutingState = () => null,
     modelPolicy = null,
     modelBudgetEnabled = false,
+    getRecentModelDecisions = () => null,
+    diagnosticsContext = 'unknown',
   } = deps;
   const getPrivateRoutingModelMetadata = getRoutingModelMetadata || getRuntimeModelMetadata;
 
@@ -173,7 +178,7 @@ function createManagementHandlers(deps) {
     const runtimeModelMetadata = getRuntimeModelMetadata();
     const routingModelMetadata = getPrivateRoutingModelMetadata();
     const modelAliases = getModelAliases();
-    return {
+    const reflection = {
       endpoints: getAdapters().map(adapter => {
         const info = adapter.getReflectionInfo();
         const providerModels = info.models_cache_key !== null
@@ -237,6 +242,17 @@ function createManagementHandlers(deps) {
       routing: getRoutingState(),
       model_catalogue: getCatalogueLoader().reflect(),
     };
+    try {
+      reflection.model_decision_diagnostics = projectModelDecisionDiagnostics(reflection, {
+        context: diagnosticsContext, recent: getRecentModelDecisions(),
+        runtimeMetadata: routingModelMetadata,
+      });
+    } catch (error) {
+      if (error?.code === 'pricing_resolution_error') throw error;
+      // Unavailable additive diagnostics must not change legacy reflection or
+      // expose exception text. Absence is not permission or zero-cost evidence.
+    }
+    return reflection;
   }
 
   /**
