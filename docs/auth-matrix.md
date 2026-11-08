@@ -220,7 +220,17 @@ Model policy, rate limits, and invocation limits still apply.
 |---|---|
 | Fine-grained PAT (`github_pat_*`) | Rejected by `api.githubcopilot.com/v1/decisions` in the [reported reproduction](https://github.com/github/gh-aw/issues/75637), even with Copilot Requests permission. |
 | Classic PAT | The upstream rejection says PATs are unsupported; classic PAT acceptance is not verified or promised. |
-| OAuth / GitHub App token | The adapter can forward these credentials, but endpoint acceptance and required permissions are not verified. Ordinary Copilot inference support does not establish Decisions support. |
+| Actions job token (`github.token`) with `copilot-requests: write` | One live Decisions request succeeded in [gh-aw#75859](https://github.com/github/gh-aw/pull/75859), with `Copilot-Integration-Id: agentic-workflows`. This does not establish PAT support or availability for personal-account workflows. |
+| Other OAuth / GitHub App tokens | The adapter can forward these credentials, but endpoint acceptance and required permissions are not verified. Ordinary Copilot inference support does not establish Decisions support. |
+
+**Allowlist guidance:** The upstream endpoint is
+`https://api.githubcopilot.com/v1/decisions`. If a sandboxed caller needs direct
+egress to it, the hostname entry is `--allow-domains api.githubcopilot.com`,
+not a URL or `/v1/decisions` path; this permits the host, not only that endpoint.
+No agent allowlist addition is needed for the trusted api-proxy, which is
+[exempt from domain ACLs](./api-proxy-sidecar.md#architecture).
+The standalone gh-aw evals job described below is outside AWF, so its egress
+is not controlled by this flag. Allowlisting does not make a PAT acceptable.
 
 The reported HTTP 400 body is plain text:
 `checking third-party user token: bad request: Personal Access Tokens are not supported for this endpoint`.
@@ -235,13 +245,16 @@ remains bounded and secret-redacted; truncated or uninspectable bodies and
 unrelated errors do not receive this reason code.
 
 The evals job described in [github/gh-aw#75637](https://github.com/github/gh-aw/issues/75637)
-does **not** run through AWF, so proxy changes alone cannot fix its opaque
+does **not** run through AWF: [gh-aw v1.2.1 executes the client via
+`actions/github-script`](https://github.com/github/gh-aw/blob/v1.2.1/pkg/workflow/evals_steps.go#L58-L97)
+on the host runner. Proxy changes alone cannot fix its opaque
 `Decisions request failed (HTTP 400)`. That issue tracks the gh-aw client
 classification: use `pat_unsupported` as the cross-project diagnostic reason
 for this rejection, without echoing provider bodies. AWF emits the reason in
 logs, not by rewriting the response into a synthetic JSON error. The gh-aw
-client must classify plain text separately and document an endpoint-supported
-credential before claiming evals support.
+client must classify plain text separately; the integration-header fix in
+[gh-aw#75859](https://github.com/github/gh-aw/pull/75859) leaves unsupported-authentication
+diagnostics out of scope.
 
 ### BYOK (Bring Your Own Key)
 
