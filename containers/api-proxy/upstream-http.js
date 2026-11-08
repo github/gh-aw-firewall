@@ -291,7 +291,7 @@ function createSendUpstreamRequest({
         /\/models\/[^/:?]+:(?:generateContent|streamGenerateContent)(?:\?|$)/.test(origin.upstreamPath) &&
         rewriteRequestModel({ body: origin.body, upstreamPath: origin.upstreamPath }, 'path', candidate.model)
           ?.upstreamPath === path;
-      const reasoning = typeof candidate.model === 'string'
+      const reasoning = path && typeof candidate.model === 'string'
         ? getRequestReasoning(candidate.model, candidate.provider, req.awfRuntimePricing, req, {
         targetHost: host, targetScheme: scheme,
       }) : null;
