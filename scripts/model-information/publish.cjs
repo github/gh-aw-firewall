@@ -9,15 +9,22 @@ const {
   isCommit, isDigest, readSnapshot, readPointer,
 } = require('./publication-contract.cjs');
 
-function publish({ cwd, bytes, expectedDigest, sourceCommit }) {
-  if (!isDigest(expectedDigest) || digest(bytes) !== expectedDigest) {
-    throw new Error('Artifact digest differs from validated read-only job output');
-  }
-  const candidate = readSnapshot(bytes);
-  const version = candidate.schemaVersion;
-  const pointerPath = channelPath(version);
-  if (!isCommit(sourceCommit) || candidate.sourceCommit !== sourceCommit) {
-    throw new Error('Artifact source differs from trusted event SHA');
+function publish({ cwd, bytes, expectedDigest, sourceCommit, bytesV2, expectedDigestV2 }) {
+  const inputs = [{ bytes, expectedDigest }];
+  if (bytesV2 !== undefined) inputs.push({ bytes: bytesV2, expectedDigest: expectedDigestV2 });
+  const publications = inputs.map(input => {
+    if (!isDigest(input.expectedDigest) || digest(input.bytes) !== input.expectedDigest) {
+      throw new Error('Artifact digest differs from validated read-only job output');
+    }
+    const candidate = readSnapshot(input.bytes);
+    if (!isCommit(sourceCommit) || candidate.sourceCommit !== sourceCommit) {
+      throw new Error('Artifact source differs from trusted event SHA');
+    }
+    return { candidate, bytes: input.bytes };
+  });
+  if (publications.length === 2 &&
+      publications.map(({ candidate }) => candidate.schemaVersion).join() !== '1,2') {
+    throw new Error('Dual publication requires v1 and v2 artifacts');
   }
   const temporary = fs.mkdtempSync(path.join(cwd, '.awf-catalogue-publish-'));
   const env = {
@@ -59,56 +66,66 @@ function publish({ cwd, bytes, expectedDigest, sourceCommit }) {
         git('fetch', '--no-tags', 'origin', `refs/heads/${dataBranch}`);
         parent = git('rev-parse', 'FETCH_HEAD');
       }
-      const channelBytes = blob(parent, pointerPath);
-      // Bootstrap v2 only from a usable existing v1 channel, retaining all v1 bytes.
-      const currentBytes = channelBytes || (version === 2 ? blob(parent, channelPath(1)) : null);
-      if (parent && !currentBytes) throw new Error('Existing data branch has no usable v1 pointer');
-      if (currentBytes) {
-        const current = readPointer(currentBytes, channelBytes ? version : 1);
-        const currentSnapshotBytes = blob(parent, current.snapshot);
-        if (!currentSnapshotBytes || digest(currentSnapshotBytes) !== current.sha256) {
-          throw new Error('Existing current snapshot is missing or corrupt');
+      const updates = [];
+      for (const { candidate, bytes: candidateBytes } of publications) {
+        const version = candidate.schemaVersion;
+        const pointerPath = channelPath(version);
+        const channelBytes = blob(parent, pointerPath);
+        // Bootstrap v2 only from a usable existing v1 channel, retaining all v1 bytes.
+        const currentBytes = channelBytes || (version === 2 ? blob(parent, channelPath(1)) : null);
+        if (parent && !currentBytes) throw new Error('Existing data branch has no usable v1 pointer');
+        if (currentBytes) {
+          const current = readPointer(currentBytes, channelBytes ? version : 1);
+          const currentSnapshotBytes = blob(parent, current.snapshot);
+          if (!currentSnapshotBytes || digest(currentSnapshotBytes) !== current.sha256) {
+            throw new Error('Existing current snapshot is missing or corrupt');
+          }
+          const currentSnapshot = readSnapshot(currentSnapshotBytes);
+          if (currentSnapshot.schemaVersion !== current.schemaVersion ||
+              currentSnapshot.revision !== current.revision ||
+              !ancestor(currentSnapshot.sourceCommit, current.sourceCommit) ||
+              !ancestor(current.sourceCommit, main)) throw new Error('Invalid current source provenance');
+          if (current.sourceCommit !== sourceCommit && ancestor(sourceCommit, current.sourceCommit)) {
+            return 'superseded: current pointer has a newer source';
+          }
+          if (!ancestor(current.sourceCommit, sourceCommit)) throw new Error('Divergent publication sources');
+          if (channelBytes && current.sourceCommit === sourceCommit && current.revision !== candidate.revision) {
+            throw new Error('One source commit produced different catalogue revisions');
+          }
+          if (channelBytes && current.revision === candidate.revision) continue;
         }
-        const currentSnapshot = readSnapshot(currentSnapshotBytes);
-        if (currentSnapshot.schemaVersion !== current.schemaVersion ||
-            currentSnapshot.revision !== current.revision ||
-            !ancestor(currentSnapshot.sourceCommit, current.sourceCommit) ||
-            !ancestor(current.sourceCommit, main)) throw new Error('Invalid current source provenance');
-        if (current.sourceCommit !== sourceCommit && ancestor(sourceCommit, current.sourceCommit)) {
-          return 'superseded: current pointer has a newer source';
+        const file = snapshotPath(candidate.revision, version);
+        const existing = blob(parent, file);
+        let snapshotBytes = candidateBytes;
+        if (existing) {
+          const snapshot = readSnapshot(existing);
+          if (snapshot.revision !== candidate.revision ||
+              json(payload(snapshot)) !== json(payload(candidate)) ||
+              !ancestor(snapshot.sourceCommit, sourceCommit)) {
+            throw new Error('Immutable revision collision');
+          }
+          // A reviewed rollback can reuse earlier immutable bytes, never overwrite them.
+          snapshotBytes = existing;
         }
-        if (!ancestor(current.sourceCommit, sourceCommit)) throw new Error('Divergent publication sources');
-        if (channelBytes && current.sourceCommit === sourceCommit && current.revision !== candidate.revision) {
-          throw new Error('One source commit produced different catalogue revisions');
-        }
-        if (channelBytes && current.revision === candidate.revision) return 'unchanged';
+        updates.push({ file, existing, snapshotBytes, pointerPath, pointer: json({
+          schemaVersion: version, revision: candidate.revision, sourceCommit,
+          snapshot: file, sha256: digest(snapshotBytes),
+        }) });
       }
-      const file = snapshotPath(candidate.revision, version);
-      const existing = blob(parent, file);
-      let snapshotBytes = bytes;
-      if (existing) {
-        const snapshot = readSnapshot(existing);
-        if (snapshot.revision !== candidate.revision ||
-            json(payload(snapshot)) !== json(payload(candidate)) ||
-            !ancestor(snapshot.sourceCommit, sourceCommit)) {
-          throw new Error('Immutable revision collision');
-        }
-        // A reviewed rollback can reuse earlier immutable bytes, never overwrite them.
-        snapshotBytes = existing;
-      }
+      if (!updates.length) return 'unchanged';
       if (parent) git('read-tree', parent);
       else git('read-tree', '--empty');
-      if (!existing) add(file, snapshotBytes);
-      add(pointerPath, json({
-        schemaVersion: version, revision: candidate.revision, sourceCommit,
-        snapshot: file, sha256: digest(snapshotBytes),
-      }));
+      for (const update of updates) {
+        if (!update.existing) add(update.file, update.snapshotBytes);
+        add(update.pointerPath, update.pointer);
+      }
       const tree = git('write-tree');
+      const revisions = publications.map(({ candidate }) => candidate.revision).join(' ');
       const commit = git('commit-tree', tree, ...(parent ? ['-p', parent] : []),
-        '-m', `chore: publish model catalogue ${candidate.revision}`);
+        '-m', `chore: publish model catalogue ${revisions}`);
       const pushed = spawnSync('git', ['push', 'origin', `${commit}:refs/heads/${dataBranch}`],
         { cwd, env, encoding: 'utf8' });
-      if (pushed.status === 0) return `published ${candidate.revision}`;
+      if (pushed.status === 0) return `published ${revisions}`;
       // A competing normal push may have won. Refetch/recheck ancestry and immutable
       // bytes; a persistent transport/permission error fails without altering current.
       if (attempt === 2) throw new Error(`Data branch push failed: ${pushed.stderr}`);
@@ -129,10 +146,8 @@ if (require.main === module) {
   console.log(publish({
     cwd: process.cwd(), bytes: fs.readFileSync(process.argv[2]),
     expectedDigest: process.env.SNAPSHOT_SHA256, sourceCommit: process.env.GITHUB_SHA,
-  }));
-  if (process.argv[3]) console.log(publish({
-    cwd: process.cwd(), bytes: fs.readFileSync(process.argv[3]),
-    expectedDigest: process.env.SNAPSHOT_SHA256_V2, sourceCommit: process.env.GITHUB_SHA,
+    bytesV2: process.argv[3] ? fs.readFileSync(process.argv[3]) : undefined,
+    expectedDigestV2: process.env.SNAPSHOT_SHA256_V2,
   }));
 }
 module.exports = { publish };

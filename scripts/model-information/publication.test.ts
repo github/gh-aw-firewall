@@ -257,6 +257,58 @@ describe('credential-free data branch publication', () => {
     expect(git(work, 'status', '--porcelain')).toBe('');
   });
 
+  it('publishes both channels in one commit and preserves v1 on protocol-only updates', () => {
+    const data = fixture();
+    const dual = () => {
+      const bytes = buildSnapshot(data, head(), time);
+      const bytesV2 = buildSnapshotV2(data, head(), time);
+      return publish({ cwd: work, bytes, expectedDigest: digest(bytes),
+        bytesV2, expectedDigestV2: digest(bytesV2), sourceCommit: head() });
+    };
+    expect(dual()).toMatch(/^published/);
+    expect(git(remote, 'rev-list', '--count', dataBranch)).toBe('1');
+    const oldPointer = show(pointerPath);
+    const oldV2 = readPointer(show(channelPath(2)), 2);
+    for (const version of [1, 2]) {
+      const pointer = readPointer(show(channelPath(version)), version);
+      expect(readSnapshot(show(pointer.snapshot)).schemaVersion).toBe(version);
+      expect(pointer.sha256).toBe(digest(show(pointer.snapshot)));
+    }
+    expect(dual()).toBe('unchanged');
+    source();
+    Object.assign(data.models[0], {
+      protocols: [{ protocol: 'decisions', support: { state: 'supported', provenance: evidence } }],
+    });
+    expect(dual()).toMatch(/^published/);
+    expect(git(remote, 'rev-list', '--count', dataBranch)).toBe('2');
+    expect(show(pointerPath)).toBe(oldPointer);
+    expect(readPointer(show(channelPath(2)), 2).revision).not.toBe(oldV2.revision);
+    expect(show(oldV2.snapshot)).toBeTruthy();
+  });
+
+  it('does not partially advance v1 when validation of the v2 channel fails', () => {
+    run(snapshot());
+    run(buildSnapshotV2(fixture(), head(), time));
+    const oldPointer = show(pointerPath);
+    const staging = path.join(directory, 'invalid-v2');
+    git(directory, 'clone', '--quiet', '--branch', dataBranch, remote, staging);
+    fs.writeFileSync(path.join(staging, channelPath(2)), '{}\n');
+    git(staging, 'add', '.');
+    git(staging, 'commit', '--quiet', '-m', 'invalid v2 fixture');
+    git(staging, 'push', '--quiet');
+    const before = remoteHead();
+    const sha = source();
+    const bytes = snapshot(sha, '9');
+    const bytesV2 = buildSnapshotV2(fixture(), sha, time);
+    expect(() => publish({ cwd: work, bytes, expectedDigest: digest(bytes),
+      bytesV2, expectedDigestV2: digest(bytesV2), sourceCommit: sha })).toThrow(/Invalid current pointer/);
+    expect(remoteHead()).toBe(before);
+    expect(show(pointerPath)).toBe(oldPointer);
+    expect(() => publish({ cwd: work, bytes, expectedDigest: digest(bytes),
+      bytesV2, expectedDigestV2: '0'.repeat(64), sourceCommit: sha })).toThrow(/Artifact digest/);
+    expect(remoteHead()).toBe(before);
+  });
+
   it('adds and advances v2 without altering v1 snapshots or its current pointer', () => {
     const oldBytes = snapshot();
     run(oldBytes);

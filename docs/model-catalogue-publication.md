@@ -283,16 +283,15 @@ On the data branch:
 | `snapshots/v2/<revision>.json` | Immutable pricing/harness/protocol projection. |
 | `channels/v2/current.json` | Default v2 pointer with schema version, revision, accepted source commit, snapshot path and full snapshot SHA-256. |
 
-For each channel, a single Git commit contains the complete new snapshot and pointer before a
+One Git commit contains both channels' complete new snapshots and pointers before a
 normal push makes either visible. The first commit is an orphan, not a copy of
 the source tree. Subsequent commits retain all older snapshots and any other
 channels. An existing revision is never overwritten. A reviewed rollback reuses
 the original immutable snapshot bytes and advances only the pointer's accepted
 source commit.
 
-The writer publishes v1 then v2; the two channel updates are not one transaction.
-A failure advancing v2 may leave v1 advanced, but each channel remains complete
-and a retry can finish v2. Adding v2 to an existing v1 data branch preserves its
+The writer validates both channels before a single atomic commit/push; failure
+validating either channel leaves both pointers unchanged. Adding v2 to an existing v1 data branch preserves its
 v1 pointer and every immutable snapshot. Protocol-only changes do not alter the
 v1 projection or revision.
 
