@@ -150,7 +150,7 @@ describe('logging', () => {
         stdoutSpy.mockRestore();
       });
 
-      it('counts Responses message and tool-output parts without payloads', () => {
+      it.each(['copilot', 'openai'])('counts %s Responses message and tool-output parts without payloads', provider => {
         const body = Buffer.from(JSON.stringify({
           model: 'private-model',
           instructions: 'private instructions',
@@ -167,11 +167,11 @@ describe('logging', () => {
           ],
         }));
         const original = Buffer.from(body);
-        logRequestShape(body, 'copilot', 'req-shape', 'inbound');
+        logRequestShape(body, provider, 'req-shape', 'inbound');
         const output = stdoutSpy.mock.calls[0][0];
         expect(JSON.parse(output)).toEqual({
           timestamp: expect.any(String), level: 'debug', event: 'request_shape',
-          request_id: 'req-shape', provider: 'copilot', stage: 'inbound', body_bytes: body.length,
+          request_id: 'req-shape', provider, stage: 'inbound', body_bytes: body.length,
           input_item_types: { message: 1, function_call: 1, function_call_output: 1 },
           content_part_types: { input_text: 1, input_image: 1 },
           tool_output_part_types: { input_text: 1, input_image: 1 },
@@ -215,7 +215,7 @@ describe('logging', () => {
 
       it('skips empty bodies and other providers', () => {
         logRequestShape(Buffer.alloc(0), 'copilot', 'req-empty', 'inbound');
-        logRequestShape(Buffer.from('{}'), 'openai', 'req-other', 'inbound');
+        logRequestShape(Buffer.from('{}'), 'anthropic', 'req-other', 'inbound');
         expect(stdoutSpy).not.toHaveBeenCalled();
       });
     });

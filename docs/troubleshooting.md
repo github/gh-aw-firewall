@@ -120,7 +120,7 @@ request contains only `Viewed image file successfully.` and no `input_image`.
 Tool success alone does not prove that Copilot CLI included the image in its
 request to the model.
 
-**Diagnosis:** The Copilot API proxy (port 10002) emits payload-free
+**Diagnosis:** The Copilot (port 10002) and OpenAI (port 10000) API proxies emit payload-free
 `request_shape` JSON records at debug level in its normal stdout log
 (`api-proxy-logs` in preserved AWF logs). These records are emitted automatically;
 no request-body logging or credential exposure is needed. Match `request_id`
@@ -144,10 +144,14 @@ If present inbound but missing upstream, investigate the proxy transforms.
 Endpoint translation can legitimately rename `input_image` to Chat Completions
 `image_url`; model rewriting or steering can also change body size.
 
-The local Copilot-adapter regression tests verify byte-identical forwarding of
-Responses message images and image-array tool outputs when no body rewrite or
-endpoint translation is required, including a chunked request of exactly 10 MiB.
-This does not establish the cause in an uninspected live workflow.
+The local Copilot/OpenAI-adapter regression tests compare direct delivery to a
+loopback capture server with delivery through the real API proxy, verifying
+byte-identical Responses message images and image-array tool outputs when no
+body rewrite or endpoint translation is required. They also cover a chunked
+request of exactly 10 MiB. Run them from `containers/api-proxy` with
+`npm ci && npm test -- --runInBand server.multimodal.test.js logging.test.js`.
+These credential-free tests do not run Copilot CLI or establish model image
+support or the cause in an uninspected live workflow.
 
 **Size limits:** The API proxy limits the **entire encoded request** to 10 MiB
 (10,485,760 bytes), including JSON and base64 overhead (roughly 4/3 of binary
