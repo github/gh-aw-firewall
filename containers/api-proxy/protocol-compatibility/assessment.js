@@ -191,7 +191,9 @@ function checkRequest(body, contract, add, use) {
           if (typeof item.content !== 'string') add('message_roles', 'condition_unverified', false);
         }
         const targetRole = role === 'tool' ? 'user' : role;
-        if (messages && targetRole === previousRole) add('message_roles', 'turn_boundary_loss');
+        if (messages && targetRole === previousRole && !(role === 'tool' && items[index - 1]?.role === 'tool')) {
+          add('message_roles', 'turn_boundary_loss');
+        }
         previousRole = targetRole;
         if (role === 'tool') {
           use('function_tools');
