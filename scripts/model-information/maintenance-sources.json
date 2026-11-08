@@ -55,14 +55,14 @@
   },
   {
     "id": "copilot-decisions",
-    "scope": "Trusted Copilot Decisions live observation and original tested revision; exact model identity, endpoint and credential context only, not inferred OpenAI parity",
-    "urls": ["https://github.com/github/gh-aw/pull/75859"],
+    "scope": "Commit-pinned maintainer-reviewed Copilot Decisions test; exact model identity, endpoint and integration ID only. Test code is not fresh live-success evidence and does not establish general credential eligibility. Updating the approved revision requires review.",
+    "urls": ["https://raw.githubusercontent.com/github/gh-aw/4c2be18cc2076f2a37e8f0258c298026a4ae413b/actions/setup/js/scripts/test_decisions_client.cjs"],
     "kind": "documentation"
   },
   {
     "id": "copilot-decisions-auth",
-    "scope": "Copilot Decisions PAT rejection observation, separate from model support; missing evidence does not verify other credential types",
-    "urls": ["https://github.com/github/gh-aw/issues/75637"],
+    "scope": "Commit-pinned maintained authentication observation and its limitations, separate from model support; not fresh endpoint verification or evidence that other credential types work. Updating the approved revision requires review.",
+    "urls": ["https://raw.githubusercontent.com/github/gh-aw-firewall/c7915c87916b010d457d9daa82db4d6e36bf5b19/docs/auth-matrix.md"],
     "kind": "documentation"
   },
   {

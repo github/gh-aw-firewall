@@ -4,10 +4,12 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import yaml from 'js-yaml';
 
-const { buildSnapshot } = require('./build-publication.cjs');
+const { buildSnapshot, buildSnapshotV2 } = require('./build-publication.cjs');
+const v1 = require('../../shared/model-information/publication.cjs');
+const v2 = require('../../shared/model-information/publication.v2.cjs');
 const { publish } = require('./publish.cjs');
 const {
-  json, digest, payload, inputPaths, dataBranch, pointerPath, readSnapshot, readPointer,
+  json, digest, payload, inputPaths, dataBranch, pointerPath, channelPath, readSnapshot, readPointer,
 } = require('./publication-contract.cjs');
 const root = path.resolve(__dirname, '../..');
 const catalogue = require('../../shared/model-information/catalog.generated.json');
@@ -42,7 +44,7 @@ const time = '2026-10-22T23:00:00Z';
 
 describe('versioned publication producer', () => {
   it('publishes only maintained pricing/harness/protocol facts, not assembled or staged authority', () => {
-    const bytes = buildSnapshot(catalogue, 'a'.repeat(40), time);
+    const bytes = buildSnapshotV2(catalogue, 'a'.repeat(40), time);
     const snapshot = readSnapshot(bytes);
     expect(snapshot.models.length).toBeGreaterThan(0);
     for (const model of snapshot.models) {
@@ -75,11 +77,37 @@ describe('versioned publication producer', () => {
       protocols: [{ protocol: 'decisions', support: { state: 'unknown', provenance: evidence },
         features: { translation: { state: 'unknown', provenance: evidence } } }],
     };
-    const snapshot = readSnapshot(buildSnapshot({ ...fixture(), models: [model] }, 'a'.repeat(40), time));
+    const snapshot = readSnapshot(buildSnapshotV2({ ...fixture(), models: [model] }, 'a'.repeat(40), time));
     expect(snapshot.models[0].protocols).toEqual(model.protocols);
     expect(snapshot.models[0]).not.toHaveProperty('tariffs');
     expect(snapshot.models[0]).not.toHaveProperty('translations');
     expect(snapshot.models[0]).not.toHaveProperty('availability');
+    expect(() => buildSnapshot({ ...fixture(), models: [model] }, 'a'.repeat(40), time)).toThrow(/no reviewed/);
+  });
+
+  it('keeps the original v1 schema hash, bytes and pricing/harness projection', () => {
+    expect(v1.schemaHash).toBe('8e631bcac2398743dceec874e5eb7bbde0e31f5b482e8c7855e80b73890be21e');
+    const data = fixture();
+    const withProtocols = structuredClone(data);
+    Object.assign(withProtocols.models[0], {
+      protocols: [{ protocol: 'decisions', support: { state: 'supported', provenance: evidence } }],
+    });
+    const bytes = buildSnapshot(data, 'a'.repeat(40), time);
+    expect(buildSnapshot(withProtocols, 'a'.repeat(40), time)).toBe(bytes);
+    expect(v2.validateSnapshot(bytes)).toEqual(v1.validateSnapshot(bytes));
+    const invalidV1 = JSON.parse(bytes);
+    invalidV1.models[0].protocols = [
+      { protocol: 'decisions', support: { state: 'supported', provenance: evidence } },
+    ];
+    invalidV1.revision = digest(json(payload(invalidV1)));
+    invalidV1.sha256 = invalidV1.revision;
+    expect(() => v1.validateSnapshot(json(invalidV1))).toThrow();
+    expect(() => v2.validateSnapshot(json(invalidV1))).toThrow();
+    const newBytes = buildSnapshotV2(withProtocols, 'a'.repeat(40), time);
+    expect(v2.validateSnapshot(newBytes).schemaVersion).toBe(2);
+    expect(() => v1.validateSnapshot(newBytes)).toThrow();
+    expect(readSnapshot(newBytes).schemaHash).not.toBe(v1.schemaHash);
+    expect(readSnapshot(newBytes).revision).not.toBe(readSnapshot(bytes).revision);
   });
 
   it('preserves exact decimals, unknown components, scopes, dates and harness evidence', () => {
@@ -137,7 +165,7 @@ describe('versioned publication producer', () => {
 
   it('rejects tampered/unknown envelopes, pointer paths, versions and noncanonical bytes', () => {
     const bytes = buildSnapshot(fixture(), 'a'.repeat(40), time);
-    for (const update of [{ schemaVersion: 2 }, { extra: true }, { revision: '0'.repeat(64) }]) {
+    for (const update of [{ schemaVersion: 99 }, { extra: true }, { revision: '0'.repeat(64) }]) {
       expect(() => readSnapshot(json({ ...JSON.parse(bytes), ...update }))).toThrow();
     }
     expect(() => readSnapshot(`${bytes}\n`)).toThrow();
@@ -229,6 +257,50 @@ describe('credential-free data branch publication', () => {
     expect(git(work, 'status', '--porcelain')).toBe('');
   });
 
+  it('adds and advances v2 without altering v1 snapshots or its current pointer', () => {
+    const oldBytes = snapshot();
+    run(oldBytes);
+    const oldPointer = show(pointerPath);
+    const oldSnapshotPath = readPointer(oldPointer).snapshot;
+    const data = fixture();
+    Object.assign(data.models[0], {
+      protocols: [{ protocol: 'decisions', support: { state: 'unknown', provenance: evidence } }],
+    });
+    const newBytes = buildSnapshotV2(data, head(), time);
+    expect(run(newBytes)).toMatch(/^published/);
+    const currentV2 = readPointer(show(channelPath(2)), 2);
+    expect(show(currentV2.snapshot)).toBe(newBytes);
+    expect(() => readPointer(show(channelPath(2)), 1)).toThrow();
+    expect(run(newBytes)).toBe('unchanged');
+    expect(show(pointerPath)).toBe(oldPointer);
+    expect(show(oldSnapshotPath)).toBe(oldBytes);
+    const nextSource = source();
+    data.models[0].tariffs[0].components.input.price = '9';
+    expect(run(buildSnapshotV2(data, nextSource, time))).toMatch(/^published/);
+    expect(show(currentV2.snapshot)).toBe(newBytes);
+    expect(show(pointerPath)).toBe(oldPointer);
+    expect(show(oldSnapshotPath)).toBe(oldBytes);
+  });
+
+  it('reuses v2 immutable bytes on rollback without changing the v1 channel', () => {
+    run(snapshot());
+    const oldPointer = show(pointerPath);
+    const first = buildSnapshotV2(fixture(), head(), time);
+    run(first);
+    const initial = readPointer(show(channelPath(2)), 2);
+    const data = fixture();
+    data.models[0].tariffs[0].components.input.price = '9';
+    run(buildSnapshotV2(data, source(), time));
+    const rollbackSource = source();
+    expect(run(buildSnapshotV2(fixture(), rollbackSource, time))).toMatch(/^published/);
+    const pointer = readPointer(show(channelPath(2)), 2);
+    expect(pointer.sourceCommit).toBe(rollbackSource);
+    expect(pointer.snapshot).toBe(initial.snapshot);
+    expect(pointer.sha256).toBe(digest(first));
+    expect(show(pointer.snapshot)).toBe(first);
+    expect(show(pointerPath)).toBe(oldPointer);
+  });
+
   it('loads the actual published branch through source authentication into request accounting', async () => {
     const { createCatalogueLoader } = require('../../containers/api-proxy/catalogue-loader');
     const { computeTokenBudgetUsage } = require('../../containers/api-proxy/token-budget-log');
@@ -264,6 +336,7 @@ describe('credential-free data branch publication', () => {
         }
         if (suffix.startsWith('/contents/')) {
           const file = suffix.slice('/contents/'.length);
+          if (file === channelPath(2)) throw new Error('catalogue_http_404');
           const ref = new URL(url).searchParams.get('ref')!;
           if (file === catalogPath) {
             return Buffer.from(git(work, 'show', `${ref}:${file}`));
@@ -494,15 +567,18 @@ exec '${realGit}' "$@"
     }
     fs.symlinkSync(path.join(root, 'node_modules'), path.join(work, 'node_modules'), 'dir');
     const output = path.join(directory, 'snapshot.json');
+    const outputV2 = path.join(directory, 'snapshot-v2.json');
     const command = path.join(work, 'scripts/model-information/build-publication.cjs');
-    const invoke = (sha = head()) => spawnSync(process.execPath, [command, output], {
+    const invoke = (sha = head()) => spawnSync(process.execPath, [command, output, outputV2], {
       cwd: work, env: { ...process.env, GITHUB_SHA: sha }, encoding: 'utf8',
     });
     expect(invoke('a'.repeat(40)).stderr).toContain('Checkout must equal');
     expect(fs.existsSync(output)).toBe(false);
     expect(invoke().status).toBe(0);
     expect(readSnapshot(fs.readFileSync(output)).sourceCommit).toBe(head());
+    expect(v2.validateSnapshot(fs.readFileSync(outputV2)).schemaVersion).toBe(2);
     fs.unlinkSync(output);
+    fs.unlinkSync(outputV2);
     fs.writeFileSync(path.join(work, 'containers/api-proxy/model-information.pricing.generated.json'), '{}\n');
     const stale = invoke();
     expect(stale.status).not.toBe(0);
@@ -569,9 +645,12 @@ describe('trusted publication workflow graph', () => {
     expect(build.steps.some(step => step.run ===
       'npm test --prefix containers/api-proxy -- --runInBand catalogue-loader.test.js catalogue-proxy.test.js guards/ai-credits-guard.test.js runtime-model-catalog.test.js token-budget-log.test.js upstream-token.test.js upstream-http.test.js model-api-mapping.test.js routing-catalogue.test.js wire-api-compat.test.js server.decisions.test.js')).toBe(true);
     expect(writer.steps.filter(step => step.run).map(step => step.run)).toEqual([
-      'node scripts/model-information/publish.cjs "$RUNNER_TEMP/model-catalogue/snapshot.json"',
+      'node scripts/model-information/publish.cjs "$RUNNER_TEMP/model-catalogue/snapshot.json" "$RUNNER_TEMP/model-catalogue/snapshot-v2.json"',
     ]);
-    expect(writer.steps[writer.steps.length - 1].env).toEqual({ SNAPSHOT_SHA256: '${{ needs.build.outputs.sha256 }}' });
+    expect(writer.steps[writer.steps.length - 1].env).toEqual({
+      SNAPSHOT_SHA256: '${{ needs.build.outputs.sha256 }}',
+      SNAPSHOT_SHA256_V2: '${{ needs.build.outputs.sha256_v2 }}',
+    });
     expect(fs.readFileSync(path.join(__dirname, 'publish.cjs'), 'utf8'))
       .not.toMatch(/--force|workflow_dispatch|npm |checkout/);
   });

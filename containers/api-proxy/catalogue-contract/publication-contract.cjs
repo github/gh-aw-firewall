@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 
 const dataBranch = 'catalogue-data';
 const pointerPath = 'channels/v1/current.json';
+const channelPath = version => `channels/v${version}/current.json`;
 // Keep the workflow filter and the out-of-order source check identical.
 const inputPaths = [
   'shared/model-information/**',
@@ -34,7 +35,7 @@ const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const payload = snapshot => ({
   schemaVersion: snapshot.schemaVersion, schemaHash: snapshot.schemaHash, models: snapshot.models,
 });
-const snapshotPath = revision => `snapshots/v1/${revision}.json`;
+const snapshotPath = (revision, version = 1) => `snapshots/v${version}/${revision}.json`;
 const isCommit = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
 const isDigest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 
@@ -45,7 +46,7 @@ function readSnapshot(bytes) {
   const fields = ['schemaVersion', 'schemaHash', 'revision', 'sha256', 'sourceCommit',
     'publishedAt', 'observedAt', 'effectiveFrom', 'provenance', 'models'];
   if (Object.keys(snapshot).sort().join() !== fields.sort().join() ||
-      snapshot.schemaVersion !== 1 || !isDigest(snapshot.schemaHash) ||
+      ![1, 2].includes(snapshot.schemaVersion) || !isDigest(snapshot.schemaHash) ||
       !isDigest(snapshot.revision) || !isCommit(snapshot.sourceCommit) ||
       !Array.isArray(snapshot.models) ||
       snapshot.sha256 !== snapshot.revision ||
@@ -56,19 +57,20 @@ function readSnapshot(bytes) {
   return snapshot;
 }
 
-function readPointer(bytes) {
+function readPointer(bytes, version) {
   const pointer = JSON.parse(bytes);
   if (Object.keys(pointer).sort().join() !==
       ['schemaVersion', 'revision', 'sourceCommit', 'snapshot', 'sha256'].sort().join() ||
-      pointer.schemaVersion !== 1 || !isDigest(pointer.revision) ||
+      ![1, 2].includes(pointer.schemaVersion) ||
+      (version !== undefined && pointer.schemaVersion !== version) || !isDigest(pointer.revision) ||
       !isDigest(pointer.sha256) || !isCommit(pointer.sourceCommit) ||
-      pointer.snapshot !== snapshotPath(pointer.revision) || json(pointer) !== bytes.toString()) {
+      pointer.snapshot !== snapshotPath(pointer.revision, pointer.schemaVersion) || json(pointer) !== bytes.toString()) {
     throw new Error('Invalid current pointer');
   }
   return pointer;
 }
 
 module.exports = {
-  dataBranch, pointerPath, inputPaths, json, digest, payload, snapshotPath,
+  dataBranch, pointerPath, channelPath, inputPaths, json, digest, payload, snapshotPath,
   isCommit, isDigest, readSnapshot, readPointer,
 };

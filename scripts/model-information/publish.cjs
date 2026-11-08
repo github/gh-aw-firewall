@@ -2,11 +2,10 @@
 'use strict';
 
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 const {
-  dataBranch, pointerPath, inputPaths, json, digest, payload, snapshotPath,
+  dataBranch, channelPath, inputPaths, json, digest, payload, snapshotPath,
   isCommit, isDigest, readSnapshot, readPointer,
 } = require('./publication-contract.cjs');
 
@@ -15,10 +14,12 @@ function publish({ cwd, bytes, expectedDigest, sourceCommit }) {
     throw new Error('Artifact digest differs from validated read-only job output');
   }
   const candidate = readSnapshot(bytes);
+  const version = candidate.schemaVersion;
+  const pointerPath = channelPath(version);
   if (!isCommit(sourceCommit) || candidate.sourceCommit !== sourceCommit) {
     throw new Error('Artifact source differs from trusted event SHA');
   }
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-catalogue-publish-'));
+  const temporary = fs.mkdtempSync(path.join(cwd, '.awf-catalogue-publish-'));
   const env = {
     ...process.env, GIT_INDEX_FILE: path.join(temporary, 'index'),
     GIT_AUTHOR_NAME: 'github-actions[bot]', GIT_COMMITTER_NAME: 'github-actions[bot]',
@@ -58,28 +59,31 @@ function publish({ cwd, bytes, expectedDigest, sourceCommit }) {
         git('fetch', '--no-tags', 'origin', `refs/heads/${dataBranch}`);
         parent = git('rev-parse', 'FETCH_HEAD');
       }
-      const currentBytes = blob(parent, pointerPath);
+      const channelBytes = blob(parent, pointerPath);
+      // Bootstrap v2 only from a usable existing v1 channel, retaining all v1 bytes.
+      const currentBytes = channelBytes || (version === 2 ? blob(parent, channelPath(1)) : null);
       if (parent && !currentBytes) throw new Error('Existing data branch has no usable v1 pointer');
       if (currentBytes) {
-        const current = readPointer(currentBytes);
+        const current = readPointer(currentBytes, channelBytes ? version : 1);
         const currentSnapshotBytes = blob(parent, current.snapshot);
         if (!currentSnapshotBytes || digest(currentSnapshotBytes) !== current.sha256) {
           throw new Error('Existing current snapshot is missing or corrupt');
         }
         const currentSnapshot = readSnapshot(currentSnapshotBytes);
-        if (currentSnapshot.revision !== current.revision ||
+        if (currentSnapshot.schemaVersion !== current.schemaVersion ||
+            currentSnapshot.revision !== current.revision ||
             !ancestor(currentSnapshot.sourceCommit, current.sourceCommit) ||
             !ancestor(current.sourceCommit, main)) throw new Error('Invalid current source provenance');
         if (current.sourceCommit !== sourceCommit && ancestor(sourceCommit, current.sourceCommit)) {
           return 'superseded: current pointer has a newer source';
         }
         if (!ancestor(current.sourceCommit, sourceCommit)) throw new Error('Divergent publication sources');
-        if (current.sourceCommit === sourceCommit && current.revision !== candidate.revision) {
+        if (channelBytes && current.sourceCommit === sourceCommit && current.revision !== candidate.revision) {
           throw new Error('One source commit produced different catalogue revisions');
         }
-        if (current.revision === candidate.revision) return 'unchanged';
+        if (channelBytes && current.revision === candidate.revision) return 'unchanged';
       }
-      const file = snapshotPath(candidate.revision);
+      const file = snapshotPath(candidate.revision, version);
       const existing = blob(parent, file);
       let snapshotBytes = bytes;
       if (existing) {
@@ -96,7 +100,7 @@ function publish({ cwd, bytes, expectedDigest, sourceCommit }) {
       else git('read-tree', '--empty');
       if (!existing) add(file, snapshotBytes);
       add(pointerPath, json({
-        schemaVersion: 1, revision: candidate.revision, sourceCommit,
+        schemaVersion: version, revision: candidate.revision, sourceCommit,
         snapshot: file, sha256: digest(snapshotBytes),
       }));
       const tree = git('write-tree');
@@ -118,13 +122,17 @@ if (require.main === module) {
   if (process.env.GITHUB_EVENT_NAME !== 'push' ||
       process.env.GITHUB_REF !== 'refs/heads/main' ||
       process.env.GITHUB_REPOSITORY !== 'github/gh-aw-firewall' ||
-      process.argv.length !== 3) throw new Error('Publisher requires trusted repository main push');
+      ![3, 4].includes(process.argv.length)) throw new Error('Publisher requires trusted repository main push');
   const origin = execFileSync('git', ['remote', 'get-url', 'origin'], { encoding: 'utf8' }).trim();
   if (origin !== 'https://github.com/github/gh-aw-firewall' &&
       origin !== 'https://github.com/github/gh-aw-firewall.git') throw new Error('Untrusted publication origin');
   console.log(publish({
     cwd: process.cwd(), bytes: fs.readFileSync(process.argv[2]),
     expectedDigest: process.env.SNAPSHOT_SHA256, sourceCommit: process.env.GITHUB_SHA,
+  }));
+  if (process.argv[3]) console.log(publish({
+    cwd: process.cwd(), bytes: fs.readFileSync(process.argv[3]),
+    expectedDigest: process.env.SNAPSHOT_SHA256_V2, sourceCommit: process.env.GITHUB_SHA,
   }));
 }
 module.exports = { publish };

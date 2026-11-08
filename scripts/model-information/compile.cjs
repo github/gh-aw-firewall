@@ -554,7 +554,8 @@ function compile() {
     'reasoning.js', 'reasoning.d.ts',
     'eligibility.js', 'eligibility.d.ts', 'harness-observation.js', 'harness-observation.d.ts',
     'pricing-resolution.js', 'pricing-resolution.d.ts', 'exact-pricing.js', 'schema.v1.json',
-    'publication.v1.schema.json', 'publication-contract.cjs', 'publication.cjs']) {
+    'publication.v1.schema.json', 'publication-contract.cjs', 'publication.cjs',
+    'publication.v2.schema.json', 'publication.v2.cjs']) {
     output[`containers/api-proxy/catalogue-contract/${file}`] =
       fs.readFileSync(path.join(root, 'shared/model-information', file), 'utf8');
   }

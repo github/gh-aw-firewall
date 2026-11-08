@@ -179,6 +179,7 @@ describe('copilot interaction/integration headers', () => {
   test('forwards the integration id on Copilot Decisions requests', () => {
     const adapter = createCopilotAdapter({ COPILOT_GITHUB_TOKEN: 'test-token' });
     const injectHeaders = adapter.getAuthHeaders({ url: '/v1/decisions', method: 'POST', headers: {} });
+    expect(injectHeaders['Copilot-Integration-Id']).toBe('agentic-workflows');
     const headers = buildCopilotHeaders({}, { injectHeaders });
     expect(headers['Copilot-Integration-Id']).toBe('agentic-workflows');
   });

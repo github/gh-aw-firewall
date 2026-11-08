@@ -83,7 +83,7 @@ describe('maintained model compilation', () => {
     const target = require('../../shared/model-information/target.generated.json');
     const mapping = require('../../docs/model-api-mapping.json');
     const stagedMapping = require('../../shared/model-information/baseline-to-target.generated.json').mapping;
-    const { buildSnapshot } = require('../../shared/model-information/publication.cjs');
+    const { buildSnapshot } = require('../../shared/model-information/publication.v2.cjs');
     const publication = JSON.parse(buildSnapshot(baseline, 'a'.repeat(40), source.provenance.at));
     for (const model of source.models) {
       for (const catalogue of [baseline, target, publication]) {

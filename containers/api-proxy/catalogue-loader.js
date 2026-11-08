@@ -7,8 +7,8 @@ const https = require('node:https');
 const crypto = require('node:crypto');
 const { logRequest } = require('./logging');
 const { validateTariffs } = require('./catalogue-pricing');
-const { buildSnapshot, validateSnapshot, schemaHash } = require('./catalogue-contract/publication.cjs');
-const { json, digest, isCommit, readPointer } = require('./catalogue-contract/publication-contract.cjs');
+const { buildSnapshot, validateSnapshot, schemaHash } = require('./catalogue-contract/publication.v2.cjs');
+const { json, digest, isCommit, readPointer, channelPath } = require('./catalogue-contract/publication-contract.cjs');
 
 const ROOT = 'https://api.github.com/repos/github/gh-aw-firewall';
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -132,12 +132,12 @@ function createCatalogueLoader(options = {}, deps = {}) {
     if (!['ahead', 'identical'].includes(comparison.status) ||
         comparison.merge_base_commit?.sha !== base) fail('catalogue_source_regression');
   }
-  async function reviewed(commit) {
+  async function reviewed(commit, version) {
     if (!isCommit(commit)) fail('catalogue_commit_invalid');
     const metadata = await api(`/git/commits/${commit}`);
     if (metadata.sha !== commit || !metadata.committer?.date) fail('catalogue_commit_invalid');
     const catalogue = parse(await fetchBytes(`${ROOT}/contents/shared/model-information/catalog.generated.json?ref=${commit}`));
-    return buildSnapshot(catalogue, commit, metadata.committer.date);
+    return buildSnapshot(catalogue, commit, metadata.committer.date, version);
   }
   async function preservesAcceptedSource(head) {
     if (!acceptedSource || acceptedSource === head) return;
@@ -156,11 +156,20 @@ function createCatalogueLoader(options = {}, deps = {}) {
     const dataCommit = ref.object?.sha;
     if (ref.ref !== 'refs/heads/catalogue-data' || ref.object?.type !== 'commit' ||
         !isCommit(dataCommit)) fail('catalogue_ref_invalid');
-    const pointerBytes = await fetchBytes(`${ROOT}/contents/channels/v1/current.json?ref=${dataCommit}`);
-    const pointer = readPointer(pointerBytes);
+    let version = 2;
+    let pointerBytes;
+    try {
+      pointerBytes = await fetchBytes(`${ROOT}/contents/${channelPath(version)}?ref=${dataCommit}`);
+    } catch (error) {
+      if (error.message !== 'catalogue_http_404') throw error;
+      version = 1;
+      pointerBytes = await fetchBytes(`${ROOT}/contents/${channelPath(version)}?ref=${dataCommit}`);
+    }
+    const pointer = readPointer(pointerBytes, version);
     const snapshotBytes = await fetchBytes(`${ROOT}/contents/${pointer.snapshot}?ref=${dataCommit}`);
     const snapshot = validateSnapshot(snapshotBytes);
-    if (digest(snapshotBytes) !== pointer.sha256 || snapshot.revision !== pointer.revision) {
+    if (snapshot.schemaVersion !== version ||
+        digest(snapshotBytes) !== pointer.sha256 || snapshot.revision !== pointer.revision) {
       fail('catalogue_digest_invalid');
     }
     const main = await api('/git/ref/heads/main');
@@ -169,9 +178,9 @@ function createCatalogueLoader(options = {}, deps = {}) {
     await ancestor(snapshot.sourceCommit, pointer.sourceCommit);
     await preservesAcceptedSource(pointer.sourceCommit);
     // Authenticate all envelope bytes against the original reviewed source, including rollback time.
-    const original = await reviewed(snapshot.sourceCommit);
+    const original = await reviewed(snapshot.sourceCommit, version);
     if (original !== snapshotBytes.toString()) fail('catalogue_reviewed_bytes_mismatch');
-    const current = snapshot.sourceCommit === pointer.sourceCommit ? original : await reviewed(pointer.sourceCommit);
+    const current = snapshot.sourceCommit === pointer.sourceCommit ? original : await reviewed(pointer.sourceCommit, version);
     if (JSON.parse(current).revision !== snapshot.revision) fail('catalogue_reviewed_revision_mismatch');
     return { snapshot: snapshotBytes.toString(), pointer, dataCommit };
   }
@@ -180,7 +189,8 @@ function createCatalogueLoader(options = {}, deps = {}) {
     const snapshot = validateSnapshot(candidate.snapshot);
     if (source === 'github' && !local) {
       const pointer = readPointer(json(candidate.pointer));
-      if (pointer.revision !== snapshot.revision || pointer.sha256 !== digest(candidate.snapshot) ||
+      if (pointer.schemaVersion !== snapshot.schemaVersion ||
+          pointer.revision !== snapshot.revision || pointer.sha256 !== digest(candidate.snapshot) ||
           !isCommit(candidate.dataCommit)) fail('catalogue_cache_invalid');
     }
     const time = now();

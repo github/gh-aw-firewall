@@ -35,6 +35,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       sha256: ${{ steps.snapshot.outputs.sha256 }}
+      sha256_v2: ${{ steps.snapshot.outputs.sha256_v2 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
@@ -52,11 +53,13 @@ jobs:
         run: npm test --prefix containers/api-proxy -- --runInBand catalogue-loader.test.js catalogue-proxy.test.js guards/ai-credits-guard.test.js runtime-model-catalog.test.js token-budget-log.test.js upstream-token.test.js upstream-http.test.js model-api-mapping.test.js routing-catalogue.test.js wire-api-compat.test.js server.decisions.test.js
       - name: Validate canonical sources and every generated projection offline
         id: snapshot
-        run: node scripts/model-information/build-publication.cjs "$RUNNER_TEMP/snapshot.json"
+        run: node scripts/model-information/build-publication.cjs "$RUNNER_TEMP/snapshot.json" "$RUNNER_TEMP/snapshot-v2.json"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: model-catalogue-v1
-          path: ${{ runner.temp }}/snapshot.json
+          name: model-catalogue
+          path: |
+            ${{ runner.temp }}/snapshot.json
+            ${{ runner.temp }}/snapshot-v2.json
           if-no-files-found: error
           retention-days: 7
 
@@ -77,9 +80,10 @@ jobs:
           node-version: '22'
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: model-catalogue-v1
+          name: model-catalogue
           path: ${{ runner.temp }}/model-catalogue
       - name: Atomically publish immutable snapshot and current pointer
         env:
           SNAPSHOT_SHA256: ${{ needs.build.outputs.sha256 }}
-        run: node scripts/model-information/publish.cjs "$RUNNER_TEMP/model-catalogue/snapshot.json"
+          SNAPSHOT_SHA256_V2: ${{ needs.build.outputs.sha256_v2 }}
+        run: node scripts/model-information/publish.cjs "$RUNNER_TEMP/model-catalogue/snapshot.json" "$RUNNER_TEMP/model-catalogue/snapshot-v2.json"
