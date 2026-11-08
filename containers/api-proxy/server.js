@@ -71,6 +71,7 @@ const {
 } = require('./model-discovery');
 
 const { createManagementHandlers } = require('./management');
+const { createModelDecisionObservation } = require('./model-decision-observation');
 const {
   buildUpstreamPath,
   shouldStripHeader,
@@ -164,6 +165,13 @@ function validateFallbackModelsConfig(env = process.env) {
 const routing = createProductionRoutingSession({
   getAdapter: provider => registeredAdapters.find(adapter => adapter.name === provider),
 });
+const diagnosticsContext = process.env.AWF_ENCLAVE_AGENT_PROXY === '1' ||
+  process.env.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET ? 'dedicated-enclave' : 'primary-agent';
+const modelDecisionObservation = createModelDecisionObservation({
+  context: diagnosticsContext,
+  getModels: () => cachedModels,
+  modelPolicy: MODEL_POLICY_CONFIG,
+});
 
 configureKeyValidation({
   getRegisteredAdapters: () => registeredAdapters,
@@ -216,6 +224,8 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
   getMaxCacheMissesUsage: () => getMaxCacheMissesReflectState(),
   getPermissionDeniedUsage: () => getPermissionDeniedReflectState(),
   getRoutingState: () => routing?.getReflectState() ?? null,
+  diagnosticsContext,
+  getRecentModelDecisions: () => modelDecisionObservation.getRecent(),
   modelBudgetEnabled: Boolean(process.env.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET),
 });
 
@@ -233,7 +243,7 @@ function createProviderServer(adapter, catalogueReady) {
     handleManagementEndpoint,
     reflectEndpoints,
     checkRateLimit,
-    proxyRequest,
+    proxyRequest: modelDecisionObservation.wrapProxyRequest(proxyRequest),
     proxyWebSocket,
     routing,
     modelBudgetEnabled: Boolean(process.env.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET),

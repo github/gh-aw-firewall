@@ -1143,6 +1143,151 @@ Fields:
 - `models_fetch_complete` — `true` once the startup model-fetch pass has finished
 - `models_url` — URL to query for the live model list
 
+#### Model decision diagnostics: agent workflow
+
+`model_decision_diagnostics` is an additive, schema-validated diagnostic view;
+all legacy `/reflect` fields retain their meanings. No additional endpoint,
+naming CLI, or agent tool installation is needed:
+
+```bash
+curl -sS http://172.30.0.30:10000/reflect \
+  | jq '.model_decision_diagnostics'
+```
+
+The schema is `awf-model-decision-diagnostics/v1`. `current.decisions` describes
+current proxy metadata and the existing automatic-selection/routing results,
+**not a fresh admission evaluation**. `recent.decisions` describes completed,
+captured local request rejections. It keeps at most 32 distinct outcomes for
+900 seconds; repeats with the same scope and request pins are coalesced
+(`occurrences` saturates at 1,000). Current and accounting summaries are each
+limited to 64 entries, with `truncated` indicating omitted entries.
+
+For example, after a model-policy rejection, the relevant `/reflect` excerpt is:
+
+```json
+{
+  "model_decision_diagnostics": {
+    "schema": "awf-model-decision-diagnostics/v1",
+    "context": "primary-agent",
+    "recent": {
+      "status": "available",
+      "limit": 32,
+      "retention_seconds": 900,
+      "decisions": [{
+        "kind": "request_outcome",
+        "identity": { "provider": "copilot", "model_id": null },
+        "scope": {
+          "context": "primary-agent",
+          "channel": "copilot-api",
+          "endpoint": "/responses"
+        },
+        "status": "rejected",
+        "reason": "policy_denied",
+        "action": { "kind": "change_request", "retry": "do_not_repeat" }
+      }]
+    }
+  }
+}
+```
+
+This is a partial excerpt: every complete decision also has a fixed, sanitized
+`explanation` and `evidence`. A hidden or unverifiable model is represented by
+`model_id: null`, not an inventory of denied models or policy patterns.
+**Recommended response:** stop repeating the unchanged request. Do not infer
+permission from an absent model listing; use only the existing policy-filtered
+selection result if the caller separately chooses another model.
+
+An `unsupported_reasoning_effort` outcome means AWF actually rejected an effort,
+not merely that support was unlisted. Its `effort.support` is
+`known_unsupported`, but the captured outcome currently has
+`supported_values: null` and `omission_supported: null`. Current, explicit
+exact-model runtime advertisements can separately look like:
+
+```json
+{
+  "kind": "current_state",
+  "identity": { "provider": "copilot", "model_id": "effort-model" },
+  "scope": {
+    "context": "primary-agent",
+    "channel": "copilot-api",
+    "endpoint": "/responses"
+  },
+  "status": "unknown",
+  "reason": "capability_snapshot",
+  "effort": {
+    "support": "reported_supported",
+    "supported_values": ["low", "high"],
+    "field": "reasoning.effort",
+    "omission_supported": null
+  }
+}
+```
+
+**Recommended response:** for that same exact model/backend/endpoint, change
+`reasoning.effort` from a rejected `max` to an explicitly advertised value such
+as `low`, then submit the changed request only if the other authoritative
+constraints allow it. Do not assume omission is supported or guaranteed
+success. Without matching evidence, actionability is unknown: do not guess.
+The provider-free regression examples validate this correction against the
+real validator; they do not measure live-agent success rates.
+
+Other responses:
+
+- `harness_incompatible` means a captured version/constraint incompatibility;
+  `harness_unverified` means missing, unverified, or incorrectly scoped evidence.
+  Both require operator-supplied trusted evidence in the actual environment,
+  not a request header declaring a different harness.
+- `discovery_pending` permits re-evaluation after the existing
+  `models_fetch_complete` field becomes true. Missing listings and
+  `provider_state_unknown` do not confirm unavailability. `provider_unavailable`
+  is a reported runtime/routing condition, not proof of permanent removal.
+- `action.kind: unknown` and `retry: unknown` mean no valid corrective action or
+  retry condition is established. They are not permission to retry indefinitely.
+- `accounting.decisions` copies the existing `ai_credits.by_model` pricing
+  classification: `pricing.basis` can be `direct`, `family`, `backend`,
+  `fallback`, or `unknown`. Estimated charges still count toward budgets;
+  read amounts from `ai_credits`, not a new price calculation. These are aggregate
+  buckets with the latest pricing basis, **not request-pinned cost histories**;
+  their context remains `unknown`, and a bucket without a qualified backend
+  has `identity.provider: null`. Family membership establishes neither reasoning
+  support, availability, nor replacement eligibility.
+- A `pricing_resolution_error` still returns the original HTTP **500** error
+  body, not a success-shaped diagnostics response. Stop and surface the
+  operator-required accounting failure.
+
+`evidence.eligibility_revision` and `catalogue_revision` retain request pins for
+captured outcomes where supplied; `observed_at` identifies the observation time.
+Subsequent refreshes can change current metadata but do not rewrite old or
+in-flight outcomes. Null metadata means unavailable evidence. Reading `/reflect`
+does not perform inference, refresh discovery, evaluate eligibility, choose
+another model, or add charges.
+
+Completion boundaries: this slice captures primary-proxy local policy, effort,
+and harness rejections through production HTTP dispatch. Provider response
+payloads, prompts, request bodies, headers, session identifiers, private paths,
+URLs, and private deployment scopes are not retained or projected. Declared
+subagent and internal classifier outcomes are excluded. This is a bounded
+run-scoped view under the existing management access boundary, **not a
+caller-header-authenticated per-session history**. Dedicated enclave proxies
+report `recent.status: unavailable` and omit aggregate accounting diagnostics:
+they share invocation state and cannot attribute it safely to a querying
+enclave. Primary-agent observations never attest enclave compatibility.
+
+The shared exact-model reasoning handoff (PR #11320) is not wired here:
+captured supported alternatives, effort omission/translation semantics, and
+fine-grained reasoning provenance remain unavailable. A read-only structured
+decision handoff is required after that implementation lands. Family estimate
+basis is copied only when already supplied by accounting; this slice does not
+extend accounting families (PR #11312). No-donor warnings currently create no
+accounting bucket, so there is **no captured no-donor diagnostic** here; the
+existing exclusion/undercount warning policy is unchanged. Non-routed upstream
+failures and rejections before HTTP proxy dispatch likewise are not captured.
+
+On older pinned AWF images, a missing `model_decision_diagnostics` field means
+**unavailable diagnostics**, never zero cost, known effort support, permission,
+or an empty authoritative rejection history. Continue to honor the actual
+request error and existing budget/policy fields.
+
 The top-level `routing` field is `null` unless task-level model routing is
 active. When it is active, it tells the agent which model, effort, and endpoint
 the router selected for the run:
