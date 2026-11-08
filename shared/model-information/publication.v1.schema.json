@@ -48,9 +48,16 @@
             "type": "array",
             "minItems": 1,
             "items": { "$ref": "https://github.com/github/gh-aw-firewall/blob/main/shared/model-information/schema.v1.json#/$defs/harness" }
+          },
+          "protocols": {
+            "allOf": [
+              { "$ref": "https://github.com/github/gh-aw-firewall/blob/main/shared/model-information/schema.v1.json#/$defs/model/properties/protocols" }
+            ],
+            "minItems": 1,
+            "type": "array"
           }
         },
-        "anyOf": [{ "required": ["tariffs"] }, { "required": ["harnesses"] }],
+        "anyOf": [{ "required": ["tariffs"] }, { "required": ["harnesses"] }, { "required": ["protocols"] }],
         "additionalProperties": false
       }
     }

@@ -1,8 +1,27 @@
 'use strict';
 
 const { createRoutingCatalogue, normalizeModel } = require('./routing-catalogue');
-const { buildRoutingCandidates } = require('./routing-candidates');
+const { buildRoutingCandidates, getModelRoutingChoices } = require('./routing-candidates');
 const { createCopilotAdapter } = require('./providers/copilot');
+
+describe('Decisions catalogue protocols', () => {
+  test.each(['/decisions', '/v1/decisions', 'decisions'])('retains %s without creating translation/routing choices', endpoint => {
+    const model = normalizeModel('decision-only', {
+      supportedEndpoints: [endpoint], supportedReasoningEfforts: ['high'],
+    }, 'copilot');
+    expect(model.protocols).toEqual(['decisions']);
+    expect(getModelRoutingChoices(model, 'copilot')).toEqual([]);
+  });
+
+  test('uses exact maintained support only when provider endpoint metadata is absent', () => {
+    expect(normalizeModel('gpt-6-luna', null, 'openai').protocols).toContain('decisions');
+    expect(normalizeModel('gpt-6-luna-decisions', null, 'copilot').protocols).toEqual(['decisions']);
+    expect(normalizeModel('gpt-6-luna', null, 'copilot').protocols).toBeUndefined();
+    expect(normalizeModel('gpt-6-luna', { supportedEndpoints: ['/responses'] }, 'openai').protocols)
+      .toEqual(['responses']);
+    expect(normalizeModel('gpt-6-luna', { supportedEndpoints: [] }, 'openai').protocols).toEqual([]);
+  });
+});
 
 function dependencies(overrides = {}) {
   return {

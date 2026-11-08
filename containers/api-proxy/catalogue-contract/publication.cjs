@@ -8,7 +8,7 @@ const publicationSchema = require('./publication.v1.schema.json');
 const { json, digest, payload, isCommit, readSnapshot } = require('./publication-contract.cjs');
 
 function observationTime(models) {
-  if (!models.length) throw new Error('Publication has no reviewed pricing or harness facts');
+  if (!models.length) throw new Error('Publication has no reviewed pricing, harness or protocol facts');
   const observations = [];
   function evidence(value) {
     if (Array.isArray(value)) return value.forEach(evidence);
@@ -30,13 +30,14 @@ function buildSnapshot(catalogue, sourceCommit, sourceTime) {
   const errors = validate('resolvedExport', catalogue);
   if (errors.length) throw new Error(errors.join('; '));
   const models = catalogue.models.filter(model => model.provenance.authority === 'maintained')
-    .filter(model => model.tariffs?.length || model.harnesses?.length)
+    .filter(model => model.tariffs?.length || model.harnesses?.length || model.protocols?.length)
     .map(model => ({
       identity: Object.fromEntries(['key', 'provider', 'rawId', 'lookupId']
         .map(key => [key, model.identity[key]])),
       provenance: model.provenance,
       ...(model.tariffs?.length ? { tariffs: model.tariffs } : {}),
       ...(model.harnesses?.length ? { harnesses: model.harnesses } : {}),
+      ...(model.protocols?.length ? { protocols: model.protocols } : {}),
     })).sort((a, b) => a.identity.key < b.identity.key ? -1 : a.identity.key > b.identity.key ? 1 : 0);
   for (const model of models) {
     if ((model.harnesses || []).some(harness => harness.scope.provider !== model.identity.provider)) {

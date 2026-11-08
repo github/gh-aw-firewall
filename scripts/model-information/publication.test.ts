@@ -41,18 +41,19 @@ const fixture = () => ({
 const time = '2026-10-22T23:00:00Z';
 
 describe('versioned publication producer', () => {
-  it('publishes only maintained pricing/harness facts, not assembled or staged authority', () => {
+  it('publishes only maintained pricing/harness/protocol facts, not assembled or staged authority', () => {
     const bytes = buildSnapshot(catalogue, 'a'.repeat(40), time);
     const snapshot = readSnapshot(bytes);
     expect(snapshot.models.length).toBeGreaterThan(0);
     for (const model of snapshot.models) {
-      expect(Object.keys(model).every(key => ['identity', 'tariffs', 'harnesses', 'provenance'].includes(key))).toBe(true);
+      expect(Object.keys(model).every(key => ['identity', 'tariffs', 'harnesses', 'protocols', 'provenance'].includes(key))).toBe(true);
       expect(Object.keys(model.identity).sort()).toEqual(['key', 'lookupId', 'provider', 'rawId']);
       const original = catalogue.models.find((item: { identity: { key: string } }) =>
         item.identity.key === model.identity.key);
       expect(original.provenance.authority).toBe('maintained');
       expect(model.tariffs).toEqual(original.tariffs);
       expect(model.harnesses).toEqual(original.harnesses);
+      expect(model.protocols).toEqual(original.protocols);
     }
     const maintainedKeys = new Set(catalogue.models.map((model: { identity: { key: string } }) =>
       model.identity.key));
@@ -62,8 +63,23 @@ describe('versioned publication producer', () => {
       expect(snapshot.models.some((model: { identity: { key: string } }) =>
         model.identity.key === staged.identity.key)).toBe(false);
     }
-    expect(snapshot.models.every((model: { identity: { provider: string } }) =>
-      model.identity.provider === 'copilot')).toBe(true);
+    expect(snapshot.models.some((model: { identity: { provider: string } }) =>
+      model.identity.provider === 'openai')).toBe(true);
+  });
+
+  it('publishes protocol-only evidence and preserves unknown support and feature constraints', () => {
+    const original = fixture().models[0];
+    const model = {
+      schemaVersion: 1, identity: original.identity, lifecycle: original.lifecycle,
+      modelType: original.modelType, provenance: evidence,
+      protocols: [{ protocol: 'decisions', support: { state: 'unknown', provenance: evidence },
+        features: { translation: { state: 'unknown', provenance: evidence } } }],
+    };
+    const snapshot = readSnapshot(buildSnapshot({ ...fixture(), models: [model] }, 'a'.repeat(40), time));
+    expect(snapshot.models[0].protocols).toEqual(model.protocols);
+    expect(snapshot.models[0]).not.toHaveProperty('tariffs');
+    expect(snapshot.models[0]).not.toHaveProperty('translations');
+    expect(snapshot.models[0]).not.toHaveProperty('availability');
   });
 
   it('preserves exact decimals, unknown components, scopes, dates and harness evidence', () => {
@@ -551,7 +567,7 @@ describe('trusted publication workflow graph', () => {
     expect(build.steps.some(step => step.run ===
       'npm test -- --runInBand scripts/model-information/publication.test.ts')).toBe(true);
     expect(build.steps.some(step => step.run ===
-      'npm test --prefix containers/api-proxy -- --runInBand catalogue-loader.test.js catalogue-proxy.test.js guards/ai-credits-guard.test.js runtime-model-catalog.test.js token-budget-log.test.js upstream-token.test.js upstream-http.test.js')).toBe(true);
+      'npm test --prefix containers/api-proxy -- --runInBand catalogue-loader.test.js catalogue-proxy.test.js guards/ai-credits-guard.test.js runtime-model-catalog.test.js token-budget-log.test.js upstream-token.test.js upstream-http.test.js model-api-mapping.test.js routing-catalogue.test.js wire-api-compat.test.js server.decisions.test.js')).toBe(true);
     expect(writer.steps.filter(step => step.run).map(step => step.run)).toEqual([
       'node scripts/model-information/publish.cjs "$RUNNER_TEMP/model-catalogue/snapshot.json"',
     ]);

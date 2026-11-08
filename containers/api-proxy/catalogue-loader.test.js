@@ -111,6 +111,29 @@ test('authenticates reviewed source, pins immutable reads and reaches actual acc
   });
 });
 
+test.each(['supported', 'unknown'])('loads Decisions %s without synthesizing pricing or availability', async state => {
+  const pub = publication();
+  const { tariffs, harnesses, ...model } = pub.catalog.models[0];
+  model.protocols = [{
+    protocol: 'decisions', support: { state, provenance: model.provenance },
+    features: { translation: { state: 'unknown', provenance: model.provenance } },
+  }];
+  pub.catalog.models = [model];
+  pub.bytes = buildSnapshot(pub.catalog, FIRST, '2026-10-22T00:00:00Z');
+  pub.snapshot = JSON.parse(pub.bytes);
+  pub.pointer = { ...pub.pointer, revision: pub.snapshot.revision, sha256: digest(pub.bytes),
+    snapshot: `snapshots/v1/${pub.snapshot.revision}.json` };
+  const instance = loader({}, { getBytes: githubFixture(pub) });
+  await instance.start();
+  expect(instance.reflect().state).toBe('active');
+  const captured = instance.capture().snapshot.models[0];
+  expect(captured.protocols).toEqual(model.protocols);
+  expect(captured).not.toHaveProperty('availability');
+  expect(captured).not.toHaveProperty('tariffs');
+  expect(captured).not.toHaveProperty('translations');
+  expect(resolveCentralPricing('copilot', 'loader-test', 0, instance.capture())).toBeNull();
+});
+
 test.each(['bytes', 'price', 'schema', 'pointer', 'publishedAt', 'effectiveFrom', 'observedAt', 'sourceCommit'])(
   'rejects tampered %s even with recomputed integrity hashes', async field => {
     const pub = publication();

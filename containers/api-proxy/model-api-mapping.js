@@ -82,20 +82,36 @@ function lookupModelEndpoints(model, provider) {
 
   for (const prov of providers) {
     if (!prov || !Array.isArray(prov.models)) continue;
+    // Exact reviewed protocols supplement legacy family mappings, never broaden them.
+    const protocols = provider && prov.modelProtocols && Object.hasOwn(prov.modelProtocols, model)
+      ? prov.modelProtocols[model] : undefined;
+    const supported = (protocols || []).filter(item => item.support.state === 'supported')
+      .map(item => item.protocol);
     for (const entry of prov.models) {
       if (!entry.patterns) continue;
       for (const pattern of entry.patterns) {
         if (matchesGlobPattern(model, pattern)) {
           return {
             family: entry.family,
-            endpoints: entry.endpoints,
+            endpoints: [...new Set([...entry.endpoints, ...supported])],
             notes: entry.notes || '',
+            ...(protocols ? { protocols } : {}),
           };
         }
       }
     }
+    if (protocols) return {
+      family: model, endpoints: supported, protocols, notes: 'Exact provider-qualified protocol evidence.',
+    };
   }
   return null;
+}
+
+function lookupModelProtocol(model, provider, protocol) {
+  const records = _mapping?.providers?.[provider]?.modelProtocols;
+  const fact = records && Object.hasOwn(records, model)
+    ? records[model].find(item => item.protocol === protocol) : undefined;
+  return fact || { protocol, support: { state: 'unknown' } };
 }
 
 function lookupModelRoutingMetadata(model, provider) {
@@ -160,6 +176,7 @@ module.exports = {
   getModelApiMapping,
   getModelApiMappingReflect,
   lookupModelEndpoints,
+  lookupModelProtocol,
   lookupModelRoutingMetadata,
   loadMapping,
   matchesGlobPattern,

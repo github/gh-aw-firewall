@@ -42,6 +42,30 @@
     "kind": "documentation"
   },
   {
+    "id": "openai-decisions",
+    "scope": "OpenAI-native Decisions exact model IDs, /decisions resource on /v1 base, typed-question constraints, protocol and lifecycle changes; not Copilot support or credential acceptance",
+    "urls": ["https://developers.openai.com/api/docs/guides/decisions", "https://developers.openai.com/api/reference/resources/decisions/methods/create"],
+    "kind": "documentation"
+  },
+  {
+    "id": "openai-decisions-sdk",
+    "scope": "Official generated OpenAI Decisions SDK evidence; exact supported IDs and feature constraints, not Copilot compatibility",
+    "urls": ["https://raw.githubusercontent.com/openai/openai-python/main/src/openai/resources/decisions.py"],
+    "kind": "documentation"
+  },
+  {
+    "id": "copilot-decisions",
+    "scope": "Trusted Copilot Decisions live observation and original tested revision; exact model identity, endpoint and credential context only, not inferred OpenAI parity",
+    "urls": ["https://github.com/github/gh-aw/pull/75859"],
+    "kind": "documentation"
+  },
+  {
+    "id": "copilot-decisions-auth",
+    "scope": "Copilot Decisions PAT rejection observation, separate from model support; missing evidence does not verify other credential types",
+    "urls": ["https://github.com/github/gh-aw/issues/75637"],
+    "kind": "documentation"
+  },
+  {
     "id": "anthropic-models",
     "scope": "Anthropic native API model IDs, documented efforts, limits and protocol support",
     "urls": ["https://platform.claude.com/docs/en/about-claude/models/overview", "https://docs.anthropic.com/en/docs/about-claude/models"],

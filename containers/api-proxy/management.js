@@ -74,6 +74,7 @@ function buildRoutingModelMetadata(provider, modelIds, runtimeRecords) {
         ? 'provider+maintained'
         : (runtimeHasMetadata ? 'provider' : (hasMaintainedMetadata ? 'maintained' : 'incomplete')),
       supported_endpoints: endpoints,
+      ...(endpointMapping?.protocols ? { maintained_protocols: endpointMapping.protocols } : {}),
       supported_reasoning_efforts: efforts,
       context_window_tokens: normalized.contextWindow ?? null,
       candidate_metadata_complete: candidateMetadataComplete,

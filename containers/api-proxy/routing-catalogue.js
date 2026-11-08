@@ -50,14 +50,15 @@ function normalizeModel(id, metadata, provider, scope, records) {
       if (endpoint === 'responses' || /\/responses$/.test(endpoint)) return ['responses'];
       if (endpoint === 'chat_completions' || /\/chat\/completions$/.test(endpoint)) return ['chat-completions'];
       if (endpoint === 'messages' || /\/messages$/.test(endpoint)) return ['messages'];
+      if (['decisions', '/decisions', '/v1/decisions'].includes(endpoint)) return ['decisions'];
       return [];
     })
     : undefined;
   const providerProtocols = provider === 'anthropic'
     ? new Set(['messages'])
     : provider === 'copilot'
-      ? new Set(['responses', 'chat-completions', 'messages'])
-      : new Set(['responses', 'chat-completions']);
+      ? new Set(['responses', 'chat-completions', 'messages', 'decisions'])
+      : new Set(['responses', 'chat-completions', 'decisions']);
 
   return pinModelReasoning(freezeModel({
     id,

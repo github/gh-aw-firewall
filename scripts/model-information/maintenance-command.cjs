@@ -18,7 +18,9 @@ const commands = {
     'src/copilot-model-catalog-sync.test.ts', 'src/model-information-contract.test.ts'],
   'test-api-proxy': ['npm', '--prefix', 'containers/api-proxy', 'test', '--',
     '--runInBand', 'models-dev-catalog.test.js', 'ai-credits-pricing-reference.test.js',
-    'catalogue-pricing.test.js', 'guards/ai-credits-guard.test.js'],
+    'catalogue-pricing.test.js', 'guards/ai-credits-guard.test.js',
+    'model-api-mapping.test.js', 'runtime-model-catalog.test.js', 'routing-catalogue.test.js',
+    'wire-api-compat.test.js', 'server.decisions.test.js'],
 };
 
 function runMaintenanceCommand(args, spawn = spawnSync) {

@@ -44,6 +44,24 @@ describe('Copilot wire API compatibility', () => {
   beforeEach(setModels);
   afterEach(() => clearRuntimeModels());
 
+  test.each(['/decisions', '/v1/decisions'])('never translates Decisions at %s to another API', endpoint => {
+    replaceRuntimeModels('copilot', parseProviderModelMetadata('copilot', { data: [
+      { id: 'decision-model', supported_endpoints: ['/decisions'] },
+    ] }));
+    expect(translateCopilotWireApi(buffer({
+      model: 'decision-model', input: 'evidence', questions: [{ name: 'q', type: 'predicate' }],
+    }), endpoint)).toBeNull();
+    expect(translateCopilotWireApi(buffer({ model: 'decision-model', messages: [] }), '/chat/completions'))
+      .toBeNull();
+    expect(translateCopilotWireApi(buffer({ model: 'decision-model', input: 'evidence' }), '/responses'))
+      .toBeNull();
+    const fallback = require('./cross-provider-fallback');
+    expect(fallback.protocolForPath(endpoint)).toBeNull();
+    expect(fallback.getCrossProviderRejection({
+      protocol: 'decisions', targetProvider: 'openai', adapter: { isEnabled: () => true },
+    })).toBe('protocol_unsupported');
+  });
+
   test('translates Chat Completions requests to Responses for Responses-only models', () => {
     const translated = translateCopilotWireApi(buffer({
       model: 'gpt-5.4-mini',

@@ -3,11 +3,29 @@
 const {
   matchesGlobPattern,
   lookupModelEndpoints,
+  lookupModelProtocol,
   lookupModelRoutingMetadata,
   getModelApiMappingReflect,
 } = require('./model-api-mapping');
 
 describe('model-api-mapping', () => {
+  it('resolves exact provider Decisions facts without family or credential inference', () => {
+    expect(lookupModelProtocol('gpt-6-luna', 'openai', 'decisions').support.state).toBe('supported');
+    expect(lookupModelEndpoints('gpt-6-luna', 'openai').endpoints).toContain('decisions');
+    expect(lookupModelProtocol('gpt-6-luna-new', 'openai', 'decisions').support.state).toBe('unknown');
+    expect(lookupModelEndpoints('gpt-6-luna-new', 'openai').endpoints).not.toContain('decisions');
+    expect(lookupModelProtocol('unverified', 'copilot', 'decisions').support.state).toBe('unknown');
+    expect(lookupModelProtocol('gpt-6-luna', 'copilot', 'decisions').support.state).toBe('unknown');
+    expect(lookupModelProtocol('gpt-6-luna-decisions', 'copilot', 'decisions').support.state).toBe('supported');
+    expect(lookupModelEndpoints('gpt-6-luna-decisions', 'copilot').endpoints).toEqual(['decisions']);
+    expect(lookupModelProtocol('gpt-6-luna-decisions', 'openai', 'decisions').support.state).toBe('unknown');
+    expect(lookupModelEndpoints('gpt-6-luna').endpoints).not.toContain('decisions');
+    for (const id of ['__proto__', 'constructor', 'toString']) {
+      expect(lookupModelProtocol(id, 'openai', 'decisions').support.state).toBe('unknown');
+      expect(lookupModelEndpoints(id, 'openai')).toBeNull();
+    }
+  });
+
   describe('matchesGlobPattern', () => {
     it('matches exact strings', () => {
       expect(matchesGlobPattern('gpt-4', 'gpt-4')).toBe(true);
@@ -205,7 +223,7 @@ describe('model-api-mapping', () => {
       expect(reflect.available).toBe(true);
       expect(reflect.providers).toContain('openai');
       expect(reflect.providers).toContain('anthropic');
-      expect(reflect.last_updated).toBe('2026-10-08T07:12:00Z');
+      expect(reflect.last_updated).toBe(require('./model-api-mapping.json').lastUpdated);
       expect(reflect.models.anthropic.models[0].family).toBe('claude-opus-5');
       expect(reflect.models.openai.models.find(model => model.family === 'gpt-5.4').routing)
         .toEqual({

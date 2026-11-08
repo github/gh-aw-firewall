@@ -315,11 +315,11 @@ does not merge them. Data-branch token pushes need no follow-on event.
 `shared/model-information/publication.v1.schema.json` defines the snapshot and
 pointer shapes. This is a dedicated producer wire contract, **not** a complete
 assembled `resolvedExport`, staged `target.generated.json`, or the earlier
-`centralFeed` schema placeholder. It reuses the canonical tariff, harness and
+`centralFeed` schema placeholder. It reuses the canonical tariff, harness, protocol and
 provenance schemas. A future loader must explicitly support this version.
 
 The allowlisted projection includes only exact maintained models with reviewed
-tariffs or harness constraints from the checked baseline catalogue. It preserves
+tariffs, harness constraints or protocol facts from the checked baseline catalogue. It preserves
 provider-qualified identity, provider/channel/deployment scope, decimal strings,
 units, tiers, promotion/effective dates, unavailable components, and original
 dated evidence/confidence at every field. The envelope labels distribution
@@ -327,13 +327,21 @@ authority `central_feed`; nested `maintained` provenance describes the evidence,
 not a grant of maintained authority to future downloaded data.
 
 The projection excludes availability, lifecycle, aliases, families, reasoning,
-limits, protocols, translations, family rules, target corrections, raw
+limits, translations, family rules, target corrections, raw
 OpenRouter exports and governed `importedPricing`. In particular, an OpenRouter
 namespace or price is not recast as a native-provider or Copilot tariff. Adding
 another kind of authority requires a separately reviewed producer/consumer
 contract. The current maintained projection has Copilot-scoped tariffs;
 publication does not declare those models available. Harness constraints are
 supported when explicitly present in maintained records, not inferred.
+
+Decisions protocol support and feature constraints retain exact provider/model
+identity, support/unknown states and reviewed provenance. OpenAI-native facts
+do not establish Copilot support. Protocol availability does not authorize
+cross-API translation or establish losslessness, credentials or deployment
+availability; [credential restrictions](./auth-matrix.md) remain separate.
+The bounded loader preserves these facts without turning them into pricing,
+availability, or translation authority.
 
 Canonical bytes are UTF-8 JSON, recursively sorted object keys, two-space
 indentation and a trailing newline; models sort by provider-qualified key.

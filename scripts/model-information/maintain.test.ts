@@ -92,6 +92,25 @@ describe('offline scheduled source maintenance', () => {
     }] }));
   };
 
+  it('reports failed or missing Decisions evidence as incomplete without changing existing facts', async () => {
+    const before = fs.readFileSync(path.join(cwd, targetFile));
+    await captureSources(evidence, async (url: string) =>
+      url.includes('decisions') || url.includes('75859') || url.includes('75637')
+        ? new Response('unavailable', { status: 503 }) : fakeFetch()(url));
+    const manifest = JSON.parse(fs.readFileSync(path.join(evidence, 'captures.json'), 'utf8'));
+    for (const id of ['openai-decisions', 'openai-decisions-sdk', 'copilot-decisions', 'copilot-decisions-auth']) {
+      expect(manifest.sources.find((item: any) => item.id === id).status).toBe('failed');
+    }
+    expect(() => loadCaptures(evidence)).toThrow('openai-decisions');
+    expect(fs.readFileSync(path.join(cwd, targetFile))).toEqual(before);
+    await captureSources(evidence, fakeFetch());
+    const complete = JSON.parse(fs.readFileSync(path.join(evidence, 'captures.json'), 'utf8'));
+    complete.sources = complete.sources.filter((item: any) => item.id !== 'copilot-decisions');
+    fs.writeFileSync(path.join(evidence, 'captures.json'), json(complete));
+    expect(() => loadCaptures(evidence)).toThrow('missing=copilot-decisions');
+    expect(fs.readFileSync(path.join(cwd, targetFile))).toEqual(before);
+  });
+
   const seedCopilot = (edit?: (file: string, document: any) => void) => {
     const proposedIds = new Set(['gpt-6.1-terra', 'gemini-3.8-flash', 'gemini-4-argon', 'mai-code-1.1-flash']);
     const promotionContract = JSON.parse(fs.readFileSync(

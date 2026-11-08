@@ -223,6 +223,13 @@ Model policy, rate limits, and invocation limits still apply.
 | Actions job token (`github.token`) with `copilot-requests: write` | One live Decisions request succeeded in [gh-aw#75859](https://github.com/github/gh-aw/pull/75859), with `Copilot-Integration-Id: agentic-workflows`. This does not establish PAT support or availability for personal-account workflows. |
 | Other OAuth / GitHub App tokens | The adapter can forward these credentials, but endpoint acceptance and required permissions are not verified. Ordinary Copilot inference support does not establish Decisions support. |
 
+The canonical [model/API mapping](./model-api-mapping.json) records Decisions
+separately from authentication. OpenAI's official SDK supports the exact native
+ID `gpt-6-luna`; the Copilot live observation above used `gpt-6-luna-decisions`.
+Neither establishes Decisions support for unsuffixed Copilot `gpt-6-luna`,
+other aliases, or compatible deployments. Generated protocol evidence is not
+credential eligibility, picker availability, or permission for cross-API translation.
+
 **Allowlist guidance:** The upstream endpoint is
 `https://api.githubcopilot.com/v1/decisions`. If a sandboxed caller needs direct
 egress to it, the hostname entry is `--allow-domains api.githubcopilot.com`,

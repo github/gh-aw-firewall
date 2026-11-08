@@ -235,6 +235,7 @@ function getWireApi(record) {
   if (!Array.isArray(record.supportedEndpoints) || record.supportedEndpoints.length !== 1) return undefined;
   if (record.supportedEndpoints[0] === '/responses') return 'responses';
   if (record.supportedEndpoints[0] === '/chat/completions') return 'completions';
+  if (['/decisions', '/v1/decisions', 'decisions'].includes(record.supportedEndpoints[0])) return 'decisions';
   return undefined;
 }
 
@@ -280,6 +281,8 @@ function getRuntimeCatalogSnapshot() {
       ...(record.apiVersion ? { api_version: record.apiVersion } : {}),
       ...(record.pricingError ? { pricing_error: 'pricing_resolution_error' } : {}),
       ...getWireApiReflectFields(record),
+      ...(Array.isArray(record.supportedEndpoints)
+        ? { supported_endpoints: [...record.supportedEndpoints] } : {}),
       ...(record.pricing ? {
         pricing: {
           default: record.pricing.default,
