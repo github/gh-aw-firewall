@@ -234,9 +234,13 @@ function projectModelDecisionDiagnostics(reflection, { context = 'unknown', rece
     ...(item.reason === 'unsupported_reasoning_effort' ? { effort: effortEvidence(null, item.endpoint, true) } : {}),
     occurrences: Number.isSafeInteger(item.occurrences) ? Math.max(1, Math.min(1000, item.occurrences)) : 1,
   }));
+  let snapshotBudget = Math.max(0, MAX_CURRENT - current.filter(item =>
+    item.reason !== 'capability_snapshot').length);
+  const boundedCurrent = current.filter(item =>
+    item.reason !== 'capability_snapshot' || snapshotBudget-- > 0).slice(0, MAX_CURRENT);
   const output = {
     schema: 'awf-model-decision-diagnostics/v1', context,
-    current: { decisions: current.slice(0, MAX_CURRENT), truncated: current.length > MAX_CURRENT },
+    current: { decisions: boundedCurrent, truncated: boundedCurrent.length < current.length },
     recent: { status: context === 'primary-agent' && Array.isArray(recent) ? 'available' : 'unavailable',
       decisions: projectedRecent, limit: MAX_RECENT, retention_seconds: RETENTION_SECONDS },
     accounting: { decisions: accounting.slice(0, MAX_CURRENT), truncated: accounting.length > MAX_CURRENT },
