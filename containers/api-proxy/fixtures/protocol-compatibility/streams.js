@@ -73,16 +73,36 @@ const cases = [
   },
 ];
 
-for (const [contract, event] of [
-  ['chat-to-responses-return', { error: { code: 'fixture_error', message: 'upstream failed' } }],
-  ['responses-to-chat-return', { type: 'response.failed', error: { code: 'fixture_error', message: 'upstream failed' } }],
-  ['messages-to-chat-return', { type: 'error', error: { type: 'fixture_error', message: 'upstream failed' } }],
+for (const [contract, event, expectedError] of [
+  ['chat-to-responses-return', { error: { code: 'fixture_error', message: 'upstream failed' } }, { code: 'fixture_error', message: 'upstream failed' }],
+  ['responses-to-chat-return', { type: 'response.failed', response: { error: { code: 'fixture_error', message: 'upstream failed' } } },
+    { type: 'response.failed', response: { error: { code: 'fixture_error', message: 'upstream failed' } } }],
+  ['messages-to-chat-return', { type: 'error', error: { type: 'fixture_error', message: 'upstream failed' } },
+    { type: 'fixture_error', message: 'upstream failed' }],
 ]) {
   cases.push({
     name: `${contract}: upstream error without synthetic completion`,
     contract, features: ['streaming'], input: frame(event),
-    summary: { text: '', refusal: '', calls: [], finish: null, usage: undefined, done: false, errors: [event.error] },
+    summary: { text: '', refusal: '', calls: [], finish: null, usage: undefined, done: false, errors: [expectedError] },
   });
 }
 
-module.exports = { cases, frame, chatFrames, responsesFrames, anthropicFrames };
+const gaps = [
+  {
+    name: 'Responses SSE drops initial function-call arguments and ignores the final item',
+    contract: 'responses-to-chat-return',
+    input: [
+      { type: 'response.created', response: { id: 'fixture_response', model: 'fixture-model', created_at: created } },
+      { type: 'response.output_item.added', item: {
+        type: 'function_call', id: 'item_1', call_id: 'call_1', name: 'lookup', arguments: '{"q":"initial"}',
+      } },
+      { type: 'response.function_call_arguments.delta', item_id: 'item_1', delta: '{"q":"delta"}' },
+      { type: 'response.completed', response: { status: 'completed', output: [
+        { type: 'function_call', id: 'item_1', call_id: 'call_1', name: 'lookup', arguments: '{"q":"final"}' },
+      ] } },
+    ].map(frame).join(''),
+    calls: [{ id: 'call_1', name: 'lookup', arguments: '{"q":"delta"}' }],
+  },
+];
+
+module.exports = { cases, gaps, frame, chatFrames, responsesFrames, anthropicFrames };

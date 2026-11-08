@@ -238,6 +238,11 @@ describe('pre-existing semantic gaps are evidence, not support claims (Phase 6 #
     }).status).toBe('unknown');
   });
 
+  test.each(streams.gaps)('$name', async fixture => {
+    const frames = parseFrames(await collectStream(fixture.contract, fixture.input, 1));
+    expect(summarize(frames).calls).toEqual(fixture.calls);
+  });
+
   test('Chat return treats comment-only frames as completion; comments are not declared supported', async () => {
     const frames = parseFrames(await collectStream('chat-to-responses-return', ': ping\n\n', 1));
     expect(frames.find(event => event.type === 'response.completed').response.status).toBe('completed');

@@ -78,9 +78,11 @@ const wireRequests = {
 const wireReturns = {
   message_text: supported('Known text output is retained in an assistant message.'),
   function_tools: conditional(
-    ['Only function calls with names, identifiers and string arguments are present.'],
+    ['JSON function calls have names, identifiers and nonempty string arguments; Messages JSON inputs are objects.',
+      'Responses-to-Chat SSE function calls have no nonempty initial arguments; all argument text arrives in delta frames.',
+      'Chat-to-Responses SSE function-call arguments arrive in Chat deltas.'],
     ['Function call nesting changes; IDs and argument strings are retained.'],
-    'Other output item kinds and arbitrary nested fields are not covered.'),
+    'Empty JSON arguments default to {}; Responses SSE drops nonempty initial arguments and ignores final items. Other output item kinds and arbitrary nested fields are not covered.'),
   streaming: conditional(
     ['Recognized SSE frames are well formed and include an explicit completion trigger.',
       'Chat uses choice deltas plus terminal usage-only/DONE; Responses uses created/in_progress, text/refusal/function deltas and completed/failed/error, not response.incomplete.'],

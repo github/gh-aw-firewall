@@ -161,6 +161,9 @@ preserve pre-existing behavior without calling it lossless:
   reasons to `stop`. Responses→Chat JSON keeps only the last of multiple refusal
   parts; only a single JSON refusal part is characterized as retained.
   Annotation and richer refusal semantics are not established.
+- Wire JSON return adapters replace empty function arguments with `{}`.
+  Responses→Chat SSE drops nonempty arguments on `response.output_item.added`
+  and ignores final function-call items; only argument deltas are forwarded.
 - Messages SSE emits argument deltas but loses nonempty initial `tool_use.input`.
   Reasoning/signature and unknown events are ignored.
 - EOF alone does not synthesize completion. Messages/Responses malformed SSE JSON
