@@ -28,6 +28,7 @@ let env;
 
 beforeEach(() => {
   env = { ...process.env };
+  jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-08T12:00:00Z'));
   for (const key of ['AWF_API_PROXY_PROVIDERS', 'AWF_MODEL_PRICING_CATALOG',
     'AWF_DEFAULT_AI_CREDITS_PRICING', 'AWF_MAX_AI_CREDITS', 'COPILOT_PROVIDER_API_KEY']) delete process.env[key];
   resetAiCreditsGuardForTests();
