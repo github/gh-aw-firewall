@@ -25357,6 +25357,41 @@
         "status": "active"
       },
       "modelType": "other",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py",
+        "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
+        "at": "2026-11-08T22:25:19Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "decisions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py#L61-L80",
+              "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
+              "at": "2026-11-08T22:25:19Z",
+              "confidence": "verified"
+            }
+          },
+          "features": {
+            "typed_questions": {
+              "state": "conditional",
+              "condition": "1–400 predicate, choice or score questions; answers retain question order.",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py#L61-L80",
+                "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
+                "at": "2026-11-08T22:25:19Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        }
+      ],
       "importedPricing": {
         "sourceNamespace": "openai",
         "currency": "USD",
@@ -25416,41 +25451,6 @@
           "freshness": "unknown"
         }
       },
-      "provenance": {
-        "authority": "maintained",
-        "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py",
-        "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
-        "at": "2026-11-08T22:25:19Z",
-        "confidence": "verified"
-      },
-      "protocols": [
-        {
-          "protocol": "decisions",
-          "support": {
-            "state": "supported",
-            "provenance": {
-              "authority": "maintained",
-              "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py#L61-L80",
-              "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
-              "at": "2026-11-08T22:25:19Z",
-              "confidence": "verified"
-            }
-          },
-          "features": {
-            "typed_questions": {
-              "state": "conditional",
-              "condition": "1–400 predicate, choice or score questions; answers retain question order.",
-              "provenance": {
-                "authority": "maintained",
-                "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py#L61-L80",
-                "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
-                "at": "2026-11-08T22:25:19Z",
-                "confidence": "verified"
-              }
-            }
-          }
-        }
-      ],
       "reasoning": {
         "support": "supported",
         "rawEfforts": [

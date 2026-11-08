@@ -95,11 +95,14 @@ function compile() {
   const models = records.flatMap(([, data]) => data.models);
   const rules = records.flatMap(([, data]) => data.rules || []);
   errors.push(...validateRecords(models, rules).map(message => `maintained sources: ${message}`));
+  if (errors.length) throw new Error(errors.join('\n'));
+  // Imported lifecycle/type are schema placeholders, not provider facts.
+  // Join only governed pricing; never overlay one maintained record on another.
   const assembled = new Map(imported.models.map(model => [model.identity.key, model]));
   for (const model of models) {
     const existing = assembled.get(model.identity.key);
     assembled.set(model.identity.key, {
-      ...existing, ...model,
+      ...model,
       ...(existing?.importedPricing ? { importedPricing: existing.importedPricing } : {}),
     });
   }

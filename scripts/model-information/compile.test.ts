@@ -114,6 +114,21 @@ describe('maintained model compilation', () => {
       .toBeUndefined();
   });
 
+  it('rejects maintained overlays rather than reattributing existing model evidence', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-duplicate-protocol-source-'));
+    try {
+      fs.cpSync(path.join(root, 'shared/model-information/sources'), directory, { recursive: true });
+      const source = JSON.parse(fs.readFileSync(path.join(directory, 'decisions.json'), 'utf8'));
+      const maintained = require('../../shared/model-information/sources/copilot-main.json').models[0];
+      source.models.push({ ...maintained, protocols: source.models[1].protocols });
+      fs.writeFileSync(path.join(directory, 'decisions.json'), JSON.stringify(source));
+      expect(() => run('--check', `--source-dir=${directory}`))
+        .toThrow(/maintained sources: Duplicate exact key/);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('projects the reviewed finite accounting families without authorizing additional model facts', () => {
     const naming = require('../../shared/model-information/naming.generated.json');
     const catalogue = require('../../shared/model-information/catalog.generated.json');

@@ -4697,173 +4697,6 @@
           "status": "active"
         },
         "modelType": "other",
-        "importedPricing": {
-          "sourceNamespace": "openai",
-          "currency": "USD",
-          "unit": "USD_PER_1M_TOKENS",
-          "components": {
-            "input": {
-              "price": "0.1",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "output": {
-              "price": "0.5",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cachedInput": {
-              "price": "0.01",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cacheWrite": {
-              "price": "0.125",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            }
-          },
-          "provenance": {
-            "authority": "imported",
-            "source": "https://openrouter.ai/api/v1/models",
-            "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-            "at": "2026-11-08T12:53:03.194Z",
-            "confidence": "imported",
-            "freshness": "unknown"
-          }
-        },
-        "provenance": {
-          "authority": "maintained",
-          "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py",
-          "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
-          "at": "2026-11-08T22:25:19Z",
-          "confidence": "verified"
-        },
-        "protocols": [
-          {
-            "protocol": "decisions",
-            "support": {
-              "state": "supported",
-              "provenance": {
-                "authority": "maintained",
-                "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py#L61-L80",
-                "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
-                "at": "2026-11-08T22:25:19Z",
-                "confidence": "verified"
-              }
-            },
-            "features": {
-              "typed_questions": {
-                "state": "conditional",
-                "condition": "1–400 predicate, choice or score questions; answers retain question order.",
-                "provenance": {
-                  "authority": "maintained",
-                  "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py#L61-L80",
-                  "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
-                  "at": "2026-11-08T22:25:19Z",
-                  "confidence": "verified"
-                }
-              }
-            }
-          }
-        ]
-      },
-      "target": {
-        "schemaVersion": 1,
-        "identity": {
-          "key": "openai/gpt-6-luna",
-          "provider": "openai",
-          "rawId": "gpt-6-luna",
-          "lookupId": "gpt-6-luna",
-          "family": "gpt-6-luna"
-        },
-        "lifecycle": {
-          "status": "active"
-        },
-        "modelType": "other",
-        "importedPricing": {
-          "sourceNamespace": "openai",
-          "currency": "USD",
-          "unit": "USD_PER_1M_TOKENS",
-          "components": {
-            "input": {
-              "price": "0.1",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "output": {
-              "price": "0.5",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cachedInput": {
-              "price": "0.01",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cacheWrite": {
-              "price": "0.125",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            }
-          },
-          "provenance": {
-            "authority": "imported",
-            "source": "https://openrouter.ai/api/v1/models",
-            "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-            "at": "2026-11-08T12:53:03.194Z",
-            "confidence": "imported",
-            "freshness": "unknown"
-          }
-        },
         "provenance": {
           "authority": "maintained",
           "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py",
@@ -4899,6 +4732,173 @@
             }
           }
         ],
+        "importedPricing": {
+          "sourceNamespace": "openai",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "0.1",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
+                "at": "2026-11-08T12:53:03.194Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "0.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
+                "at": "2026-11-08T12:53:03.194Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.01",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
+                "at": "2026-11-08T12:53:03.194Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "0.125",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
+                "at": "2026-11-08T12:53:03.194Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
+            "at": "2026-11-08T12:53:03.194Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        }
+      },
+      "target": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "openai/gpt-6-luna",
+          "provider": "openai",
+          "rawId": "gpt-6-luna",
+          "lookupId": "gpt-6-luna",
+          "family": "gpt-6-luna"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "other",
+        "provenance": {
+          "authority": "maintained",
+          "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py",
+          "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
+          "at": "2026-11-08T22:25:19Z",
+          "confidence": "verified"
+        },
+        "protocols": [
+          {
+            "protocol": "decisions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py#L61-L80",
+                "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
+                "at": "2026-11-08T22:25:19Z",
+                "confidence": "verified"
+              }
+            },
+            "features": {
+              "typed_questions": {
+                "state": "conditional",
+                "condition": "1–400 predicate, choice or score questions; answers retain question order.",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py#L61-L80",
+                  "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
+                  "at": "2026-11-08T22:25:19Z",
+                  "confidence": "verified"
+                }
+              }
+            }
+          }
+        ],
+        "importedPricing": {
+          "sourceNamespace": "openai",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "0.1",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
+                "at": "2026-11-08T12:53:03.194Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "0.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
+                "at": "2026-11-08T12:53:03.194Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.01",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
+                "at": "2026-11-08T12:53:03.194Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "0.125",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
+                "at": "2026-11-08T12:53:03.194Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
+            "at": "2026-11-08T12:53:03.194Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
         "reasoning": {
           "support": "supported",
           "rawEfforts": [

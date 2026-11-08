@@ -50,6 +50,7 @@ function normalizeModel(id, metadata, provider, scope, records) {
       if (endpoint === 'responses' || /\/responses$/.test(endpoint)) return ['responses'];
       if (endpoint === 'chat_completions' || /\/chat\/completions$/.test(endpoint)) return ['chat-completions'];
       if (endpoint === 'messages' || /\/messages$/.test(endpoint)) return ['messages'];
+      // Catalogue visibility only: Decisions has no automatic routing/translation choice.
       if (['decisions', '/decisions', '/v1/decisions'].includes(endpoint)) return ['decisions'];
       return [];
     })
