@@ -86,7 +86,7 @@ const cases = [
   {
     name: 'Messages role merging, function calls/results, images and transport no-ops',
     contract: anthropicId,
-    features: ['message_text', 'message_roles', 'function_tools', 'tool_choice', 'parallel_tool_calls', 'image_input', 'streaming', 'token_limits', 'transport_fields', 'unknown_fields'],
+    features: ['message_text', 'message_roles', 'function_tools', 'tool_choice', 'parallel_tool_calls', 'image_input', 'streaming', 'token_limits', 'transport_fields'],
     input: {
       ...chat, messages: [
         { role: 'system', content: 'rules' }, { role: 'developer', content: [{ type: 'text', text: 'guidance' }] },

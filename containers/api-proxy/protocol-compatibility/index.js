@@ -82,11 +82,13 @@ const wireReturns = {
     ['Function call nesting changes; IDs and argument strings are retained.'],
     'Other output item kinds and arbitrary nested fields are not covered.'),
   streaming: conditional(
-    ['Recognized SSE frames are well formed and include an explicit completion trigger.'],
+    ['Recognized SSE frames are well formed and include an explicit completion trigger.',
+      'Chat uses choice deltas plus terminal usage-only/DONE; Responses uses created/in_progress, text/refusal/function deltas and completed/failed/error, not response.incomplete.'],
     ['Frames are buffered across UTF-8 chunks; tool arguments are assembled or emitted as deltas.'],
     'EOF alone does not complete a response; errors are forwarded without synthetic success.'),
   usage: conditional(
-    ['Known token counters are nonnegative and total_tokens, when provided, is coherent.'],
+    ['Known token counters are nonnegative and total_tokens, when provided, is coherent.',
+      'Responses-to-Chat SSE requires includeUsage=true; Chat-to-Responses SSE requires a terminal usage-only chunk before DONE.'],
     ['Input/output names change; cached and reasoning token details are retained.'],
     'Missing counters default to zero; this is usage adaptation, not pricing or accounting-family compatibility.'),
   finish_reasons: conditional(
@@ -94,7 +96,7 @@ const wireReturns = {
     ['Length/content_filter become incomplete status; return Chat tool calls take precedence over incomplete status.'],
     'Unknown finish reasons and additional choices are not claimed faithful.'),
   refusal: conditional(
-    ['Refusal is string content in a known message or recognized refusal delta.'],
+    ['JSON contains at most one refusal string/part; SSE uses recognized refusal deltas.'],
     ['Refusal changes between a Chat field and a Responses content part.'],
     'Known refusal text is retained; arbitrary refusal metadata is not covered.'),
 };
@@ -143,16 +145,18 @@ const anthropicRequests = {
     ['Only stream_options.include_usage, n=1, logprobs=false and response_format.type=text are used.'],
     ['stream_options is dropped; n=1, logprobs=false and text format are no-ops.'],
     'Return usage must be requested separately on the SSE adapter; unknown stream options are not characterized.'),
-  unknown_fields: conditional(
-    ['Unmapped top-level fields have non-null values to receive a rejection.'],
-    ['Unmapped null/undefined values are skipped by the existing implementation.'],
-    'Nested unknown fields may be ignored; acceptance must not establish compatibility.'),
+  unknown_fields: {
+    ...anthropicReject('Non-null unknown top-level fields are rejected; nested-field acceptance does not establish compatibility.'),
+    conditions: ['The unmapped top-level field has a non-null value.'],
+    normalizations: ['Unmapped null/undefined values are skipped, not declared supported.'],
+  },
 };
 
 const anthropicReturns = {
   message_text: supported('Known text blocks concatenate into assistant text.'),
   function_tools: conditional(
-    ['Output contains known tool_use blocks with IDs, names and object inputs.'],
+    ['Output contains known tool_use blocks with IDs, names and object inputs.',
+      'SSE initial tool_use.input is empty; arguments are supplied through subsequent input_json_delta frames.'],
     ['Tool input objects become JSON argument strings; SSE arguments arrive as partial_json deltas.'],
     'Initial SSE tool_use.input is not emitted; nonempty initial input is an uncharacterized gap.'),
   streaming: conditional(
@@ -223,7 +227,8 @@ const CONTRACTS = Object.freeze([
     ['anthropicResponseToChat', 'anthropicUsageToChat', 'createAnthropicToChatSseTransform'], anthropicReturns),
 ]);
 
-function assessFeature({ source, target, direction, feature } = {}) {
+function assessFeature(query = {}) {
+  const { source, target, direction, feature } = query || {};
   const match = CONTRACTS.find(candidate =>
     candidate.source === source && candidate.target === target && candidate.direction === direction);
   const evidence = match?.features.find(candidate => candidate.feature === feature);
