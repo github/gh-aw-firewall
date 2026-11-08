@@ -35,11 +35,19 @@ function validateReasoningEffort(body, provider, url, runtimeCatalog, req, optio
   if (!requested || (requested.value !== undefined && typeof requested.value !== 'string')) return;
   const decision = getRequestReasoning(parsed.model, provider, runtimeCatalog, req, options);
   if (assessReasoningEffort(decision, requested.value).admitted) return;
-  const supported = decision.supportedEfforts;
+  const supported = Array.isArray(decision.supportedEfforts) ? decision.supportedEfforts : [];
+  const safeSupported = supported
+    .slice(0, 20)
+    .map((value) =>
+      String(value)
+        .replace(/[\u0000-\u001F\u007F]/g, ' ')
+        .trim()
+        .slice(0, 64),
+    );
 
   const error = new Error(
     `${requested.field} ${JSON.stringify(requested.value)} is not supported by model ${parsed.model}; ` +
-    `supported values: [${supported.join(' ')}]`,
+    `supported values: ${JSON.stringify(safeSupported)}`,
   );
   error.statusCode = 400;
   error.type = 'invalid_request_error';
