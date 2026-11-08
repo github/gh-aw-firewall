@@ -63,6 +63,9 @@ sandbox:
     id: awf
 strict: true
 steps:
+  - name: Build local AWF smoke images
+    timeout-minutes: 35
+    run: bash "${RUNNER_TEMP}/awf-smoke/build-smoke-images.sh"
   - name: Pre-compute BYOK smoke test data
     run: |
       echo "::group::Verify BYOK configuration"
