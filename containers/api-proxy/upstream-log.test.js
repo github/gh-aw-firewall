@@ -169,6 +169,37 @@ describe('upstream-log', () => {
     expect(applyPermissionDenied).not.toHaveBeenCalled();
   });
 
+  test.each([
+    { responseBodyTruncated: false, expectedLogs: 0 },
+    { responseBodyTruncated: true, expectedLogs: 1 },
+  ])('logUpstreamAuthError handles PAT diagnostics only for complete bodies: %j', ({
+    responseBodyTruncated, expectedLogs,
+  }) => {
+    const logRequest = jest.fn();
+    const logUpstreamAuthError = createLogUpstreamAuthError({
+      logRequest,
+      sanitizeForLog: value => value,
+      applyPermissionDenied: jest.fn(),
+      parseModelNotSupportedFromBody: () => false,
+    });
+
+    logUpstreamAuthError(400, {
+      requestId: 'req-1',
+      provider: 'copilot',
+      targetHost: 'api.githubcopilot.com',
+      req: { url: '/v1/decisions' },
+      responseBody: Buffer.from('Personal Access Tokens are not supported for this endpoint'),
+      responseBodyTruncated,
+    });
+
+    expect(logRequest).toHaveBeenCalledTimes(expectedLogs);
+    if (expectedLogs) {
+      expect(logRequest).toHaveBeenCalledWith('warn', 'upstream_auth_error', expect.objectContaining({
+        status: 400,
+      }));
+    }
+  });
+
   test('logUpstreamErrorResponse logs redacted body and sanitized headers', () => {
     const logRequest = jest.fn();
     const auditTrack = jest.fn();

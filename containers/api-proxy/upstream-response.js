@@ -246,7 +246,9 @@ function createUpstreamResponseHandlers({
 
       proxyRes.once('end', () => {
         logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo, completionCtx);
-        logUpstreamAuthError(proxyRes.statusCode, { ...authErrCtx, responseBody });
+        logUpstreamAuthError(proxyRes.statusCode, {
+          ...authErrCtx, responseBody, responseBodyTruncated: true,
+        });
         logUpstreamErrorResponse(proxyRes.statusCode, {
           ...authErrCtx,
           requestModel,
