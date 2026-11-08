@@ -207,6 +207,42 @@ For GitHub Copilot catalog targets, the sidecar auto-selects appropriate `x-gith
 
 The `/models` endpoint prefers `COPILOT_GITHUB_TOKEN` (GitHub OAuth) over BYOK keys when both are configured, because model listing is a GitHub platform feature. However, when no GitHub token is available (typical for direct-BYOK/custom targets), `/models` will use the BYOK credential. For GitHub Copilot catalog targets, `/models` GET requests always receive `X-GitHub-Api-Version: 2026-07-01` (`COPILOT_MODELS_API_VERSION` in `copilot.js`), verified by `copilot-adapter-enterprise.test.js` and `copilot-byok.test.js`.
 
+### `/v1/decisions` (evals)
+
+The Copilot listener on port **10002** forwards `POST /v1/decisions` through
+the normal credential-injection pipeline. With only `COPILOT_GITHUB_TOKEN`
+configured, it strips client-supplied authentication and injects that token
+using the prefix rules above. **AWF does not exchange a static PAT for an
+OAuth or GitHub App token**, and cannot bypass an upstream token restriction.
+Model policy, rate limits, and invocation limits still apply.
+
+| Credential | Decisions support |
+|---|---|
+| Fine-grained PAT (`github_pat_*`) | Rejected by `api.githubcopilot.com/v1/decisions` in the [reported reproduction](https://github.com/github/gh-aw/issues/75637), even with Copilot Requests permission. |
+| Classic PAT | The upstream rejection says PATs are unsupported; classic PAT acceptance is not verified or promised. |
+| OAuth / GitHub App token | The adapter can forward these credentials, but endpoint acceptance and required permissions are not verified. Ordinary Copilot inference support does not establish Decisions support. |
+
+The reported HTTP 400 body is plain text:
+`checking third-party user token: bad request: Personal Access Tokens are not supported for this endpoint`.
+This rejection occurs before upstream model validation; changing the model,
+Authorization prefix, or routing through AWF is not a remedy.
+
+AWF preserves the upstream status, content type, and body, including plain-text
+4xx responses. Its `upstream_error_response` warning includes a fixed,
+actionable message and `reason_code: pat_unsupported` when a fully captured,
+decoded Copilot 4xx body contains that rejection. Existing error-body logging
+remains bounded and secret-redacted; truncated or uninspectable bodies and
+unrelated errors do not receive this reason code.
+
+The evals job described in [github/gh-aw#75637](https://github.com/github/gh-aw/issues/75637)
+does **not** run through AWF, so proxy changes alone cannot fix its opaque
+`Decisions request failed (HTTP 400)`. That issue tracks the gh-aw client
+classification: use `pat_unsupported` as the cross-project diagnostic reason
+for this rejection, without echoing provider bodies. AWF emits the reason in
+logs, not by rewriting the response into a synthetic JSON error. The gh-aw
+client must classify plain text separately and document an endpoint-supported
+credential before claiming evals support.
+
 ### BYOK (Bring Your Own Key)
 
 | Setting | Value |

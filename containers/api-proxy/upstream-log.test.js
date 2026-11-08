@@ -221,6 +221,43 @@ describe('upstream-log', () => {
   const COPILOT_INVALID_REASONING_EFFORT_BODY = '{"error":{"message":"output_config.effort \\"high\\" was provided, but model claude-haiku-4.5 does not support reasoning effort","code":"invalid_reasoning_effort"}}';
   const ERROR_FIELD_KEYS = ['error_code', 'error_type', 'error_param', 'error_source'];
 
+  test.each([
+    { status: 400, provider: 'copilot', classified: true },
+    { status: 401, provider: 'copilot', classified: true },
+    { status: 403, provider: 'copilot', classified: true },
+    { status: 422, provider: 'copilot', classified: true },
+    { status: 500, provider: 'copilot', classified: false },
+    { status: 400, provider: 'openai', classified: false },
+    { status: 400, provider: 'copilot', responseBodyTruncated: true, classified: false },
+    { status: 400, provider: 'copilot', providerErrorBody: null, classified: false },
+    { status: 400, provider: 'copilot', body: 'Unrelated bad request', classified: false },
+    { status: 400, provider: 'copilot', contentEncoding: 'unknown', classified: false },
+  ])('PAT diagnostic respects capture and provider boundaries: %j', ({
+    status, provider, classified, responseBodyTruncated, providerErrorBody, body, contentEncoding,
+  }) => {
+    const logRequest = jest.fn();
+    const auditTrack = jest.fn();
+    const logError = createLogUpstreamErrorResponse({
+      logRequest, auditTrack, sanitizeForLog: value => value,
+    });
+    const responseBody = Buffer.from(body ||
+      'checking third-party user token: bad request: Personal Access Tokens are not supported for this endpoint');
+    logError(status, {
+      requestId: 'pat-test', provider, targetHost: 'api.githubcopilot.com',
+      req: { method: 'POST', url: '/v1/decisions' },
+      responseHeaders: { 'content-type': 'text/plain', 'content-encoding': contentEncoding },
+      responseBody, responseBodyBytes: responseBody.length,
+      responseBodyTruncated, providerErrorBody,
+    });
+    const fields = logRequest.mock.calls[0][2];
+    expect(fields.reason_code).toBe(classified ? 'pat_unsupported' : undefined);
+    if (classified) {
+      expect(fields.message).toContain('does not convert a PAT');
+      expect(fields.message).not.toContain('checking third-party user token');
+    }
+    expect(auditTrack).toHaveBeenCalledWith('UPSTREAM_ERROR_RESPONSE', fields);
+  });
+
   function logCopilotError(body, { contentType = 'text/plain; charset=utf-8', bytes } = {}) {
     const auditTrack = jest.fn();
     const sanitizeForLog = (value, maxLen = 200) => String(value || '').slice(0, maxLen);

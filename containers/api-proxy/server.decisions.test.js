@@ -6,6 +6,14 @@ const os = require('os');
 const path = require('path');
 const { setupServerTestEnv, getStructuredLogs } = require('./test-helpers/server-mock-factories');
 
+jest.mock('./otel', () => ({
+  startRequestSpan: () => ({ setAttribute() {}, setAttributes() {}, addEvent() {} }),
+  setTokenAttributes() {},
+  setBudgetAttributes() {},
+  endSpan() {},
+  endSpanError() {},
+}));
+
 let OpenAI;
 if (Number(process.versions.node.split('.')[0]) >= 22) {
   try {
@@ -40,7 +48,7 @@ const decision = {
 };
 
 describe('OpenAI Decisions HTTP conformance', () => {
-  const envKeys = ['AWF_ALLOWED_MODELS', 'AWF_DISALLOWED_MODELS', 'AWF_TOKEN_LOG_DIR', 'AWF_MAX_AI_CREDITS', 'AWF_MAX_RUNS'];
+  const envKeys = ['AWF_ALLOWED_MODELS', 'AWF_DISALLOWED_MODELS', 'AWF_TOKEN_LOG_DIR', 'AWF_MAX_AI_CREDITS', 'AWF_MAX_RUNS', 'HTTP_PROXY'];
   const savedEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
   let proxy;
   let upstream;
@@ -52,7 +60,8 @@ describe('OpenAI Decisions HTTP conformance', () => {
   let tokenLogDir;
 
   setupServerTestEnv(() => {
-    process.env.AWF_ALLOWED_MODELS = JSON.stringify(['openai/gpt-6-luna', 'openai/gpt-6-sol']);
+    delete process.env.HTTP_PROXY;
+    process.env.AWF_ALLOWED_MODELS = JSON.stringify(['openai/gpt-6-luna', 'openai/gpt-6-sol', 'copilot/gpt-6-luna']);
     process.env.AWF_DISALLOWED_MODELS = JSON.stringify(['openai/gpt-6-sol']);
     tokenLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-decisions-'));
     process.env.AWF_TOKEN_LOG_DIR = tokenLogDir;
@@ -89,7 +98,6 @@ describe('OpenAI Decisions HTTP conformance', () => {
 
   async function startProxy(env = {}) {
     const { createOpenAIAdapter } = require('./providers/openai');
-    const { createProviderServer } = require('./server-factory');
     const { rewriteModelInBody } = require('./model-body-rewriter');
     const adapter = createOpenAIAdapter({
       OPENAI_API_KEY: 'trusted-sidecar-placeholder',
@@ -100,6 +108,20 @@ describe('OpenAI Decisions HTTP conformance', () => {
       bodyTransform: body => rewriteModelInBody(body, 'openai',
         { grader: ['openai/gpt-6-luna'] }, { openai: ['gpt-6-luna'] }, { enabled: false })?.body || null,
     });
+    await startProviderProxy(adapter);
+  }
+
+  async function startCopilotProxy(token) {
+    await new Promise(resolve => proxy.close(resolve));
+    const { createCopilotAdapter } = require('./providers/copilot');
+    await startProviderProxy(createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: token,
+      COPILOT_API_TARGET: `http://127.0.0.1:${upstream.address().port}`,
+    }));
+  }
+
+  async function startProviderProxy(adapter) {
+    const { createProviderServer } = require('./server-factory');
     proxy = createProviderServer(adapter, {
       handleManagementEndpoint: () => false,
       checkRateLimit: proxyCore.checkRateLimit,
@@ -164,6 +186,55 @@ describe('OpenAI Decisions HTTP conformance', () => {
     expect(requests[0].headers['api-key']).toBeUndefined();
     expect(requests[0].headers['x-api-key']).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain('trusted-sidecar-placeholder');
+  });
+
+  test.each(['github_pat_', 'gho_', 'ghs_'])('Copilot Decisions forwards the configured %s token without exchanging it', async prefix => {
+    const token = prefix + 'sidecar-placeholder';
+    await startCopilotProxy(token);
+    const logs = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const body = { model: 'gpt-6-luna', input: 'Private evaluation evidence', questions };
+    expect(await post('/decisions', body, {
+      headers: { 'api-key': 'untrusted-placeholder', 'x-api-key': 'untrusted-placeholder' },
+    })).toEqual(decision);
+    expect(requests).toHaveLength(1);
+    expect(requests[0].url).toBe('/v1/decisions');
+    expect(JSON.parse(requests[0].body)).toEqual(body);
+    expect(requests[0].headers.authorization).toBe(['Bearer', token].join(' '));
+    expect(requests[0].headers['api-key']).toBeUndefined();
+    expect(requests[0].headers['x-api-key']).toBeUndefined();
+    expect(logs.mock.calls.map(([line]) => line).join('')).not.toMatch(/sidecar-placeholder|Private evaluation evidence/);
+  });
+
+  test.each([400, 401, 403, 422, 429])('Copilot Decisions preserves plain-text upstream %s and logs a safe PAT reason', async status => {
+    const token = 'github_pat_' + 'sidecar-placeholder';
+    await startCopilotProxy(token);
+    const logs = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const rejection = 'checking third-party user token: bad request: Personal Access Tokens are not supported for this endpoint';
+    const errorBody = [rejection, ['authorization', ['Bearer', 'upstream-placeholder'].join(' ')].join('=')].join('\n');
+    respond = (_req, res) => {
+      res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'retry-after': '2' });
+      res.write(errorBody.slice(0, 50));
+      res.end(errorBody.slice(50));
+    };
+    const response = await fetch(`${baseURL}/decisions`, {
+      method: 'POST', body: JSON.stringify({ model: 'gpt-6-luna', input: 'Evidence', questions }),
+      headers: { authorization: ['Bearer', 'agent-placeholder'].join(' ') },
+    });
+    expect(response.status).toBe(status);
+    expect(response.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+    expect(response.headers.get('retry-after')).toBe('2');
+    expect(await response.text()).toBe(errorBody);
+    expect(requests).toHaveLength(1);
+    expect(requests[0].headers.authorization).toBe(['Bearer', token].join(' '));
+    const errors = getStructuredLogs(logs, 'upstream_error_response');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      level: 'warn', provider: 'copilot', endpoint: '/v1/decisions', status,
+      reason_code: 'pat_unsupported', response_transformed: false,
+    });
+    expect(errors[0].response_body).toContain('Personal Access Tokens are not supported for this endpoint');
+    expect(errors[0].response_body).toContain('[REDACTED]');
+    expect(logs.mock.calls.map(([line]) => line).join('')).not.toMatch(/sidecar-placeholder|upstream-placeholder/);
   });
 
   test('preserves typed questions, conversation history, JSON, images, and cache metadata', async () => {

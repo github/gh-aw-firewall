@@ -268,10 +268,10 @@ function createLogUpstreamErrorResponse({
       contentEncoding: safeHeaders['content-encoding'],
     });
     const bodyFields = formatResponseBodyLogFields(bodyCapture, sanitizeForLog);
+    const originalCapture = providerErrorBody === undefined ? bodyCapture
+      : providerErrorBody ? captureResponseBody(providerErrorBody)
+      : { bodyOmitted: true };
     if (provider === 'copilot' && copilotAuthDiagnostic && [400, 401, 403].includes(statusCode)) {
-      const originalCapture = providerErrorBody === undefined ? bodyCapture
-        : providerErrorBody ? captureResponseBody(providerErrorBody)
-        : { bodyOmitted: true };
       logRequest('warn', 'copilot_auth_diagnostic', {
         ...copilotAuthDiagnostic,
         status: statusCode,
@@ -293,9 +293,16 @@ function createLogUpstreamErrorResponse({
       response_transformed: !!transformed,
       ...buildRequestToolLogFields(requestTools, sanitizeForLog),
       ...bodyFields,
-      ...extractCapturedErrorFields(providerErrorBody === undefined ? bodyCapture
-        : providerErrorBody ? captureResponseBody(providerErrorBody) : { bodyOmitted: true }),
+      ...extractCapturedErrorFields(originalCapture),
     };
+    if (provider === 'copilot' && statusCode >= 400 && statusCode < 500 &&
+        !originalCapture.bodyOmitted && !originalCapture.truncated &&
+        /\bPersonal Access Tokens are not supported for this endpoint\b/i.test(originalCapture.bodyValue)) {
+      fields.reason_code = 'pat_unsupported';
+      fields.message = 'Copilot rejected personal access token authentication for this endpoint. ' +
+        'AWF forwards the configured credential; it does not convert a PAT into an OAuth or GitHub App token. ' +
+        'Use an authentication method supported by the endpoint; changing the model will not fix this rejection.';
+    }
     logRequest('warn', 'upstream_error_response', fields);
     if (typeof auditTrack === 'function') {
       auditTrack('UPSTREAM_ERROR_RESPONSE', fields);
