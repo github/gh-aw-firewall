@@ -35,6 +35,8 @@ function createModelDecisionObservation({ context = 'unknown', getModels = () =>
     if (req.awfRequestContext?.purpose && req.awfRequestContext.purpose !== 'agent') return;
     if (req.awfCaller?.purpose === 'subagent') return;
     if (req.awfEligibilityScope?.deployment !== undefined) return;
+    // The listener does not establish a cross-provider fallback's rejecting scope.
+    if (req.awfModelFallback && req.awfModelFallback.provider !== provider) return;
     const selected = req.awfAliasEligibilityRejection || req.awfSelectedModelEligibility;
     const expectedChannel = provider === 'copilot' ? 'copilot-api' : 'native-api';
     for (const scope of [selected?.decision?.scope, error?.scope]) {
