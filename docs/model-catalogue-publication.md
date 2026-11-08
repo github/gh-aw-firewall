@@ -30,6 +30,11 @@ and bare GPT version fallback no longer picks a specialized variant. Explicit
 operator glob expressions and configured automatic fallback remain opt-in paths;
 family rules annotate identity without authorizing substitutions.
 
+The [reviewed accounting-family ledger](model-families.md) lists explicit
+memberships, evidence, specialized/revision boundaries and residual unknowns.
+It also records the bundled family-versus-backend estimate charge change;
+membership is not execution or capability authorization.
+
 Publication v1 identities contain only `key`, `provider`, `rawId`, and `lookupId`.
 Its strict schema does not transport alias/family rules. An authenticated,
 request-pinned pricing refresh can associate scoped tariffs with the resolved

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogRevision": "18c1c26cf7985f160102f86a90215a942795f7f8ec7b5257498fe228164b7d83",
+  "catalogRevision": "3207aad4cb3296614c367e6b7ba4db66c51045abed0dd5e14a0d221388316d9e",
   "generatedAt": "2026-11-08T12:53:03.194Z",
   "models": [
     {
@@ -4016,7 +4016,8 @@
         "key": "copilot/claude-fable-5",
         "provider": "copilot",
         "rawId": "claude-fable-5",
-        "lookupId": "claude-fable-5"
+        "lookupId": "claude-fable-5",
+        "family": "claude-fable-5"
       },
       "lifecycle": {
         "status": "active"
@@ -4114,7 +4115,8 @@
         "key": "copilot/claude-fable-5-1",
         "provider": "copilot",
         "rawId": "claude-fable-5-1",
-        "lookupId": "claude-fable-5-1"
+        "lookupId": "claude-fable-5-1",
+        "family": "claude-fable-5"
       },
       "lifecycle": {
         "status": "active"
@@ -4567,7 +4569,8 @@
         "key": "copilot/claude-opus-4-5",
         "provider": "copilot",
         "rawId": "claude-opus-4-5",
-        "lookupId": "claude-opus-4-5"
+        "lookupId": "claude-opus-4-5",
+        "family": "claude-opus-4"
       },
       "lifecycle": {
         "status": "active"
@@ -4647,7 +4650,8 @@
         "key": "copilot/claude-opus-4-6",
         "provider": "copilot",
         "rawId": "claude-opus-4-6",
-        "lookupId": "claude-opus-4-6"
+        "lookupId": "claude-opus-4-6",
+        "family": "claude-opus-4"
       },
       "lifecycle": {
         "status": "active"
@@ -4727,7 +4731,8 @@
         "key": "copilot/claude-opus-4-7",
         "provider": "copilot",
         "rawId": "claude-opus-4-7",
-        "lookupId": "claude-opus-4-7"
+        "lookupId": "claude-opus-4-7",
+        "family": "claude-opus-4"
       },
       "lifecycle": {
         "status": "active"
@@ -4807,7 +4812,8 @@
         "key": "copilot/claude-opus-4.8",
         "provider": "copilot",
         "rawId": "claude-opus-4.8",
-        "lookupId": "claude-opus-4-8"
+        "lookupId": "claude-opus-4-8",
+        "family": "claude-opus-4"
       },
       "lifecycle": {
         "status": "active"
@@ -4905,7 +4911,8 @@
         "key": "copilot/claude-opus-5",
         "provider": "copilot",
         "rawId": "claude-opus-5",
-        "lookupId": "claude-opus-5"
+        "lookupId": "claude-opus-5",
+        "family": "claude-opus-5"
       },
       "lifecycle": {
         "status": "active"
@@ -5003,7 +5010,8 @@
         "key": "copilot/claude-opus-5-5",
         "provider": "copilot",
         "rawId": "claude-opus-5-5",
-        "lookupId": "claude-opus-5-5"
+        "lookupId": "claude-opus-5-5",
+        "family": "claude-opus-5"
       },
       "lifecycle": {
         "status": "active"
@@ -5083,7 +5091,8 @@
         "key": "copilot/claude-sonnet-4",
         "provider": "copilot",
         "rawId": "claude-sonnet-4",
-        "lookupId": "claude-sonnet-4"
+        "lookupId": "claude-sonnet-4",
+        "family": "claude-sonnet-4"
       },
       "lifecycle": {
         "status": "active"
@@ -5163,7 +5172,8 @@
         "key": "copilot/claude-sonnet-4.5",
         "provider": "copilot",
         "rawId": "claude-sonnet-4.5",
-        "lookupId": "claude-sonnet-4-5"
+        "lookupId": "claude-sonnet-4-5",
+        "family": "claude-sonnet-4"
       },
       "lifecycle": {
         "status": "active"
@@ -5261,7 +5271,8 @@
         "key": "copilot/claude-sonnet-4.6",
         "provider": "copilot",
         "rawId": "claude-sonnet-4.6",
-        "lookupId": "claude-sonnet-4-6"
+        "lookupId": "claude-sonnet-4-6",
+        "family": "claude-sonnet-4"
       },
       "lifecycle": {
         "status": "active"
@@ -5359,7 +5370,8 @@
         "key": "copilot/claude-sonnet-5",
         "provider": "copilot",
         "rawId": "claude-sonnet-5",
-        "lookupId": "claude-sonnet-5"
+        "lookupId": "claude-sonnet-5",
+        "family": "claude-sonnet-5"
       },
       "lifecycle": {
         "status": "active"
@@ -5457,7 +5469,8 @@
         "key": "copilot/claude-sonnet-5-5",
         "provider": "copilot",
         "rawId": "claude-sonnet-5-5",
-        "lookupId": "claude-sonnet-5-5"
+        "lookupId": "claude-sonnet-5-5",
+        "family": "claude-sonnet-5"
       },
       "lifecycle": {
         "status": "active"
@@ -5783,7 +5796,8 @@
         "key": "copilot/gemini-3.1-pro",
         "provider": "copilot",
         "rawId": "gemini-3.1-pro",
-        "lookupId": "gemini-3-1-pro"
+        "lookupId": "gemini-3-1-pro",
+        "family": "gemini-3.1-pro"
       },
       "lifecycle": {
         "status": "active"
@@ -5865,7 +5879,8 @@
         "key": "copilot/gemini-3.1-pro-preview",
         "provider": "copilot",
         "rawId": "gemini-3.1-pro-preview",
-        "lookupId": "gemini-3-1-pro-preview"
+        "lookupId": "gemini-3-1-pro-preview",
+        "family": "gemini-3.1-pro"
       },
       "lifecycle": {
         "status": "active"
@@ -6285,7 +6300,8 @@
         "key": "copilot/gpt-4o",
         "provider": "copilot",
         "rawId": "gpt-4o",
-        "lookupId": "gpt-4o"
+        "lookupId": "gpt-4o",
+        "family": "gpt-4o"
       },
       "lifecycle": {
         "status": "active"
@@ -6323,7 +6339,8 @@
         "key": "copilot/gpt-4o-mini",
         "provider": "copilot",
         "rawId": "gpt-4o-mini",
-        "lookupId": "gpt-4o-mini"
+        "lookupId": "gpt-4o-mini",
+        "family": "gpt-4o"
       },
       "lifecycle": {
         "status": "active"
@@ -6902,7 +6919,8 @@
         "key": "copilot/gpt-5.4",
         "provider": "copilot",
         "rawId": "gpt-5.4",
-        "lookupId": "gpt-5-4"
+        "lookupId": "gpt-5-4",
+        "family": "gpt-5.4"
       },
       "lifecycle": {
         "status": "active"
@@ -7002,7 +7020,8 @@
         "key": "copilot/gpt-5.4-mini",
         "provider": "copilot",
         "rawId": "gpt-5.4-mini",
-        "lookupId": "gpt-5-4-mini"
+        "lookupId": "gpt-5-4-mini",
+        "family": "gpt-5.4"
       },
       "lifecycle": {
         "status": "active"
@@ -7102,7 +7121,8 @@
         "key": "copilot/gpt-5.4-nano",
         "provider": "copilot",
         "rawId": "gpt-5.4-nano",
-        "lookupId": "gpt-5-4-nano"
+        "lookupId": "gpt-5-4-nano",
+        "family": "gpt-5.4"
       },
       "lifecycle": {
         "status": "active"
@@ -8724,7 +8744,8 @@
         "key": "copilot/o3",
         "provider": "copilot",
         "rawId": "o3",
-        "lookupId": "o3"
+        "lookupId": "o3",
+        "family": "o3"
       },
       "lifecycle": {
         "status": "active"
@@ -8762,7 +8783,8 @@
         "key": "copilot/o3-mini",
         "provider": "copilot",
         "rawId": "o3-mini",
-        "lookupId": "o3-mini"
+        "lookupId": "o3-mini",
+        "family": "o3"
       },
       "lifecycle": {
         "status": "active"

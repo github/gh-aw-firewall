@@ -126,6 +126,41 @@ async function main() {
     }
   }
   assert.equal(bundledPricing.compatibility.policy, 'legacy_native_compatibility');
+  const bundledClock = Date.now;
+  Date.now = () => Date.parse('2026-11-08T12:00:00Z');
+  try {
+    reset();
+    assert.equal(charge('unreviewed-family', {}, 10000).ai_credits_this_response, 1.875);
+    chargeHttpAndWebSocket('copilot', 'gemini-3.1-pro-preview', 2, 10000, 'default', 5.875);
+    const bundledFamily = guard.getAiCreditsReflectState().by_model['gemini-3.1-pro-preview'];
+    assert.equal(bundledFamily.accounting_policy, 'family_median_estimate');
+    assert.equal(bundledFamily.pricing_estimate.family, 'gemini-3-1-pro');
+    assert.equal(bundledFamily.pricing_estimate.donorCount, 1);
+    assert.deepEqual(bundledFamily.pricing_estimate.sources, ['curated']);
+    assert.equal(charge('gemini-3.1-pro-preview').ai_credits_pricing_estimate.basis, 'family');
+    assert.equal(charge('o3').ai_credits_accounting_policy, 'backend_median_estimate');
+  } finally {
+    Date.now = bundledClock;
+  }
+  for (const [price, blocked] of [
+    ['0.999999999999999999999999999999', false], ['1', true],
+  ]) {
+    reset();
+    process.env.AWF_MODEL_PRICING_CATALOG = JSON.stringify({
+      schemaVersion: 1, unit: 'USD_PER_1M_TOKENS', catalogId: 'bundled-family', version: 'v1',
+      providers: { copilot: { models: {
+        'gpt-4o-mini': { ...rates, input: price },
+        'gpt-4o-audio-preview': { ...rates, input: '900' },
+      } } },
+    });
+    process.env.AWF_MAX_AI_CREDITS = '2';
+    chargeHttpAndWebSocket('copilot', 'gpt-4o', 1, 10000);
+    assert.equal(guard.getAiCreditsBlockState().maxExceeded, blocked);
+    const family = guard.getAiCreditsReflectState().by_model['gpt-4o'];
+    assert.equal(family.accounting_policy, 'family_median_estimate');
+    assert.equal(family.pricing_estimate.donorCount, 1);
+    assert.deepEqual(family.pricing_estimate.sources, ['shared_catalog']);
+  }
   for (const [provider, model, credits] of [
     ['copilot', 'gpt-5.4', 250],
     ['copilot', 'gpt-5-mini', fixtureSources ? 75 : 25],

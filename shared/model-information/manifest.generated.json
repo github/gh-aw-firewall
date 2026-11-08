@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "compilerVersion": 7,
   "schemaHash": "df9780a1fd9a1418ec8d99cb4aaf27d49bda9c8a08d157036c6893798c64f479",
-  "catalogRevision": "18c1c26cf7985f160102f86a90215a942795f7f8ec7b5257498fe228164b7d83",
+  "catalogRevision": "3207aad4cb3296614c367e6b7ba4db66c51045abed0dd5e14a0d221388316d9e",
   "generatedAt": "2026-11-08T12:53:03.194Z",
   "sourceFiles": [
     "shared/model-information/sources/copilot-claude.json",

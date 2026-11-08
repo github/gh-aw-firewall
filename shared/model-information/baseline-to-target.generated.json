@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogRevision": "18c1c26cf7985f160102f86a90215a942795f7f8ec7b5257498fe228164b7d83",
+  "catalogRevision": "3207aad4cb3296614c367e6b7ba4db66c51045abed0dd5e14a0d221388316d9e",
   "activation": "staged: phases 4, 5 and 6",
   "differences": [
     {
@@ -2244,7 +2244,8 @@
           "key": "copilot/claude-opus-5-5",
           "provider": "copilot",
           "rawId": "claude-opus-5-5",
-          "lookupId": "claude-opus-5-5"
+          "lookupId": "claude-opus-5-5",
+          "family": "claude-opus-5"
         },
         "lifecycle": {
           "status": "active"
@@ -2430,7 +2431,8 @@
           "key": "copilot/claude-sonnet-5-5",
           "provider": "copilot",
           "rawId": "claude-sonnet-5-5",
-          "lookupId": "claude-sonnet-5-5"
+          "lookupId": "claude-sonnet-5-5",
+          "family": "claude-sonnet-5"
         },
         "lifecycle": {
           "status": "active"
