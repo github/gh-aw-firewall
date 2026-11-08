@@ -24,6 +24,7 @@ const imageArgs = '--image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG
 describe.each([
   ['claude', 20, 'Claude Code'],
   ['copilot', 15, 'GitHub Copilot'],
+  ['copilot-byok', 15, 'GitHub Copilot'],
   ['copilot-network-isolation', 15, 'GitHub Copilot'],
   ['services', 10, 'GitHub Copilot'],
 ])('Smoke %s local image preparation', (workflow, executionTimeout, engine) => {
@@ -160,6 +161,10 @@ ${preparation.run}
       '"${GITHUB_WORKSPACE}/scripts/ci/build-smoke-images.sh" "${RUNNER_TEMP}/awf-smoke/build-smoke-images.sh"',
     );
     expect(prepareIndex).toBeGreaterThan(steps.findIndex(step => step.name === 'Build awf'));
+    expect(prepareIndex).toBeGreaterThan(checkoutIndex);
+    const installIndex = steps.findIndex(step => step.name === 'Install awf binary (local)');
+    expect(installIndex).toBeGreaterThan(checkoutIndex);
+    expect(prepareIndex).toBeGreaterThan(installIndex);
     expect(prepareIndex).toBeLessThan(executeIndex);
     expect(steps[prepareIndex].run).toBe(preparation.run);
     expect(steps[prepareIndex]['timeout-minutes']).toBe(35);
