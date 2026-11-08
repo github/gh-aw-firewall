@@ -268,7 +268,8 @@ function createSendUpstreamRequest({
       provider,
       protocol: protocolForPath(req?.url || upstreamPath),
       sourceBody: req.awfFallbackSourceBody || wireApiSourceBody || body,
-      model: req.awfRecoveryAttempts?.[0]?.model || getRequestModel(body, upstreamPath)?.model || null,
+      model: (req.awfResolverFallback?.provider === provider ? req.awfResolverFallback.fromModel : null) ||
+        req.awfRecoveryAttempts?.[0]?.model || getRequestModel(body, upstreamPath)?.model || null,
       endpoint: canonicalEndpoint(req?.url || upstreamPath),
       body,
       upstreamPath,
