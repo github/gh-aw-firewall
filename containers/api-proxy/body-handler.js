@@ -36,9 +36,11 @@ const { endpointForPath, translateCopilotWireApi } = require('./wire-api-compat'
 const { stripRedundantModelPrefixInBody } = require('./model-body-rewriter');
 const { parseBodyAsObject } = require('./body-utils');
 const { recoverRequestModel, protocolForUrl } = require('./model-recovery');
-const { getFallbackUpstreamEndpoint } = require('./cross-provider-fallback');
+const { getFallbackUpstreamEndpoint, getRequiredResponseFeatures } = require('./cross-provider-fallback');
 const { assessRequestCompatibility } = require('./protocol-compatibility/assessment');
 const { getRequestReasoning } = require('./model-reasoning');
+const { evaluateModelEligibility } = require('./model-eligibility');
+const { getCurrentGuardChecks } = require('./proxy-guards');
 
 /** Maximum request body size: 10 MB to prevent DoS via large payloads. */
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
@@ -308,24 +310,19 @@ function createBodyHandler({ handleRequestError, otel }) {
     // request rather than a body whose translator has already discarded fields.
     if (isWritableMethod) req.awfFallbackSourceBody = Buffer.from(body);
 
-    const assessResolverFallback = (targetUrl) => {
-      if (!req.awfResolverFallback || req.awfRecoveryAttempts) return;
+    const selectResolverFallback = () => {
+      if (!isWritableMethod || req.awfResolverFallback?.provider !== provider || req.awfRecoveryAttempts) return null;
+      if (getCurrentGuardChecks(null, provider).some(guard => guard.isBlocked(guard.block))) return null;
       const parsed = parseBodyAsObject(req.awfFallbackSourceBody);
-      const model = parsed?.model;
       const protocol = value => {
         const name = protocolForUrl(value);
         return name === 'chat-completions' ? 'chat_completions'
           : name === 'messages' ? 'anthropic_messages' : name;
       };
       const source = protocol(req.url);
-      const target = protocol(targetUrl);
-      const reasoning = getRequestReasoning(model, provider, req.awfRuntimePricing, req, req.awfFallbackTarget || {});
       const pins = { eligibilityRevision: req.awfEligibility?.revision, catalogueRevision: req.awfCatalogue?.revision };
-      const compatibility = assessRequestCompatibility({
-        body: req.awfFallbackSourceBody, source, target, candidate: { provider, model }, pins, reasoning,
-        nativePassthrough: source === null && target === null && targetUrl === req.url,
-      });
-      const publish = outcome => {
+      const requiredResponseFeatures = getRequiredResponseFeatures(req.awfFallbackSourceBody, protocolForUrl(req.url));
+      const publish = (model, outcome, compatibility, reasoning) => {
         try {
           req.awfObserveModelDecision?.({
             provider, model: outcome === 'exhausted' ? null : model,
@@ -338,42 +335,73 @@ function createBodyHandler({ handleRequestError, otel }) {
           // Optional observation must not change request admission.
         }
       };
-      publish(compatibility.status === 'compatible' ? 'accepted' : 'skipped');
-      if (compatibility.status !== 'compatible') {
-        publish('exhausted');
-        const error = new Error('The selected automatic fallback cannot preserve the assessed request requirements');
-        error.statusCode = 400;
-        error.code = 'model_recovery_exhausted';
-        throw error;
+      const ranked = req.awfModelRecoveryDisabled || req.awfScopedAuto ||
+          req.awfRequestContext?.purpose === 'routing_classification' ? []
+        : Array.isArray(req.awfModelCandidates) ? req.awfModelCandidates
+          : req.awfResolverFallback.candidates || [];
+      const candidates = [...new Set([parsed?.model, ...ranked])]
+        .filter(model => typeof model === 'string' && model.length > 0);
+      let lastCompatibility = null;
+      let lastReasoning = null;
+      for (const model of candidates) {
+        let eligibility = null;
+        try {
+          eligibility = evaluateModelEligibility(model, provider, req, { inputMode: 'native' });
+        } catch { /* fail closed */ }
+        if (eligibility?.admitted !== true) {
+          lastCompatibility = assessRequestCompatibility({
+            body: req.awfFallbackSourceBody, source, target: null, candidate: { provider, model: null }, pins,
+          });
+          lastReasoning = null;
+          publish(null, 'skipped', lastCompatibility, null);
+          continue;
+        }
+        const targetUrl = provider === 'copilot' && req.method === 'POST' && endpointForPath(req.url)
+          ? getFallbackUpstreamEndpoint(provider, model, req.url, false, req.awfRuntimePricing) : req.url;
+        const target = protocol(targetUrl);
+        const reasoning = getRequestReasoning(model, provider, req.awfRuntimePricing, req, req.awfFallbackTarget || {});
+        const compatibility = assessRequestCompatibility({
+          body: req.awfFallbackSourceBody, source, target, candidate: { provider, model }, pins, reasoning,
+          requiredResponseFeatures, nativePassthrough: source === null && target === null && targetUrl === req.url,
+        });
+        lastCompatibility = compatibility;
+        lastReasoning = reasoning;
+        if (compatibility.status !== 'compatible') {
+          publish(model, 'skipped', compatibility, reasoning);
+          continue;
+        }
+        if (model !== parsed.model) {
+          parsed.model = model;
+          body = Buffer.from(JSON.stringify(parsed), 'utf8');
+          req.awfFallbackSourceBody = Buffer.from(body);
+          req.awfSelectedModelEligibility = Object.freeze({ model, provider, decision: eligibility });
+          if (eligibility.identity) req.awfModelIdentity = eligibility.identity;
+        }
+        publish(model, 'accepted', compatibility, reasoning);
+        return targetUrl;
       }
+      publish(null, 'exhausted', lastCompatibility || assessRequestCompatibility({
+        body: req.awfFallbackSourceBody, source, target: source, candidate: { provider, model: null }, pins,
+      }), lastReasoning);
+      const error = new Error('The selected automatic fallback cannot preserve the assessed request requirements');
+      error.statusCode = 400;
+      error.type = 'invalid_request_error';
+      error.code = 'model_recovery_exhausted';
+      throw error;
     };
+    const resolverEndpoint = selectResolverFallback();
 
     if (provider === 'copilot' && req.method === 'POST' && endpointForPath(req.url) &&
         !req.awfRecoveryAttempts) {
       wireApiSourceBody = Buffer.from(body);
-      const plannedEndpoint = req.awfResolverFallback
-        ? getFallbackUpstreamEndpoint(provider, parseBodyAsObject(body)?.model, req.url, false, req.awfRuntimePricing)
-        : null;
-      let translated;
-      try {
-        translated = plannedEndpoint && endpointForPath(plannedEndpoint) === endpointForPath(req.url)
-          ? null : translateCopilotWireApi(body, req.url, plannedEndpoint ? { upstreamEndpoint: plannedEndpoint } : {});
-      } catch (error) {
-        if (req.awfResolverFallback) {
-          try {
-            assessResolverFallback(plannedEndpoint ||
-              (endpointForPath(req.url) === '/responses' ? '/chat/completions' : '/responses'));
-          } catch { /* Preserve the authoritative translator's public rejection. */ }
-        }
-        throw error;
-      }
+      const translated = resolverEndpoint && endpointForPath(resolverEndpoint) === endpointForPath(req.url)
+        ? null : translateCopilotWireApi(body, req.url, resolverEndpoint ? { upstreamEndpoint: endpointForPath(resolverEndpoint) } : {});
       if (translated) {
         body = translated.body;
         wireApiCompatibility = translated.compatibility;
         req.awfRouting?.onEndpointTranslation?.(wireApiCompatibility);
       }
     }
-    assessResolverFallback(wireApiCompatibility?.upstreamEndpoint || req.url);
 
     return { body, codexCompatibility, wireApiCompatibility, wireApiSourceBody, steering };
   }

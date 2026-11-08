@@ -247,7 +247,8 @@ function makeModelBodyTransform(
     if (req && (result.automaticReplacement === true || result.fallback?.activated === true ||
         result.fallback?.reason === 'family_version_fallback')) {
       req.awfResolverFallback = Object.freeze({
-        provider, fromModel: result.originalModel, model: result.resolvedModel,
+        provider, fromModel: result.originalModel, originalModel: result.originalModel, model: result.resolvedModel,
+        candidates: Object.freeze(Array.isArray(result.candidates) ? [...result.candidates] : [result.resolvedModel]),
       });
     }
     if (req && result.eligibilityDecision) {

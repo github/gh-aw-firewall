@@ -692,3 +692,89 @@ test('pre-dispatch assessment retains runtime pins across an asynchronous transf
     } },
   });
 });
+
+test('real nested initial family fallback skips incompatible wire routing and sends the next already-ranked model', async () => {
+  load({ AWF_MODEL_ALIASES: JSON.stringify({ models: { outer: ['gpt-5.9', 'copilot/gpt-4.1'] } }) });
+  catalog.replaceRuntimeModels('copilot', [
+    record('gpt-5.4', { supportedEndpoints: ['/responses'] }),
+    record('gpt-4.1', { supportedEndpoints: ['/chat/completions'] }),
+  ]);
+  const { makeModelBodyTransform } = require('./model-config');
+  const refresh = jest.fn(async () => {});
+  const transform = makeModelBodyTransform('copilot', { copilot: ['gpt-5.4', 'gpt-4.1'] },
+    refresh, null, catalog.getRuntimeModels, true);
+  const observe = jest.fn();
+  const body = { model: 'outer', messages: [{ role: 'developer', content: 'PRIVATE_RULES' }, { role: 'user', content: 'hi' }] };
+  const { req } = await start(body, 'copilot', '/chat/completions', {
+    transform, req: { awfObserveModelDecision: observe },
+  });
+  expect(requests).toHaveLength(1);
+  expect(JSON.parse(sent())).toEqual({ ...body, model: 'gpt-4.1' });
+  expect(requests[0].options.path).toBe('/chat/completions');
+  expect(req.awfResolverFallback).toMatchObject({
+    provider: 'copilot', originalModel: 'outer', fromModel: 'outer', model: 'gpt-5.4',
+    candidates: ['gpt-5.4', 'gpt-4.1'],
+  });
+  expect(Object.isFrozen(req.awfResolverFallback.candidates)).toBe(true);
+  expect(observe.mock.calls.map(([r]) => [r.model, r.outcome])).toEqual([
+    ['gpt-5.4', 'skipped'], ['gpt-4.1', 'accepted'],
+  ]);
+  expect(refresh).not.toHaveBeenCalled();
+  expect(JSON.stringify(observe.mock.calls)).not.toContain('PRIVATE_RULES');
+});
+
+test('initial automatic fallback exhaustion sends the existing 400 without inference', async () => {
+  load({ AWF_MODEL_ALIASES: JSON.stringify({ models: { outer: ['gpt-5.9'] } }) });
+  catalog.replaceRuntimeModels('copilot', [record('gpt-5.4', { supportedEndpoints: ['/responses'] })]);
+  const transform = require('./model-config').makeModelBodyTransform('copilot', { copilot: ['gpt-5.4'] },
+    async () => {}, null, catalog.getRuntimeModels, true);
+  const observe = jest.fn();
+  const { res } = await start({ model: 'outer', messages: [
+    { role: 'developer', content: 'rule' }, { role: 'user', content: 'hello' },
+  ] }, 'copilot', '/chat/completions', { transform, req: { awfObserveModelDecision: observe } });
+  expect(requests).toHaveLength(0);
+  expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+  expect(JSON.parse(res.end.mock.calls[0][0]).error.code).toBe('model_recovery_exhausted');
+  expect(observe.mock.calls.map(([r]) => [r.model, r.outcome])).toEqual([
+    ['gpt-5.4', 'skipped'], [null, 'exhausted'],
+  ]);
+});
+
+test('an explicitly authorized initial alias remains a direct primary request', async () => {
+  load({ AWF_MODEL_ALIASES: JSON.stringify({ models: { outer: ['copilot/gpt-5.4'] } }) });
+  catalog.replaceRuntimeModels('copilot', [record('gpt-5.4', { supportedEndpoints: ['/responses'] })]);
+  const transform = require('./model-config').makeModelBodyTransform('copilot', { copilot: ['gpt-5.4'] },
+    async () => {}, null, catalog.getRuntimeModels, true);
+  const observe = jest.fn();
+  const { req } = await start({ model: 'outer', messages: [
+    { role: 'developer', content: 'rule' }, { role: 'user', content: 'hello' },
+  ] }, 'copilot', '/chat/completions', { transform, req: { awfObserveModelDecision: observe } });
+  expect(requests).toHaveLength(1);
+  expect(requests[0].options.path).toBe('/responses');
+  expect(JSON.parse(sent()).instructions).toBe('rule');
+  expect(req.awfResolverFallback).toBeUndefined();
+  expect(observe).not.toHaveBeenCalled();
+});
+
+test('real synthesized middle-power fallback is marked and rejects unverified effort before inference', async () => {
+  load({ AWF_MODEL_ALIASES: JSON.stringify({ models: { direct: ['copilot/gpt-5.4'] } }) });
+  const ids = ['gpt-5.4', 'gpt-4.1', 'gpt-3.5-turbo'];
+  catalog.replaceRuntimeModels('copilot', ids.map(id => record(id, {
+    supportedEndpoints: ['/chat/completions'], supportedReasoningEfforts: ['future-effort'],
+  })));
+  const refresh = jest.fn(async () => {});
+  const transform = require('./model-config').makeModelBodyTransform('copilot', { copilot: ids },
+    refresh, null, catalog.getRuntimeModels, true);
+  const observe = jest.fn();
+  const { req, res } = await start({ model: 'missing', messages: [], reasoning_effort: 'future-effort' },
+    'copilot', '/chat/completions', { transform, req: { awfObserveModelDecision: observe } });
+  expect(requests).toHaveLength(0);
+  expect(JSON.parse(res.end.mock.calls[0][0]).error.code).toBe('model_recovery_exhausted');
+  expect(req.awfResolverFallback).toMatchObject({ originalModel: 'missing', model: 'gpt-4.1' });
+  expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+  expect(JSON.parse(res.end.mock.calls[0][0]).error.code).toBe('model_recovery_exhausted');
+  expect(observe.mock.calls.map(([r]) => [r.model, r.outcome])).toEqual([
+    ['gpt-4.1', 'skipped'], [null, 'exhausted'],
+  ]);
+  expect(refresh).toHaveBeenCalledTimes(1);
+});

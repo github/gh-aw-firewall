@@ -92,6 +92,32 @@ function getFallbackUpstreamEndpoint(provider, model, endpoint, preserveEndpoint
   return endpoints.has(requestedEndpoint) || !endpoints.has(opposite) ? endpoint : opposite;
 }
 
+function getRequiredResponseFeatures(body, protocol) {
+  const parsed = parseBodyAsObject(body);
+  if (!parsed) return [];
+  const features = [];
+  if (parsed.stream_options?.include_usage === true || protocol === 'responses' && parsed.stream === true) {
+    features.push('usage');
+  }
+  let tools = Array.isArray(parsed.tools) && parsed.tools.length > 0;
+  const pending = [parsed.messages, parsed.input];
+  let remaining = 8192;
+  while (!tools && pending.length && remaining-- > 0) {
+    const item = pending.pop();
+    if (!item || typeof item !== 'object') continue;
+    if (Array.isArray(item)) {
+      for (const child of item.slice(0, Math.max(0, remaining + 1 - pending.length))) pending.push(child);
+      continue;
+    }
+    tools = item.role === 'tool' || Array.isArray(item.tool_calls) && item.tool_calls.length > 0 ||
+      !!item.function_call || ['function_call', 'function_call_output', 'custom_tool_call',
+        'custom_tool_call_output', 'tool_use', 'tool_result'].includes(item.type);
+    if (Array.isArray(item.content)) pending.push(item.content);
+  }
+  if (tools) features.push('function_tools');
+  return features;
+}
+
 /**
  * Explain why a cross-provider candidate cannot be routed, or return null when
  * it can.
@@ -325,6 +351,7 @@ module.exports = {
   TARGET_ENDPOINTS,
   protocolForPath,
   getFallbackUpstreamEndpoint,
+  getRequiredResponseFeatures,
   getCrossProviderRejection,
   buildCrossProviderRequest,
   needsResponseTranslation,

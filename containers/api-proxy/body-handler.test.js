@@ -96,6 +96,118 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
       compatibility: expect.objectContaining({ status: 'compatible', contracts: [] }) }));
   });
 
+  test('marked initial fallback skips incompatible ranked candidates before wire translation', async () => {
+    let calls;
+    await jest.isolateModulesAsync(async () => {
+      const wire = require('./wire-api-compat');
+      calls = jest.spyOn(wire, 'translateCopilotWireApi');
+      const runtime = require('./runtime-model-catalog');
+      runtime.replaceRuntimeModels('copilot', [
+        { id: 'response-only', supportedEndpoints: ['/responses'] },
+        { id: 'native-chat', supportedEndpoints: ['/chat/completions'] },
+      ]);
+      const observe = jest.fn();
+      const req = { method: 'POST', url: '/chat/completions',
+        awfResolverFallback: { provider: 'copilot', fromModel: 'missing', model: 'response-only' },
+        awfModelCandidates: ['response-only', 'native-chat'], awfRuntimePricing: runtime.captureRuntimePricing(),
+        awfObserveModelDecision: observe };
+      const body = Buffer.from(JSON.stringify({ model: 'response-only', messages: [
+        { role: 'developer', content: 'PRIVATE_RULES' }, { role: 'user', content: 'hello' },
+      ] }));
+      const transform = require('./body-handler').createBodyHandler({ handleRequestError() {}, otel: {} }).transformRequestBody;
+      const result = await transform(body, 'copilot', req, 'ranked-initial', null);
+      expect(calls).not.toHaveBeenCalled();
+      expect(json(result.body)).toEqual({ ...json(body), model: 'native-chat' });
+      expect(json(req.awfFallbackSourceBody).model).toBe('native-chat');
+      expect(req.awfSelectedModelEligibility.model).toBe('native-chat');
+      expect(observe.mock.calls.map(([r]) => [r.model, r.outcome])).toEqual([
+        ['response-only', 'skipped'], ['native-chat', 'accepted'],
+      ]);
+      expect(JSON.stringify(observe.mock.calls)).not.toContain('PRIVATE_RULES');
+      calls.mockRestore();
+    });
+  });
+
+  test('marked initial exhaustion never calls the inference wire translator', async () => {
+    await jest.isolateModulesAsync(async () => {
+      const wire = require('./wire-api-compat');
+      const calls = jest.spyOn(wire, 'translateCopilotWireApi');
+      const runtime = require('./runtime-model-catalog');
+      runtime.replaceRuntimeModels('copilot', [{ id: 'response-only', supportedEndpoints: ['/responses'] }]);
+      const req = { method: 'POST', url: '/chat/completions',
+        awfResolverFallback: { provider: 'copilot', fromModel: 'missing', model: 'response-only' } };
+      const body = Buffer.from(JSON.stringify({ model: 'response-only', messages: [
+        { role: 'system', content: 'rule' }, { role: 'user', content: 'hello' },
+      ] }));
+      const transform = require('./body-handler').createBodyHandler({ handleRequestError() {}, otel: {} }).transformRequestBody;
+      await expect(transform(body, 'copilot', req, 'initial-exhausted', null))
+        .rejects.toMatchObject({ code: 'model_recovery_exhausted', statusCode: 400 });
+      expect(calls).not.toHaveBeenCalled();
+      calls.mockRestore();
+    });
+  });
+
+    test('marked initial fallback skips unverified effort and strictly translates only the accepted ranked candidate', async () => {
+      await jest.isolateModulesAsync(async () => {
+        const runtime = require('./runtime-model-catalog');
+        runtime.replaceRuntimeModels('copilot', [
+          { id: 'unverified', supportedEndpoints: ['/chat/completions'], supportedReasoningEfforts: ['high'] },
+          { id: 'accepted', supportedEndpoints: ['/responses'], supportedReasoningEfforts: ['high'] },
+        ]);
+        const { resolveModelReasoning } = require('./model-reasoning');
+        const observe = jest.fn();
+        const req = { method: 'POST', url: '/chat/completions',
+          awfResolverFallback: { provider: 'copilot', fromModel: 'missing', model: 'unverified' },
+          awfModelCandidates: ['unverified', 'accepted'], awfRuntimePricing: runtime.captureRuntimePricing(),
+          awfReasoning: resolveModelReasoning('unverified', 'copilot', { records: [], maintained: false }),
+          awfObserveModelDecision: observe };
+        const wire = require('./wire-api-compat');
+        const calls = jest.spyOn(wire, 'translateCopilotWireApi');
+        const assessment = require('./protocol-compatibility/assessment');
+        const assessments = jest.spyOn(assessment, 'assessRequestCompatibility');
+        const transform = require('./body-handler').createBodyHandler({ handleRequestError() {}, otel: {} }).transformRequestBody;
+        const body = Buffer.from(JSON.stringify({
+          model: 'unverified', reasoning_effort: 'high', stream: true,
+          messages: [{ role: 'user', content: 'hello' }],
+          tools: [{ type: 'function', function: { name: 'check', parameters: { type: 'object' } } }],
+        }));
+        const result = await transform(body, 'copilot', req, 'initial-effort', null);
+        expect(calls).toHaveBeenCalledTimes(1);
+        expect(calls).toHaveBeenCalledWith(expect.any(Buffer), req.url, { upstreamEndpoint: '/responses' });
+        expect(json(result.body)).toMatchObject({ model: 'accepted', reasoning: { effort: 'high' } });
+        expect(observe.mock.calls.map(([r]) => [r.model, r.outcome, r.compatibility.status])).toEqual([
+          ['unverified', 'skipped', 'unverified'], ['accepted', 'accepted', 'compatible'],
+        ]);
+        expect(assessments).toHaveBeenCalledWith(expect.objectContaining({
+          candidate: { provider: 'copilot', model: 'accepted' }, requiredResponseFeatures: ['usage', 'function_tools'],
+        }));
+        calls.mockRestore();
+        assessments.mockRestore();
+      });
+    });
+
+    test.each([
+      { awfModelRecoveryDisabled: true },
+      { awfScopedAuto: true },
+      { awfRequestContext: { purpose: 'routing_classification' } },
+    ])('initial automatic compatibility retries respect opt-outs %j', async flags => {
+      replaceRuntimeModels('copilot', [{ id: 'response-only', supportedEndpoints: ['/responses'] }]);
+      try {
+        const observe = jest.fn();
+        const req = { method: 'POST', url: '/chat/completions',
+          awfResolverFallback: { provider: 'copilot', fromModel: 'missing', model: 'response-only' },
+          awfModelCandidates: ['response-only', 'native-chat'], awfObserveModelDecision: observe, ...flags };
+        const body = Buffer.from(JSON.stringify({ model: 'response-only', messages: [
+          { role: 'developer', content: 'rule' }, { role: 'user', content: 'hello' },
+        ] }));
+        await expect(transformRequestBody(body, 'copilot', req, 'initial-opt-out', null))
+          .rejects.toMatchObject({ code: 'model_recovery_exhausted' });
+        expect(observe.mock.calls.map(([r]) => [r.model, r.outcome])).toEqual([
+          ['response-only', 'skipped'], [null, 'exhausted'],
+        ]);
+      } finally { clearRuntimeModels(); }
+    });
+
   test('the real resolver marks synthesized fallback, but not an explicitly authorized alias match', async () => {
     const saved = process.env.AWF_MODEL_ALIASES;
     process.env.AWF_MODEL_ALIASES = JSON.stringify({ models: {
