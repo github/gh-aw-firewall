@@ -40,6 +40,169 @@ conclusion, or safe outputs; gh-aw must implement that per-job exchange.
 The `--enable-api-proxy` CLI flag is deprecated and ignored — it is kept only so existing command lines and workflows continue to work. `--no-enable-api-proxy` is rejected as a runtime error; the API proxy cannot be disabled. Do not add the deprecated flag to new commands.
 :::
 
+## Directed translator compatibility contracts
+
+The dependency-free [protocol contract module](../containers/api-proxy/protocol-compatibility/index.js)
+and its [TypeScript declarations](../containers/api-proxy/protocol-compatibility/index.d.ts)
+describe **translator features, not native model capabilities or candidate availability**.
+They are shipped in the API proxy's `/app/protocol-compatibility/` directory.
+Endpoint advertisement, accounting families, model names and opposite-direction success
+are not evidence of compatibility.
+
+### Directions and revision
+
+`CONTRACTS` enumerates these directions only:
+
+| Source | Target | Direction | Actual boundary |
+|---|---|---|---|
+| Chat Completions | Responses | request | `translateChatRequest` |
+| Responses | Chat Completions | request | `translateResponsesRequest` |
+| Chat Completions | Anthropic Messages | request | `chatRequestToAnthropic` |
+| Chat Completions | Responses | return_response | Wire JSON/SSE adapters |
+| Responses | Chat Completions | return_response | Wire JSON/SSE adapters |
+| Anthropic Messages | Chat Completions | return_response | Messages JSON/usage/SSE adapters |
+
+**Messages request → Chat request is not implemented.** A return adapter cannot
+establish that reverse request direction. Composed paths are not additional contracts.
+Same-protocol passthrough is also not a translation-support verdict: the existing
+wire boundaries return `null` when no adaptation applies, leaving the original
+body/stream to the caller.
+
+Contract revision: `awf-directed-protocol-v1`. Each contract pins its implementation
+bytes using SHA-256:
+
+- `wire-api-compat.js`: `99195a2687352cbb4c65aaa1c31b7f630f71ed1d0a3647638092e3a1e5676125`
+- `anthropic-chat-compat.js`: `47e879c966fca727e6a483649366a60f77e354adbeeede11b3c0c8b6853c0f2b`
+
+The revision test fails when either translator changes. Re-characterize affected
+fixtures and conditions, update the implementation pin, and revise the contract
+revision when its meaning changes; do not merely update hashes to silence drift.
+
+### Bounded feature matrix
+
+S = supported representation; C = conditional, including stated semantic
+normalizations/defaults; R = existing rejection for active feature shapes;
+U = unknown/uncharacterized, **not success**. These are not whole-protocol or
+lossless-path ratings. The executable module supplies each row's conditions,
+normalizations, sanitized reason and rejection code where applicable.
+
+| Feature identifier | Chat→Responses request | Responses→Chat request | Chat→Messages request | Wire return paths | Messages→Chat return |
+|---|---|---|---|---|---|
+| `message_text` | S | S | C | S | S |
+| `message_roles` | C | C | C | U | U |
+| `function_tools` | C | C | C | C | C |
+| `hosted_tools` | R | R | R | U | U |
+| `tool_choice` | C | C | C | U | U |
+| `parallel_tool_calls` | S | S | C | U | U |
+| `structured_output` | C | C | R | U | U |
+| `image_input` | C | C | C | U | U |
+| `audio` | R | R | R | U | U |
+| `other_modalities` | R | R | R | U | U |
+| `streaming` | S | S | C | C | C |
+| `usage` | U | U | U | C | C |
+| `stateful_fields` | R | R | R | U | U |
+| `reasoning_fields` | C | C | R | U | U |
+| `reasoning_content` | R | R | R | U | U |
+| `cache_controls` | U | U | U | U | U |
+| `token_limits` | C | C | C | U | U |
+| `transport_fields` | C | C | C | U | U |
+| `finish_reasons` | U | U | U | C | C |
+| `refusal` | U | U | U | C | U |
+| `unknown_fields` | R | R | R | U | U |
+
+Important conditions and defaults:
+
+- Function calls/results retain semantic call identifiers. Known schemas and
+  strict flags are forwarded; this does not prove native strict-schema enforcement.
+  Messages parses object-valued argument JSON and defaults missing arguments/schema.
+- Chat system/developer messages collapse into joined wire instructions or a
+  Messages system string. Messages also merges consecutive roles and omits empty
+  turns. These change priority/turn structure; they are **not lossless**.
+- Wire limits change field names without range validation or default insertion.
+  `max_completion_tokens` takes precedence over `max_tokens`. Messages inserts
+  `8192` for absent, nonpositive or noninteger limits; this is semantic defaulting.
+- Wire `stream_options.include_usage` is transport intent retained separately by
+  the outer adapter. Responses streaming inserts upstream `include_usage=true`.
+  Messages drops `stream_options`; its return SSE adapter must separately receive
+  `includeUsage`. Unknown nested stream options are not declared supported.
+  Responses→Chat SSE usage also requires `includeUsage=true`; Chat→Responses SSE
+  needs a terminal usage-only chunk before `DONE`.
+- `n=1`, explicit text output for Messages, and disabled logprobs for Messages
+  are no-ops. Responses `store=false` and null/false stateful sentinels are omitted;
+  `store=true` and active stateful fields are rejected. Empty arrays/objects are
+  not the same as null/false for wire rejection.
+  Messages rejects non-null unknown top-level fields but skips null/undefined
+  values; this skip is not evidence of unknown-feature support.
+- Messages maps required tool choice to `any`; required/named choices need tools.
+  Parallel `false` adds `disable_parallel_tool_use` except with `none`;
+  `true` leaves the upstream default, not guaranteed enablement.
+- Only URL/detail wire images and detail-free HTTPS/base64 Messages images are
+  characterized. Audio/video and other content types are rejected on requests.
+- Wire effort values move opaquely between fields. No effort validity, defaults
+  or model-specific reasoning support is inferred. Messages rejects active reasoning
+  fields. Reasoning token usage adaptation does not establish reasoning-content support.
+- Known finish reasons map to completion/incomplete outcomes. Return Chat function
+  calls take precedence over incomplete status. Messages cache reads/writes join
+  prompt tokens, but cached-token detail reports reads only.
+
+### Known gaps and consumer handoff
+
+[Executable discrepancy fixtures](../containers/api-proxy/fixtures/protocol-compatibility/gaps.js)
+preserve pre-existing behavior without calling it lossless:
+
+- Messages silently clamps out-of-range temperature, filters non-string stop
+  entries, appends assistant refusal as ordinary text, and discards image detail,
+  cache controls and unknown nested fields.
+- Wire nested validation is uneven: unknown outer Chat tool fields can disappear;
+  Responses output-text annotations and schema-format descriptions disappear.
+  Invalid content objects/limit values can also pass without a schema validation.
+- JSON return paths ignore unknown output/reasoning fields; Chat uses only the
+  first choice. Messages ignores thinking/signatures and defaults unknown stop
+  reasons to `stop`. Responses→Chat JSON keeps only the last of multiple refusal
+  parts; only a single JSON refusal part is characterized as retained.
+  Annotation and richer refusal semantics are not established.
+- Wire JSON return adapters replace empty function arguments with `{}`.
+  Responses→Chat SSE drops nonempty arguments on `response.output_item.added`
+  and ignores final function-call items; only argument deltas are forwarded.
+- Messages SSE emits argument deltas but loses nonempty initial `tool_use.input`.
+  Reasoning/signature and unknown events are ignored.
+- EOF alone does not synthesize completion. Messages/Responses malformed SSE JSON
+  is ignored; Chat malformed SSE is returned verbatim. A comment-only Chat frame
+  currently triggers completion. SSE comments and unknown future frames are not
+  declared compatible. Responses `response.incomplete` is currently ignored;
+  only `response.completed` with an incomplete status has a characterized
+  incomplete-completion mapping.
+
+These discrepancies require separately reviewed enforcement/translation follow-up
+under [Phase 6 #10296](https://github.com/github/gh-aw-firewall/issues/10296).
+This slice does not fix or expand translation behavior.
+
+`assessFeature({ source, target, direction, feature })` returns frozen feature
+evidence, not `compatible: true` or a request-level eligibility decision. It accepts
+no request/model catalogue and never dispatches inference, discovers providers,
+selects models or consumes budget. Unknown feature identifiers and unimplemented
+directions return `unknown` with fixed reasons that do not echo caller data.
+Future consumers must extract **all** semantic requirements (including nested
+fields), independently verify conditions and reject/withhold unknown support.
+Successful translation alone cannot replace those checks.
+
+Fallback filtering remains unwired; `/reflect` integration remains tracked by
+[#11322](https://github.com/github/gh-aw-firewall/issues/11322) /
+[#11323](https://github.com/github/gh-aw-firewall/pull/11323).
+This module does not replace [shared reasoning #11319](https://github.com/github/gh-aw-firewall/issues/11319) /
+[#11320](https://github.com/github/gh-aw-firewall/pull/11320).
+Compiler/standalone package distribution and additional runtime consumers are
+deferred to a coordinated additive handoff; no CLI or reflection endpoint is added.
+The provider-free packaging test stages the actual sidecar Docker `COPY` layout,
+not a container/VM or live provider call.
+
+With root dev tooling installed (also needed by the existing npm-package smoke),
+run the characterization and existing translator suites from `containers/api-proxy`:
+`npm test -- --runInBand protocol-compatibility wire-api-compat anthropic-chat-compat`.
+The compile-only fixture `fixtures/protocol-compatibility/contract-types.ts`
+is checked by the packaging suite and can also be checked with the repository's TypeScript compiler using
+`--noEmit --strict --skipLibCheck --target ES2020 --module Node16 --moduleResolution Node16`.
+
 ## Architecture
 
 ```

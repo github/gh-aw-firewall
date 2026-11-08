@@ -86,6 +86,7 @@ COPY guards/ ./guards/
 COPY providers/ ./providers/
 COPY transforms/ ./transforms/
 COPY catalogue-contract/ ./catalogue-contract/
+COPY protocol-compatibility/ ./protocol-compatibility/
 
 # Create non-root user
 RUN addgroup -S apiproxy && adduser -S apiproxy -G apiproxy
