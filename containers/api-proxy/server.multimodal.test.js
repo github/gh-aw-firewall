@@ -34,11 +34,12 @@ function imageRequest(toolImage = PNG) {
   }, null, 2) + '\n');
 }
 
-describe('Copilot Responses multimodal passthrough', () => {
+describe.each(['copilot', 'openai'])('%s Responses multimodal passthrough', provider => {
   const originalHttpProxy = process.env.HTTP_PROXY;
   let proxyCore;
   let createProviderServer;
   let createCopilotAdapter;
+  let createOpenAIAdapter;
   let clearRuntimeModels;
   let proxy;
   let upstream;
@@ -50,6 +51,7 @@ describe('Copilot Responses multimodal passthrough', () => {
     proxyCore = require('./proxy-request');
     ({ createProviderServer } = require('./server-factory'));
     ({ createCopilotAdapter } = require('./providers/copilot'));
+    ({ createOpenAIAdapter } = require('./providers/openai'));
     ({ clearRuntimeModels } = require('./runtime-model-catalog'));
   });
 
@@ -76,9 +78,13 @@ describe('Copilot Responses multimodal passthrough', () => {
       });
     });
     await listen(upstream);
-    const adapter = createCopilotAdapter({
+    const target = `http://127.0.0.1:${upstream.address().port}`;
+    const adapter = provider === 'copilot' ? createCopilotAdapter({
       COPILOT_PROVIDER_API_KEY: 'trusted-sidecar-placeholder',
-      COPILOT_API_TARGET: `http://127.0.0.1:${upstream.address().port}`,
+      COPILOT_API_TARGET: target,
+    }) : createOpenAIAdapter({
+      OPENAI_API_KEY: 'trusted-sidecar-placeholder',
+      OPENAI_API_TARGET: target,
     });
     proxy = createProviderServer(adapter, {
       handleManagementEndpoint: () => false,
@@ -100,10 +106,10 @@ describe('Copilot Responses multimodal passthrough', () => {
     jest.restoreAllMocks();
   });
 
-  function post(body, path = '/responses', chunked = false) {
+  function post(body, path = '/responses', chunked = false, server = proxy) {
     return new Promise((resolve, reject) => {
       const req = http.request({
-        hostname: '127.0.0.1', port: proxy.address().port, method: 'POST', path,
+        hostname: '127.0.0.1', port: server.address().port, method: 'POST', path,
         headers: {
           'content-type': 'application/json',
           authorization: ['Bearer', 'agent-placeholder'].join(' '),
@@ -128,8 +134,14 @@ describe('Copilot Responses multimodal passthrough', () => {
 
   test.each(['/responses', '/v1/responses'])('forwards message/tool images byte-identically on %s', async path => {
     const body = imageRequest();
+    const direct = await post(body, path, false, upstream);
+    const [directRequest] = requests.splice(0);
+    expect(direct.status).toBe(200);
+    expect(directRequest.body).toEqual(body);
+    expect(getStructuredLogs(logs, 'request_shape')).toEqual([]);
     expect((await post(body, path)).status).toBe(200);
     expect(requests).toHaveLength(1);
+    expect(requests[0].body).toEqual(directRequest.body);
     expect(requests[0].body).toEqual(body);
     expect(requests[0].url).toBe(path);
     expect(Number(requests[0].headers['content-length'])).toBe(body.length);
@@ -138,7 +150,7 @@ describe('Copilot Responses multimodal passthrough', () => {
     expect(shapes.map(shape => shape.stage)).toEqual(['inbound', 'upstream']);
     for (const shape of shapes) {
       expect(shape).toMatchObject({
-        level: 'debug', request_id: 'image-test', provider: 'copilot', body_bytes: body.length,
+        level: 'debug', request_id: 'image-test', provider, body_bytes: body.length,
         input_item_types: { message: 1, function_call: 1, function_call_output: 1 },
         content_part_types: { input_text: 1, input_image: 1 },
         tool_output_part_types: { input_text: 1, input_image: 1 },

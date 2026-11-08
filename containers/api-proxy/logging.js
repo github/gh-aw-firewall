@@ -21,11 +21,11 @@ const CONTENT_PART_TYPES = new Set([
 ]);
 
 /**
- * Log Copilot content types/counts without prompts, tool outputs or image data.
+ * Log Copilot/OpenAI content types/counts without prompts, tool outputs or image data.
  * Counts stay bounded in size even for large histories or unrecognized types.
  */
 function logRequestShape(body, provider, requestId, stage) {
-  if (provider !== 'copilot' || body.length === 0) return;
+  if ((provider !== 'copilot' && provider !== 'openai') || body.length === 0) return;
   const parsed = parseBodyAsObject(body);
   const fields = { request_id: requestId, provider, stage, body_bytes: body.length };
   if (!parsed) {
