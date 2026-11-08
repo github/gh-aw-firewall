@@ -678,7 +678,25 @@ jobs:
             const { main } = require(path.join(actionsDir, 'checkout_pr_branch.cjs'));
             await main();
       - name: Install GitHub Copilot CLI
-        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.101 --checksums-sha256 018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be --cooldown-days 3
+        timeout-minutes: 7
+        run: |
+          for attempt in 1 2 3; do
+            install_status=0
+            timeout --foreground --kill-after=10s 90s bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.101 --checksums-sha256 018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be --cooldown-days 3 || install_status=$?
+            if [ "$install_status" -eq 0 ]; then
+              exit 0
+            fi
+            # Retry curl download failures, never verification or installation errors.
+            case "$install_status" in
+              5|6|7|18|22|28|35|52|55|56) ;;
+              *) exit "$install_status" ;;
+            esac
+            if [ "$attempt" -eq 3 ]; then
+              exit "$install_status"
+            fi
+            echo "Copilot CLI download failed (exit $install_status); retrying after attempt $attempt" >&2
+            sleep $((attempt * 30))
+          done
         env:
           GH_HOST: github.com
           GITHUB_TOKEN: ${{ github.token }}
