@@ -200,7 +200,11 @@ function checkRequest(body, contract, add, use) {
           if (!nonempty(item.tool_call_id) || (messages ? typeof item.content !== 'string' : !jsonResult(item.content))) {
             add('function_tools', 'tool_shape_invalid');
           }
-        } else parts(item.content, role);
+        } else if (!(messages && role === 'assistant' && Array.isArray(item.tool_calls) &&
+            item.tool_calls.length > 0 &&
+            (item.content === '' || Array.isArray(item.content) && item.content.length === 0))) {
+          parts(item.content, role);
+        }
         if (present(item, 'tool_call_id') && role !== 'tool') add('function_tools', 'tool_shape_invalid');
         if (present(item, 'tool_calls')) {
           if (role !== 'assistant' || !Array.isArray(item.tool_calls)) add('function_tools', 'tool_shape_invalid');
