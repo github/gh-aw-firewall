@@ -40,6 +40,13 @@ The workflow will:
 - Independently dispatch Cloud Hypervisor Preview Integration on the same tag
   with `run_live_kvm=true` for real primary-agent VM coverage
 
+Squid is compiled separately on native `ubuntu-24.04` (AMD64) and
+`ubuntu-24.04-arm` (ARM64) runners, with architecture-specific build caches.
+Both builds push by digest; the `build-squid` publication job combines them
+into one multi-architecture image under the existing version and `latest`
+tags, then signs and SBOM-attests that combined digest. Downstream release
+artifacts continue to use this digest. Other image builds are unchanged.
+
 ### Release source identity and VM acceptance
 
 Git tags, not `main`'s `package.json`, are the authoritative published versions.
