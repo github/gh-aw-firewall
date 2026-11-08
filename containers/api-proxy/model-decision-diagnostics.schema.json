@@ -27,6 +27,134 @@
     "context": { "enum": ["primary-agent", "dedicated-enclave", "unknown"] },
     "provider": { "enum": ["openai", "anthropic", "copilot", "gemini", "vertex", null] },
     "endpoint": { "enum": ["/chat/completions", "/responses", "/v1/messages", null] },
+    "identity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["provider", "model_id"],
+      "properties": {
+        "provider": { "$ref": "#/definitions/provider" },
+        "model_id": { "type": ["string", "null"], "maxLength": 200, "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" }
+      }
+    },
+    "pins": {
+      "type": "object", "additionalProperties": false,
+      "required": ["eligibility_revision", "catalogue_revision"],
+      "properties": {
+        "eligibility_revision": { "type": ["integer", "null"], "minimum": 0 },
+        "catalogue_revision": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "feature": {
+      "enum": [
+        "message_text", "message_roles", "function_tools", "hosted_tools", "tool_choice",
+        "parallel_tool_calls", "structured_output", "image_input", "audio", "other_modalities",
+        "streaming", "usage", "stateful_fields", "reasoning_fields", "reasoning_content",
+        "cache_controls", "token_limits", "transport_fields", "finish_reasons", "refusal", "unknown_fields"
+      ]
+    },
+    "compatibility": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "outcome", "status", "source", "target", "contract_revision", "assessment_revision",
+        "contracts", "features", "reasons", "pins", "return_conditions"
+      ],
+      "properties": {
+        "outcome": { "enum": ["skipped", "accepted", "exhausted"] },
+        "status": { "enum": ["compatible", "incompatible", "unverified"] },
+        "source": { "enum": ["chat_completions", "responses", "anthropic_messages", null] },
+        "target": { "enum": ["chat_completions", "responses", "anthropic_messages", null] },
+        "contract_revision": { "enum": ["awf-directed-protocol-v1", null] },
+        "assessment_revision": { "enum": ["awf-fallback-assessment-v1", null] },
+        "contracts": {
+          "type": "array", "maxItems": 6,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["id", "revision", "implementation"],
+            "properties": {
+              "id": {
+                "enum": [
+                  "chat-to-responses-request", "responses-to-chat-request", "chat-to-messages-request",
+                  "chat-to-responses-return", "responses-to-chat-return", "messages-to-chat-return"
+                ]
+              },
+              "revision": { "const": "awf-directed-protocol-v1" },
+              "implementation": {
+                "type": "object", "additionalProperties": false,
+                "required": ["file", "sha256"],
+                "properties": {
+                  "file": { "enum": ["wire-api-compat.js", "anthropic-chat-compat.js"] },
+                  "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                }
+              }
+            }
+          }
+        },
+        "features": {
+          "type": "array", "maxItems": 21, "uniqueItems": true,
+          "items": { "$ref": "#/definitions/feature" }
+        },
+        "reasons": {
+          "type": "array", "maxItems": 32,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["feature", "code"],
+            "properties": {
+              "feature": { "$ref": "#/definitions/feature" },
+              "code": {
+                "enum": [
+                  "assessment_limit", "request_shape_unverified", "direction_unimplemented", "implementation_drift",
+                  "condition_unverified", "unknown_required_feature", "unknown_nested_field", "translator_rejected",
+                  "role_priority_loss", "turn_boundary_loss", "content_loss", "refusal_loss",
+                  "tool_shape_invalid", "tool_choice_invalid", "parallel_enablement_unverified",
+                  "structured_output_invalid", "image_fields_lost", "modality_unsupported", "stateful_unsupported",
+                  "reasoning_unsupported", "cache_controls_unverified", "token_limit_invalid", "sampling_altered",
+                  "stream_options_invalid", "response_requirement_unverified", "response_usage_unavailable",
+                  "reasoning_effort_required", "reasoning_effort_forbidden", "reasoning_effort_unsupported",
+                  "reasoning_automatic_requires_known_support", "reasoning_future_effort_not_selectable",
+                  "reasoning_direct_unknown_passthrough", "reasoning_effort_accepted"
+                ]
+              }
+            }
+          }
+        },
+        "pins": { "$ref": "#/definitions/pins" },
+        "return_conditions": { "enum": ["not_applicable", "provider_response_unobserved"] }
+      }
+    },
+    "reasoning": {
+      "type": "object", "additionalProperties": false,
+      "required": ["support", "mode", "reason", "action", "pins"],
+      "properties": {
+        "support": { "enum": ["supported", "unsupported", "unknown", "absent"] },
+        "mode": { "enum": ["optional", "required", "forbidden", "unknown"] },
+        "reason": {
+          "enum": [
+            "reasoning_effort_required", "reasoning_automatic_requires_known_support",
+            "reasoning_effort_forbidden", "reasoning_effort_unsupported",
+            "reasoning_future_effort_not_selectable", "reasoning_direct_unknown_passthrough",
+            "reasoning_effort_accepted"
+          ]
+        },
+        "action": { "$ref": "#/definitions/decision/properties/action" },
+        "pins": { "$ref": "#/definitions/pins" },
+        "selected_evidence": {
+          "type": "array", "maxItems": 16,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["authority", "source"],
+            "properties": {
+              "authority": { "enum": ["provider", "maintained"] },
+              "source": { "enum": ["provider-model-list", "model-api-mapping"] },
+              "field": {
+                "enum": [
+                  "supportedReasoningEfforts", "capabilities.supports.reasoning_effort",
+                  "capabilities.supports.reasoningEffort", "capabilities.supports", "routing.reasoningEfforts"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     "summary": {
       "type": "object",
       "additionalProperties": false,
@@ -73,7 +201,8 @@
             "harness_constraint_invalid", "harness_selection_invalid", "harness_observation_invalid",
             "lifecycle_retired", "lifecycle_removed", "discovery_unavailable", "discovery_unknown",
             "identity_scope_mismatch", "pricing_resolution_error", "direct_pricing", "estimated_pricing",
-            "fallback_pricing", "pricing_unknown", "decision_unknown"
+            "fallback_pricing", "pricing_unknown", "decision_unknown",
+            "fallback_compatible", "fallback_incompatible", "fallback_unverified", "fallback_exhausted"
           ]
         },
         "explanation": { "type": "string", "maxLength": 400 },
@@ -108,6 +237,9 @@
             "omission_supported": { "const": null }
           }
         },
+        "origin": { "$ref": "#/definitions/identity" },
+        "compatibility": { "$ref": "#/definitions/compatibility" },
+        "reasoning": { "$ref": "#/definitions/reasoning" },
         "pricing": {
           "type": "object", "additionalProperties": false,
           "required": ["basis", "donor_count", "budget_accounted"],

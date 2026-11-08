@@ -131,7 +131,7 @@ test('production policy guard records denial without publishing hidden inventory
   expect(requestSpy).not.toHaveBeenCalled();
 });
 
-test('real fallback effort rejection cannot become unsupported-effort evidence against the initial model', async () => {
+test('real fallback effort skip and exhaustion cannot reject the initial model or dispatch the candidate', async () => {
   process.env.AWF_FALLBACK_MODELS = JSON.stringify(['initial-model', 'fallback-model']);
   load();
   serverModule.cachedModels.copilot = ['initial-model', 'fallback-model'];
@@ -153,12 +153,21 @@ test('real fallback effort rejection cannot become unsupported-effort evidence a
   failure.emit('data', Buffer.from(JSON.stringify({ error: { code: 'model_not_supported' } })));
   failure.emit('end');
   await flushPromises();
-  expect(res.statusCode).toBe(400);
-  expect(JSON.parse(res.body).error).toMatchObject({ code: 'unsupported_reasoning_effort' });
-  expect(JSON.parse(res.body).error.message).toContain('fallback-model');
-  expect(getReflection(server).model_decision_diagnostics.recent.decisions[0]).toMatchObject({
-    reason: 'unsupported_reasoning_effort', identity: { provider: 'copilot', model_id: null },
+  expect(res.statusCode).toBe(502);
+  expect(JSON.parse(res.body).error).toMatchObject({ code: 'model_fallback_exhausted' });
+  const diagnostics = getReflection(server).model_decision_diagnostics;
+  expect(diagnostics.recent.decisions[0]).toMatchObject({
+    reason: 'fallback_incompatible', identity: { provider: 'copilot', model_id: 'fallback-model' },
+    origin: { provider: 'copilot', model_id: 'initial-model' },
+    compatibility: { outcome: 'skipped', reasons: [
+      { feature: 'reasoning_fields', code: 'reasoning_effort_unsupported' },
+    ] },
+    action: { retry: 'do_not_repeat' },
   });
+  expect(diagnostics.recent.decisions[1]).toMatchObject({
+    reason: 'fallback_exhausted', identity: { provider: null, model_id: null },
+  });
+  expect(diagnostics.recent.decisions.some(item => item.reason === 'unsupported_reasoning_effort')).toBe(false);
   expect(requestSpy).toHaveBeenCalledTimes(1);
 });
 

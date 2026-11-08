@@ -39,10 +39,29 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
       input: 'edit a file',
     }));
 
-    const result = await transformRequestBody(body, 'copilot', { method: 'POST', url: '/responses' }, 'req-2', null);
+    const req = { method: 'POST', url: '/responses' };
+    const result = await transformRequestBody(body, 'copilot', req, 'req-2', null);
 
     expect(result.codexCompatibility.customTools.has('apply_patch')).toBe(true);
     expect(json(result.body).tools).toEqual([APPLY_PATCH_FUNCTION_TOOL]);
+    expect(json(req.awfFallbackSourceBody).tools).toEqual([APPLY_PATCH_FUNCTION_TOOL]);
+  });
+
+  test('fallback source retains pre-wire semantic fields without changing primary translation', async () => {
+    replaceRuntimeModels('copilot', [{ id: 'response-only', supportedEndpoints: ['/responses'] }]);
+    try {
+      const req = { method: 'POST', url: '/chat/completions' };
+      const body = Buffer.from(JSON.stringify({ model: 'response-only', messages: [
+        { role: 'developer', content: 'priority instruction' }, { role: 'user', content: 'hello' },
+      ] }));
+      const result = await transformRequestBody(body, 'copilot', req, 'primary-wire', null);
+      expect(json(result.body).instructions).toBe('priority instruction');
+      expect(json(req.awfFallbackSourceBody).messages[0].role).toBe('developer');
+      expect(req.awfFallbackSourceBody).not.toBe(body);
+      expect(require('./protocol-compatibility/assessment').assessRequestCompatibility({
+        body: req.awfFallbackSourceBody, source: 'chat_completions', target: 'responses',
+      }).status).toBe('incompatible');
+    } finally { clearRuntimeModels(); }
   });
 
   describe('transformRequestBody steering delivery', () => {

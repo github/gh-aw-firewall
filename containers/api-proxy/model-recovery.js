@@ -15,6 +15,8 @@ const {
   evaluateModelEligibility, isModelEligible, isModelHarnessEligible, getAliasEligibilityRejection,
   getModelEligibilityScope,
 } = require('./model-eligibility');
+const { assessRequestCompatibility } = require('./protocol-compatibility/assessment');
+const { getRequestReasoning } = require('./model-reasoning');
 
 const MAX_AUTOMATIC_RECOVERIES = 3;
 
@@ -88,7 +90,9 @@ function isRecoveryCompatible(record, provider, parsed, url, originalRecord) {
   if (original?.contextWindow && (!model.contextWindow || model.contextWindow < original.contextWindow)) return false;
   const outputLimit = record.capabilities?.limits?.max_output_tokens;
   const originalOutputLimit = originalRecord?.capabilities?.limits?.max_output_tokens;
-  const requestedOutput = parsed.max_tokens ?? parsed.max_completion_tokens ?? parsed.max_output_tokens;
+  const requestedOutput = protocol === 'chat-completions'
+    ? parsed.max_completion_tokens ?? parsed.max_tokens
+    : parsed.max_tokens ?? parsed.max_completion_tokens ?? parsed.max_output_tokens;
   const requiredOutput = requestedOutput ??
     (Number.isFinite(originalOutputLimit) ? originalOutputLimit : undefined);
   if (requiredOutput !== undefined &&
@@ -211,16 +215,56 @@ function recoverRequestModel(body, provider, req, requestId, logRequest) {
   const state = getModelUnavailability(parsed.model, provider, req);
   if (!state) return null;
   if (getCurrentGuardChecks(null, provider).some(guard => guard.isBlocked(guard.block))) return null;
-  const candidates = getAutomaticRecoveryCandidates({ model: parsed.model, provider, body, url: req.url, req });
-  if (candidates.length === 0) {
-    const error = new Error(`Model '${sanitizeForLog(parsed.model)}' is retired or unavailable and no compatible policy-permitted replacement is available`);
+  const fromModel = parsed.model;
+  const protocol = protocolForUrl(req.url);
+  const source = protocol === 'chat-completions' ? 'chat_completions'
+    : protocol === 'messages' ? 'anthropic_messages' : protocol;
+  const endpoint = protocol === 'chat-completions' ? '/chat/completions'
+    : protocol === 'messages' ? '/v1/messages' : '/responses';
+  const pins = { eligibilityRevision: req.awfEligibility?.revision, catalogueRevision: req.awfCatalogue?.revision };
+  const observe = (model, outcome, compatibility, reasoning) => {
+    if (typeof req.awfObserveModelDecision !== 'function') return;
+    try {
+      req.awfObserveModelDecision({
+        provider, model: outcome === 'exhausted' ? null : model, endpoint,
+        originProvider: provider, originModel: fromModel, outcome, compatibility,
+        reason: outcome === 'exhausted' ? 'fallback_exhausted' : `fallback_${compatibility.status}`,
+        ...pins, reasoning,
+      });
+    } catch {
+      // Optional diagnostics cannot affect model admission.
+    }
+  };
+  const candidates = getAutomaticRecoveryCandidates({ model: fromModel, provider, body, url: req.url, req });
+  let selected = null;
+  let lastAssessment = null;
+  let lastReasoning = null;
+  for (const model of candidates) {
+    const reasoning = getRequestReasoning(model, provider, req.awfRuntimePricing, req, req.awfFallbackTarget || {});
+    const compatibility = assessRequestCompatibility({
+      body, source, target: source, candidate: { provider, model }, pins, reasoning,
+    });
+    lastAssessment = compatibility;
+    lastReasoning = reasoning;
+    if (compatibility.status !== 'compatible') {
+      observe(model, 'skipped', compatibility, reasoning);
+      continue;
+    }
+    observe(model, 'accepted', compatibility, reasoning);
+    selected = model;
+    break;
+  }
+  if (!selected) {
+    observe(null, 'exhausted', lastAssessment || assessRequestCompatibility({
+      body, source, target: source, candidate: { provider, model: null }, pins,
+    }), lastReasoning);
+    const error = new Error(`Model '${sanitizeForLog(fromModel)}' is retired or unavailable and no compatible policy-permitted replacement is available`);
     error.statusCode = 400;
     error.type = state.reason === 'retired_model' ? 'retired_model' : 'invalid_request_error';
     error.code = 'model_recovery_exhausted';
     throw error;
   }
-  const fromModel = parsed.model;
-  parsed.model = candidates[0];
+  parsed.model = selected;
   req.awfRecoveryAttempts = [{ provider, model: fromModel }, { provider, model: parsed.model }];
   recordModelRecovery({
     req, provider, requestedModel: req.awfRequestedModelSelector || fromModel,

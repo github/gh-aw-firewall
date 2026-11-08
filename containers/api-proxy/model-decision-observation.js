@@ -1,18 +1,27 @@
 'use strict';
 
 const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
+const { getReasoningScope } = require('./model-reasoning');
 const {
   MAX_RECENT, RETENTION_SECONDS, endpointFor, modelId, revision, observedAt,
-  projectCapturedEligibility,
+  projectCapturedEligibility, sanitizeModelDecisionRecord,
 } = require('./model-decision-diagnostics');
 
 const MAX_LOCAL_RESPONSE_BYTES = 16_384;
 
+function freezeRecord(record) {
+  for (const value of Object.values(record)) {
+    if (value && typeof value === 'object') freezeRecord(value);
+  }
+  return Object.freeze(record);
+}
+
 /**
- * A bounded projection of local responses and already captured request pins.
+ * A bounded projection of local responses and explicit production decisions.
  * Routing's existing observer only covers routed runs and persists private
  * logs, not a management-safe decision view. Never read those logs or inspect
- * provider payloads here; never retain a request, body, header, or identifier.
+ * provider payloads here; upstream outcomes arrive through a sanitized callback.
+ * Never retain a request, body, header, or identifier.
  */
 function createModelDecisionObservation({ context = 'unknown', getModels = () => ({}),
   modelPolicy = null, now = Date.now } = {}) {
@@ -31,10 +40,27 @@ function createModelDecisionObservation({ context = 'unknown', getModels = () =>
     if (entries.size > MAX_RECENT) entries.delete(entries.keys().next().value);
   }
 
-  function capture(req, provider, endpoint, error, publish) {
+  function eligibleContext(req) {
     if (req.awfRequestContext?.purpose && req.awfRequestContext.purpose !== 'agent') return;
     if (req.awfCaller?.purpose === 'subagent') return;
     if (req.awfEligibilityScope?.deployment !== undefined) return;
+    for (const scope of [req.awfReasoning?.scope,
+      req.awfSelectedModelEligibility?.decision?.scope, req.awfAliasEligibilityRejection?.decision?.scope]) {
+      if (scope?.deployment !== undefined) return;
+    }
+    return true;
+  }
+
+  function visibleModel(provider, candidate) {
+    const model = modelId(candidate);
+    const models = getModels()[provider];
+    return model && Array.isArray(models) && models.includes(model) &&
+      isModelPermittedByPolicy(model, modelPolicy?.allowedModels ?? null,
+        modelPolicy?.disallowedModels ?? null, provider) ? model : null;
+  }
+
+  function capture(req, provider, endpoint, error, publish) {
+    if (!eligibleContext(req)) return;
     // The listener does not establish a cross-provider fallback's rejecting scope.
     if (req.awfModelFallback && req.awfModelFallback.provider !== provider) return;
     const selected = req.awfAliasEligibilityRejection || req.awfSelectedModelEligibility;
@@ -80,19 +106,31 @@ function createModelDecisionObservation({ context = 'unknown', getModels = () =>
     // The initial selection is not the identity of a later fallback attempt.
     // Only a structured identity on the rejecting response can name it.
     const requestedModel = reason === 'policy_denied' ? null : modelId(error.model);
-    const models = getModels()[provider];
-    const visible = requestedModel && Array.isArray(models) && models.includes(requestedModel) &&
-      isModelPermittedByPolicy(requestedModel, modelPolicy?.allowedModels ?? null,
-        modelPolicy?.disallowedModels ?? null, provider);
-    publish({ ...pins, reason, model: visible ? requestedModel : null,
+    publish({ ...pins, reason, model: visibleModel(provider, requestedModel),
       rejected: reason !== 'pricing_resolution_error' });
   }
 
-  function observeRequest(req, res, provider) {
+  function observeRequest(req, res, provider, targetHost, targetScheme) {
     const pathname = typeof req.url === 'string' ? req.url.split(/[?#]/, 1)[0].replace(/\/+$/, '') : null;
     const endpoint = endpointFor(pathname);
     if (!enabled || req.method !== 'POST' || !endpoint || typeof res.once !== 'function') return;
+    if (!eligibleContext(req) ||
+        getReasoningScope(provider, targetHost, targetScheme, req).deployment !== undefined) return;
     let pending = [];
+    let capturedDecisions = [];
+    let completed = false;
+    req.awfObserveModelDecision = record => {
+      try {
+        if (completed || !eligibleContext(req)) return;
+        const sanitized = sanitizeModelDecisionRecord(record, { visibleModel, endpoint });
+        if (!sanitized) return;
+        capturedDecisions.push(freezeRecord({ ...sanitized,
+          observedAt: observedAt(new Date(now()).toISOString()) }));
+        if (capturedDecisions.length > MAX_RECENT) capturedDecisions.shift();
+      } catch {
+        // Optional diagnostics cannot alter dispatch or retain unsafe input.
+      }
+    };
     const originalEnd = res.end;
     res.end = function(chunk, encoding, callback) {
       try {
@@ -102,7 +140,10 @@ function createModelDecisionObservation({ context = 'unknown', getModels = () =>
           const error = JSON.parse(chunk.toString()).error;
           // Capture only our allowlisted decision fields; the parsed response
           // and any message text go out of scope before the original end().
-          capture(req, provider, endpoint, error, record => pending.push(record));
+          capture(req, provider, endpoint, error, record => {
+            pending.push(record);
+            if (pending.length > MAX_RECENT) pending.shift();
+          });
         }
       } catch {
         // Diagnostics must never change response bytes, accounting, or errors.
@@ -112,13 +153,23 @@ function createModelDecisionObservation({ context = 'unknown', getModels = () =>
     // No outcome is published for an aborted or unfinished response.
     res.once('finish', () => {
       try {
-        if (!res.awfUpstreamResponse) pending.forEach(retain);
+        if (completed) return;
+        completed = true;
+        if (eligibleContext(req)) {
+          if (!res.awfUpstreamResponse) pending.forEach(retain);
+          capturedDecisions.forEach(retain);
+        }
       } catch {
         // Observation failure must not change the live response.
       }
       pending = [];
+      capturedDecisions = [];
     });
-    res.once('close', () => { pending = []; });
+    res.once('close', () => {
+      completed = true;
+      pending = [];
+      capturedDecisions = [];
+    });
   }
 
   return Object.freeze({
@@ -126,11 +177,11 @@ function createModelDecisionObservation({ context = 'unknown', getModels = () =>
       if (!enabled) return null;
       const time = now();
       return [...entries.values()].filter(entry => time - entry.time <= RETENTION_SECONDS * 1000)
-        .map(entry => ({ ...entry.record }));
+        .map(entry => structuredClone(entry.record));
     },
     wrapProxyRequest(proxyRequest) {
       return function(req, res, ...args) {
-        observeRequest(req, res, args[2]);
+        observeRequest(req, res, args[2], args[0], args[6]);
         return proxyRequest(req, res, ...args);
       };
     },

@@ -71,6 +71,15 @@ function protocolForPath(path) {
   return null;
 }
 
+function getFallbackUpstreamEndpoint(provider, model, endpoint, preserveEndpoint = false) {
+  if (provider !== 'copilot' || preserveEndpoint || !protocolForPath(endpoint) ||
+      protocolForPath(endpoint) === 'messages') return endpoint;
+  const minimal = protocolForPath(endpoint) === 'responses' ? { model, input: [] } : { model, messages: [] };
+  // Ask the shipped translator's routing logic without risking a feature rejection before assessment.
+  const planned = translateCopilotWireApi(Buffer.from(JSON.stringify(minimal)), endpoint);
+  return planned?.compatibility.upstreamEndpoint || endpoint;
+}
+
 /**
  * Explain why a cross-provider candidate cannot be routed, or return null when
  * it can.
@@ -137,9 +146,11 @@ function pinModel(body, model) {
  * @param {import('http').IncomingMessage} params.req - Agent request
  * @param {string} params.requestId
  * @param {boolean} [params.codexCompatibility] - Whether a Codex response transform will run
+ * @param {Function} [params.assessCompatibility] - Request-scoped concrete-endpoint admission callback
  * @returns {Promise<{
  *   body: Buffer, headers: object, targetHost: string, upstreamPath: string,
  *   requestSigner: Function|null, targetScheme: string,
+ *   upstreamEndpoint: string, compatibilityAssessment: object|null,
  *   wireApiCompatibility: object|null, wireApiSourceBody: Buffer|null,
  *   protocolTranslation: object, substitutedModel: string|null,
  * }>}
@@ -147,13 +158,31 @@ function pinModel(body, model) {
  */
 async function buildCrossProviderRequest({
   sourceBody, protocol, originProvider, targetProvider, model, adapter, req, requestId,
-  codexCompatibility = false,
+  codexCompatibility = false, assessCompatibility = null,
 }) {
   const endpoint = TARGET_ENDPOINTS[targetProvider]?.[protocol];
   if (!endpoint) throw new Error(`Provider ${targetProvider} cannot serve ${protocol} requests`);
   const parsed = parseBodyAsObject(sourceBody);
   if (!parsed) throw new Error('Request body is not a JSON object');
   parsed.model = model;
+  const targetHost = adapter.getTargetHost(req);
+  const targetScheme = typeof adapter.getTargetScheme === 'function' ? adapter.getTargetScheme(req) : 'https';
+  const plannedEndpoint = getFallbackUpstreamEndpoint(targetProvider, model, endpoint);
+  let compatibilityAssessment = null;
+  const checkCompatibility = upstreamEndpoint => {
+    if (!assessCompatibility) return;
+    compatibilityAssessment = assessCompatibility({
+      upstreamEndpoint, targetHost, targetScheme,
+      upstreamPath: buildUpstreamPath(upstreamEndpoint, targetHost, adapter.getBasePath(req) || ''),
+    });
+    if (compatibilityAssessment.status !== 'compatible') {
+      const error = new Error('Fallback request compatibility was not established');
+      error.code = 'fallback_compatibility_rejected';
+      error.compatibility = compatibilityAssessment;
+      throw error;
+    }
+  };
+  checkCompatibility(plannedEndpoint);
 
   const transformReq = {
     method: req.method,
@@ -196,8 +225,8 @@ async function buildCrossProviderRequest({
     }
   }
 
-  const targetHost = adapter.getTargetHost(req);
   const upstreamPath = buildUpstreamPath(upstreamEndpoint, targetHost, adapter.getBasePath(req) || '');
+  if (upstreamEndpoint !== plannedEndpoint) checkCompatibility(upstreamEndpoint);
   const protocolTranslation = {
     kind,
     originProvider,
@@ -227,7 +256,9 @@ async function buildCrossProviderRequest({
     targetHost,
     upstreamPath,
     requestSigner: typeof adapter.getRequestSigner === 'function' ? adapter.getRequestSigner() : null,
-    targetScheme: typeof adapter.getTargetScheme === 'function' ? adapter.getTargetScheme(req) : 'https',
+    targetScheme,
+    upstreamEndpoint,
+    compatibilityAssessment,
     wireApiCompatibility,
     wireApiSourceBody,
     protocolTranslation,
@@ -280,6 +311,7 @@ module.exports = {
   CROSS_PROVIDER_TARGETS,
   TARGET_ENDPOINTS,
   protocolForPath,
+  getFallbackUpstreamEndpoint,
   getCrossProviderRejection,
   buildCrossProviderRequest,
   needsResponseTranslation,

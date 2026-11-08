@@ -53,6 +53,7 @@ afterEach(() => {
 
 async function start(body = { model: 'gpt-5-codex', messages: [] }, provider = 'copilot', path = '/v1/chat/completions', options = {}) {
   const req = makeReq(path, options.headers);
+  Object.assign(req, options.req || {});
   const res = makeRes();
   proxyRequest(req, res, options.host || 'api.githubcopilot.com', {}, provider, '', options.transform || null);
   const bytes = Buffer.from(JSON.stringify(body));
@@ -429,7 +430,7 @@ test.each([
   expect(requests).toHaveLength(1);
 });
 
-test('does not auto-recover unsupported inference endpoints but honors explicit chains', async () => {
+test('does not dispatch uncharacterized replacement protocols even with explicit chains', async () => {
   catalog.replaceRuntimeModels('copilot', [record('primary'), record('next')]);
   const { res } = await start({ model: 'primary', input: 'query' }, 'copilot', '/v1/embeddings');
   await reject(0, 400, 'model_not_supported');
@@ -441,17 +442,16 @@ test('does not auto-recover unsupported inference endpoints but honors explicit 
   responses = [];
   catalog.replaceRuntimeModels('openai', [record('primary'), record('next')]);
   expect(require('./model-fallback-chain').getFallbackModels()).toEqual(['next']);
-  const { req } = await start(
+  const { req, res: explicitRes } = await start(
     { model: 'primary', input: 'query' },
     'openai',
     '/v1/embeddings',
     { host: 'api.openai.com' },
   );
   await reject(0, 400, 'model_not_supported');
-  expect(requests).toHaveLength(2);
-  expect(req.awfModelFallback).toMatchObject({ model: 'next' });
-  expect(JSON.parse(sent(1)).model).toBe('next');
-  expect(requests[1].options.path).toBe('/v1/embeddings');
+  expect(requests).toHaveLength(1);
+  expect(req.awfModelFallback).toBeUndefined();
+  expect(explicitRes.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
 });
 
 test('validates retry effort against the captured runtime catalogue', async () => {
@@ -510,4 +510,185 @@ test('does not infer deployment unavailability from a custom provider catalog', 
   expect(sent()).toEqual(bytes);
   await reject(0, 404, 'model_not_found');
   expect(JSON.parse(sent(1)).model).toBe('available');
+});
+
+test.each(['unverified', 'incompatible'])('pre-dispatch recovery skips a shared %s reasoning decision and follows approved order', async status => {
+  catalog.replaceRuntimeModels('copilot', [record('gpt-5.3-codex'), record('compatible')]);
+  const { resolveModelReasoning } = require('./model-reasoning');
+  const awfReasoning = resolveModelReasoning('gpt-5.3-codex', 'copilot', {
+    records: status === 'unverified' ? [] : [record('gpt-5.3-codex', { supportedReasoningEfforts: [] })],
+    maintained: false,
+  });
+  const observe = jest.fn();
+  const body = { model: 'gpt-5-codex', messages: [{ role: 'user', content: 'PRIVATE_PROMPT' }], reasoning_effort: 'high' };
+  const { req } = await start(body, 'copilot', '/chat/completions', {
+    req: { awfReasoning, awfObserveModelDecision: observe },
+  });
+  expect(requests).toHaveLength(1);
+  expect(JSON.parse(sent())).toEqual({ ...body, model: 'compatible' });
+  expect(observe.mock.calls.map(([r]) => [r.model, r.outcome, r.compatibility.status])).toEqual([
+    ['gpt-5.3-codex', 'skipped', status], ['compatible', 'accepted', 'compatible'],
+  ]);
+  expect(observe.mock.calls[0][0]).toMatchObject({
+    originProvider: 'copilot', originModel: 'gpt-5-codex', endpoint: '/chat/completions',
+    eligibilityRevision: req.awfEligibility.revision, catalogueRevision: req.awfCatalogue?.revision,
+  });
+  expect(req.awfRecoveryAttempts).toEqual([
+    { provider: 'copilot', model: 'gpt-5-codex' }, { provider: 'copilot', model: 'compatible' },
+  ]);
+  expect(JSON.stringify(observe.mock.calls)).not.toContain('PRIVATE_PROMPT');
+});
+
+test('pre-dispatch recovery exhausts future efforts without sending inference or changing its public error', async () => {
+  catalog.replaceRuntimeModels('copilot', [
+    record('gpt-5.3-codex', { supportedReasoningEfforts: ['future-effort'] }),
+    record('compatible', { supportedReasoningEfforts: ['future-effort'] }),
+  ]);
+  const observe = jest.fn();
+  const { req, res } = await start({
+    model: 'gpt-5-codex', messages: [], reasoning_effort: 'future-effort',
+  }, 'copilot', '/chat/completions', { req: { awfObserveModelDecision: observe } });
+  expect(requests).toHaveLength(0);
+  expect(observe.mock.calls.map(([r]) => [r.model, r.outcome])).toEqual([
+    ['gpt-5.3-codex', 'skipped'], ['compatible', 'skipped'], [null, 'exhausted'],
+  ]);
+  expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+  expect(JSON.parse(res.end.mock.calls[0][0]).error.code).toBe('model_recovery_exhausted');
+  expect(req.awfRecoveryAttempts).toBeUndefined();
+  expect(req.awfModelFallback).toBeUndefined();
+});
+
+test('pre-dispatch recovery accepts unknown native reasoning omission but never emits for a valid direct request', async () => {
+  const records = [record('gpt-5.3-codex', { supportedReasoningEfforts: undefined })];
+  catalog.replaceRuntimeModels('copilot', records);
+  const observe = jest.fn();
+  await start({ model: 'gpt-5-codex', messages: [] }, 'copilot', '/chat/completions', {
+    req: { awfObserveModelDecision: observe },
+  });
+  expect(JSON.parse(sent()).model).toBe('gpt-5.3-codex');
+  expect(observe.mock.calls[0][0]).toMatchObject({
+    outcome: 'accepted', reason: 'fallback_compatible', reasoning: { support: 'unknown' },
+  });
+  const directObserve = jest.fn();
+  const { bytes } = await start({ model: 'gpt-5.3-codex', messages: [] }, 'copilot', '/chat/completions', {
+    req: { awfObserveModelDecision: directObserve },
+  });
+  expect(sent(1)).toEqual(bytes);
+  expect(directObserve).not.toHaveBeenCalled();
+});
+
+test('bounded assessment blocks deeply nested automatic replacement but leaves the same direct request untouched', async () => {
+  catalog.replaceRuntimeModels('copilot', [record('gpt-5.3-codex')]);
+  let schema = { type: 'string' };
+  for (let i = 0; i < 40; i++) schema = { type: 'object', properties: { next: schema } };
+  const fields = { messages: [], tools: [{ type: 'function', function: { name: 'check', parameters: schema } }] };
+  const observe = jest.fn();
+  const { res } = await start({ model: 'gpt-5-codex', ...fields }, 'copilot', '/chat/completions', {
+    req: { awfObserveModelDecision: observe },
+  });
+  expect(requests).toHaveLength(0);
+  expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+  expect(observe.mock.calls.map(([r]) => r.outcome)).toEqual(['skipped', 'exhausted']);
+  expect(observe.mock.calls[0][0].compatibility.reasons).toContainEqual({
+    feature: 'unknown_fields', code: 'assessment_limit',
+  });
+  const { bytes } = await start({ model: 'gpt-5.3-codex', ...fields });
+  expect(sent()).toEqual(bytes);
+});
+
+test('pre-dispatch recovery and later fallback retain the same original native model identity', async () => {
+  load({ AWF_FALLBACK_MODELS: 'other' });
+  catalog.replaceRuntimeModels('copilot', [record('gpt-5.3-codex'), record('other')]);
+  const observe = jest.fn();
+  await start({ model: 'copilot/gpt-5-codex', messages: [] }, 'copilot', '/chat/completions', {
+    req: { awfObserveModelDecision: observe },
+  });
+  await reject(0, 503, 'overloaded');
+  expect(requests).toHaveLength(2);
+  expect(observe.mock.calls.map(([r]) => [r.model, r.originModel])).toEqual([
+    ['gpt-5.3-codex', 'gpt-5-codex'], ['other', 'gpt-5-codex'],
+  ]);
+});
+
+test('pre-dispatch recovery skips a known required omission using the shared pinned decision', async () => {
+  catalog.replaceRuntimeModels('copilot', [record('gpt-5.3-codex'), record('compatible')]);
+  const { resolveReasoning } = require('./catalogue-contract/reasoning');
+  const { identity } = require('./catalogue-contract/identity');
+  const modelIdentity = identity('copilot', 'gpt-5.3-codex');
+  const scope = { provider: 'copilot', channel: 'copilot-api' };
+  const awfReasoning = resolveReasoning({
+    identity: modelIdentity, scope, facts: [{
+      identity: modelIdentity, scope, active: true, authority: 'provider',
+      support: 'supported', mode: 'required', rawEfforts: ['high'],
+    }],
+  });
+  const observe = jest.fn();
+  await start({ model: 'gpt-5-codex', messages: [] }, 'copilot', '/chat/completions', {
+    req: { awfReasoning, awfObserveModelDecision: observe },
+  });
+  expect(JSON.parse(sent()).model).toBe('compatible');
+  expect(observe.mock.calls[0][0]).toMatchObject({
+    outcome: 'skipped', reason: 'fallback_incompatible',
+    compatibility: { reasoning: { support: 'supported', mode: 'required', code: 'reasoning_effort_required' } },
+  });
+});
+
+test('pre-dispatch reasoning checks use the trusted concrete target scope instead of native defaults', async () => {
+  catalog.replaceRuntimeModels('copilot', [record('gpt-5.3-codex')]);
+  const observe = jest.fn();
+  const host = 'deployment.example.test';
+  const { res } = await start({
+    model: 'gpt-5-codex', messages: [], reasoning_effort: 'high',
+  }, 'copilot', '/chat/completions', {
+    host, req: { awfFallbackTarget: { targetHost: host, targetScheme: 'https' }, awfObserveModelDecision: observe },
+  });
+  expect(requests).toHaveLength(0);
+  expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+  expect(observe.mock.calls[0][0]).toMatchObject({
+    outcome: 'skipped', reason: 'fallback_unverified',
+    reasoning: { scope: { deployment: `https://${host}` } },
+  });
+});
+
+test('pre-dispatch recovery remains successful when optional observation throws', async () => {
+  catalog.replaceRuntimeModels('copilot', [record('gpt-5.3-codex')]);
+  await start(undefined, 'copilot', '/chat/completions', {
+    req: { awfObserveModelDecision: () => { throw new Error('diagnostics failed'); } },
+  });
+  expect(requests).toHaveLength(1);
+  expect(JSON.parse(sent()).model).toBe('gpt-5.3-codex');
+});
+
+test('pre-dispatch native recovery honors Chat completion-limit precedence without weakening candidate limits', async () => {
+  const boundedRecord = (id, maxOutput) => record(id, {
+    capabilities: { supports: { tool_calls: true }, limits: { max_output_tokens: maxOutput } },
+  });
+  catalog.replaceRuntimeModels('copilot', [
+    boundedRecord('gpt-5.3-codex', 50), boundedRecord('compatible', 150),
+  ]);
+  const body = { model: 'gpt-5-codex', messages: [], max_tokens: 10, max_completion_tokens: 100 };
+  await start(body);
+  expect(JSON.parse(sent())).toEqual({ ...body, model: 'compatible' });
+});
+
+test('pre-dispatch assessment retains runtime pins across an asynchronous transform and catalogue refresh', async () => {
+  catalog.replaceRuntimeModels('copilot', [record('gpt-5.3-codex', { supportedReasoningEfforts: ['high'] })]);
+  const observe = jest.fn();
+  const { req } = await start({
+    model: 'gpt-5-codex', messages: [], reasoning_effort: 'high',
+  }, 'copilot', '/chat/completions', {
+    req: { awfObserveModelDecision: observe },
+    transform: async body => {
+      catalog.replaceRuntimeModels('copilot', [record('gpt-5.3-codex', { supportedReasoningEfforts: ['low'] })]);
+      return body;
+    },
+  });
+  expect(JSON.parse(sent())).toMatchObject({ model: 'gpt-5.3-codex', reasoning_effort: 'high' });
+  expect(req.awfRuntimePricing.copilot[0].supportedReasoningEfforts).toEqual(['high']);
+  expect(observe.mock.calls[0][0]).toMatchObject({
+    outcome: 'accepted', reasoning: { supportedEfforts: ['high'] },
+    compatibility: { pins: {
+      eligibilityRevision: req.awfEligibility.revision, catalogueRevision: req.awfCatalogue?.revision ?? null,
+    } },
+  });
 });

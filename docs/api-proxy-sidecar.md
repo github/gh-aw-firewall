@@ -173,24 +173,30 @@ preserve pre-existing behavior without calling it lossless:
   only `response.completed` with an incomplete status has a characterized
   incomplete-completion mapping.
 
-These discrepancies require separately reviewed enforcement/translation follow-up
-under [Phase 6 #10296](https://github.com/github/gh-aw-firewall/issues/10296).
-This slice does not fix or expand translation behavior.
+Automatic fallback assessment now withholds requests requiring these known
+losses or unverified conditions. The translators and their characterization
+fixtures remain unchanged; broader translation support remains follow-up work.
 
 `assessFeature({ source, target, direction, feature })` returns frozen feature
 evidence, not `compatible: true` or a request-level eligibility decision. It accepts
 no request/model catalogue and never dispatches inference, discovers providers,
 selects models or consumes budget. Unknown feature identifiers and unimplemented
 directions return `unknown` with fixed reasons that do not echo caller data.
-Future consumers must extract **all** semantic requirements (including nested
-fields), independently verify conditions and reject/withhold unknown support.
-Successful translation alone cannot replace those checks.
+The shared [request assessment](../containers/api-proxy/protocol-compatibility/assessment.js)
+evaluates captured request fields and combinations for the concrete implemented
+request/return plan. Successful translation alone cannot replace these checks.
+It is pure and bounded (10 MiB captured JSON, 8,192 inspected values, depth 32).
+Limit exhaustion is **unverified**, not permission. It records only fixed
+feature/reason codes, candidate identity, and revision pins, never content.
+The consumer pins `awf-fallback-assessment-v1`, the contract digest, and the
+translator hashes. A mismatch with shipped bytes withholds automatic translation
+as `implementation_drift`; revising an implementation requires reviewed contract
+and consumer pins rather than silently authorizing stale evidence.
 
-Fallback filtering remains unwired; `/reflect` integration remains tracked by
-[#11322](https://github.com/github/gh-aw-firewall/issues/11322) /
-[#11323](https://github.com/github/gh-aw-firewall/pull/11323).
-This module does not replace [shared reasoning #11319](https://github.com/github/gh-aw-firewall/issues/11319) /
-[#11320](https://github.com/github/gh-aw-firewall/pull/11320).
+Production HTTP fallback consumes this assessment and the existing exact-model
+shared reasoning decisions; `/reflect` projects decisions actually made, not
+speculative replay of catalogue labels. Accounting families supply neither
+reasoning nor translation evidence.
 Compiler/standalone package distribution and additional runtime consumers are
 deferred to a coordinated additive handoff; no CLI or reflection endpoint is added.
 The provider-free packaging test stages the actual sidecar Docker `COPY` layout,
@@ -1162,6 +1168,50 @@ Token-usage records include the serving `provider` and the `requested_provider`,
 `from_provider`, and `failures` evidence. See
 [§12.7.1](awf-config-spec.md#1271-cross-provider-fallback-chains).
 
+#### Automatic translation admission
+
+Before an automatic upstream inference attempt, a candidate must have a
+`compatible` assessment for the captured request and concrete endpoint plan.
+Both `incompatible` and `unverified` candidates are skipped, preserving candidate
+order and all existing policy, retirement, harness, recovery opt-out and budget
+checks. This applies to ordered/automatic replacement, alias endpoint recovery
+and alternate wire-endpoint retry, not primary direct-request pass-through.
+No new opt-in flag or recovery trigger is introduced. Skips dispatch no inference
+and consume no inference usage or extra pricing selection.
+Existing same-provider Gemini/Vertex native model-path rewrites remain
+passthrough, without inventing a translation direction. Captured compatibility
+observations use the existing Chat/Responses/Messages diagnostic endpoint scope;
+opaque native endpoints and WebSocket sessions are not new observation coverage.
+
+This tightens previously permissive translations: nested field loss, role
+priority collapse, merged/removed turns, refusal-to-text conversion, ignored
+reasoning/cache controls, image-detail loss, sampling clamp/filter, invalid
+limits and unverified parallel enablement do not authorize automatic dispatch.
+Known tool/schema/image nesting and token-limit renaming remain representable.
+A single leading Chat system turn can map to Messages system text; developer
+priority, multiple/non-leading system turns, and Chat system/developer collapse
+into Responses instructions are not approved. The established Messages
+**8,192-token missing-limit default** remains an authorized fallback policy;
+an invalid supplied limit is not authorization for defaulting. Existing limit
+precedence and transport no-ops are not blanket proof that other normalizations
+are safe.
+
+Explicit reasoning effort requires the shared exact candidate/backend-scoped
+automatic admission result. Omitted effort retains the established direct
+omission policy (known required effort is rejected); absent native capability
+evidence is not a translation gap or proof that omission is supported. Native
+capability, availability and safety remain separate from translation compatibility.
+Request pins survive refresh for in-flight decisions.
+
+Return contracts assess only known pre-dispatch requirements and adapter options.
+`provider_response_unobserved` explicitly leaves future output content, tool
+arguments, counters, refusal details and SSE terminal conditions unverified.
+Existing translators remain the execution/rejection boundary; post-dispatch
+errors, terminal frames and accounting behavior are unchanged.
+Exhaustion retains the existing public status/error envelope where applicable
+and exposes sanitized structured reasons through `/reflect`. A permanent
+endpoint rejection never justifies an unchanged transient retry loop.
+
 ### Health check
 
 Docker healthcheck on the `/health` endpoint (port 10000):
@@ -1435,8 +1485,8 @@ in-flight outcomes. Null metadata means unavailable evidence. Reading `/reflect`
 does not perform inference, refresh discovery, evaluate eligibility, choose
 another model, or add charges.
 
-Completion boundaries: this slice captures primary-proxy local policy, effort,
-and harness rejections through production HTTP dispatch. Provider response
+Completion boundaries: this view captures primary-proxy local policy, effort,
+and harness rejections, plus automatic compatibility decisions through production HTTP dispatch. Provider response
 payloads, prompts, request bodies, headers, session identifiers, private paths,
 URLs, and private deployment scopes are not retained or projected. Declared
 subagent and internal classifier outcomes are excluded. This is a bounded
@@ -1446,15 +1496,23 @@ report `recent.status: unavailable` and omit aggregate accounting diagnostics:
 they share invocation state and cannot attribute it safely to a querying
 enclave. Primary-agent observations never attest enclave compatibility.
 
-The shared exact-model reasoning handoff (PR #11320) is not wired here:
-captured supported alternatives, effort omission/translation semantics, and
-fine-grained reasoning provenance remain unavailable. A read-only structured
-decision handoff is required after that implementation lands. Family estimate
-basis is copied only when already supplied by accounting; this slice does not
-extend accounting families (PR #11312). No-donor warnings currently create no
+Captured fallback decisions add optional compatibility and shared reasoning
+fields to `recent.decisions`: skipped/accepted/exhausted outcome, implemented
+source/target direction, bounded feature/reason codes, contract/implementation
+and request pins, and constrained action/retry guidance. Accepted means only
+admitted for assessed requirements, not guaranteed successful or lossless future
+provider output. The decision identity names a candidate only when explicitly
+captured and policy-visible; optional origin identity is separate, and exhausted
+decisions do not attribute rejection to the originally requested model.
+Older records missing these additive fields have **unavailable evidence**, not
+verified support. Supported alternatives and fine-grained native reasoning
+provenance remain incomplete; no replacement model is recommended by diagnostics.
+Family estimate basis is copied only when already supplied by accounting; this
+view does not extend accounting families (PR #11312). No-donor warnings currently create no
 accounting bucket, so there is **no captured no-donor diagnostic** here; the
 existing exclusion/undercount warning policy is unchanged. Non-routed upstream
-failures and rejections before HTTP proxy dispatch likewise are not captured.
+failures without a captured local decision and rejections before HTTP proxy
+dispatch likewise are not captured.
 
 On older pinned AWF images, a missing `model_decision_diagnostics` field means
 **unavailable diagnostics**, never zero cost, known effort support, permission,

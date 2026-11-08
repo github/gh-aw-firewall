@@ -61,16 +61,17 @@ function handleFallbackEligibleResponse(proxyRes, responseBody, ctx) {
   return false;
 }
 
-function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
-  provider, requestId, hasRetried, onRetry,
-  modelNotSupportedRetryCount, maxModelNotSupportedRetries, onModelNotSupportedRetry,
-  onModelEndpointBlockedRetry, onWireApiEndpointRetry = null, onModelFallback = null,
-  completionCtx, authErrCtx, initiatorSent, billingInfo, res, span,
-  parseDeprecatedHeaderFromBody, learnAndStripDeprecatedHeaderValue,
-  parseModelNotSupportedFromBody, parseModelEndpointBlockedFromBody, logRequest, sanitizeForLog,
-  logRequestCompletion, logUpstreamAuthError, logUpstreamErrorResponse, otel,
-  requestModel = null, requestTools = null,
-}) {
+function handle400WithRetry(proxyRes, requestHeaders, responseBody, options) {
+  const {
+    provider, requestId, hasRetried, onRetry,
+    modelNotSupportedRetryCount, maxModelNotSupportedRetries, onModelNotSupportedRetry,
+    onModelEndpointBlockedRetry, onWireApiEndpointRetry = null, onModelFallback = null,
+    completionCtx, authErrCtx, initiatorSent, billingInfo, res, span,
+    parseDeprecatedHeaderFromBody, learnAndStripDeprecatedHeaderValue,
+    parseModelNotSupportedFromBody, parseModelEndpointBlockedFromBody, logRequest, sanitizeForLog,
+    logRequestCompletion, logUpstreamAuthError, logUpstreamErrorResponse, otel,
+    requestModel = null, requestTools = null, endpointCompatibilityError = null,
+  } = options;
   // ── (a) Deprecated beta-header retry (first attempt for anthropic/copilot) ──
   if (!hasRetried && (provider === 'anthropic' || provider === 'copilot')) {
     const deprecated = parseDeprecatedHeaderFromBody(responseBody);
@@ -87,7 +88,7 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
   }
 
   const endpointBlocked = provider === 'copilot' && parseModelEndpointBlockedFromBody(responseBody);
-  let compatibilityError = null;
+  let compatibilityError = endpointCompatibilityError;
   if (endpointBlocked && typeof onWireApiEndpointRetry === 'function') {
     try {
       if (onWireApiEndpointRetry()) return true;
@@ -126,7 +127,10 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
   // chain, retain the bounded transient retry below.
   if (typeof onModelFallback === 'function') {
     const reason = getFallbackReason(proxyRes.statusCode, responseBody);
-    const abandon = () => sendBufferedUpstreamResponse(proxyRes, responseBody, {
+    const abandon = () => endpointBlocked ? handle400WithRetry(proxyRes, requestHeaders, responseBody, {
+      ...options, hasRetried: true, onModelEndpointBlockedRetry: null, onWireApiEndpointRetry: null,
+      onModelFallback: null, onModelNotSupportedRetry: null, endpointCompatibilityError: compatibilityError,
+    }) : sendBufferedUpstreamResponse(proxyRes, responseBody, {
       completionCtx, authErrCtx, initiatorSent, billingInfo, res, span, requestId,
       logRequestCompletion, logUpstreamAuthError, logUpstreamErrorResponse, otel,
       requestModel, requestTools,
@@ -141,6 +145,7 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
   // ── (c) Transient model-not-supported retry (copilot only, up to MAX) ──────
   if (
     provider === 'copilot' &&
+    !endpointBlocked &&
     modelNotSupportedRetryCount < maxModelNotSupportedRetries &&
     onModelNotSupportedRetry &&
     parseModelNotSupportedFromBody(responseBody)

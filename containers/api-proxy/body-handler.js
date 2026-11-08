@@ -300,6 +300,11 @@ function createBodyHandler({ handleRequestError, otel }) {
       }
     }
 
+    // Preserve the agent-facing representation after explicitly authorized
+    // normalization, before any wire translation. Fallback must assess this
+    // request rather than a body whose translator has already discarded fields.
+    if (isWritableMethod) req.awfFallbackSourceBody = Buffer.from(body);
+
     if (provider === 'copilot' && req.method === 'POST' && endpointForPath(req.url) &&
         !req.awfRecoveryAttempts) {
       wireApiSourceBody = Buffer.from(body);

@@ -370,8 +370,32 @@ describe('proxyRequest cross-provider fallback chain', () => {
     expect(res.writeHead.mock.calls[0][0]).toBe(503);
     expect(res.end.mock.calls[0][0].toString()).toContain('overloaded');
     expect(getStructuredLogs(stdoutWriteSpy, 'model_fallback_skipped')).toEqual(expect.arrayContaining([
-      expect.objectContaining({ candidate_provider: 'anthropic', reason: 'protocol_translation_failed: n' }),
+      expect.objectContaining({ candidate_provider: 'anthropic', reason: 'fallback_incompatible' }),
     ]));
+  });
+
+  it('skips a nested semantic loss with zero target inference and proceeds to the next native entry', async () => {
+    process.env.AWF_FALLBACK_MODELS = 'anthropic/claude-sonnet-4.6, openai/gpt-5.4';
+    const { req, res } = await startRequest({
+      body: { model: 'grok-4.7', messages: [{ role: 'user', content: [
+        { type: 'text', text: 'PRIVATE_PROMPT', cache_control: { type: 'ephemeral' } },
+      ] }] },
+    });
+    const observe = jest.fn();
+    req.awfObserveModelDecision = observe;
+    respond(0, 503, '{"error":"overloaded"}');
+    await flushPromises();
+    await flushPromises();
+    expect(capturedOptions).toHaveLength(2);
+    expect(capturedOptions[1].hostname).toBe('api.openai.com');
+    expect(sentBody(1).messages[0].content[0].cache_control).toEqual({ type: 'ephemeral' });
+    expect(observe.mock.calls.map(([r]) => [r.provider, r.outcome])).toEqual([
+      ['anthropic', 'skipped'], ['openai', 'accepted'],
+    ]);
+    expect(JSON.stringify(observe.mock.calls)).not.toContain('PRIVATE_PROMPT');
+    respond(1, 200, '{"choices":[]}');
+    await flushPromises();
+    expect(res.writeHead.mock.calls[0][0]).toBe(200);
   });
 
   it('returns to the receiving provider for unqualified entries after a cross-provider attempt', async () => {

@@ -212,7 +212,7 @@ describe('proxyRequest ordered model fallback chain', () => {
   });
 
   describe('gemini adapter', () => {
-    it('rewrites the model in the upstream path', async () => {
+    it('preserves the primary path but does not dispatch an uncharacterized automatic replacement protocol', async () => {
       const req = makeReqFactory('/v1beta/models/gemini-primary:generateContent');
       const res = makeRes();
       proxyRequest(req, res, 'generativelanguage.googleapis.com', { 'x-goog-api-key': 'test' }, 'gemini');
@@ -224,11 +224,9 @@ describe('proxyRequest ordered model fallback chain', () => {
       respond(0, 404, '{"error":{"code":404,"message":"models/gemini-primary is not found for API version v1beta"}}');
       await flushPromises();
 
-      expect(capturedOptions).toHaveLength(2);
-      expect(capturedOptions[1].path).toContain('/models/fallback-a:generateContent');
-      expect(req.awfModelFallback).toMatchObject({ requested_model: 'gemini-primary', model: 'fallback-a' });
-      respond(1, 200, '{"ok":true}');
-      expect(res.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
+      expect(capturedOptions).toHaveLength(1);
+      expect(req.awfModelFallback).toBeUndefined();
+      expect(res.writeHead).toHaveBeenCalledWith(404, expect.any(Object));
     });
   });
 });
