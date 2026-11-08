@@ -25,6 +25,7 @@ describe.each([
   ['claude', 20, 'Claude Code'],
   ['copilot', 15, 'GitHub Copilot'],
   ['copilot-network-isolation', 15, 'GitHub Copilot'],
+  ['otel-tracing', 15, 'GitHub Copilot'],
   ['services', 10, 'GitHub Copilot'],
 ])('Smoke %s local image preparation', (workflow, executionTimeout, engine) => {
   const workflowPath = path.join(root, `.github/workflows/smoke-${workflow}.lock.yml`);
@@ -152,6 +153,8 @@ ${preparation.run}
     const steps = lock.jobs.agent.steps;
     const preserveIndex = steps.findIndex(step => step.name === 'Preserve smoke image preparation helper');
     const checkoutIndex = steps.findIndex(step => step.name === 'Checkout PR branch');
+    const buildIndex = steps.findIndex(step => step.name === 'Build awf');
+    const installIndex = steps.findIndex(step => step.name === 'Install awf binary (local)');
     const prepareIndex = steps.findIndex(step => step.name === preparation.name);
     const executeIndex = steps.findIndex(step => step.name === `Execute ${engine} CLI`);
     expect(preserveIndex).toBeGreaterThan(-1);
@@ -159,7 +162,9 @@ ${preparation.run}
     expect(steps[preserveIndex].run).toContain(
       '"${GITHUB_WORKSPACE}/scripts/ci/build-smoke-images.sh" "${RUNNER_TEMP}/awf-smoke/build-smoke-images.sh"',
     );
-    expect(prepareIndex).toBeGreaterThan(steps.findIndex(step => step.name === 'Build awf'));
+    expect(buildIndex).toBeGreaterThan(checkoutIndex);
+    expect(installIndex).toBeGreaterThan(buildIndex);
+    expect(prepareIndex).toBeGreaterThan(installIndex);
     expect(prepareIndex).toBeLessThan(executeIndex);
     expect(steps[prepareIndex].run).toBe(preparation.run);
     expect(steps[prepareIndex]['timeout-minutes']).toBe(35);
