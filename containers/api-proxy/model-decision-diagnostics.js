@@ -168,12 +168,15 @@ function projectModelDecisionDiagnostics(reflection, { context = 'unknown', rece
       for (const record of runtimeMetadata[endpoint.provider] || []) {
         if (current.length > MAX_CURRENT) break;
         const model = visibleIdentity(endpoint.provider, record?.id, endpoints);
-        if (!model || !Array.isArray(record.supportedReasoningEfforts) ||
+        const efforts = Array.isArray(record?.supportedReasoningEfforts)
+          ? record.supportedReasoningEfforts
+          : record?.capabilities?.supports?.reasoning_effort;
+        if (!model || !Array.isArray(efforts) ||
             !Array.isArray(record.supportedEndpoints)) continue;
         for (const normalized of new Set(record.supportedEndpoints.map(endpointFor).filter(Boolean))) {
           current.push({
             ...decision('capability_snapshot', { ...base, model, endpoint: normalized, observed: record.observedAt }),
-            effort: effortEvidence(record.supportedReasoningEfforts, normalized),
+            effort: effortEvidence(efforts, normalized),
           });
         }
       }
