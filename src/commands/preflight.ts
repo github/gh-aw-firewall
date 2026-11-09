@@ -5,7 +5,7 @@ import { applyConfigOptionsInPlaceWithCliPrecedence } from '../config-precedence
 import { validateDomainOrPattern } from '../domain-validation';
 import { loadAndMergeDomains } from '../rules';
 import { parseDomains, parseDomainsFile } from '../domain-utils';
-import { processLocalhostKeyword } from '../option-parsers';
+import { parseEnvironmentVariables, processLocalhostKeyword } from '../option-parsers';
 import { resolveCopilotApiRouting } from '../copilot-api-resolver';
 import { resolveApiTargetsToAllowedDomains } from '../api-proxy-config';
 import { trustedServiceTargets } from '../trusted-service';
@@ -190,13 +190,19 @@ export function resolveAllowedDomains(options: Record<string, unknown>): Allowed
 
   // Resolve OPENAI_ENDPOINT_OVERRIDE from all config sources so that values
   // supplied via --env or --env-file reach the allowlist (not just process.env).
-  // Priority matches getConfigEnvValue: additionalEnv > envFile > process.env.
+  // Priority matches getConfigEnvValue: additionalEnv/--env > envFile > process.env.
   const additionalEnv = options.additionalEnv as Record<string, string> | undefined;
+  const parsedCliEnv = Array.isArray(options.env)
+    ? parseEnvironmentVariables(options.env as string[])
+    : undefined;
+  const cliEnv = parsedCliEnv?.success ? parsedCliEnv.env : {};
   const envFilePath = options.envFile as string | undefined;
+  const envFileValues = envFilePath ? readEnvFile(envFilePath) : {};
   const secretOpenAiBaseUrl = resolveSecretOpenAiBaseUrl(options);
   const openaiEndpointOverride: string | undefined = (
     additionalEnv?.['OPENAI_ENDPOINT_OVERRIDE']
-    ?? (envFilePath ? readEnvFile(envFilePath)['OPENAI_ENDPOINT_OVERRIDE'] : undefined)
+    ?? cliEnv['OPENAI_ENDPOINT_OVERRIDE']
+    ?? envFileValues['OPENAI_ENDPOINT_OVERRIDE']
     ?? process.env['OPENAI_ENDPOINT_OVERRIDE']
   ) || undefined;
 
@@ -217,9 +223,16 @@ export function resolveAllowedDomains(options: Record<string, unknown>): Allowed
       openaiApiTarget: options.openaiApiTarget as string | undefined,
       anthropicApiTarget: options.anthropicApiTarget as string | undefined,
       geminiApiTarget: options.geminiApiTarget as string | undefined,
+      enableApiProxy: options.enableApiProxy !== false,
     },
     allowedDomains,
-    process.env,
+    {
+      ...process.env,
+      FOUNDRY_API_TARGET: additionalEnv?.['FOUNDRY_API_TARGET']
+        ?? cliEnv['FOUNDRY_API_TARGET']
+        ?? envFileValues['FOUNDRY_API_TARGET']
+        ?? process.env.FOUNDRY_API_TARGET,
+    },
     logger.debug.bind(logger),
     sensitiveAllowedDomains,
     openaiEndpointOverride,

@@ -1,0 +1,33 @@
+{
+  "$schema": "../../schema.json",
+  "id": "CI-003",
+  "boundary": "ci",
+  "title": "Cloud Hypervisor regression admission rejects a regional Actions OIDC endpoint",
+  "symptoms": ["cloud-hypervisor-enclave-admission-token-acquisition", "Cloud Hypervisor regression profiles reject before broker startup"],
+  "conditions": [
+    "The authorized ordinary-workflow regression profile uses a regional HTTPS endpoint within .actions.githubusercontent.com",
+    "Older code accepts only the previously recognized Actions endpoint form",
+    "An old aggregate admission failure without a subreason does not prove this was its cause"
+  ],
+  "affects": { "runner": "github-hosted", "runtime": "cloud-hypervisor", "provider": "any", "authMode": "github-oidc" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "fixed",
+  "rootCause": "The regression admission token acquisition guard was narrower than valid regional GitHub Actions OIDC endpoint shapes, so otherwise eligible runs could fail before broker or engine startup.",
+  "probe": {
+    "command": "jq '.diagnostic.earlyFailure' path/to/protected/startup.json",
+    "expect": "Use only the existing allowlisted admission subreason and source/workflow profile metadata. Do not read, decode, print or exchange the Actions token or request URL. Historical aggregate reasons remain unknown.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use source containing regional endpoint validation and finite admission subreasons with the exact signed ordinary-workflow profile. Keep HTTPS namespace, signature, claims, source pins, runtime, artifact and storage requirements. Let AWF create its work directory so a harness-owned directory does not create secondary cleanup rejection. Hosted acceptance remains separate.",
+  "references": [
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11223" },
+    { "kind": "code", "ref": "src/enclave/cloud-hypervisor-conformance-acceptance.ts" },
+    { "kind": "test", "ref": "src/cloud-hypervisor/runtime-validation.test.ts" },
+    { "kind": "test", "ref": "scripts/ci/enclave-agent-regression.test.ts" },
+    { "kind": "doc", "ref": "docs/cloud-hypervisor-foundation.md" }
+  ],
+  "related": ["AUTH-002", "RT-004"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2026-12-09"
+}

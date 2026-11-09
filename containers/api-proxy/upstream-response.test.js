@@ -40,6 +40,35 @@ function createProxyRes({ statusCode, headers }) {
 }
 
 describe('upstream-response', () => {
+  test('accounts for Foundry decisions using the resolved upstream path', () => {
+    const deps = createDependencies();
+    const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);
+    const proxyRes = createProxyRes({
+      statusCode: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+    const req = { method: 'POST', url: '/systemone', headers: {} };
+    const res = { writeHead: jest.fn(), end: jest.fn() };
+    const body = Buffer.from('{}');
+
+    handleUpstreamResponse(proxyRes, {}, {
+      body,
+      res,
+      provider: 'foundry',
+      requestId: 'foundry-relative-decision',
+      req,
+      targetHost: 'resource.services.ai.azure.com',
+      upstreamPath: '/providers/microsoft/v1/systemone',
+      startTime: Date.now(),
+      span: {},
+      requestBytes: body.length,
+    });
+    proxyRes.emit('data', Buffer.from('{}'));
+    proxyRes.emit('end');
+
+    expect(deps.applyMaxRunsInvocation).toHaveBeenCalledTimes(1);
+  });
+
   test.each([false, true])('distinguishes upstream stream failure from downstream cancellation (client closes first: %s)', clientClosesFirst => {
     const deps = createDependencies();
     const failures = [];

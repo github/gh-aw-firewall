@@ -13,6 +13,7 @@ const { createOpenAIAdapter } = require('./openai');
 const { createAnthropicAdapter } = require('./anthropic');
 const { createCopilotAdapter } = require('./copilot');
 const { GOOGLE_PROVIDER_ADAPTER_FACTORIES } = require('./google-adapter');
+const { createFoundryAdapter } = require('./foundry');
 
 const PROVIDER_ADAPTER_FACTORIES = [
   [createOpenAIAdapter, 'openaiBodyTransform'],
@@ -20,6 +21,7 @@ const PROVIDER_ADAPTER_FACTORIES = [
   [createCopilotAdapter, 'copilotBodyTransform'],
   [GOOGLE_PROVIDER_ADAPTER_FACTORIES.gemini, 'geminiBodyTransform'],
   [GOOGLE_PROVIDER_ADAPTER_FACTORIES.vertex, 'vertexBodyTransform'],
+  [createFoundryAdapter, 'foundryBodyTransform'],
 ];
 
 /**
@@ -82,6 +84,7 @@ const PROVIDER_ADAPTER_FACTORIES = [
  * @property {boolean} participatesInValidation - Whether counted in the startup latch
  *
  * @property {() => boolean} isEnabled - Whether this provider is configured (has credentials)
+ * @property {(req: import('http').IncomingMessage) => boolean} [isRequestAllowed] - Optional inference-route authorization before credential acquisition
  * @property {(req?: import('http').IncomingMessage) => string} getTargetHost - Upstream hostname
  * @property {(req?: import('http').IncomingMessage) => string} getBasePath - Base path prefix
  * @property {(req: import('http').IncomingMessage) => Record<string,string>|Promise<Record<string,string>>} getAuthHeaders - Auth headers (renewable auth is asynchronous)
@@ -107,7 +110,7 @@ const PROVIDER_ADAPTER_FACTORIES = [
  * which providers appear in /reflect and models.json output.
  *
  * @param {Record<string, string|undefined>} env - Environment variables (typically process.env)
- * @param {{ openaiBodyTransform, anthropicBodyTransform, copilotBodyTransform, geminiBodyTransform, vertexBodyTransform }} deps
+ * @param {{ openaiBodyTransform, anthropicBodyTransform, copilotBodyTransform, geminiBodyTransform, vertexBodyTransform, foundryBodyTransform }} deps
  *   Body-transform functions produced by server.js (to avoid circular dependencies).
  * @returns {ProviderAdapter[]}
  */

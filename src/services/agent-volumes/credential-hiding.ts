@@ -43,6 +43,7 @@ export function buildCredentialHidingOverlays(
   volumes: string[] = [],
   localSourceResolver: LocalSourceResolver = identityLocalSourceResolver,
   env: NodeJS.ProcessEnv = process.env,
+  sensitiveEnvFile?: string,
 ): string[] {
   const credentialFiles = credentialFilesToHide().map((rel) => `${effectiveHome}/${rel}`);
 
@@ -86,6 +87,34 @@ export function buildCredentialHidingOverlays(
         if (relative === undefined) continue;
         const target = path.join(mount.target, relative);
         mounts.push(`/dev/null:${target}:ro`);
+      }
+    }
+  }
+
+  if (sensitiveEnvFile) {
+    const envFilePaths = new Set([path.resolve(sensitiveEnvFile)]);
+    const canonicalEnvFile = existingRealPath(sensitiveEnvFile);
+    if (canonicalEnvFile) envFilePaths.add(canonicalEnvFile);
+    for (const spec of volumes) {
+      const mount = parseMount(spec);
+      if (!mount || !path.isAbsolute(mount.source) || mount.source === '/dev/null') continue;
+      const source = localSourceResolver(mount.source);
+      if (!source) continue;
+      const lexicalSource = path.resolve(source);
+      const canonicalSource = existingRealPath(lexicalSource);
+      for (const file of envFilePaths) {
+        let relative: string | undefined;
+        if (isWithin(lexicalSource, file)) {
+          relative = path.relative(lexicalSource, file);
+        } else if (canonicalSource && canonicalEnvFile && isWithin(canonicalSource, canonicalEnvFile)) {
+          relative = path.relative(canonicalSource, canonicalEnvFile);
+        }
+        if (relative === undefined) continue;
+        const target = path.join(mount.target, relative);
+        mounts.push(`/dev/null:${target}:ro`);
+        if (target !== '/host' && target !== '/host/' && !target.startsWith('/host/')) {
+          mounts.push(`/dev/null:/host${target}:ro`);
+        }
       }
     }
   }

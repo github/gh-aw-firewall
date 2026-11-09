@@ -8,7 +8,10 @@ const {
 } = require('./upstream-log');
 
 describe('upstream-log', () => {
-  test('logRequestCompletion records metrics and invokes max-runs on inference POST', () => {
+  test.each([
+    ['copilot', '/v1/chat/completions'],
+    ['foundry', '/providers/microsoft/v1/systemone'],
+  ])('logRequestCompletion records metrics and invokes max-runs on %s inference POST', (provider, url) => {
     const metrics = {
       statusClass: jest.fn(() => '2xx'),
       gaugeDec: jest.fn(),
@@ -26,20 +29,50 @@ describe('upstream-log', () => {
 
     logRequestCompletion(200, 42, 'agent', { prompt_tokens: 10 }, {
       startTime: Date.now() - 5,
-      provider: 'copilot',
-      req: { method: 'POST', url: '/v1/chat/completions' },
+      provider,
+      req: { method: 'POST', url },
       requestBytes: 12,
       targetHost: 'api.githubcopilot.com',
       requestId: 'req-1',
     });
 
-    expect(metrics.gaugeDec).toHaveBeenCalledWith('active_requests', { provider: 'copilot' });
+    expect(metrics.gaugeDec).toHaveBeenCalledWith('active_requests', { provider });
     expect(applyMaxRunsInvocation).toHaveBeenCalledTimes(1);
     expect(logRequest).toHaveBeenCalledWith('info', 'request_complete', expect.objectContaining({
       request_id: 'req-1',
       status: 200,
       x_initiator: 'agent',
     }));
+  });
+
+  test.each([
+    ['/providers/microsoft/v1/systemone', '/providers/microsoft/v1/systemone'],
+    ['/systemone', '/providers/microsoft/v1/systemone'],
+  ])('counts Foundry decision request %s by its resolved upstream path', (url, upstreamPath) => {
+    const applyMaxRunsInvocation = jest.fn();
+    const logRequestCompletion = createLogRequestCompletion({
+      metrics: {
+        statusClass: jest.fn(() => '2xx'),
+        gaugeDec: jest.fn(),
+        increment: jest.fn(),
+        observe: jest.fn(),
+      },
+      logRequest: jest.fn(),
+      sanitizeForLog: value => value,
+      applyMaxRunsInvocation,
+    });
+
+    logRequestCompletion(200, 42, null, null, {
+      startTime: Date.now(),
+      provider: 'foundry',
+      req: { method: 'POST', url },
+      upstreamPath,
+      requestBytes: 12,
+      targetHost: 'resource.services.ai.azure.com',
+      requestId: 'foundry-decision',
+    });
+
+    expect(applyMaxRunsInvocation).toHaveBeenCalledTimes(1);
   });
 
   test('logRequestCompletion does NOT invoke max-runs for GET /models', () => {
@@ -107,6 +140,8 @@ describe('upstream-log', () => {
       ['POST', '/responses'],
       ['POST', '/v1/decisions'],
       ['POST', '/decisions'],
+      ['POST', '/providers/microsoft/v1/systemone'],
+      ['POST', '/providers/microsoft/v1/systemone/?api-version=test'],
       ['POST', '/openai/v1/decisions/?api-version=test'],
       ['POST', '/v1\\decisions'],
       ['POST', '/v1/./decisions'],

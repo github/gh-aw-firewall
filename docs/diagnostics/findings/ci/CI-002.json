@@ -1,0 +1,33 @@
+{
+  "$schema": "../../schema.json",
+  "id": "CI-002",
+  "boundary": "ci",
+  "title": "Compiler-owned enclave gateway is unavailable or violates the handoff contract",
+  "symptoms": ["Enclave initialize returns 503 backend_unavailable", "AWF host gateway readiness fails before primary-agent startup"],
+  "conditions": [
+    "The compiler launches mcpg and hands AWF the private enclave endpoint and gateway identity",
+    "Only documented retryable backend_unavailable responses qualify for bounded initialize retries; other auth, protocol or tool-contract failures are terminal",
+    "Host handshake readiness does not establish guest network or workload success"
+  ],
+  "affects": { "runner": "any", "runtime": "any", "provider": "any", "authMode": "any" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "workaround",
+  "rootCause": "The compiler-owned backend can still be coming up, or the compiled gateway identity/tools/protocol contract can differ from AWF's expected contract. The exact bounded AWF-host phase/code is needed to distinguish these causes.",
+  "probe": {
+    "command": "jq '.diagnostic.enclaveStartup' path/to/protected/startup.json",
+    "expect": "Inspect the projected awf-host readiness phase, code, HTTP status, attempts and checklist. Preserve not-attempted stages; a separate harness handshake or healthy broker is not AWF-host readiness.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Match compiler, AWF and mcpg contracts using checked-in lock metadata and current integration docs. Static entries require the documented gateway spec floor; dynamic repository admission requires mcpg v0.4.18 or newer because earlier duration decoding used nanoseconds. Preserve the bounded retry deadline and terminal failures; do not bypass the gateway or infer that a larger timeout fixes a contract mismatch.",
+  "references": [
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/9488" },
+    { "kind": "code", "ref": "src/enclave/gateway.ts" },
+    { "kind": "test", "ref": "src/enclave/gateway.test.ts" },
+    { "kind": "test", "ref": "src/enclave/github-gateway.test.ts" },
+    { "kind": "doc", "ref": "docs/enclaves-architecture.md#topology-and-readiness" }
+  ],
+  "related": ["AUTH-003"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2026-12-09"
+}
