@@ -33,6 +33,8 @@ The workflow will:
 - Create NPM tarball and checksums
 - Attest the AWF binaries, bundle, tarball, checksums, container manifest and
   tag-to-checksums identity using the pinned build-provenance action
+- Publish that multi-subject attestation's Sigstore bundle alongside the release
+  assets for downstream offline verification
 - Generate versioned JSON Schema files with the release tag embedded in their `$id` URLs
 - Publish the GitHub Release with auto-generated changelog
 - Dispatch full Cloud Hypervisor Enclave Conformance on that exact published tag
@@ -168,6 +170,7 @@ Once the workflow completes:
    - Linux arm64 binary (`awf-linux-arm64`)
    - NPM tarball (`awf.tgz`)
    - Checksums file (`checksums.txt`)
+   - AWF release provenance bundle (`awf-release-provenance.sigstore.jsonl`)
    - Container digest manifest (`containers.txt`)
    - JSON Schema files (`awf-config.schema.json`, `audit.schema.json`, `token-usage.schema.json`)
    - Installation instructions with GHCR image references
@@ -193,7 +196,10 @@ Each release includes:
 - `awf-darwin-x64`, `awf-darwin-arm64` - macOS standalone executables
 - `awf-bundle.js` - Lightweight Node.js executable bundle
 - `awf.tgz` - NPM package tarball (alternative installation method)
-- `checksums.txt` - SHA256 checksums for all files
+- `checksums.txt` - SHA256 checksums for the release payloads and metadata
+- `awf-release-provenance.sigstore.jsonl` - Multi-subject Sigstore bundle for
+  offline provenance verification; intentionally not included in its own
+  checksums or attestation subjects
 - `containers.txt` - Digest-pinned container manifest for published runtime images
 - `release-identity.txt` - Attested binding of the requested `refs/tags/<version>`
   to the SHA256 digest of `checksums.txt`
@@ -222,6 +228,15 @@ also authenticates and checksum-checks `containers.txt` before reading
 image digests, requires all runtime image pins, and never falls back to
 mutable tags when a manifest or digest-pinned pull fails. Existing enclave
 artifact verification and acceptance checks remain additional requirements.
+
+The release provenance bundle packages the same signed multi-subject statement
+used by the online attestation lookups. A consumer may use it to avoid repeated
+online lookups only when its verifier supports bundle-based verification and
+continues enforcing the independently pinned manifest digest, requested-tag
+binding, all required subject digests, signer/repository/issuer restrictions,
+and runner policy. The bundle is an input for that consumer-side change, not a
+replacement for those checks; the current installer contract and verification
+order are unchanged by publishing it.
 
 Legacy releases without these attestations and identity file intentionally
 fail closed. Select a release published with this protocol; do not bypass

@@ -6,7 +6,14 @@ import * as yaml from 'js-yaml';
 
 const root = path.resolve(__dirname, '../..');
 const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
-type Step = { name: string; run?: string; uses?: string; with?: Record<string, unknown> };
+type Step = {
+  name: string;
+  id?: string;
+  run?: string;
+  uses?: string;
+  env?: Record<string, string>;
+  with?: Record<string, unknown>;
+};
 const action = yaml.load(fs.readFileSync(path.join(root, 'action.yml'), 'utf8')) as {
   runs: { steps: Step[] };
 };
@@ -402,6 +409,7 @@ describe('release provenance publication', () => {
 
   it('attests every bootstrap subject after generation and before publication', () => {
     const attest = steps.findIndex(step => step.name === 'Attest AWF release payloads and metadata');
+    const bundle = steps.findIndex(step => step.name === 'Bundle AWF release provenance for offline verification');
     const identity = steps.findIndex(step => step.name === 'Bind release tag to checksums');
     const checksums = steps.findIndex(step => step.name === 'Generate checksums');
     const publish = steps.findIndex(step => step.name === 'Create GitHub Release');
@@ -409,9 +417,16 @@ describe('release provenance publication', () => {
     expect(checksums).toBeLessThan(identity);
     expect(identity).toBeLessThan(attest);
     expect(attest).toBeLessThan(publish);
+    expect(bundle).toBeGreaterThan(attest);
+    expect(bundle).toBeLessThan(publish);
     expect(steps[attest].uses).toBe(
       'actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8',
     );
+    expect(steps[attest].id).toBe('attest_awf_release');
+    expect(steps[bundle].env?.BUNDLE_PATH).toBe('${{ steps.attest_awf_release.outputs.bundle-path }}');
+    expect(steps[bundle].run).toContain('test -s "$BUNDLE_PATH"');
+    expect(steps[bundle].run).toContain('release/awf-release-provenance.sigstore.jsonl');
+    expect(steps[publish].with?.files).toContain('release/awf-release-provenance.sigstore.jsonl');
     for (const asset of [
       'awf-linux-x64', 'awf-linux-arm64', 'awf-darwin-x64', 'awf-darwin-arm64',
       'awf-bundle.js', 'awf.tgz', 'checksums.txt', 'containers.txt', 'release-identity.txt',

@@ -1254,6 +1254,7 @@ jobs:
             "$RELEASE_TAG" > release/release-identity.txt
 
       - name: Attest AWF release payloads and metadata
+        id: attest_awf_release
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
@@ -1267,6 +1268,14 @@ jobs:
             release/checksums.txt
             release/containers.txt
             release/release-identity.txt
+
+      - name: Bundle AWF release provenance for offline verification
+        env:
+          BUNDLE_PATH: ${{ steps.attest_awf_release.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          test -s "$BUNDLE_PATH"
+          cp "$BUNDLE_PATH" release/awf-release-provenance.sigstore.jsonl
 
       - name: Get previous release tag
         id: previous_tag
@@ -1422,6 +1431,7 @@ jobs:
             release/awf-config.v1.schema.json
             release/audit.schema.json
             release/token-usage.schema.json
+            release/awf-release-provenance.sigstore.jsonl
             release/checksums.txt
             release/release-identity.txt
         env:
