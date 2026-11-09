@@ -104,7 +104,8 @@ export function trustedServiceTargets(config: WrapperConfig): Record<string, str
     }
     const authType = config.authType ?? getConfigEnvValue(config, 'AWF_AUTH_TYPE') ?? process.env.AWF_AUTH_TYPE;
     const authProvider = config.authProvider ?? getConfigEnvValue(config, 'AWF_AUTH_PROVIDER') ?? process.env.AWF_AUTH_PROVIDER;
-    if (authType === 'github-oidc' && (authProvider === 'aws' || authProvider === 'gcp')) {
+    if (authType?.trim().toLowerCase() === 'github-oidc' &&
+        ['aws', 'gcp'].includes(authProvider?.trim().toLowerCase() ?? '')) {
       throw new Error('trustedService does not support AWS or GCP OIDC request signing');
     }
     targets[`${prefix}_API_TARGET`] = url.host;

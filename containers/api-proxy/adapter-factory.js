@@ -20,6 +20,7 @@ const {
   makeUnconfiguredHealthResponse,
   getTargetScheme,
   stripTargetScheme,
+  buildUpstreamPath,
 } = require('./proxy-utils');
 
 /**
@@ -93,6 +94,7 @@ function createBaseAdapterConfig(env, { keyEnvVar, targetEnvVar, basePathEnvVar,
  * @param {string|null} [opts.modelsCacheKey]
  * @param {boolean} [opts.credentialConfigured]
  * @param {boolean} [opts.participatesInValidation]
+ * @param {boolean} [opts.trustedService]
  * @param {boolean} [opts.reflectionConfigured]
  * @param {string|null} [opts.reflectionModelsPath]
  * @param {Record<string, unknown>|(() => Record<string, unknown>)} [opts.reflectionExtra]
@@ -127,6 +129,7 @@ function createAdapterMethods(opts) {
     modelsCacheKey = provider,
     credentialConfigured = !!apiKey,
     participatesInValidation = credentialConfigured,
+    trustedService = false,
     reflectionConfigured = !!apiKey,
     reflectionModelsPath = modelsPath,
     reflectionExtra = {},
@@ -163,7 +166,9 @@ function createAdapterMethods(opts) {
     // prefixes for OpenAI-compatible gateways, while validation probes use the
     // canonical default-target endpoint path.
     const modelsPrefix = basePath === '/' ? '' : basePath;
-    const path = modelsPrefix ? `${modelsPrefix}/models` : modelsPath;
+    const path = trustedService
+      ? buildUpstreamPath(modelsPath, targetHost, basePath)
+      : (modelsPrefix ? `${modelsPrefix}/models` : modelsPath);
     return {
       url: `${targetScheme}://${targetHost}${path}`,
       opts: { method: 'GET', headers: resolveValue(modelsFetchHeaders) },
@@ -282,6 +287,7 @@ function createStandardProviderAdapter(env, deps = {}, {
         apiKey: config.apiKey,
         rawTarget: config.rawTarget,
         basePath: config.basePath,
+        trustedService: !!trustedService,
         provider: name,
         port,
         defaultTarget,

@@ -33,7 +33,8 @@ function readTrustedService(env, provider) {
       /\.(?:localhost|local|localdomain|internal)$/i.test(url.hostname) ||
       url.hostname.split('.').some(label => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label))) throw fail();
   if (!service.secretHeaders || typeof service.secretHeaders !== 'object' || Array.isArray(service.secretHeaders)) throw fail();
-  if (env.AWF_AUTH_TYPE === 'github-oidc' && ['aws', 'gcp'].includes(env.AWF_AUTH_PROVIDER)) throw fail();
+  if ((env.AWF_AUTH_TYPE || '').trim().toLowerCase() === 'github-oidc' &&
+      ['aws', 'gcp'].includes((env.AWF_AUTH_PROVIDER || '').trim().toLowerCase())) throw fail();
   const authHeader = (env[`AWF_${provider.toUpperCase()}_AUTH_HEADER`] || '').trim().toLowerCase();
   const headers = {};
   for (const [header, name] of Object.entries(service.secretHeaders)) {

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import * as path from 'path';
-import type { WrapperConfig } from './types';
+import * as yaml from 'js-yaml';
+import type { DockerComposeConfig, WrapperConfig } from './types';
 import {
   validateTrustedService, trustedServiceTargets, isolateTrustedServiceEnvironment,
 } from './trusted-service';
@@ -12,6 +13,8 @@ import { buildApiProxyServiceConfig } from './services/api-proxy-service-config'
 import { buildAgentEnvironment } from './services/agent-environment/environment-builder';
 import { buildExclusionSet } from './services/agent-environment/excluded-vars';
 import { resolveAllowedDomains } from './commands/preflight';
+import { renderDockerCompose } from './compose-renderer';
+import { logger } from './logger';
 import { generateSquidConfig, generatePolicyManifest } from './squid-config';
 
 jest.mock('./logger', () => ({ logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() } }));
@@ -155,6 +158,29 @@ describe('trusted service configuration and credential isolation', () => {
     for (const authProvider of ['aws', 'gcp'] as const) {
       expect(() => trustedServiceTargets({ ...config, authType: 'github-oidc', authProvider })).toThrow(/signing/);
     }
+    for (const [authType, authProvider] of [[' GitHub-OIDC ', ' AWS '], ['GITHUB-OIDC', 'GCP']] as const) {
+      expect(() => trustedServiceTargets({
+        ...config, authType, authProvider,
+      } as unknown as WrapperConfig)).toThrow(/signing/);
+    }
+  });
+
+  it('handles trusted-service validation errors through the preflight exit path', () => {
+    const secret = process.env.CORPORATE_SECRET;
+    delete process.env.CORPORATE_SECRET;
+    const exit = jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+    try {
+      expect(() => resolveAllowedDomains({
+        anthropicTrustedService: service,
+      })).toThrow('process.exit called');
+      expect(logger.error).toHaveBeenCalledWith('Missing trustedService secret in runner environment');
+    } finally {
+      exit.mockRestore();
+      if (secret === undefined) delete process.env.CORPORATE_SECRET;
+      else process.env.CORPORATE_SECRET = secret;
+    }
   });
 
   it('rejects blocked destinations before startup using exact, parent and wildcard domain rules', () => {
@@ -176,6 +202,10 @@ describe('trusted service configuration and credential isolation', () => {
     expect(result.environment.AWF_ANTHROPIC_TRUSTED_SERVICE).toBe(JSON.stringify(service));
     expect(JSON.stringify(result)).not.toContain(process.env.CORPORATE_SECRET);
     expect(Object.keys(result.networks)).toEqual(['awf-net']);
+
+    const compose = { services: { 'api-proxy': result }, networks: {} } as DockerComposeConfig;
+    const parsed = yaml.load(renderDockerCompose(compose)) as DockerComposeConfig;
+    expect(parsed.services['api-proxy'].environment?.CORPORATE_SECRET).toBeNull();
   });
 
   it('removes secret names and aliased values after every environment merge', () => {

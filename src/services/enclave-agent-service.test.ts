@@ -391,6 +391,28 @@ describe('dedicated enclave agent API proxy', () => {
     }
   });
 
+  it('does not inherit primary trusted-service routes or supplemental secrets', () => {
+    const originalSecret = process.env.CORPORATE_SECRET;
+    process.env.CORPORATE_SECRET = 'enclave-must-not-inherit-this';
+    try {
+      const proxy = build({
+        anthropicTrustedService: {
+          endpoint: 'https://service.example.com/corporate',
+          secretHeaders: { 'X-Corporate-Secret': 'CORPORATE_SECRET' },
+        },
+      }).agentApiProxyService as Record<string, any>;
+      const environment = proxy.environment as Record<string, string | null>;
+
+      expect(environment.AWF_ANTHROPIC_TRUSTED_SERVICE).toBeUndefined();
+      expect(environment.ANTHROPIC_API_TARGET).toBeUndefined();
+      expect(environment.CORPORATE_SECRET).toBeUndefined();
+      expect(JSON.stringify(proxy)).not.toContain('enclave-must-not-inherit-this');
+    } finally {
+      if (originalSecret === undefined) delete process.env.CORPORATE_SECRET;
+      else process.env.CORPORATE_SECRET = originalSecret;
+    }
+  });
+
   it('writes telemetry only to the enclave-private log root', () => {
     const proxy = build().agentApiProxyService as Record<string, any>;
     expect(JSON.stringify(proxy.volumes)).toContain('awf-enclave-private-');

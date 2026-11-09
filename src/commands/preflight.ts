@@ -204,7 +204,12 @@ export function resolveAllowedDomains(options: Record<string, unknown>): Allowed
   // Secret-derived entries (OPENAI_ENDPOINT_OVERRIDE) go into sensitiveAllowedDomains
   // so they are never logged or included in the audit config artifact.
   const sensitiveAllowedDomains: string[] = [];
-  trustedServiceTargets(options as unknown as WrapperConfig);
+  try {
+    trustedServiceTargets(options as unknown as WrapperConfig);
+  } catch (error) {
+    logger.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
   resolveApiTargetsToAllowedDomains(
     {
       copilotApiTarget: resolvedCopilotApiTarget,

@@ -72,6 +72,17 @@ describe('trusted service adapters', () => {
     expect(() => createAnthropicAdapter({ ...credentials, CORPORATE_SECRET: '' })).toThrow(/trustedService/);
   });
 
+  it.each([
+    [' GitHub-OIDC ', ' AWS '],
+    ['GITHUB-OIDC', 'GCP'],
+  ])('rejects normalized unsupported OIDC selector pair %j/%j', (authType, authProvider) => {
+    expect(() => createAnthropicAdapter({
+      ...credentials,
+      AWF_AUTH_TYPE: authType,
+      AWF_AUTH_PROVIDER: authProvider,
+    })).toThrow(/trustedService/);
+  });
+
   it.each(['\n', '\r', '\r\n', '\u2028', '\u2029', '\t', ' ', '\0'])(
     'fails startup closed on whitespace/control-padded endpoint, header and source names: %j', padding => {
       for (const prefix of [true, false]) {
@@ -382,7 +393,7 @@ describe('actual AWF -> CONNECT proxy -> verified HTTPS service -> provider chai
     const result = await require('./model-discovery').fetchJson(models.url, models.opts, 5000);
     expect(result).not.toBeNull();
     expect(serviceCalls).toHaveLength(1);
-    expect(serviceCalls[0].url).toBe('/corporate/models');
+    expect(serviceCalls[0].url).toBe('/corporate/v1/models');
     expect(serviceCalls[0].headers['x-corporate-secret']).toBe(credentials.CORPORATE_SECRET);
     expect(tunnels).toEqual(['trusted.service.test:443']);
   });
