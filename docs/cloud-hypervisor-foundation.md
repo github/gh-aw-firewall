@@ -2905,8 +2905,11 @@ distinct IDs, while fixed production snapshots have a single entry beneath
 either parent mode, both root/artifact-parent observations are private, the
 parent's original shared/private state is unchanged, and ordinary allocation
 close succeeds. It is still opt-in and needs real privileged Linux execution.
-A new release containing this fix and a release-pinned environment probe are
-required to establish whether startup progresses beyond the original failure.
+The later v0.28.43 observation below passed this allocation-private stage and
+isolated a separate invocation-destination propagation failure, subsequently
+fixed in [#9536](https://github.com/github/gh-aw-firewall/pull/9536).
+See [RT-002](diagnostics/findings/runtime/RT-002.json) for the combined
+current-source diagnosis. This does not establish end-to-end guest acceptance.
 The immutable v0.28.39 and v0.28.42 assets are not patched by source changes or
 workflow dispatches.
 
@@ -2918,9 +2921,12 @@ passed setting and immediately verifying private allocation propagation, layout,
 artifact/run binds, and the invocation bind. Later `bounded-runtime/storage-verification`
 failed with `storage-mount-propagation`; all bounded cleanup checks passed.
 Snapshot preparation, guest boot, and gateway readiness were not attempted.
-There is no matching diagnosis-registry finding and no confirmed root cause yet.
+That aggregate observation alone did not establish the failing mount role.
+The later v0.28.44 evidence in **Private invocation state mount** isolated it;
+[RT-002](diagnostics/findings/runtime/RT-002.json) now records the verified
+source fix without retroactively treating every propagation error as identical.
 
-The missing distinction is **which mount role** failed and whether the guard
+At that point the missing distinction was **which mount role** failed and whether the guard
 saw non-private propagation, zero entries, or multiple entries. The guard's
 aggregate reason covers all three. Journal identity verification had already
 passed, so missing/duplicate-entry alternatives require a later change or

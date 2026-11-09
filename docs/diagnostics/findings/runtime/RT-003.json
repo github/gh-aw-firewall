@@ -1,0 +1,33 @@
+{
+  "$schema": "../../schema.json",
+  "id": "RT-003",
+  "boundary": "runtime",
+  "title": "Shared enclave rootfs exceeds the host verification storage ceiling",
+  "symptoms": ["bounded-artifacts/rootfs-copy fails with ENOSPC", "Cloud Hypervisor enclave stops before rootfs-digest and rootfs-attestation"],
+  "conditions": [
+    "The shared rootfs copy allocates more than the older 2 GiB host verification domain",
+    "The explicit rootfs-copy check reports ENOSPC; generic rsync failure or logical file size alone is insufficient"
+  ],
+  "affects": { "runner": "github-hosted", "runtime": "cloud-hypervisor", "provider": "any", "authMode": "any" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "fixed",
+  "rootCause": "The shared toolchain rootfs required about 2.44 GiB of allocated copy storage, exceeding the previous 2 GiB host-only verification ceiling before digest or attestation could run.",
+  "probe": {
+    "command": "jq '.diagnostic.enclaveStartup.startupChecks' path/to/protected/startup.json",
+    "expect": "Find failed bounded-artifacts/rootfs-copy with ENOSPC and later not-attempted checks; read bounded-cleanup separately. EACCES, EIO or an absent copy check does not establish capacity exhaustion.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use source with the 4 GiB host verification/image-staging ceiling and per-role temporary-copy release, keeping guest writable limits, immutable artifacts, digest/attestation checks and cleanup guards unchanged. Preserve startup and cleanup evidence even when verification fails; do not infer a fixed release tag.",
+  "references": [
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11239" },
+    { "kind": "code", "ref": "src/cloud-hypervisor/trusted-enclave-storage.ts" },
+    { "kind": "code", "ref": "src/cloud-hypervisor/enclave-artifact-preflight.ts" },
+    { "kind": "test", "ref": "src/cloud-hypervisor/trusted-enclave-preflight.test.ts" },
+    { "kind": "test", "ref": "src/cloud-hypervisor/host-enclave-executor.test.ts" },
+    { "kind": "doc", "ref": "docs/cloud-hypervisor-foundation.md" }
+  ],
+  "related": ["RT-002"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2026-12-09"
+}

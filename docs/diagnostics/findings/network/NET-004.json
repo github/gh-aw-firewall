@@ -1,0 +1,32 @@
+{
+  "$schema": "../../schema.json",
+  "id": "NET-004",
+  "boundary": "network",
+  "title": "Proxy-unaware HTTPS client sends raw TLS to the forward proxy",
+  "symptoms": ["TLS handshake fails when the client ignores HTTPS_PROXY", "Raw ClientHello reaches Squid instead of an HTTP CONNECT request"],
+  "conditions": [
+    "The Compose runtime uses iptables DNAT for port 443 as defense in depth",
+    "The client does not use the configured forward proxy; this is not the gVisor proxy-only path",
+    "A TLS error alone does not prove a domain ACL denial or certificate failure"
+  ],
+  "affects": { "runner": "any", "runtime": "runc|chroot", "provider": "any", "authMode": "any" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "workaround",
+  "rootCause": "Squid's explicit forward-proxy listener expects HTTP CONNECT, not a raw TLS ClientHello. DNAT blocks bypass attempts but cannot translate TLS into CONNECT.",
+  "probe": {
+    "command": "grep -nE 'HTTPS_PROXY|https_proxy|JAVA_TOOL_OPTIONS' containers/agent/entrypoint.sh",
+    "expect": "Review checked-in proxy setup and the client's documented proxy support without dumping its environment or sending traffic; verify whether the client uses CONNECT.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Configure the client to use AWF's explicit HTTPS forward proxy. JVM clients can use injected system properties, while Maven needs settings.xml proxy configuration. Do not treat raw-TLS rejection as a reason to bypass Squid, open direct egress or disable certificate checks.",
+  "references": [
+    { "kind": "code", "ref": "containers/agent/setup-iptables.sh" },
+    { "kind": "code", "ref": "containers/agent/entrypoint.sh" },
+    { "kind": "code", "ref": "src/services/agent-environment/core-environment.ts" },
+    { "kind": "doc", "ref": "docs/troubleshooting.md" }
+  ],
+  "related": ["NET-001", "RT-001"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2026-12-09"
+}

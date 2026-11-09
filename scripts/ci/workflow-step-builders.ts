@@ -159,8 +159,7 @@ export function buildScanInjectionStep(indent: string): string {
     `${ri}  for f in "\${SUSPICIOUS_FILES[@]}"; do\n` +
     `${ri}    rel="\${f#\${CACHE_DIR}/}"\n` +
     `${ri}    echo "::warning::Quarantining file with instruction-shaped content: $f"\n` +
-    `${ri}    echo "--- First 5 lines of quarantined file: $f ---"\n` +
-    `${ri}    head -5 "$f" | sed 's/^/| /' || true\n` +
+    `${ri}    echo "--- Content preview suppressed for security: $f ---"\n` +
     `${ri}    mkdir -p "$QUARANTINE_DIR/$(dirname "$rel")"\n` +
     `${ri}    mv -f "$f" "$QUARANTINE_DIR/$rel"\n` +
     `${ri}  done\n` +
