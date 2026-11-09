@@ -102,6 +102,46 @@ endpoint rejection rewritten to `model_endpoint_incompatible` or
 provider's original body (and omitted when it has none), so AWF's code is
 never attributed to the provider.
 
+## Image request diagnostics
+
+With `--enable-api-proxy`, Copilot and OpenAI HTTP requests emit debug-level
+`request_shape` JSON records at `stage: "inbound"` (before body transforms) and
+`stage: "upstream"` (before sending each upstream attempt). Correlate records by
+`request_id` and compare:
+
+- `body_bytes` — request body size; JSON rewriting can legitimately change it
+- `input_item_types` — counts such as `message` and `function_call_output`
+- `content_part_types` — message content counts, including `input_image`
+- `tool_output_part_types` — structured tool-output counts, including
+  `input_image`; a string tool result is counted as `text`
+
+Only fixed type labels and counts are recorded, not prompts, image URLs,
+base64 payloads, tool arguments, or tool-output text. Unknown types are counted
+as `unknown`.
+
+For a `view` PNG result, compare these counts with the CLI's outgoing request
+shape, not just its `binaryResultsForLlm` tool result. If the CLI request and
+both proxy stages contain only text, the image was absent before AWF received
+the request; investigate CLI serialization upstream. If image counts decrease
+between proxy stages, investigate the proxy transform or protocol translation.
+Matching counts alone do not prove payload equality.
+
+The local socket tests in `server.multimodal.test.js` compare a direct request
+with requests through each provider proxy, verify PNG payload preservation
+through JSON model rewriting, and check content type and body framing. Bodies
+up to 10 MiB are accepted; larger bodies receive HTTP 413, not truncated
+forwarding. Run them without provider credentials:
+
+```bash
+cd containers/api-proxy
+npm ci
+npm test -- --runInBand server.multimodal.test.js logging.test.js
+```
+
+These tests do not reproduce the original Copilot CLI 1.0.103 / AWF v0.29.0
+session or establish its root cause. A correlated CLI/proxy capture is still
+needed before attributing that incident to the CLI.
+
 ## Security
 
 - Runs as non-root user (apiproxy)

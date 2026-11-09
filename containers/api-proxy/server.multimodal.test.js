@@ -106,12 +106,12 @@ describe.each(['copilot', 'openai'])('%s Responses multimodal passthrough', prov
     jest.restoreAllMocks();
   });
 
-  function post(body, path = '/responses', chunked = false, server = proxy) {
+  function post(body, path = '/responses', chunked = false, server = proxy, contentType = 'application/json') {
     return new Promise((resolve, reject) => {
       const req = http.request({
         hostname: '127.0.0.1', port: server.address().port, method: 'POST', path,
         headers: {
-          'content-type': 'application/json',
+          'content-type': contentType,
           authorization: ['Bearer', 'agent-placeholder'].join(' '),
           'x-request-id': 'image-test',
           ...(chunked ? {} : { 'content-length': body.length }),
@@ -144,6 +144,7 @@ describe.each(['copilot', 'openai'])('%s Responses multimodal passthrough', prov
     expect(requests[0].body).toEqual(directRequest.body);
     expect(requests[0].body).toEqual(body);
     expect(requests[0].url).toBe(path);
+    expect(requests[0].headers['content-type']).toBe('application/json');
     expect(Number(requests[0].headers['content-length'])).toBe(body.length);
     expect(requests[0].headers.authorization).toBe(['Bearer', 'trusted-sidecar-placeholder'].join(' '));
     const shapes = getStructuredLogs(logs, 'request_shape');
@@ -159,6 +160,27 @@ describe.each(['copilot', 'openai'])('%s Responses multimodal passthrough', prov
     expect(logs.mock.calls.map(([line]) => line).join(''))
       .not.toMatch(/private|Viewed image|iVBOR|trusted-sidecar-placeholder|agent-placeholder/);
   });
+
+  test.each(['application/json', 'application/json; charset=utf-8'])(
+    'preserves image parts when rewriting JSON with content type %s', async contentType => {
+      const parsed = JSON.parse(imageRequest());
+      parsed.model = `${provider}/image-model`;
+      const body = Buffer.from(JSON.stringify(parsed, null, 2));
+      expect((await post(body, '/responses', false, proxy, contentType)).status).toBe(200);
+      expect(requests).toHaveLength(1);
+      expect(requests[0].body).not.toEqual(body);
+      expect(JSON.parse(requests[0].body)).toEqual({ ...parsed, model: 'image-model' });
+      expect(Number(requests[0].headers['content-length'])).toBe(requests[0].body.length);
+      expect(requests[0].headers['content-type']).toBe(contentType);
+      const shapes = getStructuredLogs(logs, 'request_shape');
+      expect(shapes.map(shape => shape.stage)).toEqual(['inbound', 'upstream']);
+      expect(shapes.map(shape => shape.body_bytes)).toEqual([body.length, requests[0].body.length]);
+      for (const shape of shapes) {
+        expect(shape.content_part_types).toEqual({ input_text: 1, input_image: 1 });
+        expect(shape.tool_output_part_types).toEqual({ input_text: 1, input_image: 1 });
+      }
+    }
+  );
 
   test('reports a text-only view result without inventing image parts', async () => {
     const parsed = JSON.parse(imageRequest());
