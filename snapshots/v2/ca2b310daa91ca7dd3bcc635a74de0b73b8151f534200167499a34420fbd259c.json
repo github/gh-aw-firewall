@@ -1,0 +1,4171 @@
+{
+  "effectiveFrom": "2026-11-09T00:33:30.000Z",
+  "models": [
+    {
+      "identity": {
+        "key": "copilot/claude-fable-5",
+        "lookupId": "claude-fable-5",
+        "provider": "copilot",
+        "rawId": "claude-fable-5"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "12.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "1",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "10",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "50",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-fable-5-1",
+        "lookupId": "claude-fable-5-1",
+        "provider": "copilot",
+        "rawId": "claude-fable-5-1"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "12.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "10",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "50",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-haiku-4.5",
+        "lookupId": "claude-haiku-4-5",
+        "provider": "copilot",
+        "rawId": "claude-haiku-4.5"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "1.25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.1",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "1",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-haiku-5.5",
+        "lookupId": "claude-haiku-5-5",
+        "provider": "copilot",
+        "rawId": "claude-haiku-5.5"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "0.125",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.01",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "0.1",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "0.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "reasoning": {
+              "price": "0.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        },
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "0.625",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.05",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "0.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "2.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "reasoning": {
+              "price": "2.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "promptTokensAbove": 100000,
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "long_context",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-mythos-5",
+        "lookupId": "claude-mythos-5",
+        "provider": "copilot",
+        "rawId": "claude-mythos-5"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "12.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "1",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "10",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "50",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-opus-4-5",
+        "lookupId": "claude-opus-4-5",
+        "provider": "copilot",
+        "rawId": "claude-opus-4-5"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "6.25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-opus-4-6",
+        "lookupId": "claude-opus-4-6",
+        "provider": "copilot",
+        "rawId": "claude-opus-4-6"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "6.25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-opus-4-7",
+        "lookupId": "claude-opus-4-7",
+        "provider": "copilot",
+        "rawId": "claude-opus-4-7"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "6.25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-opus-4.8",
+        "lookupId": "claude-opus-4-8",
+        "provider": "copilot",
+        "rawId": "claude-opus-4.8"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "6.25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-opus-5",
+        "lookupId": "claude-opus-5",
+        "provider": "copilot",
+        "rawId": "claude-opus-5"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "6.25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-opus-5-5",
+        "lookupId": "claude-opus-5-5",
+        "provider": "copilot",
+        "rawId": "claude-opus-5-5"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "4",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "20",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-sonnet-4",
+        "lookupId": "claude-sonnet-4",
+        "provider": "copilot",
+        "rawId": "claude-sonnet-4"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "3.75",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.3",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "3",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "15",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-sonnet-4.5",
+        "lookupId": "claude-sonnet-4-5",
+        "provider": "copilot",
+        "rawId": "claude-sonnet-4.5"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "3.75",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.3",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "3",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "15",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-sonnet-4.6",
+        "lookupId": "claude-sonnet-4-6",
+        "provider": "copilot",
+        "rawId": "claude-sonnet-4.6"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "3.75",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.3",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "3",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "15",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-sonnet-5",
+        "lookupId": "claude-sonnet-5",
+        "provider": "copilot",
+        "rawId": "claude-sonnet-5"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "2.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "10",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-sonnet-5-5",
+        "lookupId": "claude-sonnet-5-5",
+        "provider": "copilot",
+        "rawId": "claude-sonnet-5-5"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "2.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.1",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "10",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gemini-2.5-pro",
+        "lookupId": "gemini-2-5-pro",
+        "provider": "copilot",
+        "rawId": "gemini-2.5-pro"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.125",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "1.25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "10",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gemini-3-flash",
+        "lookupId": "gemini-3-flash",
+        "provider": "copilot",
+        "rawId": "gemini-3-flash"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.05",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "0.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "3",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gemini-3.1-flash",
+        "lookupId": "gemini-3-1-flash",
+        "provider": "copilot",
+        "rawId": "gemini-3.1-flash"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.075",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "0.75",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "4.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gemini-3.1-pro",
+        "lookupId": "gemini-3-1-pro",
+        "provider": "copilot",
+        "rawId": "gemini-3.1-pro"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "12",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gemini-3.5-flash",
+        "lookupId": "gemini-3-5-flash",
+        "provider": "copilot",
+        "rawId": "gemini-3.5-flash"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.15",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "1.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "9",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gemini-3.8-flash",
+        "lookupId": "gemini-3-8-flash",
+        "provider": "copilot",
+        "rawId": "gemini-3.8-flash"
+      },
+      "provenance": {
+        "at": "2026-11-07T12:52:50.618Z",
+        "authority": "maintained",
+        "confidence": "verified",
+        "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+        "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "cachedInput": {
+              "price": "0.075",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "input": {
+              "price": "0.75",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "output": {
+              "price": "3.75",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            }
+          },
+          "currency": "USD",
+          "effectiveUntil": "2027-01-01T00:00:00.000Z",
+          "promotion": "Gemini 3.8 Flash published promotional pricing",
+          "provenance": {
+            "at": "2026-11-07T12:52:50.618Z",
+            "authority": "maintained",
+            "confidence": "verified",
+            "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gemini-4-argon",
+        "lookupId": "gemini-4-argon",
+        "provider": "copilot",
+        "rawId": "gemini-4-argon"
+      },
+      "provenance": {
+        "at": "2026-11-07T12:52:50.618Z",
+        "authority": "maintained",
+        "confidence": "verified",
+        "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+        "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "cachedInput": {
+              "price": "0.1",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "input": {
+              "price": "2",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "output": {
+              "price": "10",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            }
+          },
+          "currency": "USD",
+          "effectiveUntil": "2026-12-01T00:00:00.000Z",
+          "promotion": "Gemini 4 Argon published promotional pricing",
+          "provenance": {
+            "at": "2026-11-07T12:52:50.618Z",
+            "authority": "maintained",
+            "confidence": "verified",
+            "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5-codex-mini",
+        "lookupId": "gpt-5-codex-mini",
+        "provider": "copilot",
+        "rawId": "gpt-5-codex-mini"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.025",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "0.25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5-mini",
+        "lookupId": "gpt-5-mini",
+        "provider": "copilot",
+        "rawId": "gpt-5-mini"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.025",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "0.25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.2",
+        "lookupId": "gpt-5-2",
+        "provider": "copilot",
+        "rawId": "gpt-5.2"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.175",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "1.75",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "14",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.2-codex",
+        "lookupId": "gpt-5-2-codex",
+        "provider": "copilot",
+        "rawId": "gpt-5.2-codex"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.175",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "1.75",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "14",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.3-codex",
+        "lookupId": "gpt-5-3-codex",
+        "provider": "copilot",
+        "rawId": "gpt-5.3-codex"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.175",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "1.75",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "14",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.4",
+        "lookupId": "gpt-5-4",
+        "provider": "copilot",
+        "rawId": "gpt-5.4"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "2.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "15",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.4-mini",
+        "lookupId": "gpt-5-4-mini",
+        "provider": "copilot",
+        "rawId": "gpt-5.4-mini"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.075",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "0.75",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "4.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.4-nano",
+        "lookupId": "gpt-5-4-nano",
+        "provider": "copilot",
+        "rawId": "gpt-5.4-nano"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.02",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "0.2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "1.25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.5",
+        "lookupId": "gpt-5-5",
+        "provider": "copilot",
+        "rawId": "gpt-5.5"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "30",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.6-luna",
+        "lookupId": "gpt-5-6-luna",
+        "provider": "copilot",
+        "rawId": "gpt-5.6-luna"
+      },
+      "provenance": {
+        "at": "2026-11-07T12:52:50.618Z",
+        "authority": "maintained",
+        "confidence": "verified",
+        "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+        "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "0.25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.02",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "0.2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "1.2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        },
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "0.5",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "cachedInput": {
+              "price": "0.04",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "input": {
+              "price": "0.4",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "output": {
+              "price": "1.8",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            }
+          },
+          "currency": "USD",
+          "promptTokensAbove": 200000,
+          "provenance": {
+            "at": "2026-11-07T12:52:50.618Z",
+            "authority": "maintained",
+            "confidence": "verified",
+            "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "long_context",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.6-sol",
+        "lookupId": "gpt-5-6-sol",
+        "provider": "copilot",
+        "rawId": "gpt-5.6-sol"
+      },
+      "provenance": {
+        "at": "2026-11-07T12:52:50.618Z",
+        "authority": "maintained",
+        "confidence": "verified",
+        "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+        "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.4",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "4",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "20",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        },
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "10",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "cachedInput": {
+              "price": "0.8",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "input": {
+              "price": "8",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "output": {
+              "price": "30",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            }
+          },
+          "currency": "USD",
+          "promptTokensAbove": 272000,
+          "provenance": {
+            "at": "2026-11-07T12:52:50.618Z",
+            "authority": "maintained",
+            "confidence": "verified",
+            "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "long_context",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.6-terra",
+        "lookupId": "gpt-5-6-terra",
+        "provider": "copilot",
+        "rawId": "gpt-5.6-terra"
+      },
+      "provenance": {
+        "at": "2026-11-07T12:52:50.618Z",
+        "authority": "maintained",
+        "confidence": "verified",
+        "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+        "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "2.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "12",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        },
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "5",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "cachedInput": {
+              "price": "0.4",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "input": {
+              "price": "4",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "output": {
+              "price": "18",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            }
+          },
+          "currency": "USD",
+          "promptTokensAbove": 272000,
+          "provenance": {
+            "at": "2026-11-07T12:52:50.618Z",
+            "authority": "maintained",
+            "confidence": "verified",
+            "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "long_context",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-6-astra",
+        "lookupId": "gpt-6-astra",
+        "provider": "copilot",
+        "rawId": "gpt-6-astra"
+      },
+      "provenance": {
+        "at": "2026-11-07T12:52:50.618Z",
+        "authority": "maintained",
+        "confidence": "verified",
+        "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+        "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "12.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "1",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "10",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "50",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        },
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "25",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "cachedInput": {
+              "price": "2",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "input": {
+              "price": "20",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "output": {
+              "price": "75",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            }
+          },
+          "currency": "USD",
+          "promptTokensAbove": 272000,
+          "provenance": {
+            "at": "2026-11-07T12:52:50.618Z",
+            "authority": "maintained",
+            "confidence": "verified",
+            "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "long_context",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-6-luna",
+        "lookupId": "gpt-6-luna",
+        "provider": "copilot",
+        "rawId": "gpt-6-luna"
+      },
+      "provenance": {
+        "at": "2026-11-07T12:52:50.618Z",
+        "authority": "maintained",
+        "confidence": "verified",
+        "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+        "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "0.125",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.01",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "0.1",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "0.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        },
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "0.25",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "cachedInput": {
+              "price": "0.02",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "input": {
+              "price": "0.2",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "output": {
+              "price": "0.75",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            }
+          },
+          "currency": "USD",
+          "promptTokensAbove": 272000,
+          "provenance": {
+            "at": "2026-11-07T12:52:50.618Z",
+            "authority": "maintained",
+            "confidence": "verified",
+            "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "long_context",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-6-luna-decisions",
+        "lookupId": "gpt-6-luna-decisions",
+        "provider": "copilot",
+        "rawId": "gpt-6-luna-decisions"
+      },
+      "protocols": [
+        {
+          "features": {
+            "predicate": {
+              "condition": "One predicate succeeded in the maintainer-reported live Actions job at the pinned revision using Copilot-Integration-Id: agentic-workflows; logs were not independently retrieved. This does not establish choice/score, general account availability or credential eligibility.",
+              "provenance": {
+                "at": "2026-11-08T22:25:19Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "4c2be18cc2076f2a37e8f0258c298026a4ae413b",
+                "source": "https://github.com/github/gh-aw/blob/4c2be18cc2076f2a37e8f0258c298026a4ae413b/actions/setup/js/scripts/test_decisions_client.cjs"
+              },
+              "state": "conditional"
+            }
+          },
+          "protocol": "decisions",
+          "support": {
+            "provenance": {
+              "at": "2026-11-08T22:25:19Z",
+              "authority": "maintained",
+              "confidence": "verified",
+              "revision": "4c2be18cc2076f2a37e8f0258c298026a4ae413b",
+              "source": "https://github.com/github/gh-aw/pull/75859"
+            },
+            "state": "supported"
+          }
+        }
+      ],
+      "provenance": {
+        "at": "2026-11-08T22:25:19Z",
+        "authority": "maintained",
+        "confidence": "verified",
+        "revision": "4c2be18cc2076f2a37e8f0258c298026a4ae413b",
+        "source": "https://github.com/github/gh-aw/pull/75859"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-6-sol",
+        "lookupId": "gpt-6-sol",
+        "provider": "copilot",
+        "rawId": "gpt-6-sol"
+      },
+      "provenance": {
+        "at": "2026-11-07T12:52:50.618Z",
+        "authority": "maintained",
+        "confidence": "verified",
+        "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+        "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "2.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "10",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        },
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "5",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "cachedInput": {
+              "price": "0.4",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "input": {
+              "price": "4",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "output": {
+              "price": "15",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            }
+          },
+          "currency": "USD",
+          "promptTokensAbove": 272000,
+          "provenance": {
+            "at": "2026-11-07T12:52:50.618Z",
+            "authority": "maintained",
+            "confidence": "verified",
+            "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "long_context",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-6.1-sol",
+        "lookupId": "gpt-6-1-sol",
+        "provider": "copilot",
+        "rawId": "gpt-6.1-sol"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "2.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.1",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "10",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "reasoning": {
+              "price": "10",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        },
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "4",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "15",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "reasoning": {
+              "price": "15",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "promptTokensAbove": 272000,
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "long_context",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-6.1-terra",
+        "lookupId": "gpt-6-1-terra",
+        "provider": "copilot",
+        "rawId": "gpt-6.1-terra"
+      },
+      "provenance": {
+        "at": "2026-11-07T12:52:50.618Z",
+        "authority": "maintained",
+        "confidence": "verified",
+        "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+        "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "1.25",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "cachedInput": {
+              "price": "0.05",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "input": {
+              "price": "1",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "output": {
+              "price": "5",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-11-07T12:52:50.618Z",
+            "authority": "maintained",
+            "confidence": "verified",
+            "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        },
+        {
+          "components": {
+            "cacheWrite": {
+              "price": "2.5",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "cachedInput": {
+              "price": "0.1",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "input": {
+              "price": "2",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "output": {
+              "price": "7.5",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            }
+          },
+          "currency": "USD",
+          "promptTokensAbove": 272000,
+          "provenance": {
+            "at": "2026-11-07T12:52:50.618Z",
+            "authority": "maintained",
+            "confidence": "verified",
+            "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "long_context",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/mai-code-1-flash",
+        "lookupId": "mai-code-1-flash",
+        "provider": "copilot",
+        "rawId": "mai-code-1-flash"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.075",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "0.75",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "4.5",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/mai-code-1.1-flash",
+        "lookupId": "mai-code-1-1-flash",
+        "provider": "copilot",
+        "rawId": "mai-code-1.1-flash"
+      },
+      "provenance": {
+        "at": "2026-11-07T12:52:50.618Z",
+        "authority": "maintained",
+        "confidence": "verified",
+        "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+        "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "cachedInput": {
+              "price": "0.02",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "input": {
+              "price": "0.2",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            },
+            "output": {
+              "price": "1.2",
+              "provenance": {
+                "at": "2026-11-07T12:52:50.618Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-11-07T12:52:50.618Z",
+            "authority": "maintained",
+            "confidence": "verified",
+            "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
+            "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/raptor-mini",
+        "lookupId": "raptor-mini",
+        "provider": "copilot",
+        "rawId": "raptor-mini"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0.025",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "0.25",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "2",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/text-embedding-3-small",
+        "lookupId": "text-embedding-3-small",
+        "provider": "copilot",
+        "rawId": "text-embedding-3-small"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "0.02",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "0",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/text-embedding-3-small-inference",
+        "lookupId": "text-embedding-3-small-inference",
+        "provider": "copilot",
+        "rawId": "text-embedding-3-small-inference"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "0.02",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "0",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "copilot/text-embedding-ada-002",
+        "lookupId": "text-embedding-ada-002",
+        "provider": "copilot",
+        "rawId": "text-embedding-ada-002"
+      },
+      "provenance": {
+        "at": "2026-10-20T00:22:04.000Z",
+        "authority": "maintained",
+        "confidence": "estimated",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "source": "pinned legacy compatibility capture"
+      },
+      "tariffs": [
+        {
+          "components": {
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "cachedInput": {
+              "price": "0",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "input": {
+              "price": "0.1",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            },
+            "output": {
+              "price": "0",
+              "provenance": {
+                "at": "2026-10-20T00:22:04.000Z",
+                "authority": "maintained",
+                "confidence": "estimated",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "source": "pinned legacy compatibility capture"
+              }
+            }
+          },
+          "currency": "USD",
+          "provenance": {
+            "at": "2026-10-20T00:22:04.000Z",
+            "authority": "maintained",
+            "confidence": "estimated",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "source": "pinned legacy compatibility capture"
+          },
+          "scope": {
+            "channel": "copilot-api",
+            "provider": "copilot"
+          },
+          "tier": "default",
+          "unit": "USD_PER_1M_TOKENS"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "key": "openai/gpt-6-luna",
+        "lookupId": "gpt-6-luna",
+        "provider": "openai",
+        "rawId": "gpt-6-luna"
+      },
+      "protocols": [
+        {
+          "features": {
+            "typed_questions": {
+              "condition": "1–400 predicate, choice or score questions; answers retain question order.",
+              "provenance": {
+                "at": "2026-11-08T22:25:19Z",
+                "authority": "maintained",
+                "confidence": "verified",
+                "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
+                "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py#L61-L80"
+              },
+              "state": "conditional"
+            }
+          },
+          "protocol": "decisions",
+          "support": {
+            "provenance": {
+              "at": "2026-11-08T22:25:19Z",
+              "authority": "maintained",
+              "confidence": "verified",
+              "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
+              "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py#L61-L80"
+            },
+            "state": "supported"
+          }
+        }
+      ],
+      "provenance": {
+        "at": "2026-11-08T22:25:19Z",
+        "authority": "maintained",
+        "confidence": "verified",
+        "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
+        "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py"
+      }
+    }
+  ],
+  "observedAt": "2026-11-08T22:25:19.000Z",
+  "provenance": {
+    "authority": "central_feed",
+    "source": "https://github.com/github/gh-aw-firewall"
+  },
+  "publishedAt": "2026-11-09T00:33:30.000Z",
+  "revision": "ca2b310daa91ca7dd3bcc635a74de0b73b8151f534200167499a34420fbd259c",
+  "schemaHash": "5059b57d0b4fb32631b38569ee8e5ae92f31bbe3842ec3f907760c3f62befb98",
+  "schemaVersion": 2,
+  "sha256": "ca2b310daa91ca7dd3bcc635a74de0b73b8151f534200167499a34420fbd259c",
+  "sourceCommit": "994d9fc28c2d71d13f4a3dcd0f4e33682a3e24ff"
+}
