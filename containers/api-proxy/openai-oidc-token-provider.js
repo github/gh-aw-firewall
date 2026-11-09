@@ -7,6 +7,10 @@ const OPENAI_TOKEN_ENDPOINT = 'https://auth.openai.com/oauth/token';
 const DEFAULT_OPENAI_OIDC_AUDIENCE = 'https://api.openai.com/v1';
 const MAX_TOKEN_LIFETIME_SECS = 3600;
 
+function redactIdentifier(value) {
+  return value ? '[redacted]' : value;
+}
+
 class OpenAIOidcTokenProvider extends BaseOidcTokenProvider {
   constructor(config) {
     super('openai_oidc', config);
@@ -82,8 +86,8 @@ class OpenAIOidcTokenProvider extends BaseOidcTokenProvider {
   _getInitSuccessLogContext() {
     return {
       audience: this._oidcAudience,
-      identity_provider_id: this._identityProviderId,
-      service_account_id: this._serviceAccountId,
+      identity_provider_id: redactIdentifier(this._identityProviderId),
+      service_account_id: redactIdentifier(this._serviceAccountId),
       expires_in_secs: this._expiresAt - Math.floor(Date.now() / 1000),
     };
   }
@@ -91,8 +95,8 @@ class OpenAIOidcTokenProvider extends BaseOidcTokenProvider {
   _getInitFailureLogContext() {
     return {
       audience: this._oidcAudience,
-      identity_provider_id: this._identityProviderId,
-      service_account_id: this._serviceAccountId,
+      identity_provider_id: redactIdentifier(this._identityProviderId),
+      service_account_id: redactIdentifier(this._serviceAccountId),
     };
   }
 }
