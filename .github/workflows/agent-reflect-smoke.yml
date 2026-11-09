@@ -1,0 +1,98 @@
+name: Agent reflect diagnostics smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-reflect-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  COPILOT_VERSION: 1.0.90
+  CODEX_VERSION: 0.159.3
+  CLAUDE_VERSION: 2.1.280
+
+jobs:
+  deterministic:
+    name: Provider-free fixture and grader
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: npm ci && npm --prefix containers/api-proxy ci && npm run test:reflect-smoke
+
+  agents:
+    name: ${{ matrix.agent }} / Docker / reflect
+    needs: deterministic
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      copilot-requests: write
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        agent: [copilot, claude, codex]
+    env:
+      SOURCE_SHA: ${{ github.sha }}
+      AGENT: ${{ matrix.agent }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Build exact dispatched checkout and matching images
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          npm ci
+          npm run build
+          uid=$(node -p "require('./dist/host-identity').getSafeHostUid()")
+          gid=$(node -p "require('./dist/host-identity').getSafeHostGid()")
+          for image in squid agent api-proxy; do
+            args=(--build-arg "AWF_VERSION=0.0.0-reflect$SOURCE_SHA")
+            if [ "$image" = agent ]; then
+              args+=(--build-arg "USER_UID=$uid" --build-arg "USER_GID=$gid")
+            fi
+            docker build "${args[@]}" --tag "awf-reflect/$image:$SOURCE_SHA" "containers/$image"
+          done
+          docker build --file scripts/ci/reflect-smoke/Dockerfile \
+            --build-arg "PROXY_IMAGE=awf-reflect/api-proxy:$SOURCE_SHA" \
+            --tag "awf-reflect/fixture:$SOURCE_SHA" .
+      - name: Install pinned real agent CLI
+        run: |
+          set -euo pipefail
+          case "$AGENT" in
+            copilot) package="@github/copilot@$COPILOT_VERSION" ;;
+            claude) package="@anthropic-ai/claude-code@$CLAUDE_VERSION" ;;
+            codex) package="@openai/codex@$CODEX_VERSION" ;;
+            *) exit 1 ;;
+          esac
+          npm install --prefix .awf-reflect-tools --no-package-lock --no-audit --no-fund "$package"
+      - name: Run real agents against isolated production diagnostics
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ matrix.agent == 'copilot' && (secrets.COPILOT_GITHUB_TOKEN || github.token) || '' }}
+          OPENAI_API_KEY: ${{ matrix.agent == 'codex' && (secrets.CODEX_API_KEY || secrets.OPENAI_API_KEY) || '' }}
+          ANTHROPIC_API_KEY: ${{ matrix.agent == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
+        run: bash scripts/ci/reflect-smoke/run.sh
+      - name: Upload sanitized evidence only
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-reflect-${{ matrix.agent }}
+          path: ${{ runner.temp }}/reflect-evidence-${{ matrix.agent }}/
+          if-no-files-found: error
+          retention-days: 7
