@@ -1,0 +1,86 @@
+name: Build release image platform
+description: Build one native platform and hand off its immutable digest
+inputs:
+  image:
+    required: true
+    description: Image name within the repository registry
+  arch:
+    required: true
+    description: Native architecture
+  token:
+    required: true
+    description: Registry token
+  context:
+    required: true
+    description: Docker build context
+  file:
+    default: ''
+    description: Dockerfile override
+  target:
+    default: ''
+    description: Dockerfile target
+  build-args:
+    default: ''
+    description: Docker build arguments
+  no-cache:
+    default: 'false'
+    description: Disable build cache
+  pull:
+    default: 'false'
+    description: Always pull base images
+  cache:
+    default: 'true'
+    description: Enable architecture-specific GHA cache
+  verify-seccomp:
+    default: 'false'
+    description: Run agent seccomp verification against the built digest
+runs:
+  using: composite
+  steps:
+    - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ inputs.token }}
+    - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+    - id: build
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      with:
+        context: ${{ inputs.context }}
+        file: ${{ inputs.file }}
+        target: ${{ inputs.target }}
+        build-args: ${{ inputs.build-args }}
+        platforms: linux/${{ inputs.arch }}
+        outputs: type=image,name=ghcr.io/${{ github.repository }}/${{ inputs.image }},push-by-digest=true,name-canonical=true,push=true
+        no-cache: ${{ inputs.no-cache }}
+        pull: ${{ inputs.pull }}
+        cache-from: ${{ inputs.cache == 'true' && format('type=gha,scope={0}-{1}', inputs.image, inputs.arch) || '' }}
+        cache-to: ${{ inputs.cache == 'true' && format('type=gha,mode=max,scope={0}-{1}', inputs.image, inputs.arch) || '' }}
+    - name: Verify native agent seccomp
+      if: inputs.verify-seccomp == 'true'
+      shell: bash
+      env:
+        IMAGE: ghcr.io/${{ github.repository }}/${{ inputs.image }}
+        DIGEST: ${{ steps.build.outputs.digest }}
+        ARCH: ${{ inputs.arch }}
+      run: bash ./scripts/ci/check-agent-seccomp-syscalls.sh "$IMAGE@$DIGEST" "linux/$ARCH"
+    - name: Export image digest
+      shell: bash
+      env:
+        DIGEST: ${{ steps.build.outputs.digest }}
+        IMAGE_NAME: ${{ inputs.image }}
+        ARCH: ${{ inputs.arch }}
+      run: |
+        set -euo pipefail
+        if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+          echo "::error::Invalid $IMAGE_NAME image digest for $ARCH"
+          exit 1
+        fi
+        mkdir -p "$RUNNER_TEMP/$IMAGE_NAME-digests"
+        printf '%s\n' "$DIGEST" > "$RUNNER_TEMP/$IMAGE_NAME-digests/$ARCH"
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ inputs.image }}-digest-${{ inputs.arch }}
+        path: ${{ runner.temp }}/${{ inputs.image }}-digests/${{ inputs.arch }}
+        if-no-files-found: error
+        retention-days: 1

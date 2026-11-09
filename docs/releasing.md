@@ -40,12 +40,29 @@ The workflow will:
 - Independently dispatch Cloud Hypervisor Preview Integration on the same tag
   with `run_live_kvm=true` for real primary-agent VM coverage
 
-Squid is compiled separately on native `ubuntu-24.04` (AMD64) and
-`ubuntu-24.04-arm` (ARM64) runners, with architecture-specific build caches.
-Both builds push by digest; the `build-squid` publication job combines them
-into one multi-architecture image under the existing version and `latest`
-tags, then signs and SBOM-attests that combined digest. Downstream release
-artifacts continue to use this digest. Other image builds are unchanged.
+All multi-architecture images build separately on native `ubuntu-24.04`
+(AMD64) and `ubuntu-24.04-arm` (ARM64) runners, without QEMU. Cached builds
+use image- and architecture-specific cache scopes; agent, build-tools and
+gh-aw-node retain their no-cache policy. Agent seccomp checks run natively
+against each platform's immutable digest before handing it off.
+Each image has one publication job that combines both successful platform
+digests under the existing version and `latest` tags, verifies the combined
+manifest, and retains its signing and SBOM attestation steps. Downstream
+release artifacts use only the final manifest digest.
+
+The three enclave targets build independently; only enclave-agent waits for
+the signed build-tools image. Cloud Hypervisor primary and enclave profiles
+also build independently, waiting only for their actual image dependencies.
+Agent-act remains AMD64-only, and Cloud Hypervisor/NVX artifacts remain
+x86_64-only.
+
+Bundle/NPM packaging and all four standalone binary targets start after the
+version tag is created, concurrently with image builds and each other.
+The final release job downloads those same-run artifacts, restores executable
+permissions, and retains binary smoke/format checks, checksums, provenance,
+asset-size checks and publication gates. Post-release validation dispatches
+still wait for successful release publication. Actual speedup depends on
+hosted-runner availability and repository concurrency limits.
 
 ### Release source identity and VM acceptance
 

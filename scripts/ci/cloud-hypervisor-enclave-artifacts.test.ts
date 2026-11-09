@@ -384,7 +384,7 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     expect(build).toContain('--build-arg "BUILD_TOOLS_IMAGE=$BUILD_TOOLS_IMAGE"');
     expect(build).toContain('sudo chroot "$tree" /usr/bin/ip -Version');
     expect(release).toContain(
-      'ENCLAVE_IMAGE="ghcr.io/${{ github.repository }}/cloud-hypervisor-enclave@${{ needs.build-cloud-hypervisor-profiles.outputs.enclave_digest }}"',
+      'ENCLAVE_IMAGE="ghcr.io/${{ github.repository }}/cloud-hypervisor-enclave@${{ needs.build-cloud-hypervisor-enclave.outputs.digest }}"',
     );
     const dockerfile = fs.readFileSync(dockerfilePath, 'utf8');
     expect(dockerfile).not.toContain('&& ! command -v gh');
