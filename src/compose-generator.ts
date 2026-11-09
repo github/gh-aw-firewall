@@ -10,6 +10,7 @@ import { resolveLogPaths } from './log-paths';
 import { redactComposeServiceEnvironment } from './compose-sanitizer';
 import { buildSquidService } from './services/squid-service';
 import { buildAgentEnvironment, buildAgentVolumes, buildAgentService } from './services/agent-service';
+import { isolateTrustedServiceEnvironment } from './trusted-service';
 import { assembleOptionalServices, filterAgentVolumesForSysroot } from './services/optional-services';
 import { buildComposeNetworks } from './compose-network';
 import { runtimeNeedsStaticDns, runtimeUsesComposeAgent } from './container-runtime';
@@ -189,6 +190,7 @@ export function generateDockerCompose(
     initSignalDir,
     effectiveHome,
   });
+  isolateTrustedServiceEnvironment(config, environment);
 
   // ── Publish infra ports for microVM runtimes ───────────────────────────────
   // When the agent runs in a microVM (e.g. sbx), it can't reach Docker-internal

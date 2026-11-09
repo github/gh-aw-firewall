@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { validateWithSchema } from './schema-validator';
+import { validateTrustedService } from './trusted-service';
 import type { RawEnclavesConfig } from './types/enclave-options';
 import type {
   CloudHypervisorArtifactDigests,
@@ -97,8 +98,8 @@ export interface AwfFileConfig {
     };
     routing?: ModelRoutingConfig;
     targets?: {
-      openai?: { host?: string; basePath?: string; authHeader?: string; baseUrlEnv?: string };
-      anthropic?: { host?: string; basePath?: string; authHeader?: string };
+      openai?: { host?: string; basePath?: string; authHeader?: string; baseUrlEnv?: string; trustedService?: import('./trusted-service').TrustedService };
+      anthropic?: { host?: string; basePath?: string; authHeader?: string; trustedService?: import('./trusted-service').TrustedService };
       copilot?: {
         host?: string;
         basePath?: string;
@@ -286,7 +287,17 @@ export interface AwfFileConfig {
  */
 // ts-prune-ignore-next
 export function validateAwfFileConfig(config: unknown): string[] {
-  return validateWithSchema(config);
+  const errors = validateWithSchema(config);
+  if (errors.length) return errors;
+  const targets = (config as AwfFileConfig).apiProxy?.targets;
+  for (const target of [targets?.openai, targets?.anthropic]) {
+    if (target?.trustedService) {
+      try { validateTrustedService(target.trustedService, target.authHeader); } catch (error) {
+        errors.push((error as Error).message);
+      }
+    }
+  }
+  return errors;
 }
 
 const readStdinSync = (): string => fs.readFileSync(process.stdin.fd, 'utf8');

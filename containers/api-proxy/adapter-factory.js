@@ -11,6 +11,7 @@
  */
 
 'use strict';
+const { readTrustedService } = require('./trusted-service');
 
 const {
   normalizeApiTarget,
@@ -250,7 +251,18 @@ function createStandardProviderAdapter(env, deps = {}, {
     ...envVars,
     defaultTarget,
   }));
+  const trustedService = ['openai', 'anthropic'].includes(name) ? readTrustedService(env, name) : null;
+  if (trustedService) {
+    config.rawTarget = trustedService.target;
+    config.basePath = trustedService.basePath;
+  }
   const headerBuilders = createHeaderBuilders(config);
+  if (trustedService) {
+    for (const name of ['buildStaticHeaders', 'buildOidcHeaders']) {
+      const build = headerBuilders[name];
+      headerBuilders[name] = (...args) => trustedService.inject(build(...args));
+    }
+  }
   const oidcAuthOptions = {
     staticAuthToken: config.apiKey,
     ...(createOidcAuthOptions ? createOidcAuthOptions(config) : {}),
@@ -259,7 +271,7 @@ function createStandardProviderAdapter(env, deps = {}, {
     typeof options === 'function' ? options(context) : options
   );
 
-  return createOidcAwareProviderAdapter({
+  const adapter = createOidcAwareProviderAdapter({
     env,
     oidcAuthOptions,
     ...headerBuilders,
@@ -294,6 +306,8 @@ function createStandardProviderAdapter(env, deps = {}, {
       ? (oidcContext) => getAuthHeaders({ ...config, ...headerBuilders, ...oidcContext })
       : undefined,
   });
+  if (trustedService) adapter.trustedService = true;
+  return adapter;
 }
 
 /**

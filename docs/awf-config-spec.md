@@ -1147,6 +1147,172 @@ Compiler integrations only emit the stable config and pipe it to
 `awf --config - -- <command>`; they do not need to understand provider routes,
 body fields, tool versions, or internal environment variables.
 
+### 9.10 Trusted LLM Services
+
+The trusted-service contract is an explicit grant of trust to a caller-managed
+service, not an isolation boundary from that service's operator. The supported
+chain is:
+
+```text
+agent -> AWF api-proxy -> Squid -> trusted HTTPS service -> provider
+```
+
+AWF MUST retain responsibility for model selection, budget and invocation
+guards, credential isolation, and egress enforcement before forwarding inference
+requests. A service MUST NOT be selected by an agent-supplied URL or header.
+Pointing an engine directly at the service is not this contract.
+
+For Anthropic and OpenAI, configure `apiProxy.targets.<provider>.trustedService`:
+
+```json
+{
+  "apiProxy": {
+    "targets": {
+      "anthropic": {
+        "trustedService": {
+          "endpoint": "https://llm-gateway.example.net/anthropic",
+          "secretHeaders": {
+            "x-corporate-token": "CORPORATE_LLM_TOKEN"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+`secretHeaders` maps supplemental header names to **runner environment variable
+names**, never literal secret values. AWF MUST reject invalid names and values,
+case-insensitive duplicates, and reserved authentication, routing, framing, and
+hop-by-hop headers, including the configured provider authentication header.
+Agent-supplied values MUST NOT override these headers. Secret source variables
+MUST be excluded from the agent even with explicit environment overrides.
+Resolved supplemental values MUST NOT be written into public configuration,
+reflection, diagnostics, or logs.
+
+The service setting is mutually exclusive with the same provider's `host`,
+`basePath`, secret-backed base URL, and equivalent environment/CLI overrides.
+Experimental task-level model routing and AWS/GCP OIDC request signing are not
+supported with this contract. The service is not an HTTP forward proxy: it must
+implement the selected provider's API at the configured path prefix. HTTP and SSE
+streaming are supported; WebSocket upgrades fail closed with HTTP 503.
+
+#### Standalone AWF recipe
+
+Provision a service with a valid HTTPS certificate at the example endpoint above,
+replace that endpoint with its real address, and save the JSON as
+`/tmp/trusted-service.json`. The service must accept Anthropic Messages requests
+under `/anthropic/v1/messages`, require `x-corporate-token`, and forward the
+request and AWF-injected `x-api-key` to `https://api.anthropic.com/v1/messages`.
+Keep its own secret store and logs outside all agent-accessible mounts.
+
+With a matching AWF source build and Claude already installed on the runner:
+
+```bash
+read -rs -p 'Anthropic API key: ' ANTHROPIC_API_KEY; echo
+read -rs -p 'Corporate header value: ' CORPORATE_LLM_TOKEN; echo
+export ANTHROPIC_API_KEY CORPORATE_LLM_TOKEN
+sudo --preserve-env=ANTHROPIC_API_KEY,CORPORATE_LLM_TOKEN \
+  awf --build-local --config /tmp/trusted-service.json -- \
+  claude -p 'Reply with hello'
+unset ANTHROPIC_API_KEY CORPORATE_LLM_TOKEN
+```
+
+The agent still uses AWF's internal Anthropic endpoint. Do not set its
+`ANTHROPIC_BASE_URL` to the service, pass real keys with `--env`, or add the
+service/provider to its general domain allowlist. For a corporate CA, configure
+`apiProxy.caCert` with the runner's CA certificate file. This is a standalone
+AWF recipe, not supported workflow frontmatter.
+
+The service receives the provider authentication that AWF normally injects,
+alongside the configured supplemental headers. Its operator can therefore read
+provider credentials, prompts, responses, and corporate headers. The caller MUST
+trust that operator and provision the service to forward only to its intended
+provider. AWF authenticates the provider request; the service is responsible for
+its onward TLS connection, destination restrictions, and credential handling.
+The service MUST NOT echo credentials into response bodies or headers, including
+authentication errors and debugging responses. Responses are operator-controlled
+data returned to the agent, not a credential-isolation boundary against the
+service itself.
+The service MAY instead add corporate headers using its own secret store;
+ordinary Copilot BYOK `extraHeaders` remain non-sensitive and MUST NOT be used
+for secret values.
+
+#### Addressing and network admission
+
+This contract supports a caller-managed remote HTTPS endpoint reachable from
+Squid using the existing Docker API-proxy topology. Alternate sandbox runtimes
+are rejected before startup. Endpoints use a DNS hostname
+and HTTPS port 443; an optional URL path is the upstream path prefix. Userinfo,
+query strings, fragments, traversal paths, raw IP addresses, and non-default
+ports are not supported. The caller owns DNS,
+certificate provisioning, service startup, health, and teardown. Loopback on the
+runner is not loopback in Squid. Docker service names, host-published ports,
+ARC/DinD-only aliases, enclave networks, and microVM-local receivers MUST NOT be
+assumed reachable merely because a GitHub Actions `services:` entry exists.
+AWF does not automatically attach service containers or admit arbitrary network
+peers.
+
+The configured service is an upstream of the trusted API proxy, not a new
+destination granted to the agent. Its admission MUST NOT widen global agent
+egress. AWF MUST enforce `network.blockDomains` before forwarding to the service.
+Service-scoped deny rules must precede the trusted API-proxy source's broader
+Squid allow rule; traversing Squid alone does not enforce the agent's domain ACL
+on sidecar traffic. The caller MUST NOT
+add the service to the agent's general allowlist to make the chain work.
+AWF verifies the service's TLS certificate and hostname; private CAs use
+`apiProxy.caCert`, not disabled certificate verification.
+
+Invalid configuration, missing secrets, unreachable destinations, TLS failures,
+and redirects MUST fail closed. They MUST NOT cause a retry against a different
+target or direct-provider bypass. A failed service must not be made usable by
+relaxing agent egress. Streaming and provider error handling remain the existing
+API-proxy protocol, not a second forwarding API.
+
+#### Agent-native telemetry handoff
+
+[AWF #10445](https://github.com/github/gh-aw-firewall/issues/10445) owns the
+agent-facing OTLP gateway. This contract does not implement that gateway, and
+the API proxy's own span exporter is not evidence that native agent export is
+available.
+
+Once that gateway is available, a trusted service receiver MAY be its configured
+**default collector**. The intended chain is:
+
+```text
+agent SDK -> AWF-owned OTLP gateway -> default service receiver -> collectors
+```
+
+The gateway MUST retain collector authentication in trusted infrastructure,
+rewrite agent exporter settings to its internal ingestion endpoint, and prevent
+per-signal overrides from selecting external receivers. It MUST send agent
+telemetry only to the default receiver. Fan-out, span mutation, and onward
+authentication belong to the service; AWF need not be a programmable span
+processor. Existing fan-out of AWF's own spans is unchanged.
+
+A native-telemetry recipe MUST NOT be advertised until #10445 supplies and tests
+the gateway configuration and version floor. Its integration test must send
+traces, metrics, and logs from a mock instrumented agent, verify receiver-side
+mutation/fan-out, and inspect agent configuration and artifacts for collector
+credentials. Forwarding external `OTEL_*` destinations or credentials directly
+to the agent is not an interim implementation of this contract.
+
+#### Versioning and compiler ownership
+
+Consumers MUST require a schema and matching CLI/API-proxy image that implement
+the trusted-service fields. Older releases and the closure of #4849/#4859 do not
+establish support. Until a release publishes this contract, use a matching source
+build (`--build-local`); there is no claimed released minimum version. A compiler
+handoff MUST pin the first supporting release (or a later compatible release),
+not infer support from an unrelated connectivity flag or a `latest` image.
+
+`gh-aw` owns workflow frontmatter, engine capability configuration, GitHub
+Actions service declarations/lifecycle, secret binding, and compilation. Before
+publishing a workflow-frontmatter recipe, it must hand off validated AWF
+configuration and secret references, establish the supported service addressing,
+and gate LLM and native-telemetry support independently on their minimum
+versions. See [gh-aw #38925](https://github.com/github/gh-aw/issues/38925).
+
 ## 10. AI Credit and Runtime Controls
 
 ### 10.1 Budget Steering

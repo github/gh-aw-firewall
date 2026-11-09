@@ -2,9 +2,11 @@ import { PROXY_ENV_VARS } from '../../upstream-proxy';
 import { WrapperConfig } from '../../types';
 import { addGithubTokenEnvVars } from './github-token-isolation';
 import { COPILOT_BROKER_PRIVATE_ENV, COPILOT_BROKER_CONTEXT_ENV } from '../../copilot-token-broker';
+import { trustedServiceSecretNames } from '../../trusted-service';
 
 export function buildExclusionSet(config: WrapperConfig): Set<string> {
   const excludedEnvVars = new Set([
+    ...trustedServiceSecretNames(config),
     ...COPILOT_BROKER_PRIVATE_ENV,
     'PATH',
     'PWD',

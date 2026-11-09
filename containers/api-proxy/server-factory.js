@@ -145,9 +145,10 @@ function createWebSocketUpgradeHandler(adapter, proxyWebSocket, { modelBudgetEna
       return;
     }
 
+    // Trusted services support HTTP/SSE only; upgrades require a separate contract.
     // Buffered SigV4 and renewable broker auth do not support WebSockets.
     // Never forward an upgrade without a supported authentication path.
-    if (adapter.getRequestSigner?.() || adapter.renewableAuth) {
+    if (adapter.getRequestSigner?.() || adapter.renewableAuth || adapter.trustedService) {
       auditEnclaveResponse(503, 'local');
       socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
       socket.destroy();

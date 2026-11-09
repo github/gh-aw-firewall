@@ -73,6 +73,50 @@ describe('upstream-http', () => {
     expect(handleUpstreamResponse).toHaveBeenCalled();
   });
 
+  test('safely closes rejected trusted redirect bodies and finalizes cancellation once', () => {
+    const external = new AbortController();
+    const removeAbort = jest.spyOn(external.signal, 'removeEventListener');
+    const proxyRes = Object.assign(new EventEmitter(), {
+      statusCode: 307,
+      resume: jest.fn(),
+      destroy: jest.fn(() => proxyRes.emit('error', new Error('truncated redirect body'))),
+    });
+    const proxyReq = Object.assign(new EventEmitter(), { write: jest.fn(), end: jest.fn() });
+    const httpsRequest = jest.fn((_options, callback) => {
+      callback(proxyRes);
+      return proxyReq;
+    });
+    const handleUpstreamResponse = jest.fn();
+    const handleRequestError = jest.fn();
+    const metrics = { gaugeDec: jest.fn() };
+    const otel = { endSpan: jest.fn() };
+    const res = Object.assign(new EventEmitter(), {
+      writeHead: jest.fn(), end: jest.fn(), writableFinished: false,
+    });
+    const ctx = createContext({
+      req: { method: 'POST', awfTrustedService: true, awfRequestContext: { signal: external.signal } }, res,
+    });
+    const send = createSendUpstreamRequest({
+      https: { request: httpsRequest }, proxyAgent: {}, handleUpstreamResponse,
+      sleep: jest.fn(), otel, handleRequestError, metrics,
+    });
+    expect(() => send({}, ctx)).not.toThrow();
+    expect(proxyRes.destroy).toHaveBeenCalledTimes(1);
+    expect(proxyRes.resume).not.toHaveBeenCalled();
+    expect(httpsRequest.mock.calls[0][0].signal.aborted).toBe(true);
+    expect(removeAbort).toHaveBeenCalledWith('abort', expect.any(Function));
+    expect(res.writeHead).toHaveBeenCalledWith(502, { 'Content-Type': 'application/json' });
+    expect(res.end).toHaveBeenCalledWith(expect.stringContaining('trusted_service_redirect'));
+    expect(() => proxyReq.emit('error', new Error('late cancellation error'))).not.toThrow();
+    external.abort();
+    res.emit('close');
+    expect(metrics.gaugeDec).toHaveBeenCalledTimes(1);
+    expect(otel.endSpan).toHaveBeenCalledTimes(1);
+    expect(otel.endSpan).toHaveBeenCalledWith(ctx.span, 502);
+    expect(handleRequestError).not.toHaveBeenCalled();
+    expect(handleUpstreamResponse).not.toHaveBeenCalled();
+  });
+
   test.each([
     ['http', 'localhost:11434', 'localhost', 11434],
     ['https', 'gateway.example.com:8443', 'gateway.example.com', 8443],

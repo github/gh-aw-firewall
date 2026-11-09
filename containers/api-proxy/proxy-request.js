@@ -79,6 +79,7 @@ const {
 } = require('./guards/model-policy-guard');
 const { enforceGuards, getCurrentGuardChecks } = require('./proxy-guards');
 const { isGithubCopilotCatalogTarget } = require('./providers/copilot-auth');
+const { TRUSTED_SERVICE } = require('./trusted-service');
 
 // ── Optional token tracker (graceful degradation when not bundled) ────────────
 let trackTokenUsage;
@@ -237,6 +238,7 @@ const sendUpstreamRequest = createSendUpstreamRequest({
  * @param {'http'|'https'} [targetScheme='https'] - Upstream scheme (see proxy-utils.js normalizeApiTarget)
  */
 function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = '', bodyTransform = null, requestSigner = null, targetScheme = 'https') {
+  req.awfTrustedService = injectHeaders[TRUSTED_SERVICE] === true;
   pinRequestEligibility(req);
   req.awfModelCatalogAuthoritative = provider === 'copilot' && isGithubCopilotCatalogTarget(targetHost);
   if (!Object.hasOwn(req, 'awfCatalogue')) req.awfCatalogue = getCatalogueLoader().capture();

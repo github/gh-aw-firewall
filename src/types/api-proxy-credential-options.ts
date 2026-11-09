@@ -3,6 +3,8 @@
  */
 
 export interface ApiProxyCredentialOptions {
+  openaiTrustedService?: import('../trusted-service').TrustedService;
+  anthropicTrustedService?: import('../trusted-service').TrustedService;
   /**
    * Enable API proxy sidecar for holding authentication credentials
    *
