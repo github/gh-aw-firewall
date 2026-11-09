@@ -200,7 +200,7 @@ interface DockerService {
    * 
    * @example { HTTP_PROXY: 'http://172.30.0.10:3128' }
    */
-  environment?: Record<string, string>;
+  environment?: Record<string, string | null>;
 
   /**
    * Service dependencies

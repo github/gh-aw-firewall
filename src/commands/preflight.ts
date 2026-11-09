@@ -8,6 +8,8 @@ import { parseDomains, parseDomainsFile } from '../domain-utils';
 import { processLocalhostKeyword } from '../option-parsers';
 import { resolveCopilotApiRouting } from '../copilot-api-resolver';
 import { resolveApiTargetsToAllowedDomains } from '../api-proxy-config';
+import { trustedServiceTargets } from '../trusted-service';
+import type { WrapperConfig } from '../types';
 import { resolveTopologyPeerHosts } from '../topology-peers';
 import { readEnvFile } from '../github-env';
 import { resolveOpenAiBaseUrlFromEnv } from '../openai-base-url-env';
@@ -202,6 +204,12 @@ export function resolveAllowedDomains(options: Record<string, unknown>): Allowed
   // Secret-derived entries (OPENAI_ENDPOINT_OVERRIDE) go into sensitiveAllowedDomains
   // so they are never logged or included in the audit config artifact.
   const sensitiveAllowedDomains: string[] = [];
+  try {
+    trustedServiceTargets(options as unknown as WrapperConfig);
+  } catch (error) {
+    logger.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
   resolveApiTargetsToAllowedDomains(
     {
       copilotApiTarget: resolvedCopilotApiTarget,

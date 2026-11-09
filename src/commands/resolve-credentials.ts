@@ -10,6 +10,8 @@ type OidcConfigKey = (typeof OIDC_AUTH_ENV_MAPPING)[number]['configKey'];
 
 type ApiCredentials = Pick<WrapperConfig,
   | 'openaiApiKey'
+  | 'openaiTrustedService'
+  | 'anthropicTrustedService'
   | 'anthropicApiKey'
   | 'copilotGithubToken'
   | 'copilotProviderApiKey'
@@ -55,6 +57,8 @@ export function resolveApiCredentials(
   const agentApiKey = resolveAgentApiKey(options);
 
   return {
+    openaiTrustedService: options.openaiTrustedService as WrapperConfig['openaiTrustedService'],
+    anthropicTrustedService: options.anthropicTrustedService as WrapperConfig['anthropicTrustedService'],
     openaiApiKey: process.env[OPENAI_ENV.KEY] || agentApiKey.openai,
     anthropicApiKey: process.env[ANTHROPIC_ENV.KEY] || agentApiKey.anthropic,
     copilotGithubToken: process.env[COPILOT_ENV.GITHUB_TOKEN],

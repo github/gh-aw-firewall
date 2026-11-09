@@ -24,6 +24,7 @@ const { parseProviderModelMetadata } = require('./runtime-model-catalog');
 
 // ── Shared proxy agent ────────────────────────────────────────────────────────
 const { proxyAgent } = require('./http-client');
+const { TRUSTED_SERVICE } = require('./trusted-service');
 
 const MODELS_LOG_DIR = process.env.AWF_API_PROXY_LOG_DIR || '/var/log/api-proxy';
 
@@ -98,6 +99,7 @@ function buildRequest(url, opts, timeoutMs) {
     // github-oidc.js's getProxyAgent() for the same pattern.
     ...(proxyAgent ? { agent: proxyAgent } : {}),
     timeout: timeoutMs,
+    ...(opts.headers?.[TRUSTED_SERVICE] ? { rejectUnauthorized: true } : {}),
   };
   return { mod, reqOpts };
 }

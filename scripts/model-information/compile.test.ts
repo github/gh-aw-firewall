@@ -714,7 +714,7 @@ describe('maintained model compilation', () => {
         'model-eligibility.js', 'harness-observation.js', 'model-information.eligibility.generated.json',
         'provider-pricing-overlays.js',
         'guards/retired-model-guard.js', 'guards/model-policy-guard.js', 'guards/guard-utils.js',
-        'logging.js', 'body-utils.js']) {
+        'logging.js', 'trusted-service.js', 'body-utils.js']) {
         fs.copyFileSync(path.join(root, 'containers/api-proxy', file), path.join(temp, file));
       }
       fs.cpSync(path.join(root, 'containers/api-proxy/catalogue-contract'),

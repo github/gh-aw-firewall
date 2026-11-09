@@ -5,6 +5,7 @@ const { logRequest } = require('./logging');
 const { shouldStripHeader, sanitizeAcceptEncoding, getTargetHostname } = require('./proxy-utils');
 const { maybeStripLearnedHeaderValues } = require('./deprecated-header-tracker');
 const { recordCopilotInjectedHeaders } = require('./copilot-auth-diagnostics');
+const { TRUSTED_SERVICE, TRUSTED_SERVICE_HEADERS } = require('./trusted-service');
 
 /** Integration ID used when the caller did not configure one. */
 const DEFAULT_COPILOT_INTEGRATION_ID = 'agentic-workflows';
@@ -100,8 +101,15 @@ function mergeInjectedHeaders(headers, injectHeaders, targetHost) {
     if (copilotHost && name.toLowerCase() === 'copilot-integration-id') {
       ensureHeader(headers, name, value);
     } else {
+      for (const existing of Object.keys(headers)) {
+        if (existing.toLowerCase() === name.toLowerCase()) delete headers[existing];
+      }
       headers[name] = value;
     }
+  }
+  if (injectHeaders[TRUSTED_SERVICE]) {
+    headers[TRUSTED_SERVICE] = true;
+    headers[TRUSTED_SERVICE_HEADERS] = injectHeaders[TRUSTED_SERVICE_HEADERS];
   }
 }
 
@@ -176,7 +184,7 @@ function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider,
     ['x-api-key', 'authorization', 'x-goog-api-key'].includes(k.toLowerCase())
   )?.[1];
   const renewableAuth = injectHeaders[Symbol.for('awf.renewableAuth')] === true;
-  if (injectedKey && !renewableAuth) {
+  if (injectedKey && !renewableAuth && !injectHeaders[TRUSTED_SERVICE]) {
     const keyPreview = injectedKey.length > 8
       ? `${injectedKey.substring(0, 8)}...${injectedKey.substring(injectedKey.length - 4)}`
       : '(short)';

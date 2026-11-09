@@ -61,6 +61,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     copilotProviderType: config.apiProxy?.modelRouter?.providerType,
     copilotProviderBaseUrl: config.apiProxy?.modelRouter?.baseUrl,
     openaiApiTarget: config.apiProxy?.targets?.openai?.host,
+    openaiTrustedService: config.apiProxy?.targets?.openai?.trustedService,
+    anthropicTrustedService: config.apiProxy?.targets?.anthropic?.trustedService,
     openaiBaseUrlEnv: config.apiProxy?.targets?.openai?.baseUrlEnv,
     openaiApiBasePath: config.apiProxy?.targets?.openai?.basePath,
     openaiApiAuthHeader: config.apiProxy?.targets?.openai?.authHeader,

@@ -274,7 +274,11 @@ function buildAgentApiProxyService(params: {
   modelBudgetSecret?: string;
 }): Record<string, unknown> {
   const service = buildApiProxyServiceConfig({
-    config: params.config,
+    config: {
+      ...params.config,
+      openaiTrustedService: undefined,
+      anthropicTrustedService: undefined,
+    },
     networkConfig: params.networkConfig,
     apiProxyLogsPath: params.apiProxyLogsPath,
     imageConfig: params.imageConfig,

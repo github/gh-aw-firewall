@@ -21,6 +21,7 @@ import {
 } from '../routing/bootstrap';
 import { ROUTER_SERVICE_NAME, ROUTING_NETWORK_NAME } from './router-service';
 import { harnessProxyEnvironment } from '../harness-observation';
+import { trustedServiceSecretNames } from '../trusted-service';
 
 interface ApiProxyServiceConfigParams {
   /** Dedicated enclave proxies must never consume the primary agent's evidence. */
@@ -90,6 +91,14 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
     ...buildContainerSecurityHardening({ memLimit: '512m', pidsLimit: 100, cpuShares: 512 }),
     stop_grace_period: `${stopGracePeriodSeconds}s`,
   };
+  // Compose null mapping values inherit the invoking runner's environment.
+  // Never serialize supplemental secret values, even in the private compose file.
+  for (const name of trustedServiceSecretNames(config)) {
+    if (Object.prototype.hasOwnProperty.call(proxyService.environment, name)) {
+      throw new Error('trustedService secret environment name conflicts with sidecar configuration');
+    }
+    proxyService.environment[name] = null;
+  }
   if (config.experimentalModelRouting === true && config.modelRouting && config.modelRoutingBootstrap) {
     proxyService.networks = {
       ...proxyService.networks,

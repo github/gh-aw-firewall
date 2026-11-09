@@ -33,7 +33,7 @@ describe('API proxy sidecar: API key isolation', () => {
     networkConfig: NetworkConfig = mockNetworkConfigWithProxy
   ): NodeJS.ProcessEnv => {
     const result = generateDockerCompose(config, networkConfig);
-    return result.services.agent.environment ?? {};
+    return (result.services.agent.environment ?? {}) as NodeJS.ProcessEnv;
   };
 
   useTempWorkDir(

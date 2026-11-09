@@ -14,7 +14,7 @@ export function renderDockerCompose(compose: DockerComposeConfig): string {
         ...service,
         environment: Object.fromEntries(
           Object.entries(service.environment).map(([key, value]) => [
-            key, value.replace(/\$/g, () => '$$'),
+            key, typeof value === 'string' ? value.replace(/\$/g, () => '$$') : value,
           ]),
         ),
       } : service,
