@@ -17,6 +17,7 @@
     "test:watch": "npm run build && jest --watch",
     "test:coverage": "npm run build && jest --coverage",
     "test:lint-rules": "node eslint-rules/no-unsafe-execa.test.js",
+    "test:reflect-smoke": "node --test scripts/ci/reflect-smoke/*.test.cjs",
     "lint": "eslint src",
     "lint:md": "markdownlint --dot --config .markdownlint.json '**/*.md' --ignore node_modules --ignore docs-site/node_modules --ignore .specify --ignore .claude",
     "clean": "rm -rf dist",
