@@ -45,6 +45,25 @@ describe('buildCredentialHidingOverlays', () => {
     expect(overlays).toContain('/dev/null:/home/runner/.gemini/oauth_creds.json:ro');
   });
 
+  it('masks a Foundry credential env file at each exposed bind alias', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'foundry-env-mask-'));
+    const envFile = path.join(root, 'foundry.env');
+    fs.writeFileSync(envFile, 'FOUNDRY_API_KEY=synthetic-secret\n');
+    try {
+      const overlays = buildCredentialHidingOverlays('/home/runner', [
+        `${root}:/tmp:rw`,
+        `${root}:/host/tmp:rw`,
+      ], undefined, process.env, envFile);
+
+      expect(overlays).toEqual(expect.arrayContaining([
+        '/dev/null:/tmp/foundry.env:ro',
+        '/dev/null:/host/tmp/foundry.env:ro',
+      ]));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('masks exposed GitLab overrides and platform paths through every bind alias', () => {
     const overlays = buildCredentialHidingOverlays('/home/runner', [
       '/workspace:/host/workspace:rw',

@@ -1,0 +1,32 @@
+{
+  "$schema": "../../schema.json",
+  "id": "NET-003",
+  "boundary": "network",
+  "title": "Custom provider upstream port is lost or rejected by Squid",
+  "symptoms": ["Configured Ollama port 11434 is routed to port 80", "Trusted API-proxy custom-port request is rejected as an unsafe port"],
+  "conditions": [
+    "An operator configures a provider URL with an explicit non-default HTTP or HTTPS port",
+    "The request originates from the trusted API-proxy sidecar and the exact configured host/port is authorized; agent-origin custom-port denial remains expected"
+  ],
+  "affects": { "runner": "any", "runtime": "any", "provider": "any", "authMode": "any" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "fixed",
+  "rootCause": "Older provider target handling discarded explicit ports. Preserving the port also requires an exact trusted-sidecar Squid exception; broad Safe_ports changes would incorrectly change agent policy.",
+  "probe": {
+    "command": "grep -E '^(acl api_upstream_[0-9]+_(host|port)|http_access allow api_upstream_source)' path/to/squid.conf",
+    "expect": "Compare the generated exact destination/port ACLs with the redacted operator configuration; inspect no provider credentials, raw URLs or request headers.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use source containing end-to-end scheme/port/base-path preservation and exact API-proxy-source host/port ACLs, then regenerate configuration. Keep Safe_ports, dangerous-port rejection, agent isolation, destination blocklists and DLP unchanged. A denial from an untrusted source or mismatched host/port is not this regression.",
+  "references": [
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/10776" },
+    { "kind": "code", "ref": "src/squid/api-proxy-upstreams.ts" },
+    { "kind": "test", "ref": "src/squid/api-proxy-upstreams.test.ts" },
+    { "kind": "test", "ref": "containers/api-proxy/server.target-ports.test.js" },
+    { "kind": "doc", "ref": "docs/awf-config-spec.md" }
+  ],
+  "related": ["NET-001"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2026-12-09"
+}

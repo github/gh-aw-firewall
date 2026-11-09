@@ -37,6 +37,8 @@ export const API_PROXY_PORTS = {
   GEMINI: ports.gemini,
   /** Google Vertex AI API proxy port. */
   VERTEX: ports.vertex,
+  /** Azure Foundry API proxy port. */
+  FOUNDRY: ports.foundry,
 } as const;
 
 /**
@@ -50,7 +52,7 @@ export { API_PROXY_HEALTH_PORT };
  *
  * The CLI proxy sidecar listens on this port for gh CLI invocations forwarded
  * from the agent container. Port 11000 is chosen to avoid collision with the
- * api-proxy ports (10000-10004).
+ * api-proxy ports (10000-10005).
  *
  * All ports must be allowed in:
  * - containers/cli-proxy/Dockerfile (EXPOSE directive)

@@ -57,6 +57,12 @@ function createProxyHandler(adapter, checkRateLimit, proxyRequest) {
       req.url = adapter.transformRequestUrl(req.url);
     }
 
+    if (adapter.isRequestAllowed && !adapter.isRequestAllowed(req)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: { code: 'request_not_allowed', message: 'Provider inference route required' } }));
+      return;
+    }
+
     // A routed request carries an observe-only transform that records deviation
     // telemetry and returns null, so the adapter's own transform still applies.
     const bodyTransform = req.awfRouting
@@ -157,6 +163,13 @@ function createWebSocketUpgradeHandler(adapter, proxyWebSocket, { modelBudgetEna
 
     if (adapter.transformRequestUrl) {
       req.url = adapter.transformRequestUrl(req.url);
+    }
+
+    if (adapter.isRequestAllowed && !adapter.isRequestAllowed(req)) {
+      auditEnclaveResponse(403, 'local');
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
     }
 
     proxyWebSocket(

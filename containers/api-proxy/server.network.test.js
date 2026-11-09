@@ -488,15 +488,15 @@ describe('reflectEndpoints', () => {
     expect(reflectEndpoints().routing).toBeNull();
   });
 
-  it('should return an array of 5 endpoints', () => {
+  it('should return an array of 6 endpoints', () => {
     const result = reflectEndpoints();
-    expect(result.endpoints).toHaveLength(5);
+    expect(result.endpoints).toHaveLength(6);
   });
 
   it('should include all expected providers', () => {
     const result = reflectEndpoints();
     const providers = result.endpoints.map((e) => e.provider);
-    expect(providers).toEqual(['openai', 'anthropic', 'copilot', 'gemini', 'vertex']);
+    expect(providers).toEqual(['openai', 'anthropic', 'copilot', 'gemini', 'vertex', 'foundry']);
   });
 
   it('should expose per-model routing eligibility metadata in /reflect', () => {
@@ -546,6 +546,7 @@ describe('reflectEndpoints', () => {
       copilot: { enabled: false, strategy: 'middle_power', excludeEngines: [], suppressed: true, suppression_reason: 'copilot_standard_authoritative' },
       gemini: { enabled: true, strategy: 'middle_power', excludeEngines: [], suppressed: false },
       vertex: { enabled: true, strategy: 'middle_power', excludeEngines: [], suppressed: false },
+      foundry: { enabled: true, strategy: 'middle_power', excludeEngines: [], suppressed: false },
     });
   });
 
@@ -707,6 +708,7 @@ describe('reflectEndpoints', () => {
       copilot: 10002,
       gemini: 10003,
       vertex: 10004,
+      foundry: 10005,
     });
   });
 

@@ -181,6 +181,25 @@ test('same-provider cross-protocol attempts retain Responses as the assessed sou
   ]);
 });
 
+test('same-provider fallback after a provider switch assesses reasoning against the current target', async () => {
+  const h = harness({
+    source: { model: 'origin', input: 'hi', reasoning: { effort: 'xhigh' } },
+    chain: ['openai/gpt-5.4-mini', 'openai/gpt-5.4-mini-2026-03-17'],
+    adapters: { openai: adapter('openai') },
+    req: { awfRuntimePricing: {} },
+  });
+  h.fail(0).onModelFallback({ reason: 'upstream_5xx' });
+  await flush();
+  h.fail(1).onModelFallback({ reason: 'upstream_5xx' });
+  expect(h.attempts.map(a => a.body.model)).toEqual([
+    'origin', 'gpt-5.4-mini', 'gpt-5.4-mini-2026-03-17',
+  ]);
+  expect(h.observe.mock.calls.map(([r]) => [r.provider, r.model, r.outcome, r.compatibility.reasoning?.code])).toEqual([
+    ['openai', 'gpt-5.4-mini', 'accepted', 'reasoning_effort_accepted'],
+    ['openai', 'gpt-5.4-mini-2026-03-17', 'accepted', 'reasoning_effort_accepted'],
+  ]);
+});
+
 test('explicit effort skips unsupported and unverified models without changing the primary direct path', () => {
   const records = [
     { id: 'origin', supportedReasoningEfforts: ['high'] },

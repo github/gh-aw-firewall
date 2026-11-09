@@ -439,6 +439,30 @@ describe('resolveAllowedDomains', () => {
     );
   });
 
+  it('passes FOUNDRY_API_TARGET from the raw --env option to allowlist resolution', () => {
+    mockedOptionParsers.parseEnvironmentVariables.mockReturnValue({
+      success: true,
+      env: { FOUNDRY_API_TARGET: 'https://cli-foundry.example.com' },
+    });
+
+    resolveAllowedDomains({
+      enableApiProxy: true,
+      env: ['FOUNDRY_API_TARGET=https://cli-foundry.example.com'],
+    });
+
+    expect(mockedOptionParsers.parseEnvironmentVariables).toHaveBeenCalledWith([
+      'FOUNDRY_API_TARGET=https://cli-foundry.example.com',
+    ]);
+    expect(mockedApiProxyConfig.resolveApiTargetsToAllowedDomains).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(Array),
+      expect.objectContaining({ FOUNDRY_API_TARGET: 'https://cli-foundry.example.com' }),
+      expect.any(Function),
+      expect.any(Array),
+      undefined,
+    );
+  });
+
   it('passes the secret-backed base URL from openaiBaseUrlEnv to resolveApiTargetsToAllowedDomains', () => {
     const saved = process.env.CODEX_LB_BASE_URL;
     process.env.CODEX_LB_BASE_URL = 'https://lb.internal.example.com/v1';

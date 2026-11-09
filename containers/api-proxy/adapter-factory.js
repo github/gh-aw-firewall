@@ -80,6 +80,7 @@ function createBaseAdapterConfig(env, { keyEnvVar, targetEnvVar, basePathEnvVar,
  * @param {string|undefined} [opts.apiKey]
  * @param {string} opts.rawTarget
  * @param {string} [opts.basePath]
+ * @param {RegExp[]} [opts.allowedRequestPaths] - Restrict POST HTTP requests to resolved inference paths
  * @param {string} opts.provider
  * @param {number} opts.port
  * @param {string|null} opts.modelsPath
@@ -115,6 +116,7 @@ function createAdapterMethods(opts) {
     apiKey,
     rawTarget,
     basePath = '',
+    allowedRequestPaths,
     provider,
     port,
     modelsPath,
@@ -194,6 +196,20 @@ function createAdapterMethods(opts) {
     getValidationProbe: builtValidationProbe,
     getModelsFetchConfig: builtModelsFetchConfig,
     getReflectionInfo: builtReflectionInfo,
+    ...(allowedRequestPaths ? {
+      isRequestAllowed(req) {
+        if (req.method !== 'POST' || req.headers?.upgrade) return false;
+        try {
+          // Reject ambiguous paths before URL parsing can normalize them.
+          const pathname = req.url.split('?')[0];
+          if (/[\\%#\s]/.test(pathname) || /\/\/|\/\.{1,2}(?:\/|$)/.test(pathname)) return false;
+          const upstreamPath = buildUpstreamPath(req.url, targetHost, basePath).split('?')[0];
+          return allowedRequestPaths.some(pattern => pattern.test(upstreamPath));
+        } catch {
+          return false;
+        }
+      },
+    } : {}),
   };
 }
 
