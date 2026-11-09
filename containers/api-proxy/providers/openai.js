@@ -5,7 +5,7 @@
  *
  * Port: 10000  (also serves as the management port for /health, /metrics, /reflect)
  * Auth: Bearer token via Authorization header (static key or OIDC)
- * Credentials: OPENAI_API_KEY or AWF_AUTH_TYPE=github-oidc (for Azure OpenAI with Entra)
+ * Credentials: OPENAI_API_KEY or AWF_AUTH_TYPE=github-oidc (for Azure Entra or native OpenAI WIF)
  * Target: OPENAI_API_TARGET  (default: api.openai.com)
  * Base path: OPENAI_API_BASE_PATH  (default: /v1 for the public endpoint)
  */
@@ -86,11 +86,22 @@ function createOpenAIAdapter(env, deps = {}) {
       buildOidcHeaders: openAiWifRequested ? bearerAuthHeaders : buildTokenAuthHeaders,
       buildStaticHeaders: () => buildTokenAuthHeaders(apiKey),
     }),
-    createAdapterMethodsOptions: ({ authProvider, oidcConfigured, buildStaticHeaders }) => ({
+    createOidcAuthOptions: () => ({ allowOpenAiWif: openAiWifRequested }),
+    createAdapterMethodsOptions: ({
+      authProvider,
+      oidcConfigured,
+      oidcProvider,
+      resolveHeaders,
+      skipModelsFetch,
+      buildStaticHeaders,
+    }) => ({
       validationPath: '/v1/models',
-      validationHeaders: buildStaticHeaders,
+      validationHeaders: openAiWifRequested ? resolveHeaders : buildStaticHeaders,
       modelsPath: '/v1/models',
-      modelsFetchHeaders: buildStaticHeaders,
+      modelsFetchHeaders: openAiWifRequested ? resolveHeaders : buildStaticHeaders,
+      skipModelsFetch: openAiWifRequested
+        ? () => !oidcConfigured || !oidcProvider?.isReady()
+        : skipModelsFetch,
       reflectionModelsPath: '/v1/models',
       reflectionExtra: () => ({
         auth_type: oidcConfigured ? `github-oidc/${authProvider}` : 'static-key',
@@ -103,9 +114,10 @@ function createOpenAIAdapter(env, deps = {}) {
         message: 'OpenAI proxy not configured (no OPENAI_API_KEY/COPILOT_PROVIDER_API_KEY or OIDC auth)',
       },
       unconfiguredResponseWhen: buildOidcUnavailableScaffold({
-        requested: oidcConfigured,
+        requested: openAiWifRequested || oidcConfigured,
         configured: oidcConfigured,
         unavailableMessage: 'OpenAI OIDC token unavailable; retry shortly',
+        unconfiguredMessage: 'OpenAI WIF requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (permissions: id-token: write), AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID, and AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID.',
       }).unconfiguredResponseWhen,
       extra: {
         /** Port 10000 always counts toward the startup validation latch. */

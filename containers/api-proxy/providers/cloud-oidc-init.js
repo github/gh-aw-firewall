@@ -16,11 +16,11 @@ const {
  * Resolve cloud and native OpenAI OIDC providers from environment variables.
  *
  * @param {Record<string, string|undefined>} env
- * @param {{ skipWhen?: boolean }} [options]
+ * @param {{ skipWhen?: boolean, allowOpenAiWif?: boolean }} [options]
  * @returns {{ authProvider: string, oidcProvider: any, awsOidcProvider: any, oidcConfigured: boolean }}
  */
 function resolveCloudOidcProviders(env, options = {}) {
-  const { skipWhen = false } = options;
+  const { skipWhen = false, allowOpenAiWif = false } = options;
   const authType = (env.AWF_AUTH_TYPE || '').trim().toLowerCase();
   const authProvider = (env.AWF_AUTH_PROVIDER || 'azure').trim().toLowerCase();
   let oidcProvider = null;
@@ -58,7 +58,7 @@ function resolveCloudOidcProviders(env, options = {}) {
             scope: env.AWF_AUTH_GCP_SCOPE,
           });
         }
-      } else if (authProvider === 'openai') {
+      } else if (authProvider === 'openai' && allowOpenAiWif) {
         const identityProviderId = env.AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID;
         const serviceAccountId = env.AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID;
         if (identityProviderId && serviceAccountId) {
@@ -112,6 +112,8 @@ function resolveCloudOidcProviders(env, options = {}) {
  * @param {boolean} [options.skipWhen=false]
  *   Skip cloud OIDC initialisation (e.g. when static auth takes precedence).
  *   Only used when `oidcProviderFactory` is not provided.
+ * @param {boolean} [options.allowOpenAiWif=false]
+ *   Allow native OpenAI WIF initialization for the OpenAI adapter only.
  * @param {((env: Record<string, string|undefined>) => OidcAuthProvider|null|undefined)|null} [options.oidcProviderFactory]
  *   Optional factory for providers that use a custom OIDC token class (e.g.
  *   Anthropic). When provided, takes precedence over `resolveCloudOidcProviders`.
@@ -132,6 +134,7 @@ function resolveCloudOidcProviders(env, options = {}) {
 function createProviderOidcAuth(env, {
   staticAuthToken = undefined,
   skipWhen = false,
+  allowOpenAiWif = false,
   oidcProviderFactory = null,
 } = {}) {
   let authProvider, oidcProvider, awsOidcProvider, oidcConfigured;
@@ -143,7 +146,7 @@ function createProviderOidcAuth(env, {
     oidcConfigured = !!oidcProvider;
   } else {
     ({ authProvider, oidcProvider, awsOidcProvider, oidcConfigured } =
-      resolveCloudOidcProviders(env, { skipWhen }));
+      resolveCloudOidcProviders(env, { skipWhen, allowOpenAiWif }));
   }
 
   const runtimeMethods = createOidcRuntimeAdapterMethods({
@@ -229,6 +232,7 @@ function createProviderOidcHeaderResolver({
  * @param {object} [oidcAuthOptions] - Options forwarded to createProviderOidcAuth
  * @param {string|undefined} [oidcAuthOptions.staticAuthToken]
  * @param {boolean} [oidcAuthOptions.skipWhen=false]
+ * @param {boolean} [oidcAuthOptions.allowOpenAiWif=false]
  * @param {((env: Record<string, string|undefined>) => OidcAuthProvider|null|undefined)|null} [oidcAuthOptions.oidcProviderFactory]
  * @param {object} headerOptions - Provider-specific header builders
  * @param {(token: string) => Record<string, string>} headerOptions.buildOidcHeaders

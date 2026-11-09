@@ -82,7 +82,7 @@ describe('resolveCloudOidcProviders', () => {
     result.oidcProvider.shutdown();
   });
 
-  it('creates an OpenAI native WIF provider when both IDs are configured', () => {
+  it('does not initialize native OpenAI WIF unless explicitly enabled', () => {
     const result = resolveCloudOidcProviders({
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'openai',
@@ -91,6 +91,20 @@ describe('resolveCloudOidcProviders', () => {
       AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID: 'idp_test',
       AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID: 'sa_test',
     });
+
+    expect(result.oidcProvider).toBeNull();
+    expect(result.oidcConfigured).toBe(false);
+  });
+
+  it('creates an OpenAI native WIF provider when enabled and both IDs are configured', () => {
+    const result = resolveCloudOidcProviders({
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'openai',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
+      AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID: 'idp_test',
+      AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID: 'sa_test',
+    }, { allowOpenAiWif: true });
 
     expect(result.authProvider).toBe('openai');
     expect(result.oidcProvider).toBeTruthy();

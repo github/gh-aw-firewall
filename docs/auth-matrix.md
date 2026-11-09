@@ -105,7 +105,7 @@ When `AWF_AUTH_TYPE=github-oidc` and `AWF_AUTH_PROVIDER=openai`, the sidecar req
 | Exchange endpoint | `https://auth.openai.com/oauth/token` |
 | Header sent upstream | Returned OpenAI access token, used as bearer credential |
 
-The API-proxy environment pipeline keeps the federation settings in the sidecar. AWF automatically allows `auth.openai.com` through Squid only when OpenAI WIF is selected.
+The API-proxy environment pipeline keeps the federation settings in the sidecar. The sidecar reaches `auth.openai.com` through its Squid access rule; this host is not added to the agent's domain allowlist.
 
 **Official docs:** [OpenAI workload identity federation](https://developers.openai.com/api/docs/guides/workload-identity-federation) · [GitHub Actions setup](https://developers.openai.com/api/docs/guides/workload-identity-federation/github-actions)
 

@@ -14,6 +14,7 @@ const { createOpenAIAdapter } = require('./providers/openai');
 const { createAnthropicAdapter } = require('./providers/anthropic');
 const { createCopilotAdapter } = require('./providers/copilot');
 const { GOOGLE_PROVIDER_ADAPTER_FACTORIES } = require('./providers/google-adapter');
+const { createAllAdapters } = require('./providers');
 const { gemini: createGeminiAdapter, vertex: createVertexAdapter } = GOOGLE_PROVIDER_ADAPTER_FACTORIES;
 
 // ---------------------------------------------------------------------------
@@ -35,6 +36,40 @@ function injectOidcToken(adapter, token = 'oidc-access-token', ttl = 600) {
   provider._expiresAt = Math.floor(Date.now() / 1000) + ttl;
   return provider;
 }
+
+describe('OpenAI WIF credential isolation', () => {
+  it('keeps native OpenAI WIF credentials scoped to the OpenAI adapter', () => {
+    const adapters = createAllAdapters({
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'openai',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runtime-token',
+      AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID: 'idp_test',
+      AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID: 'sa_test',
+      ANTHROPIC_API_KEY: 'anthropic-static-key',
+    });
+    const [openai, anthropic, copilot, gemini, vertex] = adapters;
+    const openaiProvider = openai.getOidcProvider();
+    const wifToken = 'openai-wif-token';
+
+    try {
+      expect(openaiProvider).toBeTruthy();
+      openaiProvider._cachedToken = wifToken;
+      openaiProvider._expiresAt = Math.floor(Date.now() / 1000) + 600;
+      expect(openai.getAuthHeaders(fakeReq()).Authorization).toBe('Bearer ' + wifToken);
+
+      expect(anthropic.getOidcProvider()).toBeNull();
+      expect(anthropic.getAuthHeaders(fakeReq())['x-api-key']).toBe('anthropic-static-key');
+      expect(copilot.getOidcProvider()).toBeNull();
+      expect(copilot.isEnabled()).toBe(false);
+      expect(JSON.stringify(copilot.getAuthHeaders(fakeReq()))).not.toContain(wifToken);
+      expect(gemini.getOidcProvider()).toBeNull();
+      expect(vertex.getOidcProvider()).toBeNull();
+    } finally {
+      openaiProvider?.shutdown();
+    }
+  });
+});
 
 // ---------------------------------------------------------------------------
 // OpenAI Auth Matrix

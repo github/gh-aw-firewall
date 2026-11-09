@@ -6,27 +6,17 @@ import {
 } from './api-proxy-config-domains';
 
 describe('resolveApiTargetsToAllowedDomains', () => {
-  it('allows the OpenAI WIF token exchange host only for OpenAI OIDC auth', () => {
-    const domains: string[] = [];
+  it('does not add the OpenAI WIF token exchange host to the agent allowlist', () => {
+    const domains: string[] = ['github.com'];
 
     resolveApiTargetsToAllowedDomains({}, domains, {
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'openai',
+      AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID: 'idp_test',
+      AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID: 'sa_test',
     });
 
-    expect(domains).toContain('auth.openai.com');
-  });
-
-  it.each([
-    {},
-    { AWF_AUTH_TYPE: 'api-key', AWF_AUTH_PROVIDER: 'openai' },
-    { AWF_AUTH_TYPE: 'github-oidc', AWF_AUTH_PROVIDER: 'azure' },
-  ])('does not add the OpenAI WIF host for unrelated auth settings: %o', (env) => {
-    const domains: string[] = [];
-
-    resolveApiTargetsToAllowedDomains({}, domains, env);
-
-    expect(domains).not.toContain('auth.openai.com');
+    expect(domains).toEqual(['github.com']);
   });
 
   it('should add copilot-api-target option to allowed domains', () => {
