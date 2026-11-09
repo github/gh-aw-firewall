@@ -23,7 +23,7 @@ if (sourceArgument && !process.argv.includes('--check')) {
 const sources = sourceArgument
   ? path.resolve(sourceArgument.slice('--source-dir='.length))
   : path.join(root, 'shared/model-information/sources');
-const compilerVersion = 7;
+const compilerVersion = 8;
 const read = file => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
 const json = value => `${JSON.stringify(value, null, 2)}\n`;
@@ -94,7 +94,19 @@ function compile() {
   if (errors.length) throw new Error(errors.join('\n'));
   const models = records.flatMap(([, data]) => data.models);
   const rules = records.flatMap(([, data]) => data.rules || []);
-  errors.push(...validateRecords([...models, ...imported.models], rules)
+  errors.push(...validateRecords(models, rules).map(message => `maintained sources: ${message}`));
+  if (errors.length) throw new Error(errors.join('\n'));
+  // Imported lifecycle/type are schema placeholders, not provider facts.
+  // Join only governed pricing; never overlay one maintained record on another.
+  const assembled = new Map(imported.models.map(model => [model.identity.key, model]));
+  for (const model of models) {
+    const existing = assembled.get(model.identity.key);
+    assembled.set(model.identity.key, {
+      ...model,
+      ...(existing?.importedPricing ? { importedPricing: existing.importedPricing } : {}),
+    });
+  }
+  errors.push(...validateRecords([...assembled.values()], rules)
     .map(message => `assembled sources and import: ${message}`));
   const mapping = JSON.parse(fs.readFileSync(path.join(sources, 'mapping.json'), 'utf8'));
   if (mapping?.schemaVersion !== 1 || mapping.provenance?.authority !== 'maintained' ||
@@ -109,6 +121,9 @@ function compile() {
     if (!data || typeof data.endpoints !== 'object' || !Array.isArray(data.models)) {
       errors.push(`mapping.json: ${provider}: invalid endpoints/models`);
       continue;
+    }
+    if (data.modelProtocols !== undefined) {
+      errors.push(`mapping.json: ${provider}: modelProtocols is generated from canonical model records`);
     }
     const patterns = new Map();
     const routingPatterns = new Map();
@@ -157,7 +172,7 @@ function compile() {
     compilerVersion, schemaHash, imported, sources: Object.fromEntries(files.map(file =>
       [file, JSON.parse(fs.readFileSync(path.join(sources, file), 'utf8'))])),
   })));
-  const sortedModels = [...models, ...imported.models].sort((a, b) =>
+  const sortedModels = [...assembled.values()].sort((a, b) =>
     a.identity.key < b.identity.key ? -1 : a.identity.key > b.identity.key ? 1 : 0);
   const target = JSON.parse(fs.readFileSync(path.join(sources, 'target.json'), 'utf8'));
   const compatibility = JSON.parse(fs.readFileSync(path.join(sources, 'lifecycle-compatibility.json'), 'utf8'));
@@ -176,7 +191,7 @@ function compile() {
   const generatedAt = latestTimestamp([{ at: imported.retrievedAt }, mapping.provenance,
     reference.provenance, ...records.map(([, data]) => data.provenance), target.provenance,
     compatibility.provenance]);
-  const targetModels = new Map([...models, ...imported.models]
+  const targetModels = new Map(sortedModels
     .map(model => [model.identity.key, structuredClone(model)]));
   const targetModel = (provider, rawId) => {
     const id = identity(provider, rawId);
@@ -262,7 +277,22 @@ function compile() {
     a.identity.key < b.identity.key ? -1 : a.identity.key > b.identity.key ? 1 : 0);
   const targetErrors = validateRecords(resolvedTarget);
   if (targetErrors.length) throw new Error(targetErrors.map(message => `target.json: ${message}`).join('\n'));
-  const targetMapping = structuredClone(mapping.mapping);
+  const projectMapping = records => {
+    const projected = structuredClone(mapping.mapping);
+    for (const model of records) {
+      if (!model.protocols?.length || model.provenance.authority !== 'maintained') continue;
+      const provider = projected.providers[model.identity.provider];
+      if (!provider) throw new Error(`mapping.json: missing protocol provider ${model.identity.provider}`);
+      if (model.protocols.some(item => !provider.endpoints[item.protocol])) {
+        throw new Error(`mapping.json: undefined protocol for ${model.identity.key}`);
+      }
+      provider.modelProtocols ||= Object.create(null);
+      provider.modelProtocols[model.identity.rawId] = model.protocols;
+    }
+    return projected;
+  };
+  const baselineMapping = projectMapping(sortedModels);
+  const targetMapping = projectMapping(resolvedTarget);
   for (const entry of target.routing) {
     const family = targetMapping.providers[entry.provider]?.models.find(item => item.family === entry.family);
     if (!family) {
@@ -493,8 +523,8 @@ function compile() {
       schemaVersion: 1, unit: 'USD_PER_1M_TOKENS',
       catalogId: reference.catalogId, version: reference.version, providers: referenceProviders,
     }),
-    'docs/model-api-mapping.json': json(mapping.mapping),
-    'containers/api-proxy/model-api-mapping.json': json(mapping.mapping),
+    'docs/model-api-mapping.json': json(baselineMapping),
+    'containers/api-proxy/model-api-mapping.json': json(baselineMapping),
     'shared/model-information/catalog.generated.json': json({
       schemaVersion: 1, catalogRevision: revision, generatedAt, models: sortedModels,
     }),
@@ -515,7 +545,7 @@ function compile() {
     }),
     'shared/model-information/baseline-to-target.generated.json': json({
       schemaVersion: 1, catalogRevision: revision, activation: 'staged: phases 4, 5 and 6',
-      differences, mapping: { baseline: mapping.mapping, target: targetMapping },
+      differences, mapping: { baseline: baselineMapping, target: targetMapping },
     }),
   };
   errors.push(...validate('resolvedExport', JSON.parse(output['shared/model-information/catalog.generated.json'])));
@@ -524,7 +554,8 @@ function compile() {
     'reasoning.js', 'reasoning.d.ts',
     'eligibility.js', 'eligibility.d.ts', 'harness-observation.js', 'harness-observation.d.ts',
     'pricing-resolution.js', 'pricing-resolution.d.ts', 'exact-pricing.js', 'schema.v1.json',
-    'publication.v1.schema.json', 'publication-contract.cjs', 'publication.cjs']) {
+    'publication.v1.schema.json', 'publication-contract.cjs', 'publication.cjs',
+    'publication.v2.schema.json', 'publication.v2.cjs']) {
     output[`containers/api-proxy/catalogue-contract/${file}`] =
       fs.readFileSync(path.join(root, 'shared/model-information', file), 'utf8');
   }

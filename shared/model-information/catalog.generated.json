@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "catalogRevision": "3207aad4cb3296614c367e6b7ba4db66c51045abed0dd5e14a0d221388316d9e",
-  "generatedAt": "2026-11-08T12:53:03.194Z",
+  "catalogRevision": "c00be1b161139479fc9ce4e6f7dc9786cc864588261cb4152a812a82a62a5829",
+  "generatedAt": "2026-11-08T22:25:19.000Z",
   "models": [
     {
       "schemaVersion": 1,
@@ -8082,6 +8082,54 @@
         "at": "2026-11-07T12:52:50.618Z",
         "confidence": "verified"
       }
+    },
+    {
+      "schemaVersion": 1,
+      "identity": {
+        "key": "copilot/gpt-6-luna-decisions",
+        "provider": "copilot",
+        "rawId": "gpt-6-luna-decisions",
+        "lookupId": "gpt-6-luna-decisions"
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "modelType": "other",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://github.com/github/gh-aw/pull/75859",
+        "revision": "4c2be18cc2076f2a37e8f0258c298026a4ae413b",
+        "at": "2026-11-08T22:25:19Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "decisions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://github.com/github/gh-aw/pull/75859",
+              "revision": "4c2be18cc2076f2a37e8f0258c298026a4ae413b",
+              "at": "2026-11-08T22:25:19Z",
+              "confidence": "verified"
+            }
+          },
+          "features": {
+            "predicate": {
+              "state": "conditional",
+              "condition": "One predicate succeeded in the maintainer-reported live Actions job at the pinned revision using Copilot-Integration-Id: agentic-workflows; logs were not independently retrieved. This does not establish choice/score, general account availability or credential eligibility.",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://github.com/github/gh-aw/blob/4c2be18cc2076f2a37e8f0258c298026a4ae413b/actions/setup/js/scripts/test_decisions_client.cjs",
+                "revision": "4c2be18cc2076f2a37e8f0258c298026a4ae413b",
+                "at": "2026-11-08T22:25:19Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        }
+      ]
     },
     {
       "schemaVersion": 1,
@@ -24017,6 +24065,41 @@
         "status": "active"
       },
       "modelType": "other",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py",
+        "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
+        "at": "2026-11-08T22:25:19Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "decisions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py#L61-L80",
+              "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
+              "at": "2026-11-08T22:25:19Z",
+              "confidence": "verified"
+            }
+          },
+          "features": {
+            "typed_questions": {
+              "state": "conditional",
+              "condition": "1–400 predicate, choice or score questions; answers retain question order.",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py#L61-L80",
+                "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
+                "at": "2026-11-08T22:25:19Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        }
+      ],
       "importedPricing": {
         "sourceNamespace": "openai",
         "currency": "USD",
@@ -24075,14 +24158,6 @@
           "confidence": "imported",
           "freshness": "unknown"
         }
-      },
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-        "at": "2026-11-08T12:53:03.194Z",
-        "confidence": "imported",
-        "freshness": "unknown"
       }
     },
     {

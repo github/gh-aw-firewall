@@ -47,7 +47,7 @@ const PROBE_SCRIPT = `
       const https = require('node:https');
       const { proxyAgent } = require('/app/http-client');
       const bytes = await new Promise((resolve, reject) => {
-        const request = https.get('https://api.github.com/repos/github/gh-aw-firewall/contents/channels/v1/current.json?ref=' + sha, {
+        const request = https.get('https://api.github.com/repos/github/gh-aw-firewall/contents/channels/v' + candidate.pointer.schemaVersion + '/current.json?ref=' + sha, {
           agent: proxyAgent,
           headers: { Accept: 'application/vnd.github.raw+json', 'User-Agent': 'awf-catalogue-smoke' },
         }, response => {

@@ -77,11 +77,63 @@ describe('maintained model compilation', () => {
     expect(require('../../containers/api-proxy/model-information.eligibility.generated.json')).toEqual(projected);
   });
 
+  it('projects exact Decisions protocols once across baseline, target, docs, runtime and publication', () => {
+    const source = require('../../shared/model-information/sources/decisions.json');
+    const baseline = require('../../shared/model-information/catalog.generated.json');
+    const target = require('../../shared/model-information/target.generated.json');
+    const mapping = require('../../docs/model-api-mapping.json');
+    const stagedMapping = require('../../shared/model-information/baseline-to-target.generated.json').mapping;
+    const { buildSnapshot } = require('../../shared/model-information/publication.v2.cjs');
+    const publication = JSON.parse(buildSnapshot(baseline, 'a'.repeat(40), source.provenance.at));
+    for (const model of source.models) {
+      for (const catalogue of [baseline, target, publication]) {
+        expect(catalogue.models.find((item: any) => item.identity.key === model.identity.key).protocols)
+          .toEqual(model.protocols);
+      }
+      for (const projected of [mapping, stagedMapping.baseline, stagedMapping.target]) {
+        const provider = projected.providers[model.identity.provider];
+        expect(provider.modelProtocols[model.identity.rawId]).toEqual(model.protocols);
+        expect(provider.endpoints.decisions).toMatchObject({
+          path: '/v1/decisions', basePath: '/v1', resourcePath: '/decisions',
+        });
+        expect(provider.models.every((entry: any) => !entry.endpoints.includes('decisions'))).toBe(true);
+      }
+    }
+    expect(mapping.providers.copilot.modelProtocols['gpt-6-luna']).toBeUndefined();
+    expect(mapping.providers.openai.modelProtocols['gpt-6-luna-decisions']).toBeUndefined();
+    expect(mapping.providers.copilot.endpoints.decisions.authentication.restriction)
+      .toContain('PAT rejection is observed, not lack of model support');
+    expect(require('../../containers/api-proxy/model-api-mapping.json')).toEqual(mapping);
+    expect(baseline.models.find((item: any) => item.identity.key === 'copilot/gpt-6-luna').protocols)
+      .toBeUndefined();
+    const imported = require('../../shared/model-information/imported/legacy-models-dev.snapshot.v1.json');
+    expect(baseline.models.filter((item: any) => item.identity.key === 'openai/gpt-6-luna')).toHaveLength(1);
+    expect(baseline.models.find((item: any) => item.identity.key === 'openai/gpt-6-luna').importedPricing)
+      .toEqual(imported.models.find((item: any) => item.identity.key === 'openai/gpt-6-luna').importedPricing);
+    expect(publication.models.find((item: any) => item.identity.key === 'openai/gpt-6-luna').importedPricing)
+      .toBeUndefined();
+  });
+
+  it('rejects maintained overlays rather than reattributing existing model evidence', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-duplicate-protocol-source-'));
+    try {
+      fs.cpSync(path.join(root, 'shared/model-information/sources'), directory, { recursive: true });
+      const source = JSON.parse(fs.readFileSync(path.join(directory, 'decisions.json'), 'utf8'));
+      const maintained = require('../../shared/model-information/sources/copilot-main.json').models[0];
+      source.models.push({ ...maintained, protocols: source.models[1].protocols });
+      fs.writeFileSync(path.join(directory, 'decisions.json'), JSON.stringify(source));
+      expect(() => run('--check', `--source-dir=${directory}`))
+        .toThrow(/maintained sources: Duplicate exact key/);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('projects the reviewed finite accounting families without authorizing additional model facts', () => {
     const naming = require('../../shared/model-information/naming.generated.json');
     const catalogue = require('../../shared/model-information/catalog.generated.json');
     const members = naming.models.filter((model: { identity: { family?: string } }) => model.identity.family);
-    expect(naming.models).toHaveLength(56);
+    expect(naming.models).toHaveLength(58);
     expect(members).toHaveLength(22);
     expect(new Set(members.map((model: { identity: { family: string } }) => model.identity.family)).size).toBe(9);
     expect(naming.rules).toEqual([]);
@@ -163,7 +215,7 @@ describe('maintained model compilation', () => {
     const manifest = require('../../shared/model-information/manifest.generated.json');
     const catalogue = require('../../shared/model-information/catalog.generated.json');
     expect(manifest.catalogRevision).toBe(catalogue.catalogRevision);
-    expect(manifest.compilerVersion).toBe(7);
+    expect(manifest.compilerVersion).toBe(8);
     expect(manifest.schemaHash).toMatch(/^[0-9a-f]{64}$/);
     expect(catalogue.generatedAt).toBe(manifest.generatedAt);
     expect(manifest.sourceFiles).toEqual(expect.arrayContaining([

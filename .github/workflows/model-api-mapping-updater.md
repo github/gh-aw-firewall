@@ -164,7 +164,7 @@ jobs:
       - name: Check existing runtime catalogue consumers
         run: |
           npm --prefix containers/api-proxy ci --ignore-scripts
-          npm --prefix containers/api-proxy test -- --runInBand models-dev-catalog.test.js ai-credits-pricing-reference.test.js catalogue-pricing.test.js guards/ai-credits-guard.test.js
+          npm --prefix containers/api-proxy test -- --runInBand models-dev-catalog.test.js ai-credits-pricing-reference.test.js catalogue-pricing.test.js guards/ai-credits-guard.test.js model-api-mapping.test.js runtime-model-catalog.test.js routing-catalogue.test.js wire-api-compat.test.js server.decisions.test.js
 steps:
   - name: Install pinned model validation dependencies
     run: |
@@ -297,6 +297,28 @@ do not prove retirement. An announcement is not retirement before its effective
 date. Marketing prose/family names do not verify capabilities, effort sets or
 compatibility. Preserve unknown states, scope and authority. Never invent prices,
 model licenses, source timestamps, deployment mappings or harness floors.
+
+Check `openai-decisions`, `openai-decisions-sdk`, `copilot-decisions` and
+`copilot-decisions-auth` for new supported **exact** model IDs, endpoint/protocol
+changes (`/decisions` relative to a `/v1` base versus full `/v1/decisions`),
+typed-question/input/cache constraints and lifecycle changes. Author Decisions
+as its own canonical `protocols` fact; generation projects it into
+`modelProtocols` in both API mappings and into published catalogue snapshots.
+Do not hand-edit `modelProtocols` or extend a family wildcard from one model.
+OpenAI `gpt-6-luna` evidence does not establish Copilot `gpt-6-luna` support:
+the trusted Copilot observation used `gpt-6-luna-decisions`. Missing endpoint
+metadata is unknown, not rejection. Endpoint availability does not establish
+lossless translation to Chat Completions or Responses; do not enable translation.
+
+Review credential restrictions separately against `docs/auth-matrix.md`.
+Copilot PAT rejection is not model incompatibility, and proxy injection does
+not establish endpoint-supported authentication. The Actions job-token success
+is limited to its recorded permissions/integration context; other credential
+acceptance remains unknown without evidence. Use approved fetched passages and
+ordinary provenance/receipts for every proposal, including credential changes.
+Report failed documentation retrieval or missing model/feature/credential
+coverage as incomplete even when SDK or historical observations were fetched;
+retain prior facts instead of inferring fresh support from those fallbacks.
 
 Compare `copilot-pricing` (GitHub's models-and-pricing tables and their attached
 footnotes) with exact GA Copilot completion records, using only Copilot /

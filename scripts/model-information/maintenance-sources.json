@@ -42,6 +42,30 @@
     "kind": "documentation"
   },
   {
+    "id": "openai-decisions",
+    "scope": "OpenAI-native Decisions exact model IDs, /decisions resource on /v1 base, typed-question constraints, protocol and lifecycle changes; not Copilot support or credential acceptance",
+    "urls": ["https://developers.openai.com/api/docs/guides/decisions", "https://developers.openai.com/api/reference/resources/decisions/methods/create"],
+    "kind": "documentation"
+  },
+  {
+    "id": "openai-decisions-sdk",
+    "scope": "Official generated OpenAI Decisions SDK evidence; exact supported IDs and feature constraints, not Copilot compatibility",
+    "urls": ["https://raw.githubusercontent.com/openai/openai-python/main/src/openai/resources/decisions.py"],
+    "kind": "documentation"
+  },
+  {
+    "id": "copilot-decisions",
+    "scope": "Commit-pinned maintainer-reviewed Copilot Decisions test; exact model identity, endpoint and integration ID only. Test code is not fresh live-success evidence and does not establish general credential eligibility. Updating the approved revision requires review.",
+    "urls": ["https://raw.githubusercontent.com/github/gh-aw/4c2be18cc2076f2a37e8f0258c298026a4ae413b/actions/setup/js/scripts/test_decisions_client.cjs"],
+    "kind": "documentation"
+  },
+  {
+    "id": "copilot-decisions-auth",
+    "scope": "Commit-pinned maintained authentication observation and its limitations, separate from model support; not fresh endpoint verification or evidence that other credential types work. Updating the approved revision requires review.",
+    "urls": ["https://raw.githubusercontent.com/github/gh-aw-firewall/c7915c87916b010d457d9daa82db4d6e36bf5b19/docs/auth-matrix.md"],
+    "kind": "documentation"
+  },
+  {
     "id": "anthropic-models",
     "scope": "Anthropic native API model IDs, documented efforts, limits and protocol support",
     "urls": ["https://platform.claude.com/docs/en/about-claude/models/overview", "https://docs.anthropic.com/en/docs/about-claude/models"],

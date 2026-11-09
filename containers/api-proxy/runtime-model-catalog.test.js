@@ -12,6 +12,21 @@ const {
 describe('runtime model catalog', () => {
   afterEach(() => clearRuntimeModels());
 
+  it.each(['/decisions', '/v1/decisions', 'decisions'])('preserves %s as a distinct provider API', endpoint => {
+    const entry = { id: 'decision-model', supported_endpoints: [endpoint] };
+    const records = parseProviderModelMetadata('copilot', { data: [entry, { id: 'unknown' }] });
+    replaceRuntimeModels('copilot', records);
+    entry.supported_endpoints.length = 0;
+    expect(getRuntimeModels('copilot').find(record => record.id === 'decision-model').supportedEndpoints)
+      .toEqual([endpoint]);
+    expect(getRuntimeCatalogSnapshot().copilot).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'decision-model', wire_api: 'decisions', supported_endpoints: [endpoint] }),
+    ]));
+    expect(getRuntimeCatalogSnapshot().copilot.find(record => record.id === 'unknown'))
+      .not.toHaveProperty('supported_endpoints');
+    expect(getRuntimeModels('openai')).toBeNull();
+  });
+
   it('retains explicit Copilot routing capabilities only in the private catalogue', () => {
     const entry = {
       id: 'gpt-test',

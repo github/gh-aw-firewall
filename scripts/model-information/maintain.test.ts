@@ -92,6 +92,45 @@ describe('offline scheduled source maintenance', () => {
     }] }));
   };
 
+  it('reports failed or missing Decisions evidence as incomplete without changing existing facts', async () => {
+    const before = fs.readFileSync(path.join(cwd, targetFile));
+    await captureSources(evidence, async (url: string) =>
+      url.includes('decisions') || url.endsWith('/docs/auth-matrix.md')
+        ? new Response('unavailable', { status: 503 }) : fakeFetch()(url));
+    const manifest = JSON.parse(fs.readFileSync(path.join(evidence, 'captures.json'), 'utf8'));
+    for (const id of ['openai-decisions', 'openai-decisions-sdk', 'copilot-decisions', 'copilot-decisions-auth']) {
+      expect(manifest.sources.find((item: any) => item.id === id).status).toBe('failed');
+    }
+    expect(() => loadCaptures(evidence)).toThrow('openai-decisions');
+    expect(fs.readFileSync(path.join(cwd, targetFile))).toEqual(before);
+    await captureSources(evidence, fakeFetch());
+    const complete = JSON.parse(fs.readFileSync(path.join(evidence, 'captures.json'), 'utf8'));
+    complete.sources = complete.sources.filter((item: any) => item.id !== 'copilot-decisions');
+    fs.writeFileSync(path.join(evidence, 'captures.json'), json(complete));
+    expect(() => loadCaptures(evidence)).toThrow('missing=copilot-decisions');
+    expect(fs.readFileSync(path.join(cwd, targetFile))).toEqual(before);
+  });
+
+  it('captures only commit-pinned reviewed Copilot Decisions passages, not conversations', async () => {
+    const reviewed = sources.filter((source: any) =>
+      ['copilot-decisions', 'copilot-decisions-auth'].includes(source.id));
+    expect(reviewed).toHaveLength(2);
+    for (const source of reviewed) {
+      expect(source.urls).toHaveLength(1);
+      expect(source.urls[0]).toMatch(
+        /^https:\/\/raw\.githubusercontent\.com\/github\/gh-aw(?:-firewall)?\/[0-9a-f]{40}\/(?:actions\/setup\/js\/scripts\/test_decisions_client\.cjs|docs\/auth-matrix\.md)$/,
+      );
+      expect(source.scope).toContain('requires review');
+    }
+    const fetched: string[] = [];
+    await captureSources(evidence, async (url: string) => {
+      fetched.push(url);
+      return fakeFetch()(url);
+    });
+    for (const source of reviewed) expect(fetched).toContain(source.urls[0]);
+    expect(fetched.some(url => /\/(?:pull|issues)\//.test(url))).toBe(false);
+  });
+
   const seedCopilot = (edit?: (file: string, document: any) => void) => {
     const proposedIds = new Set(['gpt-6.1-terra', 'gemini-3.8-flash', 'gemini-4-argon', 'mai-code-1.1-flash']);
     const promotionContract = JSON.parse(fs.readFileSync(

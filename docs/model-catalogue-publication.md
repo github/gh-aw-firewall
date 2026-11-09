@@ -35,8 +35,8 @@ memberships, evidence, specialized/revision boundaries and residual unknowns.
 It also records the bundled family-versus-backend estimate charge change;
 membership is not execution or capability authorization.
 
-Publication v1 identities contain only `key`, `provider`, `rawId`, and `lookupId`.
-Its strict schema does not transport alias/family rules. An authenticated,
+Publication v1 and v2 identities contain only `key`, `provider`, `rawId`, and `lookupId`.
+Their strict schemas do not transport alias/family rules. An authenticated,
 request-pinned pricing refresh can associate scoped tariffs with the resolved
 provider-qualified identity, but cannot rename requests, switch providers, add
 executable models, or update bundled naming. Existing pricing authority,
@@ -243,7 +243,8 @@ dependencies without lifecycle scripts, and runs the offline compiler in
 `--check` mode. This regenerates expected canonical inputs and all projections
 in memory, including the governed raw-snapshot import, and rejects any stale
 committed bytes. It does not fetch model facts or scrape documentation. It then
-builds and validates the publication-only projection and uploads one artifact.
+builds and validates both publication-only projections and uploads one artifact
+containing independently digested v1 and v2 snapshots.
 
 Publication also requires automated runtime-consumer checks in that read-only
 job. The exact commands are:
@@ -265,7 +266,7 @@ to bootstrap the branch after this integration merges. Existing repository rules
 still apply; this does not bypass a protected environment or branch policy.
 
 Only the dependent write job has `contents: write`. It checks out the same
-trusted source SHA, downloads that run's artifact, and verifies its byte digest
+trusted source SHA, downloads that run's artifact, and verifies each snapshot's byte digest
 against the build job's output and its source against the event SHA. It installs
 no dependencies, runs no package hooks and executes no data-branch code. Its
 only push destination is `refs/heads/catalogue-data`, using the repository's
@@ -277,15 +278,22 @@ On the data branch:
 
 | Path | Contract |
 | --- | --- |
-| `snapshots/v1/<revision>.json` | Immutable, canonical JSON snapshot. |
-| `channels/v1/current.json` | Small current pointer with schema version, revision, accepted source commit, snapshot path and full snapshot SHA-256. |
+| `snapshots/v1/<revision>.json` | Immutable original pricing/harness projection. |
+| `channels/v1/current.json` | Original v1 pointer, retained for old consumers. |
+| `snapshots/v2/<revision>.json` | Immutable pricing/harness/protocol projection. |
+| `channels/v2/current.json` | Default v2 pointer with schema version, revision, accepted source commit, snapshot path and full snapshot SHA-256. |
 
-A single Git commit contains the complete new snapshot and pointer before a
+One Git commit contains both channels' complete new snapshots and pointers before a
 normal push makes either visible. The first commit is an orphan, not a copy of
 the source tree. Subsequent commits retain all older snapshots and any other
 channels. An existing revision is never overwritten. A reviewed rollback reuses
 the original immutable snapshot bytes and advances only the pointer's accepted
 source commit.
+
+The writer validates both channels before a single atomic commit/push; failure
+validating either channel leaves both pointers unchanged. Adding v2 to an existing v1 data branch preserves its
+v1 pointer and every immutable snapshot. Protocol-only changes do not alter the
+v1 projection or revision.
 
 Concurrency is serialized without cancelling a running writer, but Actions
 ordering is not assumed. Every attempt fetches trusted `main` and the data
@@ -310,16 +318,19 @@ not trigger this push publisher. This implementation adds no credentials to
 change that platform restriction. The existing updater opens review PRs; it
 does not merge them. Data-branch token pushes need no follow-on event.
 
-## Producer contract v1
+## Producer contracts v1 and v2
 
-`shared/model-information/publication.v1.schema.json` defines the snapshot and
-pointer shapes. This is a dedicated producer wire contract, **not** a complete
+`shared/model-information/publication.v1.schema.json` and `publication.cjs`
+retain the original v1 schema, hash and pricing/harness projection. Its schema
+hash remains `8e631bcac2398743dceec874e5eb7bbde0e31f5b482e8c7855e80b73890be21e`.
+`publication.v2.schema.json` and `publication.v2.cjs` add protocol facts using
+schema version 2 and a distinct schema hash. These are dedicated producer wire contracts, **not** a complete
 assembled `resolvedExport`, staged `target.generated.json`, or the earlier
-`centralFeed` schema placeholder. It reuses the canonical tariff, harness and
-provenance schemas. A future loader must explicitly support this version.
+`centralFeed` schema placeholder. It reuses the canonical tariff, harness, protocol and
+provenance schemas (protocols only in v2). Consumers must explicitly support each version.
 
 The allowlisted projection includes only exact maintained models with reviewed
-tariffs or harness constraints from the checked baseline catalogue. It preserves
+tariffs or harness constraints in v1, or those facts plus protocols in v2, from the checked baseline catalogue. It preserves
 provider-qualified identity, provider/channel/deployment scope, decimal strings,
 units, tiers, promotion/effective dates, unavailable components, and original
 dated evidence/confidence at every field. The envelope labels distribution
@@ -327,13 +338,21 @@ authority `central_feed`; nested `maintained` provenance describes the evidence,
 not a grant of maintained authority to future downloaded data.
 
 The projection excludes availability, lifecycle, aliases, families, reasoning,
-limits, protocols, translations, family rules, target corrections, raw
+limits, translations, family rules, target corrections, raw
 OpenRouter exports and governed `importedPricing`. In particular, an OpenRouter
 namespace or price is not recast as a native-provider or Copilot tariff. Adding
 another kind of authority requires a separately reviewed producer/consumer
 contract. The current maintained projection has Copilot-scoped tariffs;
 publication does not declare those models available. Harness constraints are
 supported when explicitly present in maintained records, not inferred.
+
+In v2, Decisions protocol support and feature constraints retain exact provider/model
+identity, support/unknown states and reviewed provenance. OpenAI-native facts
+do not establish Copilot support. Protocol availability does not authorize
+cross-API translation or establish losslessness, credentials or deployment
+availability; [credential restrictions](./auth-matrix.md) remain separate.
+The bounded loader preserves these facts without turning them into pricing,
+availability, or translation authority.
 
 Canonical bytes are UTF-8 JSON, recursively sorted object keys, two-space
 indentation and a trailing newline; models sort by provider-qualified key.
@@ -373,6 +392,13 @@ rejected. It checks the locally supported schema hash, canonical bytes, exact
 path, revision and both digest levels, then verifies
 `snapshot.sourceCommit <= pointer.sourceCommit <= main` using GitHub ancestry
 (`<=` means ancestor-or-equal).
+
+The updated loader requests `channels/v2/current.json` first. Only an HTTP 404
+for that pointer permits a v1 pointer lookup at the same data commit; invalid v2
+bytes, denial, timeout or a missing v2 snapshot never trigger a downgrade.
+Source authentication reconstructs the matching version's projection. Trusted
+custom/local snapshots may also use either supported version. Old consumers keep
+reading the unchanged v1 channel; v2 data never appears under its paths.
 
 For an already accepted source, the candidate must also contain that source in
 its reachable commit history. Cached identifiers are compared locally, never

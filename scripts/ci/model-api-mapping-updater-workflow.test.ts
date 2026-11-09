@@ -226,6 +226,25 @@ describe('scheduled canonical model source maintenance', () => {
     }
   });
 
+  it('requires provider-qualified Decisions evidence, incomplete reporting and runtime regressions', () => {
+    const sources = require('../model-information/maintenance-sources.json');
+    for (const id of ['openai-decisions', 'openai-decisions-sdk', 'copilot-decisions', 'copilot-decisions-auth']) {
+      expect(sources.find((entry: any) => entry.id === id)).toMatchObject({ kind: 'documentation' });
+      expect(source).toContain(`\`${id}\``);
+    }
+    expect(source).toContain('new supported **exact** model IDs');
+    expect(source).toContain('typed-question/input/cache constraints and lifecycle changes');
+    expect(source).toContain('PAT rejection is not model incompatibility');
+    expect(source).toContain('Report failed documentation retrieval');
+    expect(source).toContain('Do not hand-edit `modelProtocols`');
+    const check = frontmatter.jobs.validate_model_proposal.steps.at(-1).run;
+    for (const test of ['model-api-mapping.test.js', 'runtime-model-catalog.test.js',
+      'routing-catalogue.test.js', 'wire-api-compat.test.js', 'server.decisions.test.js']) {
+      expect(check).toContain(test);
+      expect(lock.jobs.validate_model_proposal.steps.at(-1).run).toContain(test);
+    }
+  });
+
   it('compiles authoring and no-op tools but not merge or publication', () => {
     const manifestLine = lockText.split('\n').find(line => line.startsWith('# gh-aw-manifest: '))!;
     const manifest = JSON.parse(manifestLine.slice('# gh-aw-manifest: '.length));

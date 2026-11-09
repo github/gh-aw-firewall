@@ -382,6 +382,14 @@
     },
     {
       "identity": {
+        "key": "copilot/gpt-6-luna-decisions",
+        "provider": "copilot",
+        "rawId": "gpt-6-luna-decisions",
+        "lookupId": "gpt-6-luna-decisions"
+      }
+    },
+    {
+      "identity": {
         "key": "copilot/gpt-6-sol",
         "provider": "copilot",
         "rawId": "gpt-6-sol",
@@ -468,6 +476,14 @@
         "provider": "copilot",
         "rawId": "text-embedding-ada-002",
         "lookupId": "text-embedding-ada-002"
+      }
+    },
+    {
+      "identity": {
+        "key": "openai/gpt-6-luna",
+        "provider": "openai",
+        "rawId": "gpt-6-luna",
+        "lookupId": "gpt-6-luna"
       }
     }
   ],

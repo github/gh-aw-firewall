@@ -1,10 +1,13 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to supported API endpoints and includes maintained task-routing effort/context metadata for selected model IDs.",
-  "lastUpdated": "2026-10-08T07:12:00Z",
+  "lastUpdated": "2026-11-08T22:25:19Z",
   "sources": {
     "openai": "https://developers.openai.com/api/docs/models",
     "openai_routing": "https://developers.openai.com/api/docs/models/gpt-5.4",
+    "openai_decisions": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py",
+    "copilot_decisions": "https://github.com/github/gh-aw/pull/75859",
+    "decisions_authentication": "https://github.com/github/gh-aw-firewall/blob/main/docs/auth-matrix.md",
     "anthropic": "https://platform.claude.com/docs/en/models/overview",
     "anthropic_effort": "https://platform.claude.com/docs/en/build-with-claude/effort",
     "anthropic_context": "https://platform.claude.com/docs/en/build-with-claude/context-windows"
@@ -12,6 +15,13 @@
   "providers": {
     "openai": {
       "endpoints": {
+        "decisions": {
+          "path": "/v1/decisions",
+          "basePath": "/v1",
+          "resourcePath": "/decisions",
+          "description": "Distinct typed-question Decisions API. Exact model support is generated from canonical protocols, not inherited from Chat Completions or Responses. Credential injection does not establish endpoint eligibility.",
+          "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py"
+        },
         "responses": {
           "path": "/v1/responses",
           "description": "Newer unified API for agentic, tool-using, and multimodal workflows. Required for GPT-5+ models; some older models (o1, o3, gpt-4o, gpt-4.1) support it alongside chat/completions."
@@ -443,7 +453,87 @@
           ],
           "notes": "Legacy. In ModelIdsShared per OpenAI spec v2.3.0; supports both endpoints. Deprecated."
         }
-      ]
+      ],
+      "modelProtocols": {
+        "gpt-6-luna": [
+          {
+            "protocol": "decisions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py#L61-L80",
+                "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
+                "at": "2026-11-08T22:25:19Z",
+                "confidence": "verified"
+              }
+            },
+            "features": {
+              "typed_questions": {
+                "state": "conditional",
+                "condition": "1–400 predicate, choice or score questions; answers retain question order.",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py#L61-L80",
+                  "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
+                  "at": "2026-11-08T22:25:19Z",
+                  "confidence": "verified"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "copilot": {
+      "endpoints": {
+        "decisions": {
+          "path": "/v1/decisions",
+          "basePath": "/v1",
+          "resourcePath": "/decisions",
+          "description": "Distinct Decisions API, with exact provider/model evidence generated from canonical protocols. OpenAI-native support does not establish Copilot support.",
+          "source": "https://github.com/github/gh-aw/pull/75859",
+          "authentication": {
+            "reference": "https://github.com/github/gh-aw-firewall/blob/main/docs/auth-matrix.md",
+            "restriction": "Fine-grained PAT rejection is observed, not lack of model support. Classic PAT and other OAuth/GitHub App token acceptance remain unverified. One Actions job token with copilot-requests: write and Copilot-Integration-Id: agentic-workflows succeeded; this does not establish personal-account availability. Proxy injection does not make a credential endpoint-supported.",
+            "evidence": [
+              "https://github.com/github/gh-aw/issues/75637",
+              "https://github.com/github/gh-aw/pull/75859"
+            ]
+          }
+        }
+      },
+      "models": [],
+      "modelProtocols": {
+        "gpt-6-luna-decisions": [
+          {
+            "protocol": "decisions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://github.com/github/gh-aw/pull/75859",
+                "revision": "4c2be18cc2076f2a37e8f0258c298026a4ae413b",
+                "at": "2026-11-08T22:25:19Z",
+                "confidence": "verified"
+              }
+            },
+            "features": {
+              "predicate": {
+                "state": "conditional",
+                "condition": "One predicate succeeded in the maintainer-reported live Actions job at the pinned revision using Copilot-Integration-Id: agentic-workflows; logs were not independently retrieved. This does not establish choice/score, general account availability or credential eligibility.",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://github.com/github/gh-aw/blob/4c2be18cc2076f2a37e8f0258c298026a4ae413b/actions/setup/js/scripts/test_decisions_client.cjs",
+                  "revision": "4c2be18cc2076f2a37e8f0258c298026a4ae413b",
+                  "at": "2026-11-08T22:25:19Z",
+                  "confidence": "verified"
+                }
+              }
+            }
+          }
+        ]
+      }
     },
     "anthropic": {
       "endpoints": {

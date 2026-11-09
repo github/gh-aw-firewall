@@ -7,7 +7,8 @@ const { EventEmitter } = require('node:events');
 const { PassThrough } = require('node:stream');
 const https = require('node:https');
 const { createCatalogueLoader, getBytes } = require('./catalogue-loader');
-const { buildSnapshot, validateSnapshot } = require('./catalogue-contract/publication.cjs');
+const { buildSnapshot, validateSnapshot } = require('./catalogue-contract/publication.v2.cjs');
+const v1 = require('./catalogue-contract/publication.cjs');
 const { json, digest, payload } = require('./catalogue-contract/publication-contract.cjs');
 const { resolveCentralPricing } = require('./catalogue-pricing');
 const { applyAiCreditsUsage, resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard');
@@ -32,13 +33,13 @@ function catalogue(price = '2') {
   return { ...baseline, models: [model] };
 }
 
-function publication(price = '2', source = FIRST, sourceTime = '2026-10-22T00:00:00Z') {
+function publication(price = '2', source = FIRST, sourceTime = '2026-10-22T00:00:00Z', version = 2) {
   const catalog = catalogue(price);
-  const bytes = buildSnapshot(catalog, source, sourceTime);
+  const bytes = buildSnapshot(catalog, source, sourceTime, version);
   const snapshot = JSON.parse(bytes);
   return { catalog, bytes, snapshot, pointer: {
-    schemaVersion: 1, revision: snapshot.revision, sourceCommit: source,
-    snapshot: `snapshots/v1/${snapshot.revision}.json`, sha256: digest(bytes),
+    schemaVersion: version, revision: snapshot.revision, sourceCommit: source,
+    snapshot: `snapshots/v${version}/${snapshot.revision}.json`, sha256: digest(bytes),
   } };
 }
 
@@ -63,7 +64,10 @@ function githubFixture(pub = publication()) {
     if (suffix.startsWith('/git/commits/')) {
       return Buffer.from(json({ sha: suffix.split('/').at(-1), committer: { date: '2026-10-22T00:00:00Z' } }));
     }
-    if (suffix === `/contents/channels/v1/current.json?ref=${DATA}`) return Buffer.from(json(pub.pointer));
+    if (suffix === `/contents/channels/v${pub.pointer.schemaVersion}/current.json?ref=${DATA}`) return Buffer.from(json(pub.pointer));
+    if (suffix === `/contents/channels/v2/current.json?ref=${DATA}` && pub.pointer.schemaVersion === 1) {
+      throw new Error('catalogue_http_404');
+    }
     if (suffix === `/contents/${pub.pointer.snapshot}?ref=${DATA}`) return Buffer.from(pub.bytes);
     if (suffix.startsWith('/contents/shared/model-information/catalog.generated.json?ref=')) {
       return Buffer.from(json(pub.catalog));
@@ -102,6 +106,8 @@ test('authenticates reviewed source, pins immutable reads and reaches actual acc
   expect(get.mock.calls.every(([url]) => url.startsWith(ROOT))).toBe(true);
   expect(get.mock.calls.filter(([url]) => /channels|snapshots/.test(url))
     .every(([url]) => url.endsWith(`?ref=${DATA}`))).toBe(true);
+  expect(instance.capture().snapshot.schemaVersion).toBe(2);
+  expect(get.mock.calls.some(([url]) => url.includes('/channels/v1/'))).toBe(false);
   const result = computeTokenBudgetUsage({
     logRequest: jest.fn(), requestId: 'test', provider: 'copilot', catalogue: instance.capture(),
   }, { input_tokens: 1_000_000 }, 'loader-test');
@@ -109,6 +115,70 @@ test('authenticates reviewed source, pins immutable reads and reaches actual acc
     ai_credits_this_response: 200, ai_credits_pricing_source: 'central_feed',
     ai_credits_pricing_catalog_version: publication().snapshot.revision,
   });
+});
+
+test('new consumer authenticates the old producer projection when v2 is absent', async () => {
+    const pub = publication('2', FIRST, '2026-10-22T00:00:00Z', 1);
+    expect(v1.validateSnapshot(pub.bytes).schemaVersion).toBe(1);
+    const get = githubFixture(pub);
+    const instance = loader({}, { getBytes: get });
+    await instance.start();
+    expect(instance.capture().snapshot).toEqual(pub.snapshot);
+    expect(get.mock.calls.filter(([url]) => /channels/.test(url)).map(([url]) => url))
+      .toEqual([`${ROOT}/contents/channels/v2/current.json?ref=${DATA}`,
+        `${ROOT}/contents/channels/v1/current.json?ref=${DATA}`]);
+    expect(computeTokenBudgetUsage({
+      logRequest: jest.fn(), requestId: 'v1', provider: 'copilot', catalogue: instance.capture(),
+    }, { input_tokens: 1_000_000 }, 'loader-test').ai_credits_this_response).toBe(200);
+  });
+
+test.each(['catalogue_http_403', 'catalogue_http_503', 'catalogue_timeout', 'invalid'])(
+    'does not downgrade from v2 after %s', async error => {
+      const get = jest.fn(async url => {
+        if (url.includes('/channels/v2/')) {
+          if (error === 'invalid') return Buffer.from('{}');
+          throw new Error(error);
+        }
+        return githubFixture()(url);
+      });
+      const instance = loader({}, { getBytes: get });
+      await instance.start();
+      expect(instance.capture()).toBeNull();
+      expect(get.mock.calls.some(([url]) => url.includes('/channels/v1/'))).toBe(false);
+    },
+  );
+
+test('rejects v1 bytes presented as the v2 channel', async () => {
+  const pub = publication('2', FIRST, '2026-10-22T00:00:00Z', 1);
+  const get = jest.fn(async url => url.includes('/channels/v2/')
+    ? Buffer.from(json(pub.pointer)) : githubFixture(pub)(url));
+  const instance = loader({}, { getBytes: get });
+  await instance.start();
+  expect(instance.capture()).toBeNull();
+  expect(get.mock.calls.some(([url]) => url.includes('/channels/v1/'))).toBe(false);
+});
+
+test.each(['supported', 'unknown'])('loads Decisions %s without synthesizing pricing or availability', async state => {
+  const pub = publication();
+  const { tariffs, harnesses, ...model } = pub.catalog.models[0];
+  model.protocols = [{
+    protocol: 'decisions', support: { state, provenance: model.provenance },
+    features: { translation: { state: 'unknown', provenance: model.provenance } },
+  }];
+  pub.catalog.models = [model];
+  pub.bytes = buildSnapshot(pub.catalog, FIRST, '2026-10-22T00:00:00Z');
+  pub.snapshot = JSON.parse(pub.bytes);
+  pub.pointer = { ...pub.pointer, revision: pub.snapshot.revision, sha256: digest(pub.bytes),
+    snapshot: `snapshots/v2/${pub.snapshot.revision}.json` };
+  const instance = loader({}, { getBytes: githubFixture(pub) });
+  await instance.start();
+  expect(instance.reflect().state).toBe('active');
+  const captured = instance.capture().snapshot.models[0];
+  expect(captured.protocols).toEqual(model.protocols);
+  expect(captured).not.toHaveProperty('availability');
+  expect(captured).not.toHaveProperty('tariffs');
+  expect(captured).not.toHaveProperty('translations');
+  expect(resolveCentralPricing('copilot', 'loader-test', 0, instance.capture())).toBeNull();
 });
 
 test.each(['bytes', 'price', 'schema', 'pointer', 'publishedAt', 'effectiveFrom', 'observedAt', 'sourceCommit'])(
@@ -119,7 +189,7 @@ test.each(['bytes', 'price', 'schema', 'pointer', 'publishedAt', 'effectiveFrom'
       pub.bytes = changed.bytes;
       pub.pointer = changed.pointer;
     } else if (field === 'schema') {
-      pub.bytes = pub.bytes.replace('"schemaVersion": 1', '"schemaVersion": 99');
+      pub.bytes = pub.bytes.replace('"schemaVersion": 2', '"schemaVersion": 99');
     } else if (field === 'pointer') {
       pub.pointer.snapshot = 'https://attacker.invalid/prices';
     } else if (field === 'bytes') {
