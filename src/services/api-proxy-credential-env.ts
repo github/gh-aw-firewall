@@ -5,6 +5,8 @@ import { buildAnthropicCredentialEnv } from './credentials/anthropic-credential-
 import { buildCopilotCredentialEnv } from './credentials/copilot-credential-env';
 import { buildGeminiCredentialEnv } from './credentials/gemini-credential-env';
 import { buildVertexCredentialEnv } from './credentials/vertex-credential-env';
+import { FOUNDRY_ENV } from '../api-proxy-env-constants';
+import { getConfigEnvValue } from '../env-utils';
 
 interface ApiProxyCredentialEnvParams {
   config: WrapperConfig;
@@ -33,6 +35,9 @@ export function buildAgentCredentialEnv(params: ApiProxyCredentialEnvParams): Re
   Object.assign(agentEnvAdditions, buildCopilotCredentialEnv({ config, proxyIp: networkConfig.proxyIp }));
   Object.assign(agentEnvAdditions, buildGeminiCredentialEnv({ config, proxyIp: networkConfig.proxyIp }));
   Object.assign(agentEnvAdditions, buildVertexCredentialEnv({ config, proxyIp: networkConfig.proxyIp }));
+  if (getConfigEnvValue(config, FOUNDRY_ENV.TARGET) ?? process.env[FOUNDRY_ENV.TARGET]?.trim()) {
+    agentEnvAdditions[FOUNDRY_ENV.BASE_URL] = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.FOUNDRY}`;
+  }
 
   return agentEnvAdditions;
 }

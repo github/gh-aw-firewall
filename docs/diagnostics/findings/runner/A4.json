@@ -22,8 +22,8 @@
   "status": "workaround",
   "rootCause": "The musl-based daemon host lacks the glibc tooling that chroot mode expects to bind into the agent container.",
   "probe": {
-    "command": "docker -H \"$DOCKER_HOST\" run --rm alpine cat /etc/os-release",
-    "expect": "Shows an Alpine/musl daemon host, which chroot mode cannot satisfy.",
+    "command": "docker info --format '{{.OperatingSystem}}'",
+    "expect": "Read the configured daemon's OS label and compare with the operator-managed DinD image. A generic label is inconclusive; starting an Alpine probe container would describe that container, not prove the daemon host's libc.",
     "readOnly": true,
     "secretSafe": true
   },
@@ -35,5 +35,5 @@
   ],
   "related": ["A1"],
   "owner": "@github/gh-aw-firewall-maintainers",
-  "reviewBy": "2027-03-31"
+  "reviewBy": "2026-12-09"
 }

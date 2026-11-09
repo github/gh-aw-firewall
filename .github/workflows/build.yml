@@ -72,6 +72,10 @@ jobs:
           npm ci
           npm test
 
+      - name: Check reflect smoke fixture and grader without providers
+        if: matrix.node-version == '22'
+        run: npm run test:reflect-smoke
+
       - name: Run CLI proxy unit tests
         run: |
           cd containers/cli-proxy

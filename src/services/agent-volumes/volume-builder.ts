@@ -2,6 +2,8 @@ import { SslConfig } from '../../host-env';
 import { getSafeHostGid, getSafeHostUid } from '../../host-env';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
+import { FOUNDRY_ENV } from '../../api-proxy-env-constants';
+import { readEnvFile } from '../../github-env';
 import { applyHostPathPrefixToVolumes } from '../host-path-prefix';
 import { buildCredentialHidingOverlays, pruneUnmountableCredentialOverlays } from './credential-hiding';
 import { createLocalSourceResolver, parseMount } from './mount-topology';
@@ -106,7 +108,14 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
     ]),
   );
   const localSourceResolver = createLocalSourceResolver(customSourceRoots, config.dockerHostPathPrefix);
-  const credentialOverlays = buildCredentialHidingOverlays(effectiveHome, agentVolumes, localSourceResolver);
+  const envFileValues = config.enableApiProxy && config.envFile ? readEnvFile(config.envFile) : {};
+  const foundryEnvFile = [FOUNDRY_ENV.KEY, FOUNDRY_ENV.ENTRA_TOKEN]
+    .some((key) => Object.prototype.hasOwnProperty.call(envFileValues, key))
+    ? config.envFile
+    : undefined;
+  const credentialOverlays = buildCredentialHidingOverlays(
+    effectiveHome, agentVolumes, localSourceResolver, process.env, foundryEnvFile,
+  );
   const credentialTargets = new Set(credentialOverlays.map((spec) => parseMount(spec)?.target));
   const maskedVolumes = agentVolumes.filter((spec) => !credentialTargets.has(parseMount(spec)?.target));
   maskedVolumes.push(...credentialOverlays);

@@ -198,6 +198,7 @@ export function resolveApiTargetsToAllowedDomains(
     anthropicApiTarget?: string;
     geminiApiTarget?: string;
     vertexApiTarget?: string;
+    enableApiProxy?: boolean;
   },
   allowedDomains: string[],
   env: Record<string, string | undefined> = process.env,
@@ -244,6 +245,9 @@ export function resolveApiTargetsToAllowedDomains(
     apiTargets.push({ value: options.vertexApiTarget });
   } else if (env['VERTEX_API_TARGET']) {
     apiTargets.push({ value: env['VERTEX_API_TARGET'] });
+  }
+  if (options.enableApiProxy && env['FOUNDRY_API_TARGET']) {
+    apiTargets.push({ value: env['FOUNDRY_API_TARGET'] });
   }
 
   // Auto-populate GHEC domains when GITHUB_SERVER_URL points to a *.ghe.com tenant

@@ -18,8 +18,9 @@ describe('provider target ports', () => {
       COPILOT_PROVIDER_API_KEY: 'test-key', COPILOT_API_TARGET: target, COPILOT_API_BASE_PATH: '/v1',
       GEMINI_API_KEY: 'test-key', GEMINI_API_TARGET: target, GEMINI_API_BASE_PATH: '/v1',
       GOOGLE_API_KEY: 'test-key', VERTEX_API_TARGET: target, VERTEX_API_BASE_PATH: '/v1',
+      FOUNDRY_API_KEY: 'test-key', FOUNDRY_API_TARGET: target, FOUNDRY_API_BASE_PATH: '/v1',
     });
-    expect(adapters).toHaveLength(5);
+    expect(adapters).toHaveLength(6);
     for (const adapter of adapters) {
       expect(adapter.getTargetHost()).toBe(host);
       expect(adapter.getTargetScheme()).toBe(scheme);

@@ -10,7 +10,7 @@
     "The agent container never starts while Squid is healthy"
   ],
   "conditions": [
-    "The Docker daemon default runtime is not runc (for example gVisor runsc or Kata)",
+    "AWF explicitly selects an alternative OCI runtime, or the Docker daemon defaults to one; docker info alone does not prove a per-service selection",
     "The failure happens at container create/start time, before any user command runs"
   ],
   "affects": {
@@ -27,11 +27,11 @@
   "rootCause": "unknown - alternative runtimes implement mounts, capabilities, and seccomp differently from runc; the specific unsupported feature must be identified from the runtime error before a fix is asserted.",
   "probe": {
     "command": "docker info --format '{{.DefaultRuntime}} {{range $k,$v := .Runtimes}}{{$k}} {{end}}'",
-    "expect": "Shows the active default runtime so the failure can be attributed to a non-runc runtime.",
+    "expect": "Shows daemon runtime availability/default only. Compare the explicit containerRuntime setting and selected service runtime before attributing the error; a non-runc default alone is not proof.",
     "readOnly": true,
     "secretSafe": true
   },
-  "action": "Record the exact runtime error and the runtime version, then consult docs/gvisor-integration.md for the supported configuration. Collect evidence rather than disabling seccomp or capabilities.",
+  "action": "Record the selected runtime, exact create/start error and runtime version, then consult docs/gvisor-integration.md and docs/compatibility.md. gVisor uses static service DNS and proxy-only egress rather than the iptables-init path; do not infer identical behavior for Kata or microVM backends. Collect evidence rather than disabling seccomp or capabilities.",
   "references": [
     {
       "kind": "doc",
@@ -51,11 +51,15 @@
     {
       "kind": "test",
       "ref": "src/container-lifecycle-gvisor.test.ts"
+    },
+    {
+      "kind": "test",
+      "ref": "src/container-runtime.test.ts"
     }
   ],
   "related": [
     "A4"
   ],
   "owner": "@github/gh-aw-firewall-maintainers",
-  "reviewBy": "2027-03-31"
+  "reviewBy": "2026-12-09"
 }

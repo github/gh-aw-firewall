@@ -4,11 +4,11 @@ ARG GUEST_BASE_IMAGE=awf-cloud-hypervisor-guest-base:build
 ARG BUILD_TOOLS_IMAGE=awf-build-tools
 ARG ENCLAVE_AGENT_IMAGE=awf-enclave-agent
 
-FROM node:26.11.1-trixie-slim@sha256:193fe51b64e77981119c98c2002c9e32a70e2f006fb4d25068ce0558998917f0 AS node-runtime
+FROM node:26.13.0-trixie-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072 AS node-runtime
 FROM ${BUILD_TOOLS_IMAGE} AS build-tools
 FROM ${ENCLAVE_AGENT_IMAGE} AS copilot-runtime
 
-FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7 AS guest-base
+FROM ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c AS guest-base
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       ca-certificates python3 bash coreutils findutils grep sed gawk \
