@@ -76,6 +76,14 @@ describe('diagnosis registry', () => {
     }
   });
 
+  it('probes RT-004 from projected protected diagnostics even when the transcript is empty', () => {
+    const finding = loaded.find((entry) => entry.finding.id === 'RT-004')!.finding;
+    expect(finding.probe.command).toContain('path/to/protected/diagnostics.json');
+    expect(finding.probe.command).toContain('.primaryFailure');
+    expect(finding.probe.command).toContain('.stages');
+    expect(finding.probe.command).not.toContain('enclave-session.log');
+  });
+
   it('keeps generated artifacts in sync with the canonical records', () => {
     expect(checkSync(loaded).stale).toEqual([]);
   });

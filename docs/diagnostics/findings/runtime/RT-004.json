@@ -13,8 +13,8 @@
   "status": "fixed",
   "rootCause": "The trusted transcript writer previously encountered storage owned for a different identity, while virtio-fs squashed guest root into the non-root engine identity. Append-open preflight failed before any inference or engine exit.",
   "probe": {
-    "command": "grep '\"operation\":\"preflight-session-log\"' path/to/protected/enclave-session.log",
-    "expect": "Read only the already projected, credential-redacted operation/category/errno event. Missing transcript evidence is not success and does not by itself prove a credential problem.",
+    "command": "jq '{primaryFailure: (.primaryFailure | {stage, status, operation, category, errno}), stages: [.stages[] | select(.operation == \"preflight-session-log\") | {stage, status, operation, category, errno}]}' path/to/protected/diagnostics.json",
+    "expect": "Read only the protected projection's operation/category/errno fields for preflight-session-log. The protected diagnostics.json primaryFailure and stages remain useful when enclave-session.log is empty; missing projected evidence is not success and does not by itself prove a credential problem.",
     "readOnly": true,
     "secretSafe": true
   },

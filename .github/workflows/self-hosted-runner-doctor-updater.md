@@ -52,7 +52,7 @@ Consider issues and pull requests **updated on or after** the scan window. The w
 
 ## Step 1 — Find relevant issues and PRs
 
-Read the complete merged-PR intake at `/tmp/gh-aw/agent/candidates.json` and maintain review receipts using the shared contract. It enumerates merges without keyword filtering and catches up historical windows. Fetch changed files and key comments for the oldest pending batch. Supplement it with issues updated since the scan date using small queries from these signals:
+Read the complete merged-PR intake at `/tmp/gh-aw/agent/candidates.json` and maintain review receipts using the shared contract. It enumerates merges without keyword filtering and catches up historical windows. Review `reviewQueue.firstTime` first, then only the bounded `reviewQueue.deferred` rotation if fewer than 50 first-time candidates are available; keep all `pending` items visible and report remaining work. Fetch changed files and key comments for every item you review. Supplement it with issues updated since the scan date using small queries from these signals:
 
 `ARC`, `DinD`, `self-hosted`, `GHES`, `GHEC`, `ghe.com`, `DOCKER_HOST`, `docker-host-path-prefix`, `chroot`, `musl`, `Alpine`, `IPv6`, `corporate proxy`, `cache_peer`, `GH_HOST`, `resolv.conf`, `toolcache`, `_tool`, `one-shot-token`, `capsh`, `passwd`.
 

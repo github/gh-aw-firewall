@@ -66,6 +66,10 @@ describe('shared diagnosis-maintenance contract', () => {
     expect(shared).toContain('receipts.json');
     expect(shared).toContain('needs-evidence');
     expect(shared).toContain('npm run diagnostics:freshness');
+    expect(shared).toContain('reviewQueue.firstTime');
+    expect(shared).toContain('reviewQueue.deferred');
+    expect(shared).toContain('updatedSince');
+    expect(shared).toContain('date-independent keys');
     expect(read('.github/workflows/self-hosted-runner-doctor-updater.md')).not.toContain('prepare_candidates');
   });
 
@@ -90,6 +94,7 @@ describe('shared diagnosis-maintenance contract', () => {
     const workflow = read('.github/workflows/diagnosis-freshness.yml');
     expect(workflow).toContain('diagnostics:validate && npm run diagnostics:check');
     expect(workflow).toContain('cli.ts freshness');
+    expect(workflow).toContain("if: github.event_name != 'pull_request'");
     expect(workflow).toContain('GITHUB_STEP_SUMMARY');
     expect(workflow).not.toContain(': write');
   });
@@ -133,6 +138,30 @@ describe('shared diagnosis-maintenance contract', () => {
       const lock = read(`.github/workflows/${workflow}.lock.yml`);
       expect(lock).toContain('DO NOT EDIT');
       expect(lock).toContain('shared/diagnosis-');
+    }
+  });
+
+  it('uses durable, isolated cache state with metadata-only quarantine reports in every updater lock', () => {
+    for (const workflow of [
+      'self-hosted-runner-doctor-updater',
+      'auth-doctor-updater',
+      'runtime-enclave-doctor-updater',
+      'network-doctor-updater',
+      'ci-integration-doctor-updater',
+    ]) {
+      const lock = read(`.github/workflows/${workflow}.lock.yml`);
+      expect(lock).toContain(
+        'key: memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ github.run_id }}'
+      );
+      expect(lock).toContain(
+        'memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-\n'
+      );
+      expect(lock).not.toContain('CACHE_MEMORY_DATE');
+      expect(lock).not.toContain('--add-dir /tmp/gh-aw/cache-memory/');
+      expect(lock).toContain('Strip execute bits from cache-memory files');
+      expect(lock).toContain('Scan cache-memory for instruction-injection content');
+      expect(lock).toContain('Content preview suppressed for security: $f');
+      expect(lock).not.toContain('head -5 "$f"');
     }
   });
 });

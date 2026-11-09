@@ -30,6 +30,7 @@ jobs:
       - run: npm ci
       - run: npm run diagnostics:validate && npm run diagnostics:check
       - name: Check UTC review deadlines
+        if: github.event_name != 'pull_request'
         run: |
           set +e
           npx tsx scripts/diagnostics/cli.ts freshness > diagnosis-freshness.json

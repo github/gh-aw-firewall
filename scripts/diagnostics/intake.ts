@@ -5,9 +5,13 @@ import * as path from 'path';
 import { isCalendarDate } from './registry';
 
 const WEEK = 7 * 86400_000;
+const DEFERRED_REVIEW_LIMIT = 10;
 
-function sanitizeForAgentText(value: string): string {
-  const noControls = value.replace(/[\u0000-\u001f\u007f]/g, ' ');
+export function sanitizeForAgentText(value: string): string {
+  const noControls = Array.from(value, (character) => {
+    const code = character.charCodeAt(0);
+    return code < 0x20 || code === 0x7f ? ' ' : character;
+  }).join('');
   const neutralized = noControls
     .replace(/```/g, '`\\`\\`')
     .replace(/<\s*\/?\s*(system|assistant|user|tool)\s*>/gi, '[role-tag]')
@@ -30,8 +34,10 @@ export interface IntakeState {
   version: 1;
   repository: string;
   since: string;
+  updatedSince?: string;
   historyBefore: string;
   historyFloor: string;
+  deferredCursor?: number;
   pending: Candidate[];
 }
 
@@ -41,6 +47,18 @@ export interface Receipt {
   disposition: 'covered' | 'proposed' | 'no-impact' | 'needs-evidence';
   evidence: string;
 }
+
+export interface ReviewQueue {
+  firstTime: Candidate[];
+  deferred: Candidate[];
+  deferredCount: number;
+}
+
+export interface IntakeCollection extends IntakeState {
+  reviewQueue: ReviewQueue;
+}
+
+class MalformedIntakeJsonError extends Error {}
 
 const instant = (value: string): number => {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value) ||
@@ -57,6 +75,11 @@ export function validateState(state: IntakeState, repository: string): void {
   }
   if (instant(state.historyFloor) > instant(state.historyBefore) ||
     instant(state.historyBefore) > instant(state.since)) throw new Error('Invalid intake cursor order');
+  if (state.updatedSince !== undefined) instant(state.updatedSince);
+  if (state.deferredCursor !== undefined &&
+    (!Number.isSafeInteger(state.deferredCursor) || state.deferredCursor < 1)) {
+    throw new Error('Invalid deferred review cursor');
+  }
   for (const candidate of state.pending) validateCandidate(candidate, repository);
 }
 
@@ -87,16 +110,65 @@ export function validateReceipts(receipts: Receipt[]): void {
   }
 }
 
+function isValidReceipt(value: unknown): value is Receipt {
+  if (!value || typeof value !== 'object') return false;
+  const receipt = value as Partial<Receipt>;
+  if (!Number.isSafeInteger(receipt.number) || (receipt.number ?? 0) < 1 ||
+    !['covered', 'proposed', 'no-impact', 'needs-evidence'].includes(receipt.disposition ?? '') ||
+    typeof receipt.evidence !== 'string' || receipt.evidence.trim().length < 12 ||
+    typeof receipt.updatedAt !== 'string') return false;
+  try {
+    instant(receipt.updatedAt);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function readReceipts(file: string): Receipt[] {
+  let value: unknown;
+  try {
+    value = readIntakeJson<unknown>(file);
+  } catch (error) {
+    if (!(error instanceof MalformedIntakeJsonError)) throw error;
+    fs.unlinkSync(file);
+    console.warn('Malformed intake receipts were discarded; affected candidates will be reviewed again.');
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    fs.unlinkSync(file);
+    console.warn('Invalid intake receipt data was discarded; affected candidates will be reviewed again.');
+    return [];
+  }
+  const receipts = value.filter(isValidReceipt);
+  const invalidCount = value.length - receipts.length;
+  if (invalidCount > 0) {
+    console.warn(`Ignored ${invalidCount} invalid intake receipt(s); affected candidates remain pending.`);
+  }
+  return receipts;
+}
+
 /** Fetch complete windows before advancing cursors; retrieval is not diagnosis completion. */
 export async function collectIntake(
   state: IntakeState,
   receipts: Receipt[],
   fetchWindow: (since: string, until: string) => Promise<Candidate[]>,
   now: string,
-): Promise<IntakeState> {
+  fetchUpdatedWindow: (since: string, until: string) => Promise<Candidate[]> = async () => [],
+): Promise<IntakeCollection> {
   validateState(state, state.repository);
   validateReceipts(receipts);
   if (instant(now) < instant(state.since)) throw new Error('Intake clock precedes checkpoint');
+  const previousUpdatedSince = state.updatedSince ?? state.since;
+  if (instant(now) < instant(previousUpdatedSince)) throw new Error('Intake clock precedes update checkpoint');
+  const receiptStatus = new Map<string, { completed: boolean; needsEvidence: boolean }>();
+  for (const receipt of receipts) {
+    const key = `${receipt.number}:${receipt.updatedAt}`;
+    const status = receiptStatus.get(key) ?? { completed: false, needsEvidence: false };
+    if (receipt.disposition === 'needs-evidence') status.needsEvidence = true;
+    else status.completed = true;
+    receiptStatus.set(key, status);
+  }
   const pending = new Map(state.pending.map((candidate) =>
     [candidate.number, projectCandidate(candidate, state.repository)]));
   const add = (candidates: Candidate[]): void => {
@@ -112,21 +184,44 @@ export async function collectIntake(
   add(await fetchWindow(state.since, since));
   // Catch up older merges without starving the current feed or growing an unbounded active batch.
   let historyBefore = state.historyBefore;
-  if (pending.size < 100 && instant(historyBefore) > instant(state.historyFloor)) {
+  const firstTimeCount = [...pending.values()].filter((candidate) =>
+    !receiptStatus.has(`${candidate.number}:${candidate.updated_at}`)).length;
+  if (firstTimeCount < 100 && instant(historyBefore) > instant(state.historyFloor)) {
     const start = iso(Math.max(instant(state.historyFloor), instant(historyBefore) - WEEK));
     add(await fetchWindow(start, historyBefore));
     historyBefore = start;
   }
-  for (const receipt of receipts) {
-    const candidate = pending.get(receipt.number);
-    if (candidate?.updated_at === receipt.updatedAt && receipt.disposition !== 'needs-evidence') {
-      pending.delete(receipt.number);
-    }
+  const updatedSince = iso(Math.min(instant(previousUpdatedSince) + WEEK, instant(now)));
+  if (instant(updatedSince) > instant(previousUpdatedSince)) {
+    add(await fetchUpdatedWindow(previousUpdatedSince, updatedSince));
   }
+  for (const [number, candidate] of pending) {
+    const status = receiptStatus.get(`${number}:${candidate.updated_at}`);
+    if (status?.completed) pending.delete(number);
+  }
+  const allPending = [...pending.values()].sort((a, b) =>
+    a.updated_at.localeCompare(b.updated_at) || a.number - b.number);
+  const deferred = allPending.filter((candidate) =>
+    receiptStatus.get(`${candidate.number}:${candidate.updated_at}`)?.needsEvidence);
+  const firstTime = allPending.filter((candidate) => !deferred.includes(candidate));
+  const deferredCursorIndex = state.deferredCursor === undefined
+    ? -1 : deferred.findIndex(({ number }) => number === state.deferredCursor);
+  const deferredStart = deferred.length === 0 ? 0 : (deferredCursorIndex + 1) % deferred.length;
+  const rotatedDeferred = deferred.length === 0 ? [] : [
+    ...deferred.slice(deferredStart), ...deferred.slice(0, deferredStart),
+  ];
+  const deferredReview = rotatedDeferred.slice(0, DEFERRED_REVIEW_LIMIT);
   return {
-    ...state, since, historyBefore,
-    pending: [...pending.values()].sort((a, b) =>
-      a.updated_at.localeCompare(b.updated_at) || a.number - b.number),
+    ...state, since, updatedSince, historyBefore,
+    deferredCursor: deferredReview.length > 0
+      ? deferredReview[deferredReview.length - 1].number
+      : state.deferredCursor,
+    pending: allPending,
+    reviewQueue: {
+      firstTime,
+      deferred: deferredReview,
+      deferredCount: deferred.length,
+    },
   };
 }
 
@@ -146,7 +241,7 @@ export function readIntakeJson<T>(file: string): T {
     try {
       return JSON.parse(fs.readFileSync(descriptor, 'utf8')) as T;
     } catch {
-      throw new Error('Intake cache JSON is unreadable or malformed; checkpoint not advanced');
+      throw new MalformedIntakeJsonError('Intake cache JSON is unreadable or malformed; checkpoint not advanced');
     }
   } finally {
     fs.closeSync(descriptor);
@@ -154,12 +249,24 @@ export function readIntakeJson<T>(file: string): T {
 }
 
 export async function fetchMergedWindow(repository: string, since: string, until: string): Promise<Candidate[]> {
+  return fetchPrWindow(repository, `merged:${since}..${until}`, 'created');
+}
+
+export async function fetchUpdatedWindow(repository: string, since: string, until: string): Promise<Candidate[]> {
+  return fetchPrWindow(repository, `updated:${since}..${until}`, 'updated');
+}
+
+async function fetchPrWindow(
+  repository: string,
+  dateFilter: string,
+  sort: 'created' | 'updated',
+): Promise<Candidate[]> {
   const candidates: Candidate[] = [];
   let total = 0;
   for (let page = 1; page <= 10; page++) {
     const response = api<{ total_count: number; incomplete_results: boolean; items: Candidate[] }>([
-      'search/issues', '-f', `q=repo:${repository} is:pr is:merged merged:${since}..${until}`,
-      '-f', 'sort=created', '-f', 'order=asc', '-f', 'per_page=100', '-f', `page=${page}`,
+      'search/issues', '-f', `q=repo:${repository} is:pr is:merged ${dateFilter}`,
+      '-f', `sort=${sort}`, '-f', 'order=asc', '-f', 'per_page=100', '-f', `page=${page}`,
     ]);
     if (response.incomplete_results || response.total_count > 1000) {
       throw new Error('Merged-PR search is incomplete or exceeds 1000 results; checkpoint not advanced');
@@ -197,27 +304,34 @@ async function main(): Promise<void> {
     const repo = api<{ created_at: string }>([`repos/${repository}`]);
     const since = iso(Math.max(instant(repo.created_at), instant(now) - WEEK));
     state = {
-      version: 1, repository, since, historyBefore: since, historyFloor: repo.created_at, pending: [],
+      version: 1, repository, since, updatedSince: since,
+      historyBefore: since, historyFloor: repo.created_at, pending: [],
     };
   }
-  const receipts = fs.existsSync(receiptsPath)
-    ? readIntakeJson<Receipt[]>(receiptsPath) : [];
+  const receipts = fs.existsSync(receiptsPath) ? readReceipts(receiptsPath) : [];
   const collected = await collectIntake(state, receipts,
-    (since, until) => fetchMergedWindow(repository, since, until), now);
+    (since, until) => fetchMergedWindow(repository, since, until), now,
+    (since, until) => fetchUpdatedWindow(repository, since, until));
   fs.writeFileSync(path.join(outputDir, 'scan-since.txt'), `${state.since}\n`);
+  const { reviewQueue, ...checkpointState } = collected;
   const safeForAgents = {
-    ...collected,
-    pending: collected.pending.map(toSafeCandidate),
+    ...checkpointState,
+    pending: checkpointState.pending.map(toSafeCandidate),
+    reviewQueue: {
+      firstTime: reviewQueue.firstTime.map(toSafeCandidate),
+      deferred: reviewQueue.deferred.map(toSafeCandidate),
+      deferredCount: reviewQueue.deferredCount,
+    },
   };
   fs.writeFileSync(path.join(outputDir, 'candidates.json'), JSON.stringify(safeForAgents, null, 2) + '\n');
-  fs.writeFileSync(`${statePath}.tmp`, JSON.stringify(collected, null, 2) + '\n', { flag: 'wx' });
+  fs.writeFileSync(`${statePath}.tmp`, JSON.stringify(checkpointState, null, 2) + '\n', { flag: 'wx' });
   fs.renameSync(`${statePath}.tmp`, statePath);
-  console.log(`Collected ${collected.pending.length} unclassified/deferred merges; forward=${collected.since}; historical=${collected.historyBefore}`);
+  console.log(`Collected ${collected.pending.length} unclassified/deferred merges; forward=${collected.since}; updated=${collected.updatedSince}; historical=${collected.historyBefore}`);
 }
 
 if (require.main === module) {
   main().catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(error instanceof Error ? error.message : 'Intake failed');
     process.exitCode = 1;
   });
 }
