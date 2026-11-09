@@ -1416,8 +1416,7 @@ jobs:
             for f in "${SUSPICIOUS_FILES[@]}"; do
               rel="${f#${CACHE_DIR}/}"
               echo "::warning::Quarantining file with instruction-shaped content: $f"
-              echo "--- First 5 lines of quarantined file: $f ---"
-              head -5 "$f" | sed 's/^/| /' || true
+              echo "--- Content preview suppressed for security: $f ---"
               mkdir -p "$QUARANTINE_DIR/$(dirname "$rel")"
               mv -f "$f" "$QUARANTINE_DIR/$rel"
             done
