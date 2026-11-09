@@ -21,7 +21,7 @@ safe-outputs:
   create-discussion:
     title-prefix: "[CLI Flag Review] "
     category: "general"
-timeout-minutes: 15
+timeout-minutes: 25
 ---
 
 # CLI Flag Consistency Checker
