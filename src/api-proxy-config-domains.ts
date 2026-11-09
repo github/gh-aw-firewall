@@ -210,6 +210,8 @@ export function resolveApiTargetsToAllowedDomains(
   if (
     env['AWF_AUTH_TYPE']?.trim().toLowerCase() === 'github-oidc' &&
     env['AWF_AUTH_PROVIDER']?.trim().toLowerCase() === 'openai' &&
+    Boolean(env['AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID']?.trim()) &&
+    Boolean(env['AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID']?.trim()) &&
     !allowedDomains.includes('auth.openai.com')
   ) {
     allowedDomains.push('auth.openai.com');
