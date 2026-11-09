@@ -6,7 +6,7 @@
 #
 # Security patches applied in this build:
 #
-#   libcrypto3/libssl3 >= 3.5.7: resolved by using node:26.11.1-alpine3.24
+#   libcrypto3/libssl3 >= 3.5.7: resolved by using node:26.13.0-alpine3.24
 #     and running `apk upgrade --no-cache` to pull in the latest Alpine 3.24
 #     security-patched builds of openssl.
 #
@@ -44,7 +44,7 @@ RUN set -eux; \
              /usr/local/lib/node_modules/npm/bin/npx-cli.js; \
     ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm; \
     ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx; \
-    node --version | grep -qE '^v26\.11\.1' || (echo "ERROR: expected Node.js v26.11.1" && exit 1); \
+    node --version | grep -qE '^v26\.13\.0' || (echo "ERROR: expected Node.js v26.13.0" && exit 1); \
     npm --version | grep -qE '^12\.2\.1' || (echo "ERROR: expected npm 12.2.1" && exit 1); \
     npm_dir=/usr/local/lib/node_modules/npm/node_modules; \
     curl -fsSL --retry 3 --retry-all-errors --retry-max-time 120 --connect-timeout 15 --max-time 60 https://registry.npmjs.org/undici/-/undici-6.29.1.tgz -o /tmp/undici-6.29.1.tgz; \
