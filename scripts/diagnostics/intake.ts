@@ -10,13 +10,16 @@ const DEFERRED_REVIEW_LIMIT = 10;
 export function sanitizeForAgentText(value: string): string {
   const noControls = Array.from(value, (character) => {
     const code = character.charCodeAt(0);
-    return code < 0x20 || code === 0x7f ? ' ' : character;
+    return code === 0x0a || code === 0x0d ? '\n' : code < 0x20 || code === 0x7f ? ' ' : character;
   }).join('');
   const neutralized = noControls
     .replace(/```/g, '`\\`\\`')
     .replace(/<\s*\/?\s*(system|assistant|user|tool)\s*>/gi, '[role-tag]')
+    .replace(/\b(system|assistant|user|tool)\s*:/gi, '[role-prefix]')
+    .replace(/\b(new\s+instruction|instructions?)\s*:/gi, '[instruction-prefix]')
+    .replace(/(^|[\r\n.!?;:]\s*)(?:you\s+must\b|do\s+the\s+following\b|follow\s+these\s+steps\b|ignore\s+(?:all\s+)?previous(?:\s+instructions)?\b|disregard\s+(?:all\s+)?previous(?:\s+instructions)?\b|override\s+previous(?:\s+instructions)?\b|bypass\s+(?:the\s+)?(?:rules|instructions)\b)/gi, '$1[directive]')
     .replace(/\b(ignore|override|bypass|disregard)\b/gi, '[redacted]');
-  return neutralized.trim().slice(0, 500);
+  return neutralized.replace(/[\r\n]+/g, ' ').trim().slice(0, 500);
 }
 
 export interface Candidate {
@@ -131,13 +134,11 @@ export function readReceipts(file: string): Receipt[] {
     value = readIntakeJson<unknown>(file);
   } catch (error) {
     if (!(error instanceof MalformedIntakeJsonError)) throw error;
-    fs.unlinkSync(file);
-    console.warn('Malformed intake receipts were discarded; affected candidates will be reviewed again.');
+    console.warn('Malformed intake receipts were ignored; affected candidates will be reviewed again.');
     return [];
   }
   if (!Array.isArray(value)) {
-    fs.unlinkSync(file);
-    console.warn('Invalid intake receipt data was discarded; affected candidates will be reviewed again.');
+    console.warn('Invalid intake receipt data was ignored; affected candidates will be reviewed again.');
     return [];
   }
   const receipts = value.filter(isValidReceipt);
