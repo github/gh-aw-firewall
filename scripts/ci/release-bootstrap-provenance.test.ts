@@ -6,7 +6,14 @@ import * as yaml from 'js-yaml';
 
 const root = path.resolve(__dirname, '../..');
 const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
-type Step = { name: string; run?: string; uses?: string; with?: Record<string, unknown> };
+type Step = {
+  name: string;
+  id?: string;
+  run?: string;
+  uses?: string;
+  env?: Record<string, string>;
+  with?: Record<string, unknown>;
+};
 const action = yaml.load(fs.readFileSync(path.join(root, 'action.yml'), 'utf8')) as {
   runs: { steps: Step[] };
 };
