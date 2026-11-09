@@ -12,6 +12,8 @@ const {
 } = require('./upstream-auth');
 const {
   rebuildCopilotWireApiFallback,
+  createFallbackAssessment,
+  createFallbackDecisionObserver,
   carryForwardWireApiCompatibility,
   endpointForPath,
   replaceUpstreamEndpoint,
@@ -34,10 +36,7 @@ const {
   protocolForPath,
   TARGET_ENDPOINTS,
   getFallbackUpstreamEndpoint,
-  getRequiredResponseFeatures,
 } = require('./cross-provider-fallback');
-const { assessRequestCompatibility } = require('./protocol-compatibility/assessment');
-const { getRequestReasoning } = require('./model-reasoning');
 const { validateReasoningEffort } = require('./reasoning-effort-validation');
 const { sanitizeForLog, logRequestShape } = require('./logging');
 const { createInvocationModelBudget } = require('./enclave-model-budget');
@@ -59,10 +58,6 @@ const invocationModelBudget = createInvocationModelBudget(
  * Index 0 → delay before the 1st retry, index 1 → delay before the 2nd retry.
  */
 const MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS = [1000, 2000];
-
-const ASSESSMENT_PROTOCOLS = Object.freeze({
-  chat: 'chat_completions', responses: 'responses', messages: 'anthropic_messages',
-});
 
 /**
  * Create and dispatch the upstream HTTP(S) request.
@@ -190,46 +185,8 @@ function createSendUpstreamRequest({
       wireApiEndpointRetryAttempted,
       failures: req.awfModelFallback?.failures || [],
     };
-    const requiredResponseFeatures = getRequiredResponseFeatures(origin.sourceBody, origin.protocol);
-    const assessCandidate = (candidate, path, host = targetHost, scheme = targetScheme) => {
-      const nativePassthrough = ['gemini', 'vertex'].includes(origin.provider) &&
-        candidate.provider === origin.provider && host === origin.targetHost && scheme === origin.targetScheme &&
-        getRequestModel(origin.body, origin.upstreamPath)?.location === 'path' &&
-        /\/models\/[^/:?]+:(?:generateContent|streamGenerateContent)(?:\?|$)/.test(origin.upstreamPath) &&
-        rewriteRequestModel({ body: origin.body, upstreamPath: origin.upstreamPath }, 'path', candidate.model)
-          ?.upstreamPath === path;
-      const reasoning = path && typeof candidate.model === 'string'
-        ? getRequestReasoning(candidate.model, candidate.provider, req.awfRuntimePricing, req, {
-        targetHost: host, targetScheme: scheme,
-      }) : null;
-      return {
-        compatibility: assessRequestCompatibility({
-          body: origin.sourceBody,
-          source: ASSESSMENT_PROTOCOLS[origin.protocol] || null,
-          target: ASSESSMENT_PROTOCOLS[protocolForPath(path)] || null,
-          candidate: { provider: candidate.provider, model: candidate.model },
-          pins: { eligibilityRevision: req.awfEligibility?.revision, catalogueRevision: req.awfCatalogue?.revision },
-          reasoning, requiredResponseFeatures, nativePassthrough,
-        }),
-        reasoning,
-      };
-    };
-    const observeDecision = (candidate, outcome, assessment) => {
-      if (typeof req.awfObserveModelDecision !== 'function') return;
-      try {
-        req.awfObserveModelDecision({
-          provider: candidate.provider, model: outcome === 'exhausted' ? null : candidate.model,
-          endpoint: origin.endpoint, originProvider: origin.provider, originModel: origin.model,
-          outcome, compatibility: assessment.compatibility,
-          reason: outcome === 'exhausted' ? 'fallback_exhausted'
-            : `fallback_${assessment.compatibility.status}`,
-          eligibilityRevision: req.awfEligibility?.revision, catalogueRevision: req.awfCatalogue?.revision,
-          reasoning: assessment.reasoning,
-        });
-      } catch {
-        // Optional diagnostics cannot affect inference admission.
-      }
-    };
+    const assessCandidate = createFallbackAssessment({ origin, req });
+    const observeDecision = createFallbackDecisionObserver({ req, origin });
 
     // Evaluate candidates only after an eligible failure so skipped-entry
     // evidence is retained even when no candidate is usable.
