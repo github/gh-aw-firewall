@@ -257,6 +257,9 @@ describe('applyGeneralWorkflowPatches published AWF maintenance workflows', () =
 
   it.each([
     'auth-doctor-updater.lock.yml',
+    'runtime-enclave-doctor-updater.lock.yml',
+    'network-doctor-updater.lock.yml',
+    'ci-integration-doctor-updater.lock.yml',
     'doc-maintainer.lock.yml',
     'model-api-mapping-updater.lock.yml',
     'pr-sous-chef.lock.yml',

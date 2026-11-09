@@ -1,0 +1,34 @@
+{
+  "$schema": "../../schema.json",
+  "id": "RT-004",
+  "boundary": "runtime",
+  "title": "Cloud Hypervisor enclave transcript writer fails session-log preflight",
+  "symptoms": ["preflight-session-log permission-denied", "session-log preflight fails before the enclave engine launches"],
+  "conditions": [
+    "A static public-only eligible Cloud Hypervisor invocation retains a protected operation-error for preflight-session-log",
+    "The legacy session-state ownership or virtio-fs mapping does not match the fixed trusted entrypoint writer identity"
+  ],
+  "affects": { "runner": "github-hosted", "runtime": "cloud-hypervisor", "provider": "any", "authMode": "any" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "fixed",
+  "rootCause": "The trusted transcript writer previously encountered storage owned for a different identity, while virtio-fs squashed guest root into the non-root engine identity. Append-open preflight failed before any inference or engine exit.",
+  "probe": {
+    "command": "grep '\"operation\":\"preflight-session-log\"' path/to/protected/enclave-session.log",
+    "expect": "Read only the already projected, credential-redacted operation/category/errno event. Missing transcript evidence is not success and does not by itself prove a credential problem.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use matching staging and guest code from the writer-identity fix: root-owned 0700 session-state, 0600 transcript, exact trusted transcript export and append-open validation. Engine children remain permanently non-root. Do not chmod arbitrary host paths, broaden exports or disable root squashing globally. Live VM/provider acceptance remains separate.",
+  "references": [
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11275" },
+    { "kind": "code", "ref": "src/cloud-hypervisor/enclave-invocation-staging.ts" },
+    { "kind": "code", "ref": "containers/enclave/agent-entrypoint.py" },
+    { "kind": "code", "ref": "guest/microvm-supervisor/runtime_linux.go" },
+    { "kind": "test", "ref": "guest/microvm-supervisor/session_log_linux_test.go" },
+    { "kind": "test", "ref": "src/enclave/invocation-staging.test.ts" },
+    { "kind": "doc", "ref": "docs/cloud-hypervisor-foundation.md#public-fixture-enclave-debugging" }
+  ],
+  "related": ["CI-003"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2026-12-09"
+}

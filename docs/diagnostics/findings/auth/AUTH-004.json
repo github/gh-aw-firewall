@@ -1,0 +1,32 @@
+{
+  "$schema": "../../schema.json",
+  "id": "AUTH-004",
+  "boundary": "auth",
+  "title": "Primary API-proxy OIDC initialization races Squid readiness",
+  "symptoms": ["Anthropic OIDC initialization fails until the API-proxy token retry", "Agent exhausts early 503 retries while the API proxy has no token"],
+  "conditions": [
+    "The primary API-proxy sidecar starts before Squid is healthy",
+    "Actions OIDC configuration is present; missing id-token permission is AUTH-002, not this startup-ordering defect"
+  ],
+  "affects": { "runner": "github-hosted", "runtime": "any", "provider": "anthropic", "authMode": "github-oidc" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "fixed",
+  "rootCause": "OIDC initialization requires outbound access through Squid. Starting the primary API proxy before that proxy is healthy can leave it without a token until a later retry while agents already attempt requests.",
+  "probe": {
+    "command": "node -e 'console.log(require(\"js-yaml\").load(require(\"fs\").readFileSync(process.argv[1],\"utf8\")).services[\"api-proxy\"].depends_on)' path/to/docker-compose.yml",
+    "expect": "Using the repository's installed js-yaml, project only the dependency mapping for squid-proxy condition service_healthy; never print the compose environment or use docker compose config. Source tests confirm the dependency survives model-routing configuration.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use source with the primary API-proxy healthy-Squid dependency and regenerate Compose. Do not increase agent permissions, expose OIDC variables to the agent, or assume every 503 is an auth failure. This does not diagnose the dedicated enclave proxy or prove a released fixed version.",
+  "references": [
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/10495" },
+    { "kind": "code", "ref": "src/services/api-proxy-service-config.ts" },
+    { "kind": "test", "ref": "src/services/api-proxy-service-config.test.ts" },
+    { "kind": "test", "ref": "src/compose-generator.test.ts" },
+    { "kind": "doc", "ref": "docs/auth-matrix.md" }
+  ],
+  "related": ["AUTH-002"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2026-12-09"
+}

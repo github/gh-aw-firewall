@@ -1,0 +1,52 @@
+name: Diagnosis Freshness
+
+on:
+  schedule:
+    - cron: '27 9 * * 1'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'docs/diagnostics/**'
+      - 'scripts/diagnostics/**'
+      - '.github/workflows/shared/diagnosis-findings.md'
+      - '.github/agents/diagnose-awf.md'
+      - '.github/workflows/*doctor-updater*'
+      - '.github/workflows/shared/diagnosis-maintenance.md'
+      - '.github/workflows/diagnosis-freshness.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run diagnostics:validate && npm run diagnostics:check
+      - name: Check UTC review deadlines
+        run: |
+          set +e
+          npx tsx scripts/diagnostics/cli.ts freshness > diagnosis-freshness.json
+          status=$?
+          {
+            echo '### Diagnosis review deadlines (UTC)'
+            echo 'Overdue records require evidence-backed human review, not automatic date bumps.'
+            echo '```json'
+            cat diagnosis-freshness.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: Preserve freshness report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: diagnosis-freshness
+          path: diagnosis-freshness.json
+          if-no-files-found: warn
+          retention-days: 30

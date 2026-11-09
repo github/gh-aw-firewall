@@ -24,8 +24,8 @@ describe('auth doctor updater workflow config', () => {
     expect(source).toContain('name: Auth Doctor Updater');
     expect(source).toContain('schedule: daily');
     expect(source).toContain('workflow_dispatch:');
-    expect(source).toContain('Compute scan window');
-    expect(source).toContain('mkdir -p /tmp/gh-aw/agent /tmp/gh-aw/cache-memory /tmp/gh-aw/sandbox/agent/logs');
+    expect(source).toContain('- shared/diagnosis-maintenance.md');
+    expect(source).toContain('complete merged-PR intake');
     expect(source).toContain('query: \'is:pr is:open in:title "[docs] auth:"\'');
     expect(source).toContain('title-prefix: "[docs] auth: "');
     expect(source).toContain('labels: [documentation, ai-generated]');
@@ -81,7 +81,7 @@ describe('auth doctor updater workflow config', () => {
     expect(lock).toContain('issues: read');
     expect(lock).toContain('pull-requests: read');
     expect(lock).toContain('[docs] auth:');
-    expect(lock).toContain('Compute scan window');
+    expect(lock).toContain('Collect merged PR intake and historical catchup');
     expect(lock).toContain('create_pull_request');
     expect(lock).toContain('docs/auth-matrix.md');
     expect(lock).toContain('GH_AW_INFO_AGENT_RUNTIME: ""');

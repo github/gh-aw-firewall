@@ -59,17 +59,6 @@ safe-outputs:
       - docs/security.md
       - docs/usage.md
 timeout-minutes: 20
-steps:
-  - name: Install root dependencies for diagnostics tooling
-    run: npm ci
-  - name: Compute scan window
-    run: |
-      # Look back two days so a missed daily run does not create a coverage gap.
-      # Overlap is de-duplicated against existing documentation and proposals.
-      SINCE=$(date -u -d '2 days ago' +%Y-%m-%d)
-      mkdir -p /tmp/gh-aw/agent /tmp/gh-aw/cache-memory /tmp/gh-aw/sandbox/agent/logs
-      echo "$SINCE" > /tmp/gh-aw/agent/scan-since.txt
-      echo "Scanning for authentication guidance updated since $SINCE"
 ---
 
 # Auth Doctor Updater
@@ -115,7 +104,7 @@ Use `rg` to locate provider adapters, OIDC token providers, schema fields, tests
 
 ## Step 2 — Research Recent Repository Lessons
 
-Read the scan date, then search this repository for issues and pull requests updated since that date. Search several combinations of:
+First classify the complete merged-PR intake and maintain receipts according to the shared contract. Then read the scan date and supplement it with issues and pull requests updated since that date. Search several combinations of:
 
 `authentication`, `api-proxy`, `OIDC`, `WIF`, `OpenAI`, `Anthropic`, `Copilot`, `BYOK`, `Gemini`, `Vertex`, `Azure`, `Entra`, `AWS`, `Bedrock`, `GCP`, `workload identity`, `ACTIONS_ID_TOKEN`, `mcpg`, `github-oidc`, `authorization header`, `credential isolation`, `health`, `reflect`.
 
@@ -237,7 +226,7 @@ List the implementation/tests checked, Markdown/link review performed, and crede
 
 Link every repository issue/pull request and official provider page used. Use full URLs and do not include credential-bearing URLs or copied headers.
 
-If no concrete corrections were applied, call `noop` with the scan window and a one-line explanation. Never open an empty, speculative, or prose-only pull request.
+If the bounded review is complete and no concrete corrections were applied, call `noop` with the scan window, coverage and backlog. Otherwise use `report-incomplete` for deferred work. Never open an empty, speculative, or prose-only pull request.
 
 ## Guardrails
 

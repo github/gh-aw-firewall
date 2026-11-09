@@ -22,19 +22,22 @@
   "status": "workaround",
   "rootCause": "Host and container iptables rules only permit DNS to the trusted resolvers configured through --dns-servers, so traffic to any other resolver is dropped to prevent DNS-based exfiltration.",
   "probe": {
-    "command": "docker exec awf-agent cat /etc/resolv.conf",
-    "expect": "Lists a resolver that is not among the configured trusted DNS servers.",
+    "command": "docker exec awf-agent sh -c 'if [ -f /host/etc/resolv.conf ]; then cat /host/etc/resolv.conf; else cat /etc/resolv.conf; fi'",
+    "expect": "Read the chroot-visible resolver file when present and compare with the explicit trusted DNS list. A matching resolver rules out this particular mismatch; EAI_AGAIN or SERVFAIL alone does not establish a filtering cause.",
     "readOnly": true,
     "secretSafe": true
   },
-  "action": "Pass the environment's resolver explicitly with --dns-servers (for example an internal corporate resolver) instead of disabling DNS filtering.",
+  "action": "For a proven resolver-list mismatch, pass the environment's resolver explicitly with --dns-servers instead of disabling DNS filtering. If resolvers match, investigate reachability, daemon topology and upstream SERVFAIL separately. Current Squid config limits negative DNS caching to one second and DNS timeout to ten seconds; an allowlisted-domain failure is not automatically an ACL denial.",
   "references": [
     { "kind": "doc", "ref": "docs/troubleshooting.md", "title": "Network issues" },
     { "kind": "code", "ref": "src/host-iptables.ts", "title": "DNS restriction rules" },
     { "kind": "code", "ref": "containers/agent/setup-iptables.sh", "title": "AWF_DNS_SERVERS handling" },
-    { "kind": "test", "ref": "src/host-iptables-network.test.ts" }
+    { "kind": "test", "ref": "src/host-iptables-network.test.ts" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/8171" },
+    { "kind": "code", "ref": "src/squid/config-sections.ts" },
+    { "kind": "test", "ref": "src/squid/config-sections.test.ts" }
   ],
   "related": ["NET-001"],
   "owner": "@github/gh-aw-firewall-maintainers",
-  "reviewBy": "2027-03-31"
+  "reviewBy": "2026-12-09"
 }

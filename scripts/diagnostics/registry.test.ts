@@ -5,6 +5,7 @@ import {
   BOUNDARIES,
   checkSync,
   loadFindings,
+  overdueFindings,
   renderOutputs,
   searchFindings,
   validateFindings,
@@ -105,6 +106,22 @@ describe('diagnosis registry validation rules', () => {
       })
     );
     expect(errors.join('\n')).toMatch(/must be stored at|namespace/);
+  });
+
+  it('rejects impossible review dates even when the schema pattern matches', () => {
+    expect(validateFindings(mutate((finding) => { finding.reviewBy = '2026-02-30'; })))
+      .toEqual(expect.arrayContaining([expect.stringContaining('real calendar date')]));
+  });
+
+  it('treats reviewBy as inclusive in UTC and excludes superseded records', () => {
+    const records = mutate((finding) => { finding.reviewBy = '2026-11-09'; });
+    expect(overdueFindings(records, '2026-11-09')).toEqual([]);
+    expect(overdueFindings(records, '2026-11-10').map(({ finding }) => finding.id)).toEqual(['A1']);
+    records[0].finding.status = 'superseded';
+    expect(overdueFindings(records, '2026-11-10')).toEqual([]);
+    expect(() => overdueFindings(records, '2026-13-01')).toThrow('real UTC date');
+    records[0].finding.reviewBy = '2026-02-30';
+    expect(() => overdueFindings(records, '2026-11-10')).toThrow('Invalid reviewBy');
   });
 
   it('rejects duplicate IDs', () => {
@@ -251,6 +268,46 @@ describe('diagnosis routing fixtures', () => {
       name: 'alternative runtime failure',
       query: { text: 'OCI runtime create failed with runsc' },
       expected: 'RT-001',
+    },
+    {
+      name: 'separate shared invocation destination',
+      query: { text: 'storage-verification/invocation-state fails with storage-mount-propagation' },
+      expected: 'RT-002',
+    },
+    {
+      name: 'explicit rootfs verification copy capacity failure',
+      query: { text: 'bounded-artifacts/rootfs-copy fails with ENOSPC' },
+      expected: 'RT-003',
+    },
+    {
+      name: 'transcript writer preflight',
+      query: { text: 'preflight-session-log permission-denied' },
+      expected: 'RT-004',
+    },
+    {
+      name: 'trusted provider custom port routing',
+      query: { text: 'Configured Ollama port 11434 is routed to port 80' },
+      expected: 'NET-003',
+    },
+    {
+      name: 'raw TLS versus CONNECT',
+      query: { text: 'TLS handshake fails when the client ignores HTTPS_PROXY' },
+      expected: 'NET-004',
+    },
+    {
+      name: 'primary proxy startup ordering',
+      query: { text: 'Anthropic OIDC initialization fails until the API-proxy token retry' },
+      expected: 'AUTH-004',
+    },
+    {
+      name: 'gateway backend readiness',
+      query: { text: 'Enclave initialize returns 503 backend_unavailable' },
+      expected: 'CI-002',
+    },
+    {
+      name: 'regional admission token endpoint',
+      query: { text: 'cloud-hypervisor-enclave-admission-token-acquisition' },
+      expected: 'CI-003',
     },
     {
       name: 'suspected isolation regression',
