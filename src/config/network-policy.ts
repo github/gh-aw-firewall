@@ -82,6 +82,7 @@ export interface NetworkPolicy {
         readonly copilot: number;
         readonly gemini: number;
         readonly vertex: number;
+        readonly foundry: number;
       };
       readonly healthPort: number;
     };
@@ -221,6 +222,7 @@ function parseProxies(value: unknown): NetworkPolicy['proxies'] {
         copilot: assertPort(apiPorts.copilot, 'proxies.apiProxy.ports.copilot'),
         gemini: assertPort(apiPorts.gemini, 'proxies.apiProxy.ports.gemini'),
         vertex: assertPort(apiPorts.vertex, 'proxies.apiProxy.ports.vertex'),
+        foundry: assertPort(apiPorts.foundry, 'proxies.apiProxy.ports.foundry'),
       },
       healthPort: assertPort(apiProxy.healthPort, 'proxies.apiProxy.healthPort'),
     },

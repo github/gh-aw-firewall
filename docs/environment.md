@@ -84,6 +84,70 @@ echo "GH_AW_SAFE_OUTPUTS_CONFIG_PATH=/tmp/config.json" >> /tmp/runtime-paths.env
 awf --env-file /tmp/runtime-paths.env --allow-domains github.com -- agent-command
 ```
 
+## Azure Foundry decision and OpenAI-compatible endpoints
+
+Set `FOUNDRY_API_TARGET` to your resource hostname (for example
+`my-resource.services.ai.azure.com`), and supply `FOUNDRY_API_KEY`
+in the host environment or AWF's `--env`/`--env-file`
+inputs. AWF sends the credential only to the API-proxy sidecar and automatically
+adds the configured resource hostname to the allowlist; it does not allowlist
+all Azure resources. No separate agent engine is required to make a decision call.
+
+The agent receives `FOUNDRY_BASE_URL=http://172.30.0.30:10005` (with the
+appropriate sidecar address for its sandbox). The adapter defaults to the
+resource root, preserving native Decision-1 and OpenAI-compatible paths.
+For example, with credentials already exported in the trusted host shell:
+
+```bash
+sudo --preserve-env=FOUNDRY_API_TARGET,FOUNDRY_API_KEY awf -- \
+  'curl --fail-with-body --silent --show-error \
+    "$FOUNDRY_BASE_URL/providers/microsoft/v1/systemone" \
+    -H "Content-Type: application/json" \
+    --data-binary @decision-request.json'
+```
+
+`decision-request.json` contains the deployment name in `model`, the input
+`state`, and typed `questions`, following the
+[Decision-1 API documentation](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-microsoft-decision).
+No authentication header is needed inside the sandbox. To use OpenAI-compatible
+APIs instead, call `$FOUNDRY_BASE_URL/openai/v1/chat/completions`. An optional
+`FOUNDRY_API_BASE_PATH` prefixes upstream requests; when configured, send paths
+relative to that prefix (or already containing it), not a duplicate prefix.
+
+`FOUNDRY_ENTRA_TOKEN` authentication is disabled to avoid exposing token fragments
+through shared Authorization-header debug logging. Token-only configuration
+does not enable the adapter. The adapter does not perform token exchange, model
+discovery, or billable startup probes.
+
+Only HTTP `POST` inference requests are forwarded: the native Decision-1 path
+above and `chat/completions`, `completions`, `embeddings`, and `responses` under
+the resource root, `/v1`, `/openai`, `/openai/v1`, or the configured base path.
+Deployment-scoped variants (`deployments/<name>/<inference-path>`) are also
+supported under those prefixes. Other routes, methods, and WebSocket upgrades
+are rejected before credential injection.
+
+Responses with `usage.input_tokens`/`output_tokens` or
+`usage.prompt_tokens`/`completion_tokens` are recorded in `token-usage.jsonl`
+with provider `foundry`, including zero-output-token classification calls.
+For AI-credit accounting, supply your deployment's rates through the existing
+`apiProxy.modelPricingCatalog` under provider `foundry`, covering both the
+deployment name and the response's underlying model name when different.
+Alternatively, a decision-only run can use the existing fallback:
+
+```yaml
+apiProxy:
+  defaultAiCreditsPricing:
+    input: 0.042
+    output: 0
+```
+
+These example rates are USD per million tokens; verify your deployment's current
+rates. Fallback pricing applies to **all otherwise unpriced models** in the run.
+Without matching catalog rates or a configured fallback, token counts are still
+logged, but unpriced usage is excluded from AI-credit totals. See the
+[pricing configuration](awf-config-spec.md#1032-default-ai-credits-pricing-fallback).
+Confidence gates and decision frontmatter belong to the gh-aw compiler, not AWF.
+
 ## Best Practices
 
 ✅ **Use `--env` for specific variables:**

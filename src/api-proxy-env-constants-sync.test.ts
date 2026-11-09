@@ -1,4 +1,4 @@
-import { ANTHROPIC_ENV, COPILOT_ENV, GEMINI_ENV, OPENAI_ENV, VERTEX_ENV } from './api-proxy-env-constants';
+import { ANTHROPIC_ENV, COPILOT_ENV, FOUNDRY_ENV, GEMINI_ENV, OPENAI_ENV, VERTEX_ENV } from './api-proxy-env-constants';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const providerEnvConstants = require('../containers/api-proxy/provider-env-constants.js') as {
@@ -7,6 +7,7 @@ const providerEnvConstants = require('../containers/api-proxy/provider-env-const
   GEMINI_ENV: typeof GEMINI_ENV;
   COPILOT_ENV: typeof COPILOT_ENV;
   VERTEX_ENV: typeof VERTEX_ENV;
+  FOUNDRY_ENV: typeof FOUNDRY_ENV;
 };
 
 describe('API proxy provider env constants', () => {
@@ -16,5 +17,6 @@ describe('API proxy provider env constants', () => {
     expect(providerEnvConstants.GEMINI_ENV).toEqual(GEMINI_ENV);
     expect(providerEnvConstants.COPILOT_ENV).toEqual(COPILOT_ENV);
     expect(providerEnvConstants.VERTEX_ENV).toEqual(VERTEX_ENV);
+    expect(providerEnvConstants.FOUNDRY_ENV).toEqual(FOUNDRY_ENV);
   });
 });

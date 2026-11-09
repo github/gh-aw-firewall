@@ -16,6 +16,8 @@ export const GEMINI_ENV = providerEnvConstants.GEMINI_ENV;
 export const COPILOT_ENV = providerEnvConstants.COPILOT_ENV;
 /** Environment variable names for the Vertex AI provider adapter. */
 export const VERTEX_ENV = providerEnvConstants.VERTEX_ENV;
+/** Environment variable names for the Azure Foundry provider adapter. */
+export const FOUNDRY_ENV = providerEnvConstants.FOUNDRY_ENV;
 
 /**
  * OIDC authentication env var mappings.

@@ -3,7 +3,7 @@ import { isIP } from 'net';
 import { normalizeApiTargetScheme } from '../host-env';
 import { WrapperConfig } from '../types';
 import { getConfigEnvValue, getLowerCaseProcessEnvValue, pickEnvVars } from '../env-utils';
-import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV, VERTEX_ENV, OIDC_AUTH_ENV_VARS, OIDC_AUTH_ENV_MAPPING } from '../api-proxy-env-constants';
+import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV, VERTEX_ENV, FOUNDRY_ENV, OIDC_AUTH_ENV_VARS, OIDC_AUTH_ENV_MAPPING } from '../api-proxy-env-constants';
 import { NetworkConfig } from './squid-service';
 import { buildNoProxyEnv } from './no-proxy-utils';
 import { resolveOpenAiBaseUrlFromEnv } from '../openai-base-url-env';
@@ -57,6 +57,7 @@ export function buildProviderTargetEnv(config: WrapperConfig): Record<string, st
     { target: config.anthropicApiTarget, basePath: config.anthropicApiBasePath, envTarget: ANTHROPIC_ENV.TARGET, envBasePath: ANTHROPIC_ENV.BASE_PATH, stripTarget: true },
     { target: config.geminiApiTarget, basePath: config.geminiApiBasePath, envTarget: GEMINI_ENV.TARGET, envBasePath: GEMINI_ENV.BASE_PATH, stripTarget: true },
     { target: config.vertexApiTarget, basePath: config.vertexApiBasePath, envTarget: VERTEX_ENV.TARGET, envBasePath: VERTEX_ENV.BASE_PATH, stripTarget: true },
+    { envTarget: FOUNDRY_ENV.TARGET, envBasePath: FOUNDRY_ENV.BASE_PATH, stripTarget: true },
   ];
 
   for (const { target, basePath, envTarget, envBasePath, stripTarget } of providers) {
@@ -103,7 +104,7 @@ export function buildProviderTargetEnv(config: WrapperConfig): Record<string, st
 export function resolveApiProxyUpstreams(config: WrapperConfig): Array<{ hostname: string; port: number; proxyOnly?: boolean }> {
   const env = buildProviderTargetEnv(config);
   const upstreams: Array<{ hostname: string; port: number; proxyOnly?: boolean }> = [];
-  for (const key of [COPILOT_ENV.API_TARGET, OPENAI_ENV.TARGET, ANTHROPIC_ENV.TARGET, GEMINI_ENV.TARGET, VERTEX_ENV.TARGET]) {
+  for (const key of [COPILOT_ENV.API_TARGET, OPENAI_ENV.TARGET, ANTHROPIC_ENV.TARGET, GEMINI_ENV.TARGET, VERTEX_ENV.TARGET, FOUNDRY_ENV.TARGET]) {
     const target = env[key];
     if (!target) continue;
     let parsed: URL;
@@ -164,12 +165,14 @@ export function resolveApiProxyShutdownTimeoutMs(config: WrapperConfig): number 
  * These keys are passed securely to the sidecar and are NOT visible to the agent container.
  */
 function buildCredentialEnv(config: WrapperConfig): Record<string, string> {
+  const foundryApiKey = getConfigEnvValue(config, FOUNDRY_ENV.KEY) ?? process.env[FOUNDRY_ENV.KEY]?.trim();
   return {
     ...(config.openaiApiKey && { [OPENAI_ENV.KEY]: config.openaiApiKey }),
     ...(config.anthropicApiKey && { [ANTHROPIC_ENV.KEY]: config.anthropicApiKey }),
     ...(config.copilotGithubToken && { [COPILOT_ENV.GITHUB_TOKEN]: config.copilotGithubToken }),
     ...(config.geminiApiKey && { [GEMINI_ENV.KEY]: config.geminiApiKey }),
     ...(config.googleApiKey && { [VERTEX_ENV.KEY]: config.googleApiKey }),
+    ...(foundryApiKey && { [FOUNDRY_ENV.KEY]: foundryApiKey }),
   };
 }
 
