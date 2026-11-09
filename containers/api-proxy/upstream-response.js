@@ -225,7 +225,7 @@ function createUpstreamResponseHandlers({
         ? buildCopilotWireAuthDiagnostic(req, requestHeaders, targetHost, upstreamPath) : undefined,
     };
     const completionCtx = {
-      startTime, provider, req, requestBytes, targetHost, requestId, wireApiCompatibility,
+      startTime, provider, req, upstreamPath, requestBytes, targetHost, requestId, wireApiCompatibility,
       copilotAuthDiagnostic: authErrCtx.copilotAuthDiagnostic,
     };
 

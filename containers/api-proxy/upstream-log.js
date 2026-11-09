@@ -91,7 +91,7 @@ function buildCopilotAuthErrorMessage(statusCode, env = process.env) {
 
 function createLogRequestCompletion({ metrics, logRequest, sanitizeForLog, applyMaxRunsInvocation }) {
   return function logRequestCompletion(statusCode, responseBytes, initiatorSent, billingInfo, {
-    startTime, provider, req, requestBytes, targetHost, requestId, wireApiCompatibility, copilotAuthDiagnostic,
+    startTime, provider, req, upstreamPath, requestBytes, targetHost, requestId, wireApiCompatibility, copilotAuthDiagnostic,
   }) {
     const duration = Date.now() - startTime;
     const sc = metrics.statusClass(statusCode);
@@ -99,7 +99,7 @@ function createLogRequestCompletion({ metrics, logRequest, sanitizeForLog, apply
     metrics.increment('requests_total', { provider, method: req.method, status_class: sc });
     metrics.increment('response_bytes_total', { provider }, responseBytes);
     metrics.observe('request_duration_ms', duration, { provider });
-    if (statusCode >= 200 && statusCode < 300 && isInferenceRequest(req.method, req.url)) {
+    if (statusCode >= 200 && statusCode < 300 && isInferenceRequest(req.method, upstreamPath || req.url)) {
       applyMaxRunsInvocation();
     }
     const logFields = {

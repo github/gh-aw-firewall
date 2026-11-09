@@ -45,6 +45,36 @@ describe('upstream-log', () => {
     }));
   });
 
+  test.each([
+    ['/providers/microsoft/v1/systemone', '/providers/microsoft/v1/systemone'],
+    ['/systemone', '/providers/microsoft/v1/systemone'],
+  ])('counts Foundry decision request %s by its resolved upstream path', (url, upstreamPath) => {
+    const applyMaxRunsInvocation = jest.fn();
+    const logRequestCompletion = createLogRequestCompletion({
+      metrics: {
+        statusClass: jest.fn(() => '2xx'),
+        gaugeDec: jest.fn(),
+        increment: jest.fn(),
+        observe: jest.fn(),
+      },
+      logRequest: jest.fn(),
+      sanitizeForLog: value => value,
+      applyMaxRunsInvocation,
+    });
+
+    logRequestCompletion(200, 42, null, null, {
+      startTime: Date.now(),
+      provider: 'foundry',
+      req: { method: 'POST', url },
+      upstreamPath,
+      requestBytes: 12,
+      targetHost: 'resource.services.ai.azure.com',
+      requestId: 'foundry-decision',
+    });
+
+    expect(applyMaxRunsInvocation).toHaveBeenCalledTimes(1);
+  });
+
   test('logRequestCompletion does NOT invoke max-runs for GET /models', () => {
     const metrics = {
       statusClass: jest.fn(() => '2xx'),

@@ -47,6 +47,7 @@ import {
   OIDC_AUTH_ENV_VARS,
   OPENAI_ENV,
   VERTEX_ENV,
+  FOUNDRY_ENV,
 } from '../api-proxy-env-constants';
 import { buildRuntimeImageRef } from '../image-tag';
 import {
@@ -331,6 +332,14 @@ function buildAgentApiProxyService(params: {
       ? [ANTHROPIC_ENV.KEY, COPILOT_ENV.GITHUB_TOKEN, COPILOT_ENV.PROVIDER_API_KEY, GEMINI_ENV.KEY, VERTEX_ENV.KEY]
       : [OPENAI_ENV.KEY, COPILOT_ENV.GITHUB_TOKEN, COPILOT_ENV.PROVIDER_API_KEY, GEMINI_ENV.KEY, VERTEX_ENV.KEY];
   for (const key of unusedProviderCredentials) delete environment[key];
+  for (const key of [
+    FOUNDRY_ENV.KEY,
+    FOUNDRY_ENV.ENTRA_TOKEN,
+    FOUNDRY_ENV.TARGET,
+    FOUNDRY_ENV.BASE_PATH,
+  ]) {
+    delete environment[key];
+  }
 
   return service;
 }
