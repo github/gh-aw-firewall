@@ -23,6 +23,7 @@ const {
 
 const { createStandardProviderAdapter } = require('../adapter-factory');
 const { OPENAI_ENV, COPILOT_ENV } = require('../provider-env-constants');
+const { bearerAuthHeaders } = require('./auth-headers');
 
 /**
  * Create the OpenAI provider adapter.
@@ -33,6 +34,9 @@ const { OPENAI_ENV, COPILOT_ENV } = require('../provider-env-constants');
  */
 function createOpenAIAdapter(env, deps = {}) {
   const providerType = (env[COPILOT_ENV.PROVIDER_TYPE] || '').trim().toLowerCase();
+  const authType = (env.AWF_AUTH_TYPE || '').trim().toLowerCase();
+  const authProvider = (env.AWF_AUTH_PROVIDER || 'azure').trim().toLowerCase();
+  const openAiWifRequested = authType === 'github-oidc' && authProvider === 'openai';
   const copilotAzureByokEnabled = providerType === 'azure';
   const customAuthHeader = (() => {
     const header = validateAuthHeaderEnv(OPENAI_ENV.AUTH_HEADER, env[OPENAI_ENV.AUTH_HEADER]);
@@ -79,7 +83,7 @@ function createOpenAIAdapter(env, deps = {}) {
       };
     },
     createHeaderBuilders: ({ apiKey }) => ({
-      buildOidcHeaders: buildTokenAuthHeaders,
+      buildOidcHeaders: openAiWifRequested ? bearerAuthHeaders : buildTokenAuthHeaders,
       buildStaticHeaders: () => buildTokenAuthHeaders(apiKey),
     }),
     createAdapterMethodsOptions: ({ authProvider, oidcConfigured, buildStaticHeaders }) => ({

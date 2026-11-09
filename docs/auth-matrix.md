@@ -32,7 +32,7 @@ Auth evaluation in the api-proxy is determined by the combination of these indep
 |---|-----------|--------------|--------|
 | 1 | Engine | Port binding (10000–10004) | openai, anthropic, copilot, gemini, vertex |
 | 2 | Auth Type | `AWF_AUTH_TYPE` | `api-key` (default), `github-oidc` |
-| 3 | OIDC Provider | `AWF_AUTH_PROVIDER` | `azure`, `aws`, `gcp`, `anthropic` |
+| 3 | OIDC Provider | `AWF_AUTH_PROVIDER` | `azure`, `aws`, `gcp`, `anthropic`, `openai` |
 | 4 | Instance Type | `GITHUB_SERVER_URL` | github.com, GHEC (`*.ghe.com`), GHES |
 | 5 | BYOK Mode | `COPILOT_PROVIDER_TYPE` | unset (standard), `azure` |
 | 6 | Target Override | `{PROVIDER}_API_TARGET` | Any hostname |
@@ -93,13 +93,25 @@ Note: When Azure OIDC is active, the header switches from `api-key:` back to `Au
 
 **Official docs:** https://learn.microsoft.com/en-us/azure/foundry-classic/openai/how-to/managed-identity
 
-:::note[Implementation vs. provider documentation]
-OpenAI's own API now offers [native workload identity federation](https://developers.openai.com/api/docs/guides/workload-identity-federation), which exchanges an external OIDC/JWT identity at `https://auth.openai.com/oauth/token` for a short-lived OpenAI access token. **AWF does not implement this.** The `openai.js` adapter's `AWF_AUTH_PROVIDER` OIDC support (`azure`, `aws`, `gcp`) is for reaching Azure OpenAI/Foundry or GCP-fronted OpenAI-compatible endpoints using that cloud's own identity tokens — it is unrelated to OpenAI's native federation feature.
-:::
+### OpenAI Native Workload Identity Federation
+
+When `AWF_AUTH_TYPE=github-oidc` and `AWF_AUTH_PROVIDER=openai`, the sidecar requests a GitHub Actions OIDC token and exchanges it for an OpenAI access token. The short-lived token is cached and refreshed before expiry; it is never passed to the agent.
+
+| Setting | Value |
+|---------|-------|
+| Identity provider ID | `AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID` |
+| Service account ID | `AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID` |
+| OIDC audience | `AWF_AUTH_OIDC_AUDIENCE` (default: `https://api.openai.com/v1`) |
+| Exchange endpoint | `https://auth.openai.com/oauth/token` |
+| Header sent upstream | `Authorization: ****** |
+
+The API-proxy environment pipeline keeps the federation settings in the sidecar. AWF automatically allows `auth.openai.com` through Squid only when OpenAI WIF is selected.
+
+**Official docs:** [OpenAI workload identity federation](https://developers.openai.com/api/docs/guides/workload-identity-federation) · [GitHub Actions setup](https://developers.openai.com/api/docs/guides/workload-identity-federation/github-actions)
 
 ### Custom Auth Header
 
-`AWF_OPENAI_AUTH_HEADER` overrides the header name used for the API key. The raw key or token value is sent directly as the header value (no `Bearer` prefix is added), both for static keys and OIDC tokens.
+`AWF_OPENAI_AUTH_HEADER` overrides the header name used for static keys and cloud OIDC tokens. OpenAI native WIF always uses `Authorization: Bearer`, as required by the OpenAI API.
 
 ---
 
@@ -548,7 +560,7 @@ When `AWF_AUTH_TYPE=github-oidc` with Copilot:
 :::caution[Agent routing is credential-triggered]
 Cloud OIDC configuration can initialize credentials in the sidecar, but the agent's OpenAI and Copilot base URLs/placeholders are currently configured only when the corresponding static OpenAI/Copilot credential is present. Treat Azure, GCP, and AWS OIDC support for OpenAI/Copilot as sidecar authentication capability rather than a complete keyless agent-routing path until OIDC-aware agent routing is implemented for those adapters.
 
-Three providers are exceptions with explicit OIDC-aware agent routing: Anthropic WIF (`shouldProxyAnthropic()` recognizes `AWF_AUTH_PROVIDER=anthropic`), and GCP WIF for the Gemini and Vertex AI adapters (`isGcpOidcConfigured()` in `gemini-credential-env.ts`/`vertex-credential-env.ts`, added in [PR #8888](https://github.com/github/gh-aw-firewall/pull/8888)) — all three set agent base-URL/placeholder env vars from OIDC config alone, without a static key. GCP OIDC routing for **Copilot** specifically remains credential-triggered only; `buildCopilotCredentialEnv()` does not check `isGcpOidcConfigured()`.
+OpenAI native WIF (`isOpenAiOidcConfigured()`), Anthropic WIF (`shouldProxyAnthropic()` recognizes `AWF_AUTH_PROVIDER=anthropic`), and GCP WIF for Gemini and Vertex AI (`isGcpOidcConfigured()` in `gemini-credential-env.ts`/`vertex-credential-env.ts`, added in [PR #8888](https://github.com/github/gh-aw-firewall/pull/8888)) set agent base-URL/placeholder env vars from OIDC config alone, without a static key. GCP OIDC routing for **Copilot** specifically remains credential-triggered only; `buildCopilotCredentialEnv()` does not check `isGcpOidcConfigured()`.
 :::
 
 :::note[AWS OIDC + Copilot]
@@ -782,6 +794,7 @@ Adds `x-session-id` header automatically in BYOK mode unless already present.
 | OpenAI | Azure OIDC | — | ✅ | `openai.js`, `oidc-token-provider.js` |
 | OpenAI | AWS Bedrock OIDC + SigV4 | — | ✅ | `openai.js`, `aws-oidc-token-provider.js`, `aws-sigv4.test.js` |
 | OpenAI | GCP OIDC | — | ✅ | `openai.js`, `gcp-oidc-token-provider.js` |
+| OpenAI | Native WIF | — | ✅ | `openai.js`, `openai-oidc-token-provider.js` |
 | Anthropic | Static key | — | ✅ | `anthropic.js` |
 | Anthropic | WIF | — | ✅ | `anthropic.js`, `anthropic-oidc-token-provider.js` |
 | Anthropic | Custom header | — | ✅ | `anthropic.js` |

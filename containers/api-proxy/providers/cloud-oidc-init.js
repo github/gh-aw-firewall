@@ -13,7 +13,7 @@ const {
  */
 
 /**
- * Resolve cloud OIDC providers (Azure/AWS/GCP) from environment variables.
+ * Resolve cloud and native OpenAI OIDC providers from environment variables.
  *
  * @param {Record<string, string|undefined>} env
  * @param {{ skipWhen?: boolean }} [options]
@@ -56,6 +56,19 @@ function resolveCloudOidcProviders(env, options = {}) {
             serviceAccount: env.AWF_AUTH_GCP_SERVICE_ACCOUNT,
             oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE,
             scope: env.AWF_AUTH_GCP_SCOPE,
+          });
+        }
+      } else if (authProvider === 'openai') {
+        const identityProviderId = env.AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID;
+        const serviceAccountId = env.AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID;
+        if (identityProviderId && serviceAccountId) {
+          const { OpenAIOidcTokenProvider } = require('../openai-oidc-token-provider');
+          oidcProvider = new OpenAIOidcTokenProvider({
+            requestUrl,
+            requestToken,
+            identityProviderId,
+            serviceAccountId,
+            oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE,
           });
         }
       } else {

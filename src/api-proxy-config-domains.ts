@@ -207,6 +207,15 @@ export function resolveApiTargetsToAllowedDomains(
 ): string[] {
   const apiTargets: Array<{ value: string; sensitive?: boolean }> = [];
 
+  if (
+    env['AWF_AUTH_TYPE']?.trim().toLowerCase() === 'github-oidc' &&
+    env['AWF_AUTH_PROVIDER']?.trim().toLowerCase() === 'openai' &&
+    !allowedDomains.includes('auth.openai.com')
+  ) {
+    allowedDomains.push('auth.openai.com');
+    debug('Auto-added OpenAI WIF token endpoint to allowlist: auth.openai.com');
+  }
+
   if (options.copilotApiTarget) {
     apiTargets.push({ value: options.copilotApiTarget });
   } else if (env['COPILOT_API_TARGET']) {
