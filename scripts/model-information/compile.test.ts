@@ -453,8 +453,8 @@ describe('maintained model compilation', () => {
     expect(lookup('openai/gpt-6.1-sol').reasoning.selectableEfforts).not.toContain('none');
     expect(lookup('openai/gpt-5.6-sol').reasoning.selectableEfforts).toContain('none');
     expect(lookup('openai/gpt-5.6-cyber').reasoning.support).toBe('unknown');
-    expect(lookup('anthropic/claude-opus-4.6').reasoning.selectableEfforts).not.toContain('xhigh');
-    expect(lookup('anthropic/claude-opus-4.8').reasoning.selectableEfforts).toContain('xhigh');
+    expect(lookup('anthropic/claude-opus-4.6').reasoning).toBeUndefined();
+    expect(lookup('anthropic/claude-opus-4.8').reasoning).toBeUndefined();
     expect(lookup('anthropic/claude-fable-5.1').reasoning.selectableEfforts).toContain('xhigh');
     expect(lookup('anthropic/claude-mythos-preview').reasoning.selectableEfforts).not.toContain('xhigh');
     expect(delta.mapping.target.providers.anthropic.models.find(
@@ -469,6 +469,15 @@ describe('maintained model compilation', () => {
       (entry: { family: string }) => entry.family === 'claude-opus-4-6');
     expect(opusFour.routing.reasoningEfforts).toContain('xhigh');
     expect(opusFourSix.routing.reasoningEfforts).not.toContain('xhigh');
+    for (const [provider, family] of [
+      ['openai', 'gpt-5.4-mini'], ['anthropic', 'claude-opus-4'], ['anthropic', 'claude-opus-4-6'],
+    ]) {
+      expect(delta.mapping.target.providers[provider].models.find(
+        (entry: { family: string }) => entry.family === family,
+      )).toEqual(delta.mapping.baseline.providers[provider].models.find(
+        (entry: { family: string }) => entry.family === family,
+      ));
+    }
     const importedTarget = lookup('openai/gpt-5.5');
     expect(importedTarget.importedPricing).toEqual(importedBaseline.importedPricing);
     expect(importedTarget.reasoning.selectableEfforts).toContain('xhigh');
@@ -494,6 +503,27 @@ describe('maintained model compilation', () => {
       fs.writeFileSync(file, JSON.stringify(copy));
       expect(() => run('--check', `--source-dir=${temp}`))
         .toThrow(/Unresolved replacement: copilot\/does-not-exist/);
+    } finally {
+      fs.rmSync(temp, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    { reasoningMode: 'invented' },
+    { defaultEffort: 'max' },
+    { reasoningMode: 'forbidden', defaultEffort: 'none' },
+  ])('rejects invalid reviewed routing mode/default %j before generation', fields => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-routing-'));
+    try {
+      fs.cpSync(path.join(root, 'shared/model-information/sources'), temp, { recursive: true });
+      const file = path.join(temp, 'mapping.json');
+      const source = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const mini = source.mapping.providers.openai.models.find(
+        (entry: { family: string }) => entry.family === 'gpt-5.4-mini',
+      );
+      Object.assign(mini.routing, fields);
+      fs.writeFileSync(file, JSON.stringify(source));
+      expect(() => run('--check', `--source-dir=${temp}`)).toThrow(/mapping.json: openai.*invalid mapping entry/);
     } finally {
       fs.rmSync(temp, { recursive: true, force: true });
     }

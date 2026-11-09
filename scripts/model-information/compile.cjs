@@ -140,7 +140,12 @@ function compile() {
             entry.routingPatterns.some(pattern => typeof pattern !== 'string' || !pattern))) ||
           (entry.routing && (!Array.isArray(entry.routing.reasoningEfforts) ||
             !Number.isSafeInteger(entry.routing.contextWindowTokens) ||
-            entry.routing.contextWindowTokens < 1))) {
+            entry.routing.contextWindowTokens < 1 ||
+            (entry.routing.reasoningMode !== undefined &&
+              !['optional', 'required', 'forbidden', 'unknown'].includes(entry.routing.reasoningMode)) ||
+            (entry.routing.defaultEffort !== undefined &&
+              (!entry.routing.reasoningEfforts.includes(entry.routing.defaultEffort) ||
+                entry.routing.reasoningMode === 'forbidden'))))) {
         errors.push(`mapping.json: ${provider}.models[${index}]: invalid mapping entry`);
       }
       if (families.has(entry.family)) errors.push(`mapping.json: ${provider}: duplicate family ${entry.family}`);

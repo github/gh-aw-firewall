@@ -134,6 +134,8 @@ function resolveModelReasoning(model, provider, { records = getRuntimeModels(pro
       identity: resolution.identity, scope, active: true, authority: 'maintained',
       support: mapped.reasoningEfforts.length ? 'supported' : 'unsupported',
       rawEfforts: mapped.reasoningEfforts,
+      mode: mapped.reasoningMode,
+      default: mapped.defaultEffort,
       provenance: { authority: 'maintained', source: 'model-api-mapping',
         at: getModelApiMapping()?.lastUpdated, field: 'routing.reasoningEfforts' },
     });

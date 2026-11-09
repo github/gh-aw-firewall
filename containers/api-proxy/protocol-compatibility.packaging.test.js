@@ -57,6 +57,19 @@ test('contracts and declarations load with translators from the actual Docker CO
       const {assessRequestCompatibility} = require('./protocol-compatibility/assessment');
       assert.equal(assessRequestCompatibility({body:{model:'fixture',input:'hello'},
         source:'responses',target:'chat_completions'}).status,'compatible');
+      const {resolveModelReasoning} = require('./model-reasoning');
+      const {normalizeModel} = require('./routing-catalogue');
+      const {getModelRoutingChoices} = require('./routing-candidates');
+      const mini = resolveModelReasoning('gpt-5.4-mini-2026-03-17','openai',{records:[]});
+      assert.deepEqual(mini.selectableEfforts,['none','low','medium','high','xhigh']);
+      assert.equal(mini.default,'none');
+      assert.equal(normalizeModel('gpt-5.4-mini',undefined,'openai').contextWindow,400000);
+      assert.equal(normalizeModel('gpt-5.4-mini',undefined,'openai',
+        {deployment:'custom'}).contextWindow,undefined);
+      assert.equal(getModelRoutingChoices(normalizeModel('claude-opus-4-7',undefined,'anthropic'),
+        'anthropic').some(choice=>choice.effort==='xhigh'),true);
+      assert.equal(resolveModelReasoning('claude-opus-4-6','anthropic',
+        {records:[]}).selectableEfforts.includes('xhigh'),false);
     `], { cwd: root, encoding: 'utf8', timeout: 10000 });
     expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
     const integration = spawnSync(process.execPath, ['-e', `
@@ -67,7 +80,8 @@ test('contracts and declarations load with translators from the actual Docker CO
       const {createModelDecisionObservation} = require('./model-decision-observation');
       const {createManagementHandlers} = require('./management');
       const {createProxyEligibilityStore} = require('./model-eligibility');
-      const models = {copilot:['origin'],anthropic:['candidate'],openai:['native']};
+      const models = {copilot:['origin'],anthropic:['candidate'],
+        openai:['native','gpt-5.4-mini','gpt-5.4-mini-preview']};
       const adapters = Object.fromEntries(Object.keys(models).map(provider => [provider,{
         name:provider,isEnabled:()=>true,getTargetHost:()=> 'api.'+provider+'.com',
         getBasePath:()=>'',getAuthHeaders:()=>({}),getBodyTransform:()=>null,
@@ -159,6 +173,20 @@ test('contracts and declarations load with translators from the actual Docker CO
         assert.equal(output.choices[0].message.tool_calls[0].function.arguments,'{"key":"value"}');
         assert.equal(output.usage.total_tokens,5);
         assert.ok(translated.decisions.some(item=>item.reason==='fallback_compatible'));
+        const reviewed=await run({model:'origin',messages:[{role:'user',content:'hello'}],
+          reasoning_effort:'xhigh'},['openai/gpt-5.4-mini-preview','openai/gpt-5.4-mini']);
+        assert.deepEqual(reviewed.calls.map(call=>call.model),['origin','gpt-5.4-mini']);
+        assert.equal(reviewed.calls[1].body.reasoning_effort,'xhigh');
+        const accepted=reviewed.decisions.find(item=>item.reason==='fallback_compatible');
+        assert.equal(accepted.identity.model_id,'gpt-5.4-mini');
+        assert.equal(accepted.reasoning.support,'supported');
+        assert.equal(accepted.reasoning.mode,'optional');
+        assert.equal(accepted.reasoning.reason,'reasoning_effort_accepted');
+        assert.ok(reviewed.decisions.some(item=>item.reason==='fallback_unverified'));
+        const invalid=await run({model:'origin',messages:[{role:'user',content:'hello'}],
+          reasoning_effort:'max'},['openai/gpt-5.4-mini']);
+        assert.deepEqual(invalid.calls.map(call=>call.model),['origin']);
+        assert.ok(invalid.decisions.some(item=>item.reason==='fallback_incompatible'));
       })().catch(error=>{console.error(error);process.exitCode=1;});
     `], { cwd: root, encoding: 'utf8', timeout: 10000,
       env: { ...process.env, AWF_VERSION: '0.0.0-test', NODE_PATH: path.join(__dirname, 'node_modules') } });

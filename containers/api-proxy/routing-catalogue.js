@@ -30,7 +30,9 @@ function freezeModel(model) {
 }
 
 function normalizeModel(id, metadata, provider, scope, records) {
-  const mapped = lookupModelRoutingMetadata(id, provider);
+  const mapped = scope?.deployment === undefined &&
+    (scope?.channel === undefined || scope.channel === 'native-api')
+    ? lookupModelRoutingMetadata(id, provider) : null;
   const endpointMapping = lookupModelEndpoints(id, provider);
   const limits = metadata?.capabilities?.limits;
   const reasoning = resolveModelReasoning(id, provider, {

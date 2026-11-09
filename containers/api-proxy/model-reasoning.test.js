@@ -132,7 +132,7 @@ describe('shared direct and routing reasoning adapters', () => {
 
   it.each([
     ['gpt-5.4', 'openai', 'supported'],
-    ['gpt-5.4-mini', 'openai', 'absent'],
+    ['gpt-5.4-mini', 'openai', 'supported'],
     ['gpt-5.5-pro', 'openai', 'absent'],
     ['gpt-5.6-sol', 'openai', 'absent'],
     ['claude-opus-4-6', 'anthropic', 'supported'],
@@ -146,9 +146,14 @@ describe('shared direct and routing reasoning adapters', () => {
   ])('uses only reviewed active evidence for specialized %s on %s', (model, provider, support) => {
     const decision = resolveModelReasoning(model, provider, { records: [] });
     expect(decision.support).toBe(support);
-    expect(decision.mode).toBe('unknown');
-    expect(decision).not.toHaveProperty('default');
-    if (provider === 'anthropic') expect(decision.supportedEfforts).not.toContain('xhigh');
+    const reviewed = (provider === 'openai' && model === 'gpt-5.4-mini') ||
+      (provider === 'anthropic' && /^claude-opus-4-[678]$/.test(model));
+    expect(decision.mode).toBe(reviewed ? 'optional' : 'unknown');
+    if (reviewed) expect(decision.default).toBe(provider === 'openai' ? 'none' : 'high');
+    else expect(decision).not.toHaveProperty('default');
+    if (provider === 'anthropic') {
+      expect(decision.supportedEfforts.includes('xhigh')).toBe(/^claude-opus-4-[78]$/.test(model));
+    }
   });
 
   it('does not apply native maintained evidence to custom deployments or targets', () => {
@@ -167,14 +172,14 @@ describe('shared direct and routing reasoning adapters', () => {
     }).support).toBe('absent');
   });
 
-  it('does not reject direct efforts omitted from maintained native routing lists', () => {
+  it('now selects reviewed xhigh for Opus 4.7/4.8 while rejecting it for 4.6', () => {
     for (const model of ['claude-opus-4-7', 'claude-opus-4-8']) {
       const decision = getRequestReasoning(model, 'anthropic', { anthropic: [] }, {}, {
         targetHost: 'api.anthropic.com',
       });
       expect(decision.support).toBe('supported');
-      expect(decision.supportedEfforts).not.toContain('xhigh');
-      expect(assessReasoningEffort(decision, 'xhigh', { automatic: true }).admitted).toBe(false);
+      expect(decision.supportedEfforts).toContain('xhigh');
+      expect(assessReasoningEffort(decision, 'xhigh', { automatic: true }).admitted).toBe(true);
       expect(assessReasoningEffort(decision, 'xhigh', {
         directMaintainedEfforts: ['xhigh'],
       }).admitted).toBe(true);

@@ -150,6 +150,122 @@ Generalized assembled tariffs, promotions/successors,
 non-token charges, broader export/reasoning migrations and harness/compiler/VM
 changes remain outside this slice. This is not completion of #10295 or #10290.
 
+## Reviewed native reasoning and context activation
+
+This bounded #11330 review starts from the merged #11328 implementation
+(`5785815`), after verifying its live merged state on November 8, 2026.
+Canonical authoring remains in `shared/model-information/sources/mapping.json`;
+only the four delivered mini/Opus-4 target rows are removed from
+`sources/target.json`. Its unrelated source provenance, pricing, availability,
+effort, lifecycle, harness and translation proposals remain staged. Generated
+mapping/catalogue copies are produced by `npm run models:generate`.
+
+### Refreshed evidence and scope
+
+The original provider pages were read through the browser, not inferred from
+Copilot observations, an SDK-wide enum, accounting families or OpenRouter.
+Direct fetches initially failed DNS; browser reads returned HTTP 200. Capture
+crossed midnight: OpenAI was captured at **2026-11-09T00:09:52Z**, Anthropic at
+**2026-11-09T00:10:26Z**. These are capture times, not release dates.
+Per-entry `routingEvidence` records original sources, exact IDs and native-API
+scope. The mapping revision changes for substantive facts, not a timestamp-only
+refresh. Unchanged entries are not recertified by its aggregate `lastUpdated`.
+
+- [GPT-5.4 mini's original model page](https://developers.openai.com/api/docs/models/gpt-5.4-mini)
+  independently lists `none (default), low, medium, high and xhigh`, a
+  **400,000**-token context window, and snapshot `gpt-5.4-mini-2026-03-17`.
+  These apply to native OpenAI serving, not Copilot, Codex harness settings,
+  imported publisher namespaces or custom deployments.
+- [Anthropic's original effort guide](https://platform.claude.com/docs/en/build-with-claude/effort)
+  explicitly lists Opus 4.7/4.8 for `xhigh`, but not Opus 4.6, and warns
+  "Not every model that supports max supports xhigh." It states that the API
+  default is `high` for these models and is equivalent to omission.
+  The `xhigh` coding recommendation is **not** a default.
+- [Anthropic's original context guide](https://platform.claude.com/docs/en/build-with-claude/context-windows)
+  names Opus 4.6/4.7/4.8 with a **1M**-token default context and no required
+  long-context beta header. The exact existing native IDs are corroborated by
+  [Anthropic's pinned model implementation](https://github.com/anthropics/ClaudeForFoundationModels/blob/0262e1a766c461a4268dcec656eca95dd74cebf8/Sources/ClaudeForFoundationModels/ClaudeModel.swift).
+  Top-level `output_config.effort` is the reviewed surface, not per-message beta
+  effort, Bedrock, Managed Agents or Copilot.
+
+Windows describe total native model context, **not guaranteed remaining input**.
+Output/thinking tokens, accumulated history and request-size limits can reduce
+usable input. No token counting, live-fit guarantee, new availability or output
+limit is inferred. Provider runtime context observations retain precedence.
+
+### Before/after behavior ledger
+
+| Exact native IDs | Before | After | Intentional selection change |
+| --- | --- | --- | --- |
+| `openai/gpt-5.4-mini`, `openai/gpt-5.4-mini-2026-03-17` | No effort/context metadata | `none, low, medium, high, xhigh`; 400,000 context; optional effort, default `none` | Five explicit Responses choices become selectable when discovery, policy and eligibility permit. Invalid `minimal`, `max` and future efforts now fail direct validation. |
+| `anthropic/claude-opus-4-6` | `low, medium, high, max`; 1M context; unknown mode/default | Same effort list/context, separate exact entry; optional effort, default `high` | No new explicit choice; `xhigh` remains rejected. |
+| `anthropic/claude-opus-4-7`, `anthropic/claude-opus-4-8` | `low, medium, high, max`; 1M context; unknown mode/default | Add `xhigh`; optional effort, default `high` | Each gains one automatic `xhigh` choice. Direct `xhigh` was already admitted by the preserved exact exception; automatic fallback is now admitted by shared evidence. |
+| `openai/gpt-5.4`, `openai/gpt-5.4-2026-03-05` | Five efforts; 1,050,000 context; unknown mode/default | Unchanged; original page rechecked | No delivered correction is repeated or inherited by mini/nano. |
+
+Optionality now admits omitted effort in the shared assessment for the reviewed
+models. The router still enumerates explicit efforts, and **no default is inserted
+into a request**. Defaults are descriptive resolver metadata, not effort
+substitution. The existing resolver consumes the new maintained mode/default
+fields through the mapping adapter; no second capability evaluator is added.
+Absent/unknown direct support remains passthrough and automatic explicit effort
+still requires known, understood support. Higher-authority provider observations,
+request/selection pins, pricing, retirement, policy, harness admission, fallback
+ordering and opt-outs remain authoritative.
+
+One tightly coupled consumer correction gates maintained routing context by the
+same native channel/deployment boundary as maintained reasoning. Previously,
+normalizing native GPT-5.4 in a custom scope incorrectly supplied its native
+1,050,000-token context even though reasoning was absent. Custom scopes now
+retain their own runtime limits or unknown context, not native fallback facts.
+This prevents the same leak for the newly activated mini data.
+
+### #10030 reconciliation and remaining work
+
+Delivered here: separately verified GPT-5.4 mini and its recorded snapshot,
+Opus 4.6's negative `xhigh` exception, Opus 4.7/4.8's `xhigh`, and the reviewed
+models' optionality/default metadata. No new separator/date alias normalization
+is introduced: unlisted dated revisions and dotted native Opus spellings remain
+unknown. Pro/cyber/research/preview/nano/fast variants gain no routing support.
+The native `gpt-5.6` alias is not added to global naming.
+
+Original pages were also refreshed for the remaining proposed OpenAI IDs:
+[`gpt-5.5`](https://developers.openai.com/api/docs/models/gpt-5.5),
+[`gpt-5.6`](https://developers.openai.com/api/docs/models/gpt-5.6),
+[`gpt-5.6-sol`](https://developers.openai.com/api/docs/models/gpt-5.6-sol),
+[`gpt-5.6-terra`](https://developers.openai.com/api/docs/models/gpt-5.6-terra),
+[`gpt-5.6-luna`](https://developers.openai.com/api/docs/models/gpt-5.6-luna),
+[`gpt-6-astra`](https://developers.openai.com/api/docs/models/gpt-6-astra),
+[`gpt-6-sol`](https://developers.openai.com/api/docs/models/gpt-6-sol),
+[`gpt-6-luna`](https://developers.openai.com/api/docs/models/gpt-6-luna), and
+[`gpt-6.1-sol`](https://developers.openai.com/api/docs/models/gpt-6.1-sol).
+Their targets remain **inactive**, not automatically approved by this review.
+Notably, GPT-6 Sol/Luna restrict Chat Completions function calling to effort
+`none`; GPT-6.1 Sol's marketed native 1,050,000 context is distinct from its
+documented 500K default in Codex/ChatGPT Work. These conditions must not be lost
+in a broader activation.
+
+Anthropic's refreshed effort/context guides and
+[model overview](https://platform.claude.com/docs/en/models/overview) corroborate
+Opus 5/5.5, Sonnet 5/5.5 and Haiku 5.5 effort claims, but those changes remain
+staged. The effort guide documents model-specific `thinking` restrictions:
+for example, Haiku 5.5 rejects disabled thinking at `xhigh`/`max`, and Sonnet 5.5
+rejects `between_tools` at those levels. Protocol translation compatibility
+cannot establish those native conditions or faithful translation. Fable/Mythos,
+per-message beta effort and unrelated Sonnet 4.6 targets also remain untouched.
+
+Evidence gaps remain for specialized/future variants not individually reviewed,
+Copilot serving of identical slugs, imported/custom backend capabilities,
+unlisted snapshots and their conditional/effective limits. They remain unknown,
+not unsupported. This does **not** close #10030, #10296 or #10290, prove full
+translator parity, downstream adoption or measured live-agent improvement.
+No live inference or workflow dispatch is part of this deterministic slice.
+
+Provider-free combined checks exercise shared reasoning, direct validation,
+router choices, actual fallback dispatch and `/reflect`, including the Docker
+COPY layout and extracted npm package. Mapping copies must match, compiler
+checks must pass, invalid/unknown efforts and negative variants stay covered,
+and refresh cannot rewrite in-flight reasoning or selection.
+
 ## Exact-decimal accounting
 
 Active accounting uses `shared/model-information/exact-pricing.js`, shipped by

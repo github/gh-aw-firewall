@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogRevision": "c00be1b161139479fc9ce4e6f7dc9786cc864588261cb4152a812a82a62a5829",
+  "catalogRevision": "8b85e0ae761c3e9c971f3c3018349cb5ae6aec731ae7aefb94ebe9255826799a",
   "activation": "staged: phases 4, 5 and 6",
   "differences": [
     {
@@ -715,571 +715,6 @@
             "low",
             "medium",
             "high",
-            "max"
-          ],
-          "mode": "optional",
-          "provenance": {
-            "authority": "maintained",
-            "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-            "revision": "issues-10029-10030-open-2026-10-20",
-            "at": "2026-10-15T17:11:28Z",
-            "confidence": "estimated"
-          }
-        }
-      }
-    },
-    {
-      "key": "anthropic/claude-opus-4.6",
-      "baseline": {
-        "schemaVersion": 1,
-        "identity": {
-          "key": "anthropic/claude-opus-4.6",
-          "provider": "anthropic",
-          "rawId": "claude-opus-4.6",
-          "lookupId": "claude-opus-4-6"
-        },
-        "lifecycle": {
-          "status": "active"
-        },
-        "modelType": "other",
-        "importedPricing": {
-          "sourceNamespace": "anthropic",
-          "currency": "USD",
-          "unit": "USD_PER_1M_TOKENS",
-          "components": {
-            "input": {
-              "price": "5",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "output": {
-              "price": "25",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cachedInput": {
-              "price": "0.5",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cacheWrite": {
-              "price": "6.25",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            }
-          },
-          "provenance": {
-            "authority": "imported",
-            "source": "https://openrouter.ai/api/v1/models",
-            "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-            "at": "2026-11-08T12:53:03.194Z",
-            "confidence": "imported",
-            "freshness": "unknown"
-          }
-        },
-        "provenance": {
-          "authority": "imported",
-          "source": "https://openrouter.ai/api/v1/models",
-          "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-          "at": "2026-11-08T12:53:03.194Z",
-          "confidence": "imported",
-          "freshness": "unknown"
-        }
-      },
-      "target": {
-        "schemaVersion": 1,
-        "identity": {
-          "key": "anthropic/claude-opus-4.6",
-          "provider": "anthropic",
-          "rawId": "claude-opus-4.6",
-          "lookupId": "claude-opus-4-6",
-          "family": "claude-opus-4"
-        },
-        "lifecycle": {
-          "status": "active"
-        },
-        "modelType": "other",
-        "importedPricing": {
-          "sourceNamespace": "anthropic",
-          "currency": "USD",
-          "unit": "USD_PER_1M_TOKENS",
-          "components": {
-            "input": {
-              "price": "5",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "output": {
-              "price": "25",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cachedInput": {
-              "price": "0.5",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cacheWrite": {
-              "price": "6.25",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            }
-          },
-          "provenance": {
-            "authority": "imported",
-            "source": "https://openrouter.ai/api/v1/models",
-            "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-            "at": "2026-11-08T12:53:03.194Z",
-            "confidence": "imported",
-            "freshness": "unknown"
-          }
-        },
-        "provenance": {
-          "authority": "imported",
-          "source": "https://openrouter.ai/api/v1/models",
-          "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-          "at": "2026-11-08T12:53:03.194Z",
-          "confidence": "imported",
-          "freshness": "unknown"
-        },
-        "reasoning": {
-          "support": "supported",
-          "rawEfforts": [
-            "low",
-            "medium",
-            "high",
-            "max"
-          ],
-          "selectableEfforts": [
-            "low",
-            "medium",
-            "high",
-            "max"
-          ],
-          "mode": "optional",
-          "provenance": {
-            "authority": "maintained",
-            "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-            "revision": "issues-10029-10030-open-2026-10-20",
-            "at": "2026-10-15T17:11:28Z",
-            "confidence": "estimated"
-          }
-        }
-      }
-    },
-    {
-      "key": "anthropic/claude-opus-4.7",
-      "baseline": {
-        "schemaVersion": 1,
-        "identity": {
-          "key": "anthropic/claude-opus-4.7",
-          "provider": "anthropic",
-          "rawId": "claude-opus-4.7",
-          "lookupId": "claude-opus-4-7"
-        },
-        "lifecycle": {
-          "status": "active"
-        },
-        "modelType": "other",
-        "importedPricing": {
-          "sourceNamespace": "anthropic",
-          "currency": "USD",
-          "unit": "USD_PER_1M_TOKENS",
-          "components": {
-            "input": {
-              "price": "5",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "output": {
-              "price": "25",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cachedInput": {
-              "price": "0.5",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cacheWrite": {
-              "price": "6.25",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            }
-          },
-          "provenance": {
-            "authority": "imported",
-            "source": "https://openrouter.ai/api/v1/models",
-            "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-            "at": "2026-11-08T12:53:03.194Z",
-            "confidence": "imported",
-            "freshness": "unknown"
-          }
-        },
-        "provenance": {
-          "authority": "imported",
-          "source": "https://openrouter.ai/api/v1/models",
-          "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-          "at": "2026-11-08T12:53:03.194Z",
-          "confidence": "imported",
-          "freshness": "unknown"
-        }
-      },
-      "target": {
-        "schemaVersion": 1,
-        "identity": {
-          "key": "anthropic/claude-opus-4.7",
-          "provider": "anthropic",
-          "rawId": "claude-opus-4.7",
-          "lookupId": "claude-opus-4-7",
-          "family": "claude-opus-4"
-        },
-        "lifecycle": {
-          "status": "active"
-        },
-        "modelType": "other",
-        "importedPricing": {
-          "sourceNamespace": "anthropic",
-          "currency": "USD",
-          "unit": "USD_PER_1M_TOKENS",
-          "components": {
-            "input": {
-              "price": "5",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "output": {
-              "price": "25",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cachedInput": {
-              "price": "0.5",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cacheWrite": {
-              "price": "6.25",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            }
-          },
-          "provenance": {
-            "authority": "imported",
-            "source": "https://openrouter.ai/api/v1/models",
-            "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-            "at": "2026-11-08T12:53:03.194Z",
-            "confidence": "imported",
-            "freshness": "unknown"
-          }
-        },
-        "provenance": {
-          "authority": "imported",
-          "source": "https://openrouter.ai/api/v1/models",
-          "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-          "at": "2026-11-08T12:53:03.194Z",
-          "confidence": "imported",
-          "freshness": "unknown"
-        },
-        "reasoning": {
-          "support": "supported",
-          "rawEfforts": [
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
-          ],
-          "selectableEfforts": [
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
-          ],
-          "mode": "optional",
-          "provenance": {
-            "authority": "maintained",
-            "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-            "revision": "issues-10029-10030-open-2026-10-20",
-            "at": "2026-10-15T17:11:28Z",
-            "confidence": "estimated"
-          }
-        }
-      }
-    },
-    {
-      "key": "anthropic/claude-opus-4.8",
-      "baseline": {
-        "schemaVersion": 1,
-        "identity": {
-          "key": "anthropic/claude-opus-4.8",
-          "provider": "anthropic",
-          "rawId": "claude-opus-4.8",
-          "lookupId": "claude-opus-4-8"
-        },
-        "lifecycle": {
-          "status": "active"
-        },
-        "modelType": "other",
-        "importedPricing": {
-          "sourceNamespace": "anthropic",
-          "currency": "USD",
-          "unit": "USD_PER_1M_TOKENS",
-          "components": {
-            "input": {
-              "price": "5",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "output": {
-              "price": "25",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cachedInput": {
-              "price": "0.5",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cacheWrite": {
-              "price": "6.25",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            }
-          },
-          "provenance": {
-            "authority": "imported",
-            "source": "https://openrouter.ai/api/v1/models",
-            "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-            "at": "2026-11-08T12:53:03.194Z",
-            "confidence": "imported",
-            "freshness": "unknown"
-          }
-        },
-        "provenance": {
-          "authority": "imported",
-          "source": "https://openrouter.ai/api/v1/models",
-          "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-          "at": "2026-11-08T12:53:03.194Z",
-          "confidence": "imported",
-          "freshness": "unknown"
-        }
-      },
-      "target": {
-        "schemaVersion": 1,
-        "identity": {
-          "key": "anthropic/claude-opus-4.8",
-          "provider": "anthropic",
-          "rawId": "claude-opus-4.8",
-          "lookupId": "claude-opus-4-8",
-          "family": "claude-opus-4"
-        },
-        "lifecycle": {
-          "status": "active"
-        },
-        "modelType": "other",
-        "importedPricing": {
-          "sourceNamespace": "anthropic",
-          "currency": "USD",
-          "unit": "USD_PER_1M_TOKENS",
-          "components": {
-            "input": {
-              "price": "5",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "output": {
-              "price": "25",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cachedInput": {
-              "price": "0.5",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cacheWrite": {
-              "price": "6.25",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            }
-          },
-          "provenance": {
-            "authority": "imported",
-            "source": "https://openrouter.ai/api/v1/models",
-            "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-            "at": "2026-11-08T12:53:03.194Z",
-            "confidence": "imported",
-            "freshness": "unknown"
-          }
-        },
-        "provenance": {
-          "authority": "imported",
-          "source": "https://openrouter.ai/api/v1/models",
-          "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-          "at": "2026-11-08T12:53:03.194Z",
-          "confidence": "imported",
-          "freshness": "unknown"
-        },
-        "reasoning": {
-          "support": "supported",
-          "rawEfforts": [
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
-          ],
-          "selectableEfforts": [
-            "low",
-            "medium",
-            "high",
-            "xhigh",
             "max"
           ],
           "mode": "optional",
@@ -3295,183 +2730,6 @@
       }
     },
     {
-      "key": "openai/gpt-5.4-mini",
-      "baseline": {
-        "schemaVersion": 1,
-        "identity": {
-          "key": "openai/gpt-5.4-mini",
-          "provider": "openai",
-          "rawId": "gpt-5.4-mini",
-          "lookupId": "gpt-5-4-mini"
-        },
-        "lifecycle": {
-          "status": "active"
-        },
-        "modelType": "other",
-        "importedPricing": {
-          "sourceNamespace": "openai",
-          "currency": "USD",
-          "unit": "USD_PER_1M_TOKENS",
-          "components": {
-            "input": {
-              "price": "0.75",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "output": {
-              "price": "4.5",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cachedInput": {
-              "price": "0.075",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            }
-          },
-          "provenance": {
-            "authority": "imported",
-            "source": "https://openrouter.ai/api/v1/models",
-            "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-            "at": "2026-11-08T12:53:03.194Z",
-            "confidence": "imported",
-            "freshness": "unknown"
-          }
-        },
-        "provenance": {
-          "authority": "imported",
-          "source": "https://openrouter.ai/api/v1/models",
-          "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-          "at": "2026-11-08T12:53:03.194Z",
-          "confidence": "imported",
-          "freshness": "unknown"
-        }
-      },
-      "target": {
-        "schemaVersion": 1,
-        "identity": {
-          "key": "openai/gpt-5.4-mini",
-          "provider": "openai",
-          "rawId": "gpt-5.4-mini",
-          "lookupId": "gpt-5-4-mini",
-          "family": "gpt-5.4-mini"
-        },
-        "lifecycle": {
-          "status": "active"
-        },
-        "modelType": "other",
-        "importedPricing": {
-          "sourceNamespace": "openai",
-          "currency": "USD",
-          "unit": "USD_PER_1M_TOKENS",
-          "components": {
-            "input": {
-              "price": "0.75",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "output": {
-              "price": "4.5",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cachedInput": {
-              "price": "0.075",
-              "provenance": {
-                "authority": "imported",
-                "source": "https://openrouter.ai/api/v1/models",
-                "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-                "at": "2026-11-08T12:53:03.194Z",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            }
-          },
-          "provenance": {
-            "authority": "imported",
-            "source": "https://openrouter.ai/api/v1/models",
-            "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-            "at": "2026-11-08T12:53:03.194Z",
-            "confidence": "imported",
-            "freshness": "unknown"
-          }
-        },
-        "provenance": {
-          "authority": "imported",
-          "source": "https://openrouter.ai/api/v1/models",
-          "revision": "532616f47f24894fc4178ba865e239e328d0a0865418ba48d7e3644eb21c69b4",
-          "at": "2026-11-08T12:53:03.194Z",
-          "confidence": "imported",
-          "freshness": "unknown"
-        },
-        "reasoning": {
-          "support": "supported",
-          "rawEfforts": [
-            "none",
-            "low",
-            "medium",
-            "high",
-            "xhigh"
-          ],
-          "selectableEfforts": [
-            "none",
-            "low",
-            "medium",
-            "high",
-            "xhigh"
-          ],
-          "mode": "optional",
-          "provenance": {
-            "authority": "maintained",
-            "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-            "revision": "issues-10029-10030-open-2026-10-20",
-            "at": "2026-10-15T17:11:28Z",
-            "confidence": "estimated"
-          }
-        },
-        "limits": {
-          "contextTokens": 400000,
-          "provenance": {
-            "authority": "maintained",
-            "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-            "revision": "issues-10029-10030-open-2026-10-20",
-            "at": "2026-10-15T17:11:28Z",
-            "confidence": "estimated"
-          }
-        }
-      }
-    },
-    {
       "key": "openai/gpt-5.5",
       "baseline": {
         "schemaVersion": 1,
@@ -5343,7 +4601,7 @@
     "baseline": {
       "title": "Model-to-API Endpoint Mapping",
       "description": "Maps AI model families to supported API endpoints and includes maintained task-routing effort/context metadata for selected model IDs.",
-      "lastUpdated": "2026-11-08T22:25:19Z",
+      "lastUpdated": "2026-11-09T00:10:26Z",
       "sources": {
         "openai": "https://developers.openai.com/api/docs/models",
         "openai_routing": "https://developers.openai.com/api/docs/models/gpt-5.4",
@@ -5483,6 +4741,48 @@
               "notes": "Supports both endpoints. Listed on the official GPT-5.5 model page. gpt-5.5-pro is responses-only (see separate entry above)."
             },
             {
+              "family": "gpt-5.4-mini",
+              "patterns": [
+                "gpt-5.4-mini*"
+              ],
+              "routingPatterns": [
+                "gpt-5.4-mini",
+                "gpt-5.4-mini-2026-03-17"
+              ],
+              "endpoints": [
+                "chat_completions",
+                "responses"
+              ],
+              "routing": {
+                "reasoningEfforts": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ],
+                "contextWindowTokens": 400000,
+                "reasoningMode": "optional",
+                "defaultEffort": "none"
+              },
+              "routingEvidence": {
+                "at": "2026-11-09T00:09:52.371Z",
+                "scope": {
+                  "provider": "openai",
+                  "channel": "native-api"
+                },
+                "sources": [
+                  "https://developers.openai.com/api/docs/models/gpt-5.4-mini"
+                ],
+                "modelIds": [
+                  "gpt-5.4-mini",
+                  "gpt-5.4-mini-2026-03-17"
+                ],
+                "conditions": "Native OpenAI API model-page window, not a guaranteed remaining input budget or a Copilot/Codex/custom-deployment limit. The page lists none (default), low, medium, high and xhigh and the recorded snapshot."
+              },
+              "notes": "Independently reviewed GPT-5.4 mini effort/context facts; exact routing IDs only. No pro/cyber/research/preview/nano or future dated variants inherit them. Default is metadata, not request insertion."
+            },
+            {
               "family": "gpt-5.4",
               "patterns": [
                 "gpt-5.4*"
@@ -5505,7 +4805,7 @@
                 ],
                 "contextWindowTokens": 1050000
               },
-              "notes": "Supports both endpoints on OpenAI. GPT-5.4 routing metadata is exact-model only; mini/nano variants need separately verified data. The model page lists none, low, medium, high, and xhigh reasoning effort and a 1,050,000-token context window."
+              "notes": "Supports both endpoints on OpenAI. GPT-5.4 routing metadata is exact-model only; mini has separately reviewed data and nano remains unverified. The model page lists none, low, medium, high, and xhigh reasoning effort and a 1,050,000-token context window."
             },
             {
               "family": "gpt-5.3-codex",
@@ -5980,13 +5280,11 @@
               "notes": "Best combination of speed and intelligence with verified 1M-token context windows and the Anthropic effort parameter."
             },
             {
-              "family": "claude-opus-4",
+              "family": "claude-opus-4-6",
               "patterns": [
-                "claude-opus-4*"
+                "claude-opus-4-6"
               ],
               "routingPatterns": [
-                "claude-opus-4-8",
-                "claude-opus-4-7",
                 "claude-opus-4-6"
               ],
               "endpoints": [
@@ -5999,9 +5297,70 @@
                   "high",
                   "max"
                 ],
-                "contextWindowTokens": 1000000
+                "contextWindowTokens": 1000000,
+                "reasoningMode": "optional",
+                "defaultEffort": "high"
               },
-              "notes": "Opus 4.6 and newer models have verified 1M-token context windows and support the Anthropic effort parameter."
+              "routingEvidence": {
+                "at": "2026-11-09T00:10:26.467Z",
+                "scope": {
+                  "provider": "anthropic",
+                  "channel": "native-api"
+                },
+                "sources": [
+                  "https://platform.claude.com/docs/en/build-with-claude/effort",
+                  "https://platform.claude.com/docs/en/build-with-claude/context-windows",
+                  "https://github.com/anthropics/ClaudeForFoundationModels/blob/0262e1a766c461a4268dcec656eca95dd74cebf8/Sources/ClaudeForFoundationModels/ClaudeModel.swift"
+                ],
+                "modelIds": [
+                  "claude-opus-4-6"
+                ],
+                "conditions": "Top-level output_config.effort on the native Messages API; high is equivalent to omission. Opus 4.6 supports max but not xhigh. Native 1M total context is default without a beta header; request-size and output/thinking tokens still constrain usable input."
+              },
+              "notes": "Reviewed Opus 4.6 separately from 4.7/4.8. No xhigh support; no inferred dated IDs or specialized variants. Default is metadata, not request insertion."
+            },
+            {
+              "family": "claude-opus-4",
+              "patterns": [
+                "claude-opus-4*"
+              ],
+              "routingPatterns": [
+                "claude-opus-4-8",
+                "claude-opus-4-7"
+              ],
+              "endpoints": [
+                "messages"
+              ],
+              "routing": {
+                "reasoningEfforts": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ],
+                "contextWindowTokens": 1000000,
+                "reasoningMode": "optional",
+                "defaultEffort": "high"
+              },
+              "routingEvidence": {
+                "at": "2026-11-09T00:10:26.467Z",
+                "scope": {
+                  "provider": "anthropic",
+                  "channel": "native-api"
+                },
+                "sources": [
+                  "https://platform.claude.com/docs/en/build-with-claude/effort",
+                  "https://platform.claude.com/docs/en/build-with-claude/context-windows",
+                  "https://github.com/anthropics/ClaudeForFoundationModels/blob/0262e1a766c461a4268dcec656eca95dd74cebf8/Sources/ClaudeForFoundationModels/ClaudeModel.swift"
+                ],
+                "modelIds": [
+                  "claude-opus-4-7",
+                  "claude-opus-4-8"
+                ],
+                "conditions": "Top-level output_config.effort on the native Messages API; high is equivalent to omission, while xhigh is a coding recommendation, not the default. Native 1M total context is default without a beta header; request-size and output/thinking tokens still constrain usable input."
+              },
+              "notes": "Reviewed exact Opus 4.7/4.8 effort/context facts. Opus 4.6 has a separate negative-xhigh record; broad endpoint patterns do not grant routing support to other revisions."
             },
             {
               "family": "claude-sonnet-4",
@@ -6095,7 +5454,7 @@
     "target": {
       "title": "Model-to-API Endpoint Mapping",
       "description": "Maps AI model families to supported API endpoints and includes maintained task-routing effort/context metadata for selected model IDs.",
-      "lastUpdated": "2026-11-08T22:25:19Z",
+      "lastUpdated": "2026-11-09T00:10:26Z",
       "sources": {
         "openai": "https://developers.openai.com/api/docs/models",
         "openai_routing": "https://developers.openai.com/api/docs/models/gpt-5.4",
@@ -6324,13 +5683,13 @@
               "patterns": [
                 "gpt-5.4-mini*"
               ],
+              "routingPatterns": [
+                "gpt-5.4-mini",
+                "gpt-5.4-mini-2026-03-17"
+              ],
               "endpoints": [
                 "chat_completions",
                 "responses"
-              ],
-              "notes": "Exact reviewed mini routing; #10030.",
-              "routingPatterns": [
-                "gpt-5.4-mini"
               ],
               "routing": {
                 "reasoningEfforts": [
@@ -6340,8 +5699,26 @@
                   "high",
                   "xhigh"
                 ],
-                "contextWindowTokens": 400000
-              }
+                "contextWindowTokens": 400000,
+                "reasoningMode": "optional",
+                "defaultEffort": "none"
+              },
+              "routingEvidence": {
+                "at": "2026-11-09T00:09:52.371Z",
+                "scope": {
+                  "provider": "openai",
+                  "channel": "native-api"
+                },
+                "sources": [
+                  "https://developers.openai.com/api/docs/models/gpt-5.4-mini"
+                ],
+                "modelIds": [
+                  "gpt-5.4-mini",
+                  "gpt-5.4-mini-2026-03-17"
+                ],
+                "conditions": "Native OpenAI API model-page window, not a guaranteed remaining input budget or a Copilot/Codex/custom-deployment limit. The page lists none (default), low, medium, high and xhigh and the recorded snapshot."
+              },
+              "notes": "Independently reviewed GPT-5.4 mini effort/context facts; exact routing IDs only. No pro/cyber/research/preview/nano or future dated variants inherit them. Default is metadata, not request insertion."
             },
             {
               "family": "gpt-5.4",
@@ -6366,7 +5743,7 @@
                 ],
                 "contextWindowTokens": 1050000
               },
-              "notes": "Supports both endpoints on OpenAI. GPT-5.4 routing metadata is exact-model only; mini/nano variants need separately verified data. The model page lists none, low, medium, high, and xhigh reasoning effort and a 1,050,000-token context window."
+              "notes": "Supports both endpoints on OpenAI. GPT-5.4 routing metadata is exact-model only; mini has separately reviewed data and nano remains unverified. The model page lists none, low, medium, high, and xhigh reasoning effort and a 1,050,000-token context window."
             },
             {
               "family": "gpt-5.3-codex",
@@ -6872,11 +6249,11 @@
               "patterns": [
                 "claude-opus-4-6"
               ],
-              "endpoints": [
-                "messages"
-              ],
               "routingPatterns": [
                 "claude-opus-4-6"
+              ],
+              "endpoints": [
+                "messages"
               ],
               "routing": {
                 "reasoningEfforts": [
@@ -6885,9 +6262,27 @@
                   "high",
                   "max"
                 ],
-                "contextWindowTokens": 1000000
+                "contextWindowTokens": 1000000,
+                "reasoningMode": "optional",
+                "defaultEffort": "high"
               },
-              "notes": "Opus 4.6 does not support xhigh; #10030."
+              "routingEvidence": {
+                "at": "2026-11-09T00:10:26.467Z",
+                "scope": {
+                  "provider": "anthropic",
+                  "channel": "native-api"
+                },
+                "sources": [
+                  "https://platform.claude.com/docs/en/build-with-claude/effort",
+                  "https://platform.claude.com/docs/en/build-with-claude/context-windows",
+                  "https://github.com/anthropics/ClaudeForFoundationModels/blob/0262e1a766c461a4268dcec656eca95dd74cebf8/Sources/ClaudeForFoundationModels/ClaudeModel.swift"
+                ],
+                "modelIds": [
+                  "claude-opus-4-6"
+                ],
+                "conditions": "Top-level output_config.effort on the native Messages API; high is equivalent to omission. Opus 4.6 supports max but not xhigh. Native 1M total context is default without a beta header; request-size and output/thinking tokens still constrain usable input."
+              },
+              "notes": "Reviewed Opus 4.6 separately from 4.7/4.8. No xhigh support; no inferred dated IDs or specialized variants. Default is metadata, not request insertion."
             },
             {
               "family": "claude-opus-4",
@@ -6909,9 +6304,28 @@
                   "xhigh",
                   "max"
                 ],
-                "contextWindowTokens": 1000000
+                "contextWindowTokens": 1000000,
+                "reasoningMode": "optional",
+                "defaultEffort": "high"
               },
-              "notes": "Opus 4.6 and newer models have verified 1M-token context windows and support the Anthropic effort parameter."
+              "routingEvidence": {
+                "at": "2026-11-09T00:10:26.467Z",
+                "scope": {
+                  "provider": "anthropic",
+                  "channel": "native-api"
+                },
+                "sources": [
+                  "https://platform.claude.com/docs/en/build-with-claude/effort",
+                  "https://platform.claude.com/docs/en/build-with-claude/context-windows",
+                  "https://github.com/anthropics/ClaudeForFoundationModels/blob/0262e1a766c461a4268dcec656eca95dd74cebf8/Sources/ClaudeForFoundationModels/ClaudeModel.swift"
+                ],
+                "modelIds": [
+                  "claude-opus-4-7",
+                  "claude-opus-4-8"
+                ],
+                "conditions": "Top-level output_config.effort on the native Messages API; high is equivalent to omission, while xhigh is a coding recommendation, not the default. Native 1M total context is default without a beta header; request-size and output/thinking tokens still constrain usable input."
+              },
+              "notes": "Reviewed exact Opus 4.7/4.8 effort/context facts. Opus 4.6 has a separate negative-xhigh record; broad endpoint patterns do not grant routing support to other revisions."
             },
             {
               "family": "claude-sonnet-4",

@@ -196,6 +196,42 @@ test('explicit effort skips unsupported and unverified models without changing t
   expect(h.observe.mock.calls.map(([r]) => r.compatibility.status)).toEqual(['incompatible', 'unverified', 'compatible']);
 });
 
+test.each(['gpt-5.4-mini', 'gpt-5.4-mini-2026-03-17'])('native fallback dispatch consumes reviewed %s efforts', model => {
+  const source = { model: 'origin', input: 'hello', reasoning: { effort: 'xhigh' } };
+  const h = harness({
+    provider: 'openai', targetHost: 'api.openai.com', source,
+    chain: ['gpt-5.4-mini-preview', model], req: { awfRuntimePricing: {} },
+  });
+  expect(h.fail(0).onModelFallback({ reason: 'upstream_5xx' })).toBe(true);
+  expect(h.attempts.map(a => a.body.model)).toEqual(['origin', model]);
+  expect(h.attempts[1].body).toEqual({ ...source, model });
+  expect(h.observe.mock.calls.map(([r]) => [r.model, r.outcome, r.compatibility.status])).toEqual([
+    ['gpt-5.4-mini-preview', 'skipped', 'unverified'], [model, 'accepted', 'compatible'],
+  ]);
+  expect(h.observe.mock.calls[1][0]).toMatchObject({
+    compatibility: {
+      reasoning: { support: 'supported', mode: 'optional', code: 'reasoning_effort_accepted' },
+      pins: { eligibilityRevision: 'eligibility-pinned', catalogueRevision: 'catalogue-pinned' },
+    },
+  });
+});
+
+test('native fallback does not strip or substitute an unsupported mini effort', () => {
+  const source = { model: 'origin', input: 'hello', reasoning: { effort: 'max' } };
+  const h = harness({
+    provider: 'openai', targetHost: 'api.openai.com', source,
+    chain: ['gpt-5.4-mini'], req: { awfRuntimePricing: {} },
+  });
+  expect(h.fail(0).onModelFallback({ reason: 'upstream_5xx' })).toBe(false);
+  expect(h.attempts).toHaveLength(1);
+  expect(h.attempts[0].body).toEqual(source);
+  expect(h.observe.mock.calls[0][0]).toMatchObject({
+    model: 'gpt-5.4-mini', outcome: 'skipped', compatibility: {
+      status: 'incompatible', reasoning: { code: 'reasoning_effort_unsupported' },
+    },
+  });
+});
+
 test('alternate-endpoint and ranked alias retries skip incompatible endpoints and keep candidate order', () => {
   replaceRuntimeModels('copilot', [{ id: 'chat-only', supportedEndpoints: ['/chat/completions'] }]);
   const source = { model: 'origin', input: 'hi', tools: [{ type: 'custom', name: 'apply_patch' }] };
