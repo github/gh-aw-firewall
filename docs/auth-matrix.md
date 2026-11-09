@@ -632,7 +632,7 @@ This adapter exists to support the [Gemini CLI](https://geminicli.com/)'s `GOOGL
 
 ## Provider: Azure Foundry
 
-**Port:** 10005 (optional; binds only with a target and credential)
+**Port:** 10005 (optional; binds only with a target and API key)
 
 **Implementation:** `containers/api-proxy/providers/foundry.js`
 
@@ -640,15 +640,14 @@ This adapter exists to support the [Gemini CLI](https://geminicli.com/)'s `GOOGL
 |---------|-------|
 | Resource endpoint | `FOUNDRY_API_TARGET`, for example `my-resource.services.ai.azure.com` |
 | API key | `FOUNDRY_API_KEY`, injected as `api-key` |
-| Entra access token | `FOUNDRY_ENTRA_TOKEN`, injected as an Authorization bearer token |
-| Credential precedence | Entra token before API key |
+| Entra access token | `FOUNDRY_ENTRA_TOKEN` is not supported; token-only configuration stays disabled |
 | Optional path prefix | `FOUNDRY_API_BASE_PATH` (default: resource root) |
 | Agent endpoint | `FOUNDRY_BASE_URL`, rewritten to the sidecar |
 
-Both credentials are sidecar-only, including when supplied through `--env`,
-`--env-file`, or `--env-all`. An Entra token must be obtained by the trusted
-caller for the resource's required audience before launching AWF; this adapter
-does not acquire or refresh tokens and does not use `AWF_AUTH_TYPE`.
+The API key is sidecar-only, including when supplied through `--env`,
+`--env-file`, or `--env-all`. Entra-token authentication is disabled to prevent
+token fragments reaching the shared Authorization-header debug logging path.
+This adapter does not use `AWF_AUTH_TYPE`.
 
 The adapter passes native Decision-1 requests at
 `/providers/microsoft/v1/systemone` and OpenAI-compatible requests at

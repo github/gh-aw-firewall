@@ -39,7 +39,7 @@ export interface ApiProxyCredentialOptions {
    * - COPILOT_PROVIDER_API_KEY - Optional upstream BYOK API key for Copilot-compatible providers
    * - GEMINI_API_KEY - Optional Google Gemini API key
    * - GOOGLE_API_KEY - Optional Google API key for Vertex AI
-   * - FOUNDRY_API_KEY / FOUNDRY_ENTRA_TOKEN - Foundry credentials (Entra token takes precedence)
+   * - FOUNDRY_API_KEY - Foundry API key (Entra-token authentication is disabled)
    *
    * @default false
    * @example

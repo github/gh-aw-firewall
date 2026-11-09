@@ -166,7 +166,6 @@ export function resolveApiProxyShutdownTimeoutMs(config: WrapperConfig): number 
  */
 function buildCredentialEnv(config: WrapperConfig): Record<string, string> {
   const foundryApiKey = getConfigEnvValue(config, FOUNDRY_ENV.KEY) ?? process.env[FOUNDRY_ENV.KEY]?.trim();
-  const foundryEntraToken = getConfigEnvValue(config, FOUNDRY_ENV.ENTRA_TOKEN) ?? process.env[FOUNDRY_ENV.ENTRA_TOKEN]?.trim();
   return {
     ...(config.openaiApiKey && { [OPENAI_ENV.KEY]: config.openaiApiKey }),
     ...(config.anthropicApiKey && { [ANTHROPIC_ENV.KEY]: config.anthropicApiKey }),
@@ -174,7 +173,6 @@ function buildCredentialEnv(config: WrapperConfig): Record<string, string> {
     ...(config.geminiApiKey && { [GEMINI_ENV.KEY]: config.geminiApiKey }),
     ...(config.googleApiKey && { [VERTEX_ENV.KEY]: config.googleApiKey }),
     ...(foundryApiKey && { [FOUNDRY_ENV.KEY]: foundryApiKey }),
-    ...(foundryEntraToken && { [FOUNDRY_ENV.ENTRA_TOKEN]: foundryEntraToken }),
   };
 }
 

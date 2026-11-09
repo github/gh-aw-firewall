@@ -55,7 +55,7 @@ describe('Foundry host integration', () => {
       ...buildAgentCredentialEnv({ config: effectiveConfig, networkConfig }),
     };
     expect(sidecar.FOUNDRY_API_KEY).toBe(foundryEnv.FOUNDRY_API_KEY);
-    expect(sidecar.FOUNDRY_ENTRA_TOKEN).toBe(foundryEnv.FOUNDRY_ENTRA_TOKEN);
+    expect(sidecar.FOUNDRY_ENTRA_TOKEN).toBeUndefined();
     expect(agent.FOUNDRY_API_KEY).toBeUndefined();
     expect(agent.FOUNDRY_ENTRA_TOKEN).toBeUndefined();
     expect(Object.values(agent)).not.toContain(foundryEnv.FOUNDRY_API_KEY);
@@ -81,8 +81,8 @@ describe('Foundry host integration', () => {
     });
     expect(testHelpers.buildCredentialEnv(effectiveConfig)).toMatchObject({
       FOUNDRY_API_KEY: 'test-explicit-key',
-      FOUNDRY_ENTRA_TOKEN: 'test-explicit-token',
     });
+    expect(testHelpers.buildCredentialEnv(effectiveConfig).FOUNDRY_ENTRA_TOKEN).toBeUndefined();
     expect(resolveApiProxyUpstreams(effectiveConfig)).toContainEqual({ hostname: 'custom.example', port: 8443 });
   });
 

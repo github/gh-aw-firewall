@@ -87,8 +87,8 @@ awf --env-file /tmp/runtime-paths.env --allow-domains github.com -- agent-comman
 ## Azure Foundry decision and OpenAI-compatible endpoints
 
 Set `FOUNDRY_API_TARGET` to your resource hostname (for example
-`my-resource.services.ai.azure.com`), and supply either `FOUNDRY_API_KEY` or
-`FOUNDRY_ENTRA_TOKEN` in the host environment or AWF's `--env`/`--env-file`
+`my-resource.services.ai.azure.com`), and supply `FOUNDRY_API_KEY`
+in the host environment or AWF's `--env`/`--env-file`
 inputs. AWF sends the credential only to the API-proxy sidecar and automatically
 adds the configured resource hostname to the allowlist; it does not allowlist
 all Azure resources. No separate agent engine is required to make a decision call.
@@ -114,10 +114,17 @@ APIs instead, call `$FOUNDRY_BASE_URL/openai/v1/chat/completions`. An optional
 `FOUNDRY_API_BASE_PATH` prefixes upstream requests; when configured, send paths
 relative to that prefix (or already containing it), not a duplicate prefix.
 
-`FOUNDRY_ENTRA_TOKEN` takes precedence over the key and must be obtained and
-refreshed by the trusted caller, not by the agent. Its required audience depends
-on the deployed API. The adapter does not perform token exchange, model
+`FOUNDRY_ENTRA_TOKEN` authentication is disabled to avoid exposing token fragments
+through shared Authorization-header debug logging. Token-only configuration
+does not enable the adapter. The adapter does not perform token exchange, model
 discovery, or billable startup probes.
+
+Only HTTP `POST` inference requests are forwarded: the native Decision-1 path
+above and `chat/completions`, `completions`, `embeddings`, and `responses` under
+the resource root, `/v1`, `/openai`, `/openai/v1`, or the configured base path.
+Deployment-scoped variants (`deployments/<name>/<inference-path>`) are also
+supported under those prefixes. Other routes, methods, and WebSocket upgrades
+are rejected before credential injection.
 
 Responses with `usage.input_tokens`/`output_tokens` or
 `usage.prompt_tokens`/`completion_tokens` are recorded in `token-usage.jsonl`

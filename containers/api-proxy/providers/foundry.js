@@ -10,23 +10,30 @@ function createFoundryAdapter(env, deps = {}) {
     basePathEnvVar: FOUNDRY_ENV.BASE_PATH,
     defaultTarget: '',
   });
-  const entraToken = (env[FOUNDRY_ENV.ENTRA_TOKEN] || '').trim();
-  const configured = !!rawTarget && !!(entraToken || apiKey);
+  const configured = !!rawTarget && !!apiKey;
+  const inferencePath = '(?:chat/completions|completions|embeddings|responses)';
+  const prefixes = new Set(['', '/v1', '/openai', '/openai/v1', basePath === '/' ? '' : basePath]);
+  const allowedRequestPaths = [
+    /^\/providers\/microsoft\/v1\/systemone$/,
+    ...Array.from(prefixes, prefix => {
+      const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`^${escaped}/(?:deployments/[A-Za-z0-9_-]+/)?${inferencePath}$`);
+    }),
+  ];
 
   return buildProviderAdapter({
     name: 'foundry',
     port: 10005,
     alwaysBind: false,
     isEnabled: () => configured,
-    getAuthHeaders: () => entraToken
-      ? { Authorization: ['Bearer', entraToken].join(' ') }
-      : { 'api-key': apiKey },
+    getAuthHeaders: () => configured ? { 'api-key': apiKey } : {},
     bodyTransform: deps.bodyTransform || null,
     adapterMethods: createAdapterMethods({
       provider: 'foundry',
       port: 10005,
       rawTarget,
       basePath,
+      allowedRequestPaths,
       credentialConfigured: configured,
       reflectionConfigured: configured,
       modelsPath: null,
@@ -35,7 +42,7 @@ function createFoundryAdapter(env, deps = {}) {
       getValidationProbe: () => configured
         ? { skip: true, reason: 'Foundry deployment; validation skipped' }
         : null,
-      reflectionExtra: { auth_type: entraToken ? 'entra-token' : 'static-key' },
+      reflectionExtra: { auth_type: configured ? 'static-key' : null },
     }),
   });
 }

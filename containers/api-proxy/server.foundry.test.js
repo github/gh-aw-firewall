@@ -8,6 +8,41 @@ const fs = require('fs');
 const { createFoundryAdapter } = require('./providers/foundry');
 const { createProviderServer } = require('./server');
 const { closeLogStream, TOKEN_LOG_FILE } = require('./token-tracker');
+const { createProxyHandler, createWebSocketUpgradeHandler } = require('./server-factory');
+
+describe('Foundry inference authorization', () => {
+  it.each([
+    ['POST', '/openai/v1/files'],
+    ['GET', '/openai/v1/files/file123/content'],
+    ['DELETE', '/openai/v1/files/file123'],
+    ['GET', '/responses'],
+    ['POST', '/providers/microsoft/v1/systemone/extra'],
+    ['POST', '/openai/v1/%2e%2e/chat/completions'],
+  ])('rejects %s %s before acquiring credentials or dispatching', (method, url) => {
+    const adapter = createFoundryAdapter({ FOUNDRY_API_TARGET: 'resource.example', FOUNDRY_API_KEY: 'test-key' });
+    const auth = jest.spyOn(adapter, 'getAuthHeaders');
+    const dispatch = jest.fn();
+    const res = { writeHead: jest.fn(), end: jest.fn() };
+    createProxyHandler(adapter, () => false, dispatch)({ method, url, headers: {} }, res);
+    expect(res.writeHead).toHaveBeenCalledWith(403, expect.any(Object));
+    expect(auth).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects WebSocket upgrades before acquiring credentials or dispatching', () => {
+    const adapter = createFoundryAdapter({ FOUNDRY_API_TARGET: 'resource.example', FOUNDRY_API_KEY: 'test-key' });
+    const auth = jest.spyOn(adapter, 'getAuthHeaders');
+    const dispatch = jest.fn();
+    const socket = { write: jest.fn(), destroy: jest.fn() };
+    createWebSocketUpgradeHandler(adapter, dispatch)(
+      { method: 'GET', url: '/responses', headers: { upgrade: 'websocket' } }, socket, Buffer.alloc(0),
+    );
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('403 Forbidden'));
+    expect(socket.destroy).toHaveBeenCalled();
+    expect(auth).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+});
 
 describe('Foundry HTTP forwarding and usage accounting', () => {
   const servers = [];
@@ -59,7 +94,7 @@ describe('Foundry HTTP forwarding and usage accounting', () => {
     };
     for (const [credential, path, body] of [
       [{ FOUNDRY_API_KEY: 'test-foundry-key' }, decisionPath, decisionBody],
-      [{ FOUNDRY_ENTRA_TOKEN: 'test-entra-token' }, '/openai/v1/chat/completions',
+      [{ FOUNDRY_API_KEY: 'test-foundry-key', FOUNDRY_ENTRA_TOKEN: 'test-entra-token' }, '/openai/v1/chat/completions',
         { model: 'foundry-chat', messages: [{ role: 'user', content: 'Classify this issue' }] }],
     ]) {
       const adapter = createFoundryAdapter({
@@ -88,8 +123,8 @@ describe('Foundry HTTP forwarding and usage accounting', () => {
     expect(seen.map(request => request.path)).toEqual([decisionPath, '/openai/v1/chat/completions']);
     expect(seen[0].headers['api-key']).toBe('test-foundry-key');
     expect(seen[0].headers.authorization).toBeUndefined();
-    expect(seen[1].headers.authorization).toBe(['Bearer', 'test-entra-token'].join(' '));
-    expect(seen[1].headers['api-key']).toBeUndefined();
+    expect(seen[1].headers.authorization).toBeUndefined();
+    expect(seen[1].headers['api-key']).toBe('test-foundry-key');
 
     await closeLogStream();
     const log = fs.readFileSync(TOKEN_LOG_FILE, 'utf8');
