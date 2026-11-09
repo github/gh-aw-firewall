@@ -109,7 +109,7 @@ mechanisms, but from the **same list**:
   host `$HOME` into the guest home seed, skipping every `credentials.entries`
   and `home.forbiddenSubdirs` path
   ([`guest-config-layer.ts`](../src/nvx/guest-config-layer.ts)); its builder and
-  live-share policy apply the same exclusions
+  live-share policy applies the same exclusions
   ([`filesystem-builder.ts`](../src/nvx/filesystem-builder.ts),
   [`live-mount-policy.ts`](../src/nvx/live-mount-policy.ts)). Credentials are
   excluded from the copy rather than overlaid.
