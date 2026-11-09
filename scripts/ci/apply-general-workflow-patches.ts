@@ -269,7 +269,8 @@ export function applyGeneralWorkflowPatches(
   }
 
   const workflowFile = workflowPath.split(/[/\\]/).pop();
-  if (workflowFile === 'copilot-token-optimizer.lock.yml') {
+  if (workflowFile === 'copilot-token-optimizer.lock.yml' ||
+      workflowFile === 'dependency-security-monitor.lock.yml') {
     const copilotInstallStep =
       /^([ \t]+)- name: Install GitHub Copilot CLI\n\1  run: (bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/install_copilot_cli\.sh" [^\n]+)\n/m;
     if (copilotInstallStep.test(content)) {
@@ -297,7 +298,7 @@ export function applyGeneralWorkflowPatches(
           `${indent}      sleep $((attempt * 30))\n` +
           `${indent}    done\n`,
       );
-      log.push('  Added bounded Copilot CLI download retries for the token optimizer');
+      log.push(`  Added bounded Copilot CLI download retries for ${workflowFile}`);
     }
   }
 

@@ -9,22 +9,23 @@ const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const installCommand =
   'bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.101 ' +
   '--checksums-sha256 018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be --cooldown-days 3';
-const optimizerLockPath = path.join(workflowsDir, 'copilot-token-optimizer.lock.yml');
+const retryWorkflows = ['copilot-token-optimizer', 'dependency-security-monitor'];
 const compilerInstallStep =
   '      - name: Install GitHub Copilot CLI\n' +
   `        run: ${installCommand}\n`;
 
-describe('copilot token optimizer workflow', () => {
+describe.each(retryWorkflows)('%s workflow', workflow => {
+  const lockPath = path.join(workflowsDir, `${workflow}.lock.yml`);
   it('pins the CLI install and reviewed checksum instead of resolving mutable compatibility defaults', () => {
     const source = fs.readFileSync(
-      path.join(workflowsDir, 'copilot-token-optimizer.md'),
+      path.join(workflowsDir, `${workflow}.md`),
       'utf-8',
     );
     const frontmatter = yaml.load(source.split('---')[1]) as {
       engine: { id: string; version: string; 'checksums-sha256': string };
     };
     const lock = fs.readFileSync(
-      path.join(workflowsDir, 'copilot-token-optimizer.lock.yml'),
+      lockPath,
       'utf-8',
     );
     const compiled = yaml.load(lock) as {
@@ -43,13 +44,13 @@ describe('copilot token optimizer workflow', () => {
     expect(metadata.engine_versions.copilot).toBe(frontmatter.engine.version);
     expect(installStep?.run).toContain(`90s ${installCommand} || install_status=$?`);
     expect(installStep?.['timeout-minutes']).toBe(7);
-    expect(lock).toContain(applyGeneralWorkflowPatches(compilerInstallStep, optimizerLockPath).content);
+    expect(lock).toContain(applyGeneralWorkflowPatches(compilerInstallStep, lockPath).content);
   });
 
-  it('adds retries idempotently only to the token optimizer', () => {
-    const patched = applyGeneralWorkflowPatches(compilerInstallStep, optimizerLockPath).content;
+  it('adds retries idempotently without changing unrelated workflows', () => {
+    const patched = applyGeneralWorkflowPatches(compilerInstallStep, lockPath).content;
     expect(patched).toContain('for attempt in 1 2 3; do');
-    expect(applyGeneralWorkflowPatches(patched, optimizerLockPath).content).toBe(patched);
+    expect(applyGeneralWorkflowPatches(patched, lockPath).content).toBe(patched);
     expect(applyGeneralWorkflowPatches(
       compilerInstallStep,
       path.join(workflowsDir, 'copilot-token-usage-analyzer.lock.yml'),
@@ -57,9 +58,11 @@ describe('copilot token optimizer workflow', () => {
   });
 });
 
-describe('copilot token optimizer installer execution', () => {
+describe.each(retryWorkflows)('%s installer execution', workflow => {
   let tempDir: string;
-  const patched = applyGeneralWorkflowPatches(compilerInstallStep, optimizerLockPath).content;
+  const patched = applyGeneralWorkflowPatches(
+    compilerInstallStep, path.join(workflowsDir, `${workflow}.lock.yml`),
+  ).content;
   const [step] = yaml.load(patched) as Array<{ run: string }>;
 
   beforeEach(() => {
