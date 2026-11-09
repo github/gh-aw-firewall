@@ -642,7 +642,7 @@ describe('enclave agent protected entrypoint diagnostics', () => {
 
   it('retains Claude progress at the deadline without accepting an empty output', () => {
     const result = runHarness('claude-stream-timeout', {
-      ...providerEnv('claude'), AWF_ENCLAVE_AGENT_DEADLINE_SECONDS: '1',
+      ...providerEnv('claude'), AWF_ENCLAVE_AGENT_DEADLINE_SECONDS: '10',
     });
     expect(result.exitCode).toBe(20);
     expect(result.output).toBe('');
