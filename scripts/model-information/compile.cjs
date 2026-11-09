@@ -139,10 +139,13 @@ function compile() {
           (entry.routingPatterns && (!Array.isArray(entry.routingPatterns) ||
             entry.routingPatterns.some(pattern => typeof pattern !== 'string' || !pattern))) ||
           (entry.routing && (!Array.isArray(entry.routing.reasoningEfforts) ||
+            entry.routing.reasoningEfforts.some(effort => typeof effort !== 'string' || !effort) ||
             !Number.isSafeInteger(entry.routing.contextWindowTokens) ||
             entry.routing.contextWindowTokens < 1 ||
             (entry.routing.reasoningMode !== undefined &&
               !['optional', 'required', 'forbidden', 'unknown'].includes(entry.routing.reasoningMode)) ||
+            (entry.routing.reasoningMode === 'forbidden' && entry.routing.reasoningEfforts.length > 0) ||
+            (entry.routing.reasoningMode === 'required' && entry.routing.reasoningEfforts.length === 0) ||
             (entry.routing.defaultEffort !== undefined &&
               (!entry.routing.reasoningEfforts.includes(entry.routing.defaultEffort) ||
                 entry.routing.reasoningMode === 'forbidden'))))) {

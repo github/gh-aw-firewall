@@ -207,6 +207,10 @@ models. The router still enumerates explicit efforts, and **no default is insert
 into a request**. Defaults are descriptive resolver metadata, not effort
 substitution. The existing resolver consumes the new maintained mode/default
 fields through the mapping adapter; no second capability evaluator is added.
+The compiler rejects malformed effort values, forbidden mode with supported
+efforts, required mode without supported efforts, and defaults outside the
+supported list before writing generated projections. Future non-empty effort
+names remain representable, but are not automatically selectable until understood.
 Absent/unknown direct support remains passthrough and automatic explicit effort
 still requires known, understood support. Higher-authority provider observations,
 request/selection pins, pricing, retirement, policy, harness admission, fallback

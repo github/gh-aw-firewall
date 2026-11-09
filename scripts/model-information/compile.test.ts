@@ -512,6 +512,10 @@ describe('maintained model compilation', () => {
     { reasoningMode: 'invented' },
     { defaultEffort: 'max' },
     { reasoningMode: 'forbidden', defaultEffort: 'none' },
+    { reasoningMode: 'forbidden', defaultEffort: undefined },
+    { reasoningMode: 'required', reasoningEfforts: [], defaultEffort: undefined },
+    { reasoningEfforts: ['none', 42] },
+    { reasoningEfforts: ['none', ''] },
   ])('rejects invalid reviewed routing mode/default %j before generation', fields => {
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-routing-'));
     try {
