@@ -28,9 +28,9 @@ const ASSESSMENT_PROTOCOLS = Object.freeze({
   chat: 'chat_completions', responses: 'responses', messages: 'anthropic_messages',
 });
 
-function createFallbackAssessment({ origin, req }) {
+function createFallbackAssessment({ origin, req, targetHost = origin.targetHost, targetScheme = origin.targetScheme }) {
   const requiredResponseFeatures = getRequiredResponseFeatures(origin.sourceBody, origin.protocol);
-  return (candidate, path, host = origin.targetHost, scheme = origin.targetScheme) => {
+  return (candidate, path, host = targetHost, scheme = targetScheme) => {
     const nativePassthrough = ['gemini', 'vertex'].includes(origin.provider) &&
       candidate.provider === origin.provider && host === origin.targetHost && scheme === origin.targetScheme &&
       getRequestModel(origin.body, origin.upstreamPath)?.location === 'path' &&

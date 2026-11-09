@@ -181,7 +181,7 @@ function createSendUpstreamRequest({
       wireApiEndpointRetryAttempted,
       failures: req.awfModelFallback?.failures || [],
     };
-    const assessCandidate = createFallbackAssessment({ origin, req });
+    const assessCandidate = createFallbackAssessment({ origin, req, targetHost, targetScheme });
     const observeDecision = createFallbackDecisionObserver({ req, origin });
 
     // Evaluate candidates only after an eligible failure so skipped-entry
