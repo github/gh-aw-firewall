@@ -37,6 +37,19 @@ When `runner.topology` is set to `"arc-dind"`, AWF enables ARC/DinD-specific sys
 
 Other ARC/DinD settings (for example `network.isolation` and `dind.preStageDirs`) are configured explicitly through their own fields.
 
+`runner.installation` in the gh-aw workflow config controls Copilot CLI and
+threat-detect installation, not AWF runtime privileges. ARC/DinD uses rootless
+installation even when sudo is available; `privileged` is rejected for this
+topology. Rootless installers put binaries in the job-scoped
+`$RUNNER_TEMP/gh-aw/bin` directory, which AWF mounts read-only, rather than
+`~/.local/bin`.
+
+On other topologies, omitting `runner.installation` selects privileged
+installation when running as root or when passwordless `sudo -n true` succeeds;
+otherwise the installers fall back to rootless. An explicit `privileged`
+setting requests privileged installation but does not disable that fallback:
+without root or passwordless sudo, installation still proceeds rootlessly.
+
 ## Build-tools sysroot image
 
 On ARC/DinD, the standard system mounts (`/usr:/host/usr:ro`, etc.) resolve to the runner container's filesystem, which is invisible to the Docker daemon's split filesystem. The `build-tools` sysroot image solves this by providing a pre-built Ubuntu image containing system-level build infrastructure. Its base depends on the selected release/image (see the [Dockerfile](../containers/build-tools/Dockerfile)):
