@@ -27,10 +27,13 @@ describe('shared diagnosis-maintenance contract', () => {
     expect(shared).toMatch(/never copy credentials/i);
   });
 
-  it('is imported by the runner and auth maintenance workflows', () => {
+  it('is imported by every maintenance boundary', () => {
     for (const workflow of [
       '.github/workflows/self-hosted-runner-doctor-updater.md',
       '.github/workflows/auth-doctor-updater.md',
+      '.github/workflows/runtime-enclave-doctor-updater.md',
+      '.github/workflows/network-doctor-updater.md',
+      '.github/workflows/ci-integration-doctor-updater.md',
     ]) {
       expect(read(workflow)).toContain('- shared/diagnosis-maintenance.md');
     }
@@ -54,17 +57,46 @@ describe('shared diagnosis-maintenance contract', () => {
     expect(auth).toMatch(/Do not write generated prompt or agent surfaces/i);
   });
 
-  it('installs diagnostics tooling before updater agents run', () => {
-    const runner = read('.github/workflows/self-hosted-runner-doctor-updater.md');
-    expect(runner).toContain('Install root dependencies for diagnostics tooling');
-    expect(runner).toContain('for attempt in 1 2 3; do');
-    expect(runner).toContain('if npm ci; then');
-    expect(runner).toContain('if [ "$attempt" -eq 3 ]; then');
-    expect(runner).toContain('sleep $((attempt * 5))');
+  it('shares deterministic intake after cache restore and before updater agents run', () => {
+    expect(shared).toContain('Install root dependencies for diagnostics tooling');
+    expect(shared).toContain('if npm ci; then');
+    expect(shared).toContain('scripts/diagnostics/intake.ts');
+    expect(shared).toContain('cache-memory: true');
+    expect(shared).toContain('name: diagnosis-intake');
+    expect(shared).toContain('receipts.json');
+    expect(shared).toContain('needs-evidence');
+    expect(shared).toContain('npm run diagnostics:freshness');
+    expect(shared).toContain('reviewQueue.firstTime');
+    expect(shared).toContain('reviewQueue.deferred');
+    expect(shared).toContain('updatedSince');
+    expect(shared).toContain('date-independent keys');
+    expect(read('.github/workflows/self-hosted-runner-doctor-updater.md')).not.toContain('prepare_candidates');
+  });
 
-    const auth = read('.github/workflows/auth-doctor-updater.md');
-    expect(auth).toContain('Install root dependencies for diagnostics tooling');
-    expect(auth).toContain('run: npm ci');
+  it('restricts each new updater to its own canonical records, not generated prompts or security', () => {
+    for (const [workflow, boundary] of [
+      ['runtime-enclave-doctor-updater', 'runtime'],
+      ['network-doctor-updater', 'network'],
+      ['ci-integration-doctor-updater', 'ci'],
+    ]) {
+      const source = read(`.github/workflows/${workflow}.md`);
+      expect(source).toContain(`- docs/diagnostics/findings/${boundary}/*.json`);
+      expect(source).toContain('max: 1');
+      expect(source).not.toContain('strict: false');
+      expect(source).not.toContain('enabled: false');
+      for (const forbidden of ['security/*.json', '- .github/agents/', '- .github/workflows/', 'contents: write']) {
+        expect(source).not.toContain(forbidden);
+      }
+    }
+  });
+
+  it('checks deadline freshness and generated parity without enabling writes', () => {
+    const workflow = read('.github/workflows/diagnosis-freshness.yml');
+    expect(workflow).toContain('diagnostics:validate && npm run diagnostics:check');
+    expect(workflow).toContain('cli.ts freshness');
+    expect(workflow).toContain("if: github.event_name != 'pull_request'");
+    expect(workflow).toContain('GITHUB_STEP_SUMMARY');
+    expect(workflow).not.toContain(': write');
   });
 
   it('imports the generated findings catalog into the Runner Doctor workflow', () => {
@@ -99,10 +131,37 @@ describe('shared diagnosis-maintenance contract', () => {
       'self-hosted-runner-doctor',
       'self-hosted-runner-doctor-updater',
       'auth-doctor-updater',
+      'runtime-enclave-doctor-updater',
+      'network-doctor-updater',
+      'ci-integration-doctor-updater',
     ]) {
       const lock = read(`.github/workflows/${workflow}.lock.yml`);
       expect(lock).toContain('DO NOT EDIT');
       expect(lock).toContain('shared/diagnosis-');
+    }
+  });
+
+  it('uses durable, isolated cache state with metadata-only quarantine reports in every updater lock', () => {
+    for (const workflow of [
+      'self-hosted-runner-doctor-updater',
+      'auth-doctor-updater',
+      'runtime-enclave-doctor-updater',
+      'network-doctor-updater',
+      'ci-integration-doctor-updater',
+    ]) {
+      const lock = read(`.github/workflows/${workflow}.lock.yml`);
+      expect(lock).toContain(
+        'key: memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ github.run_id }}'
+      );
+      expect(lock).toContain(
+        'memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-\n'
+      );
+      expect(lock).not.toContain('CACHE_MEMORY_DATE');
+      expect(lock).not.toContain('--add-dir /tmp/gh-aw/cache-memory/');
+      expect(lock).toContain('Strip execute bits from cache-memory files');
+      expect(lock).toContain('Scan cache-memory for instruction-injection content');
+      expect(lock).toContain('Content preview suppressed for security: $f');
+      expect(lock).not.toContain('head -5 "$f"');
     }
   });
 });

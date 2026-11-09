@@ -63,7 +63,7 @@ COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
      token-tracker-http.js token-tracker-ws.js token-tracker-shared.js \
      model-resolver.js model-identity.js model-fallback.js model-fallback-chain.js model-utils.js model-body-rewriter.js proxy-utils.js oidc-adapter-utils.js adapter-factory.js anthropic-transforms.js claude-hosted-web.js codex-hosted-web.js hosted-web-policy.js \
      model-config.js model-recovery.js model-selector.js model-eligibility.js model-reasoning.js harness-observation.js scoped-auto-model.js key-validation.js server-factory.js startup.js \
-     proxy-request.js request-headers.js trusted-service.js upstream-http.js proxy-guards.js proxy-error-handler.js http-client.js body-handler.js reasoning-effort-validation.js model-discovery.js management.js model-decision-diagnostics.js model-decision-diagnostics.schema.json model-decision-observation.js oidc-token-provider.js \
+     proxy-request.js request-headers.js trusted-service.js upstream-http.js upstream-auth.js upstream-fallback.js upstream-request-utils.js proxy-guards.js proxy-error-handler.js http-client.js body-handler.js reasoning-effort-validation.js model-discovery.js management.js model-decision-diagnostics.js model-decision-diagnostics.schema.json model-decision-observation.js oidc-token-provider.js \
      oidc-token-provider-base.js \
      github-oidc.js aws-oidc-token-provider.js aws-sigv4.js gcp-oidc-token-provider.js openai-oidc-token-provider.js \
      anthropic-oidc-token-provider.js \

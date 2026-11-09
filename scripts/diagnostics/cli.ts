@@ -11,6 +11,7 @@
 import {
   checkSync,
   loadFindings,
+  overdueFindings,
   searchFindings,
   validateFindings,
   writeOutputs,
@@ -59,6 +60,24 @@ function main(): number {
   const loaded = loadFindings();
 
   switch (command) {
+    case 'freshness': {
+      if (args.length !== 0 && (args.length !== 2 || args[0] !== '--as-of')) {
+        console.error('Usage: cli.ts freshness [--as-of YYYY-MM-DD]');
+        return 2;
+      }
+      const asOf = args[1] ?? new Date().toISOString().slice(0, 10);
+      try {
+        const overdue = overdueFindings(loaded, asOf).map(({ finding, source }) => ({
+          id: finding.id, boundary: finding.boundary, owner: finding.owner,
+          reviewBy: finding.reviewBy, source,
+        }));
+        console.log(JSON.stringify({ asOf, overdue }, null, 2));
+        return overdue.length > 0 ? 1 : 0;
+      } catch (error) {
+        console.error((error as Error).message);
+        return 2;
+      }
+    }
     case 'validate': {
       const errors = validateFindings(loaded);
       if (errors.length > 0) {
@@ -99,7 +118,7 @@ function main(): number {
       return 0;
     }
     default:
-      console.error('Usage: cli.ts <validate|search|render|check-sync> [args]');
+      console.error('Usage: cli.ts <validate|search|render|check-sync|freshness> [args]');
       return 2;
   }
 }
