@@ -264,6 +264,7 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | CI-001 | ci | gh-aw safe-output step fails because the emitted payload violates the declared contract | workaround | [`findings/ci/CI-001.json`](./findings/ci/CI-001.json) |
 | CI-002 | ci | Compiler-owned enclave gateway is unavailable or violates the handoff contract | workaround | [`findings/ci/CI-002.json`](./findings/ci/CI-002.json) |
 | CI-003 | ci | Cloud Hypervisor regression admission rejects a regional Actions OIDC endpoint | fixed | [`findings/ci/CI-003.json`](./findings/ci/CI-003.json) |
+| CI-004 | ci | Enclave regression fails after a successful invocation at a finalization gate | fixed | [`findings/ci/CI-004.json`](./findings/ci/CI-004.json) |
 | SEC-001 | security | Suspected isolation or credential-boundary regression must go to security review, not a bypass | needs-evidence | [`findings/security/SEC-001.json`](./findings/security/SEC-001.json) |
 
 ### Symptom lookup
@@ -323,6 +324,8 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | AWF host gateway readiness fails before primary-agent startup | CI-002 | ci | workaround |
 | cloud-hypervisor-enclave-admission-token-acquisition | CI-003 | ci | fixed |
 | Cloud Hypervisor regression profiles reject before broker startup | CI-003 | ci | fixed |
+| AWF_ENCLAVE_REGRESSION_FINALIZATION | CI-004 | ci | fixed |
+| Enclave agent regression fails although the invocation result validated | CI-004 | ci | fixed |
 | The agent container can reach a domain that is not allowlisted | SEC-001 | security | needs-evidence |
 | A provider credential is observable inside the agent environment while the api-proxy is enabled | SEC-001 | security | needs-evidence |
 | Egress succeeds without a corresponding Squid access-log entry | SEC-001 | security | needs-evidence |

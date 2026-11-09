@@ -1,0 +1,34 @@
+{
+  "$schema": "../../schema.json",
+  "id": "CI-004",
+  "boundary": "ci",
+  "title": "Enclave regression fails after a successful invocation at a finalization gate",
+  "symptoms": ["AWF_ENCLAVE_REGRESSION_FINALIZATION", "Enclave agent regression fails although the invocation result validated"],
+  "conditions": [
+    "The daily enclave agent regression reached result validation or later stages",
+    "Older code deleted the harness audit directory with AWF work-directory shutdown, so audit validation could fail after a successful invocation",
+    "An old aggregate failure without a finalization record does not identify the failing gate"
+  ],
+  "affects": { "runner": "github-hosted", "runtime": "any", "provider": "any", "authMode": "any" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "fixed",
+  "rootCause": "Finalization previously conflated result validation with AWF stop/exit, audit retention, audit schema/invocation checks and cleanup, and shutdown could remove the audit before validation. The failing gate was therefore hidden behind one aggregate error.",
+  "probe": {
+    "command": "jq '{checks, primaryFailure, secondaryFailures, resultValidated}' path/to/protected/finalization.json",
+    "expect": "Read the first failed gate (primaryFailure) separately from later secondaryFailures; each carries a closed gate and reason code. Startup and invocation evidence are exported independently, and a missing finalization.json is unknown, not success.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use source that retains audit outside the AWF work directory and emits the bounded finalization record. Fix the gate named by primaryFailure; treat secondary failures (for example cleanup) as separate causes. Do not relax audit, ownership or cleanup checks, and do not retain raw exception text or audit payloads. Hosted acceptance remains separate.",
+  "references": [
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11194" },
+    { "kind": "code", "ref": "scripts/ci/run-enclave-agent-regression.js" },
+    { "kind": "code", "ref": "scripts/ci/collect-enclave-smoke-debug.cjs" },
+    { "kind": "test", "ref": "scripts/ci/collect-enclave-smoke-debug.test.ts" },
+    { "kind": "test", "ref": "scripts/ci/enclave-agent-regression.test.ts" },
+    { "kind": "doc", "ref": "docs/cloud-hypervisor-foundation.md" }
+  ],
+  "related": ["CI-002", "CI-003"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2026-12-09"
+}
