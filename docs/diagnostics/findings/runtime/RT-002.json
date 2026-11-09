@@ -1,0 +1,34 @@
+{
+  "$schema": "../../schema.json",
+  "id": "RT-002",
+  "boundary": "runtime",
+  "title": "Cloud Hypervisor enclave storage inherits shared mount propagation",
+  "symptoms": ["storage-mount-multiple during artifact-snapshot", "storage-verification/invocation-state fails with storage-mount-propagation"],
+  "conditions": [
+    "Cloud Hypervisor host enclave storage is beneath a shared allocation parent or separate shared invocation destination",
+    "For the invocation case, sourceBeforeBind is private, destinationBeforeBind is shared, and invocationVerified is [1,1,1,0] while other verified roles are private",
+    "A generic storage-mount-propagation reason alone does not distinguish shared, missing or ambiguous entries"
+  ],
+  "affects": { "runner": "github-hosted", "runtime": "cloud-hypervisor", "provider": "any", "authMode": "any" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "fixed",
+  "rootCause": "Nested binds in an overlapping shared allocation can propagate duplicate mounts. Independently, a private state source bound beneath a shared external destination inherits shared propagation; privatizing only the allocation does not privatize that destination bind.",
+  "probe": {
+    "command": "jq '.enclaveStartup | {startupChecks, mountTopology, storagePropagation}' path/to/protected/awf-startup-error.json",
+    "expect": "As the owning host operator, read only the bounded startup-error descriptor projection. One exact shared invocation entry distinguishes destination inheritance from missing or duplicate matches. Collected startup.json preserves the checklist but can omit topology/propagation; absence is unknown.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use source containing both allocation-private and invocation-state-private fixes, with release-matched trusted artifacts. Current code verifies the journal, privatizes only the captured mount and rechecks exact identity/options. Never change host-wide propagation, choose a topmost duplicate, or relax cleanup. Fixed source does not prove a released version or guest acceptance.",
+  "references": [
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/9530", "title": "Allocation propagation fix" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/9536", "title": "Invocation destination fix and v0.28.44 evidence" },
+    { "kind": "code", "ref": "src/cloud-hypervisor/trusted-enclave-storage.ts" },
+    { "kind": "test", "ref": "src/cloud-hypervisor/trusted-enclave-storage.test.ts" },
+    { "kind": "test", "ref": "src/cloud-hypervisor/enclave-trusted-storage.integration.test.ts", "title": "Privileged Linux cases; not macOS acceptance" },
+    { "kind": "doc", "ref": "docs/cloud-hypervisor-foundation.md#private-invocation-state-mount" }
+  ],
+  "related": ["RT-003"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2026-12-09"
+}

@@ -53,6 +53,9 @@ const publishedAwfWorkflowLockFiles = new Set([
   'smoke-enclave-cloud-hypervisor.lock.yml',
   'smoke-enclave-cloud-hypervisor-copilot.lock.yml',
   'auth-doctor-updater.lock.yml',
+  'runtime-enclave-doctor-updater.lock.yml',
+  'network-doctor-updater.lock.yml',
+  'ci-integration-doctor-updater.lock.yml',
   'daily-agent-runtime-triage.lock.yml',
   'doc-maintainer.lock.yml',
   'model-api-mapping-updater.lock.yml',
@@ -62,6 +65,14 @@ const publishedAwfWorkflowLockFiles = new Set([
   'self-hosted-runner-doctor-updater.lock.yml',
   'test-quality-improver.lock.yml',
   'update-release-notes.lock.yml',
+]);
+
+const diagnosisMaintenanceCacheWorkflowLockFiles = new Set([
+  'auth-doctor-updater.lock.yml',
+  'ci-integration-doctor-updater.lock.yml',
+  'network-doctor-updater.lock.yml',
+  'runtime-enclave-doctor-updater.lock.yml',
+  'self-hosted-runner-doctor-updater.lock.yml',
 ]);
 
 const cloudHypervisorBundleRetryWorkflowLockFiles = new Set([
@@ -269,8 +280,18 @@ export function applyGeneralWorkflowPatches(
   }
 
   const workflowFile = workflowPath.split(/[/\\]/).pop();
-  if (workflowFile === 'copilot-token-optimizer.lock.yml' ||
-      workflowFile === 'dependency-security-monitor.lock.yml') {
+  if (workflowFile !== undefined && diagnosisMaintenanceCacheWorkflowLockFiles.has(workflowFile)) {
+    const rewritten = content.replace(/--add-dir \/tmp\/gh-aw\/cache-memory\/ /g, '');
+    if (rewritten !== content) {
+      content = rewritten;
+      log.push('  Kept persistent cache-memory out of the diagnosis updater agent context');
+    }
+  }
+
+  if (
+    workflowFile === 'copilot-token-optimizer.lock.yml' ||
+    workflowFile === 'dependency-security-monitor.lock.yml'
+  ) {
     const copilotInstallStep =
       /^([ \t]+)- name: Install GitHub Copilot CLI\n\1  run: (bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/install_copilot_cli\.sh" [^\n]+)\n/m;
     if (copilotInstallStep.test(content)) {
@@ -838,8 +859,8 @@ export function applyGeneralWorkflowPatches(
   // 1. Inject "Strip execute bits" step after "Setup cache-memory git repository"
   // 2. Inject "Scan cache-memory for instruction-injection content" step before
   //    "Commit cache-memory changes"
-  // 3. Inject "Compute cache-memory TTL date key" step before the cache action
-  //    and update restore-keys to include the date for a 1-day TTL.
+  // 3. Use date-independent cache keys for diagnosis updaters so intake
+  //    checkpoints and review receipts persist across daily runs.
 
   // (1) Strip execute bits after cache-memory git setup
   if (!content.includes(stripExecBitsStepSentinel)) {
@@ -886,55 +907,67 @@ export function applyGeneralWorkflowPatches(
     log.push(`  'Scan cache-memory for instruction-injection' step already present (new version)`);
   }
 
-  // (3) Add TTL date key step and update key/restore-keys to include daily date
-  if (!content.includes(cacheDateStepSentinel)) {
-    const createCacheMatch = content.match(createCacheDirStepRegex);
-    if (createCacheMatch) {
-      content = content.replace(
-        createCacheDirStepRegex,
-        (_m, ind, createStep, cacheStep) =>
-          ind + createStep + buildCacheDateStep(ind) + cacheStep
-      );
-      log.push(`  Injected 'Compute cache-memory TTL date key' step before cache action`);
+  // The diagnosis updater cache is durable state, not an ephemeral daily
+  // cache. Keep its exact key workflow-scoped and its restore prefix date-free.
+  if (workflowFile !== undefined && diagnosisMaintenanceCacheWorkflowLockFiles.has(workflowFile)) {
+    const before = content;
+    content = content.replace(
+      /^(\s+)-\x20name:\x20Compute\x20cache-memory\x20TTL\x20date\x20key\n\1\x20\x20run:\x20echo\x20"CACHE_MEMORY_DATE=[^\n]*\n/m,
+      '',
+    );
+    content = content.replace(/\$\{\{ env\.CACHE_MEMORY_DATE \}\}-/g, '');
+    if (content !== before) {
+      log.push('  Removed the date TTL from diagnosis-maintenance cache keys');
     }
   } else {
-    log.push(`  'Compute cache-memory TTL date key' step already present`);
-  }
-
-  // Update the main cache key lines and restore-keys prefix to include the date
-  // for a 1-day TTL. Apply each transformation independently so partially
-  // updated workflows are repaired correctly and repeated runs stay idempotent.
-  if (content.includes(cacheDateStepSentinel)) {
-    // Update main key: insert date before run_id
-    const beforeKeyUpdate = content;
-    content = content.replace(
-      cacheMemoryKeyLineRegex,
-      (_m, prefix) => `${prefix}\${{ env.CACHE_MEMORY_DATE }}-\${{ github.run_id }}`
-    );
-    const updatedCacheKey = content !== beforeKeyUpdate;
-
-    // Update restore-keys prefix: append date segment
-    const beforeRestoreKeysUpdate = content;
-    content = content.replace(
-      cacheRestoreKeyPrefixRegex,
-      (_m, prefixWithWorkflowId, newline) =>
-        `${prefixWithWorkflowId}\${{ env.CACHE_MEMORY_DATE }}-${newline}`
-    );
-    const updatedRestoreKeys = content !== beforeRestoreKeysUpdate;
-
-    if (updatedCacheKey || updatedRestoreKeys) {
-      if (updatedCacheKey && updatedRestoreKeys) {
-        log.push(`  Updated cache key and restore-keys to include CACHE_MEMORY_DATE for 1-day TTL`);
-      } else if (updatedCacheKey) {
-        log.push(`  Updated cache key to include CACHE_MEMORY_DATE for 1-day TTL`);
-      } else {
-        log.push(`  Updated restore-keys to include CACHE_MEMORY_DATE for 1-day TTL`);
+    // Other cache-memory consumers retain the existing one-day TTL.
+    if (!content.includes(cacheDateStepSentinel)) {
+      const createCacheMatch = content.match(createCacheDirStepRegex);
+      if (createCacheMatch) {
+        content = content.replace(
+          createCacheDirStepRegex,
+          (_m, ind, createStep, cacheStep) =>
+            ind + createStep + buildCacheDateStep(ind) + cacheStep
+        );
+        log.push(`  Injected 'Compute cache-memory TTL date key' step before cache action`);
       }
     } else {
+      log.push(`  'Compute cache-memory TTL date key' step already present`);
+    }
+
+    // Update the main cache key lines and restore-keys prefix to include the date
+    // for a 1-day TTL. Apply each transformation independently so partially
+    // updated workflows are repaired correctly and repeated runs stay idempotent.
+    if (content.includes(cacheDateStepSentinel)) {
+      const beforeKeyUpdate = content;
+      content = content.replace(
+        cacheMemoryKeyLineRegex,
+        (_m, prefix) => `${prefix}\${{ env.CACHE_MEMORY_DATE }}-\${{ github.run_id }}`
+      );
+      const updatedCacheKey = content !== beforeKeyUpdate;
+
+      const beforeRestoreKeysUpdate = content;
+      content = content.replace(
+        cacheRestoreKeyPrefixRegex,
+        (_m, prefixWithWorkflowId, newline) =>
+          `${prefixWithWorkflowId}\${{ env.CACHE_MEMORY_DATE }}-${newline}`
+      );
+      const updatedRestoreKeys = content !== beforeRestoreKeysUpdate;
+
+      if (updatedCacheKey || updatedRestoreKeys) {
+        if (updatedCacheKey && updatedRestoreKeys) {
+          log.push(`  Updated cache key and restore-keys to include CACHE_MEMORY_DATE for 1-day TTL`);
+        } else if (updatedCacheKey) {
+          log.push(`  Updated cache key to include CACHE_MEMORY_DATE for 1-day TTL`);
+        } else {
+          log.push(`  Updated restore-keys to include CACHE_MEMORY_DATE for 1-day TTL`);
+        }
+      } else {
+        log.push(`  Cache key/restore-keys already include CACHE_MEMORY_DATE`);
+      }
+    } else if (content.includes(cacheDateRestoreKeySentinel)) {
       log.push(`  Cache key/restore-keys already include CACHE_MEMORY_DATE`);
     }
-  } else if (content.includes(cacheDateRestoreKeySentinel)) {
-    log.push(`  Cache key/restore-keys already include CACHE_MEMORY_DATE`);
   }
 
   // gh-aw v0.92.0 treats every allow-write entry as a directory. The metadata

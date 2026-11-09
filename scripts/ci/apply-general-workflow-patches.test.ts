@@ -139,6 +139,67 @@ describe('applyGeneralWorkflowPatches runtime auditor credential exclusions', ()
   });
 });
 
+describe('diagnosis updater cache persistence and diagnostics', () => {
+  const workflows = [
+    'auth-doctor-updater.lock.yml',
+    'ci-integration-doctor-updater.lock.yml',
+    'network-doctor-updater.lock.yml',
+    'runtime-enclave-doctor-updater.lock.yml',
+    'self-hosted-runner-doctor-updater.lock.yml',
+  ];
+
+  it.each(workflows)('keeps %s cache keys workflow-scoped and date-independent', workflow => {
+    const compiled = [
+      'jobs:',
+      '  agent:',
+      '    steps:',
+      '      - name: Create cache-memory directory',
+      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/create_cache_memory_dir.sh"',
+      '      - name: Compute cache-memory TTL date key',
+      '        run: echo "CACHE_MEMORY_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"',
+      '      - name: Restore cache-memory file share data',
+      '        with:',
+      '          key: memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ env.CACHE_MEMORY_DATE }}-${{ github.run_id }}',
+      '          restore-keys: |',
+      '            memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ env.CACHE_MEMORY_DATE }}-',
+      '  save_cache:',
+      '    steps:',
+      '      - name: Save cache-memory file share data',
+      '        with:',
+      '          key: memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ env.CACHE_MEMORY_DATE }}-${{ github.run_id }}',
+      '      - name: Setup cache-memory git repository',
+      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/setup_cache_memory_git.sh"',
+      '      - name: Commit cache-memory changes',
+      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/commit_cache_memory_git.sh"',
+      '',
+    ].join('\n');
+    const path = `/tmp/workflows/${workflow}`;
+    const first = applyGeneralWorkflowPatches(compiled, path);
+
+    expect(first.content).not.toContain('CACHE_MEMORY_DATE');
+    expect(first.content).not.toContain('Compute cache-memory TTL date key');
+    expect(first.content.match(/memory-none-nopolicy-\$\{\{ env\.GH_AW_WORKFLOW_ID_SANITIZED \}\}-\$\{\{ github\.run_id \}\}/g))
+      .toHaveLength(2);
+    expect(first.content).toContain(
+      'memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-\n'
+    );
+    expect(first.content).toContain('Content preview suppressed for security: $f');
+    expect(first.content).not.toContain('head -5 "$f"');
+    expect(applyGeneralWorkflowPatches(first.content, path).content).toBe(first.content);
+  });
+
+  it.each(workflows)('does not expose persistent cache-memory to %s as an explicit agent context directory', workflow => {
+    const compiled = 'run: copilot --add-dir /tmp/gh-aw/cache-memory/ --allow-all-paths';
+    const { content, log } = applyGeneralWorkflowPatches(
+      compiled,
+      `/tmp/workflows/${workflow}`,
+    );
+    expect(content).not.toContain('--add-dir /tmp/gh-aw/cache-memory/');
+    expect(content).toContain('--allow-all-paths');
+    expect(log).toContain('  Kept persistent cache-memory out of the diagnosis updater agent context');
+  });
+});
+
 describe('applyGeneralWorkflowPatches Copilot CLI copy step gating', () => {
   it('skips the copy for a non-copilot compiled engine', () => {
     const { content, log } = applyGeneralWorkflowPatches(
@@ -257,6 +318,9 @@ describe('applyGeneralWorkflowPatches published AWF maintenance workflows', () =
 
   it.each([
     'auth-doctor-updater.lock.yml',
+    'runtime-enclave-doctor-updater.lock.yml',
+    'network-doctor-updater.lock.yml',
+    'ci-integration-doctor-updater.lock.yml',
     'doc-maintainer.lock.yml',
     'model-api-mapping-updater.lock.yml',
     'pr-sous-chef.lock.yml',
