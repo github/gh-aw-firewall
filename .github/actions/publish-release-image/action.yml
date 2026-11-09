@@ -1,0 +1,65 @@
+name: Publish release image manifest
+description: Join native platform digests and publish version and latest tags once
+inputs:
+  image:
+    required: true
+    description: Image name within the repository registry
+  version:
+    required: true
+    description: Release version without the v prefix
+  token:
+    required: true
+    description: Registry token
+outputs:
+  digest:
+    description: Verified multi-architecture manifest digest
+    value: ${{ steps.manifest.outputs.digest }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        pattern: ${{ inputs.image }}-digest-*
+        path: ${{ runner.temp }}/${{ inputs.image }}-digests
+        merge-multiple: true
+    - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ inputs.token }}
+    - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+    - id: manifest
+      shell: bash
+      env:
+        IMAGE: ghcr.io/${{ github.repository }}/${{ inputs.image }}
+        IMAGE_NAME: ${{ inputs.image }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        sources=()
+        for arch in amd64 arm64; do
+          file="$RUNNER_TEMP/$IMAGE_NAME-digests/$arch"
+          if [[ ! -f "$file" ]]; then
+            echo "::error::Missing $IMAGE_NAME image digest for $arch"
+            exit 1
+          fi
+          digest=$(cat "$file")
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Invalid $IMAGE_NAME image digest for $arch"
+            exit 1
+          fi
+          sources+=("$IMAGE@$digest")
+        done
+        docker buildx imagetools create \
+          --tag "$IMAGE:$VERSION" \
+          --tag "$IMAGE:latest" \
+          "${sources[@]}"
+        digest=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{.Manifest.Digest}}')
+        if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+          echo "::error::Invalid $IMAGE_NAME multi-architecture manifest digest"
+          exit 1
+        fi
+        docker buildx imagetools inspect "$IMAGE@$digest" --raw \
+          | jq -e '[.manifests[].platform | "\(.os)/\(.architecture)"] | index("linux/amd64") and index("linux/arm64")' > /dev/null \
+          || { echo "::error::$IMAGE_NAME image must include linux/amd64 and linux/arm64"; exit 1; }
+        echo "digest=$digest" >> "$GITHUB_OUTPUT"

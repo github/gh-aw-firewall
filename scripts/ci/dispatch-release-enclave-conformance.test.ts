@@ -232,8 +232,9 @@ describe('release publication DAG and permissions', () => {
     expect(job.needs).toEqual(['bump-version', 'release']);
     expect(job.if).toBeUndefined();
     expect(workflow.jobs.release.needs).toEqual(expect.arrayContaining([
-      'build-cloud-hypervisor-test-artifacts', 'build-cloud-hypervisor-profiles',
-      'build-cloud-hypervisor-guest-base', 'build-enclaves',
+      'build-cloud-hypervisor-test-artifacts', 'build-cloud-hypervisor-primary',
+      'build-cloud-hypervisor-enclave', 'build-cloud-hypervisor-guest-base',
+      'build-enclave-script', 'build-enclave-agent', 'build-enclave-mcp-server',
     ]));
     const publish = workflow.jobs.release.steps.find(step => step.name === 'Create GitHub Release')!;
     expect(publish.with?.draft).toBe(false);
@@ -242,9 +243,9 @@ describe('release publication DAG and permissions', () => {
     expect(workflow.jobs['build-cloud-hypervisor-test-artifacts'].steps.some(step =>
       step.uses?.startsWith('actions/attest-build-provenance@'))).toBe(true);
     const artifactBuilder = workflow.jobs['build-cloud-hypervisor-test-artifacts'];
-    expect(artifactBuilder.needs).toContain('build-enclaves');
+    expect(artifactBuilder.needs).toContain('build-enclave-agent');
     const build = artifactBuilder.steps.find(step => step.name === 'Build and verify pinned test artifacts')!;
-    expect(build.run).toContain('ENCLAVE_AGENT_IMAGE="ghcr.io/${{ github.repository }}/enclave-agent@${{ needs.build-enclaves.outputs.enclave_agent_digest }}"');
+    expect(build.run).toContain('ENCLAVE_AGENT_IMAGE="ghcr.io/${{ github.repository }}/enclave-agent@${{ needs.build-enclave-agent.outputs.digest }}"');
   });
 
   it('uses only a job-local dispatch token and pinned original source, with serialized launchers', () => {
