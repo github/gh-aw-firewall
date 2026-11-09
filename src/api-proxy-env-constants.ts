@@ -53,6 +53,8 @@ export { OIDC_AUTH_ENV_MAPPING };
 /** Env var names for OIDC auth — use with pickEnvVars() to forward host env to sidecar */
 export const OIDC_AUTH_ENV_VARS = [
   ...OIDC_AUTH_ENV_MAPPING.map(m => m.envVar),
+  'AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID',
+  'AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID',
   'AWF_AUTH_GCP_PROJECT',
   'AWF_AUTH_GCP_LOCATION',
 ] as const;

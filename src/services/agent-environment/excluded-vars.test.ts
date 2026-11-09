@@ -85,6 +85,12 @@ describe('buildExclusionSet', () => {
       expect(buildExclusionSet(config).has('OPENAI_API_KEY')).toBe(true);
     });
 
+    it('should exclude OpenAI WIF configuration', () => {
+      const excluded = buildExclusionSet(config);
+      expect(excluded.has('AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID')).toBe(true);
+      expect(excluded.has('AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID')).toBe(true);
+    });
+
     it('should exclude OPENAI_KEY', () => {
       expect(buildExclusionSet(config).has('OPENAI_KEY')).toBe(true);
     });

@@ -22,6 +22,35 @@ describe('buildOpenAiCredentialEnv', () => {
     expect(result.CODEX_API_KEY).toBe('sk-placeholder-for-api-proxy');
   });
 
+  it('routes through the proxy for OpenAI WIF without a static API key', () => {
+    const config = {
+      ...baseConfig,
+      enableApiProxy: true,
+      authType: 'github-oidc',
+      authProvider: 'openai',
+      additionalEnv: {
+        AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID: 'idp_test',
+        AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID: 'sa_test',
+      },
+    } as WrapperConfig;
+
+    const result = buildOpenAiCredentialEnv({ config, proxyIp });
+
+    expect(result.OPENAI_BASE_URL).toBe(`http://${proxyIp}:10000`);
+    expect(result.OPENAI_API_KEY).toBe('sk-placeholder-for-api-proxy');
+    expect(result.CODEX_API_KEY).toBe('sk-placeholder-for-api-proxy');
+  });
+
+  it('does not route for incomplete or unrelated OpenAI OIDC configuration', () => {
+    const config = {
+      ...baseConfig,
+      authType: 'github-oidc',
+      authProvider: 'openai',
+      additionalEnv: { AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID: 'idp_test' },
+    } as WrapperConfig;
+    expect(buildOpenAiCredentialEnv({ config, proxyIp })).toEqual({});
+  });
+
   it('real openaiApiKey is NOT present in agent env (credential isolation)', () => {
     const realKey = 'sk-real-secret-key';
     const config = { ...baseConfig, openaiApiKey: realKey } as WrapperConfig;

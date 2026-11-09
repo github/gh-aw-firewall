@@ -695,6 +695,21 @@ describe('buildOidcEnv', () => {
     expect(env.AWF_AUTH_GCP_LOCATION).toBe('us-central1');
   });
 
+  it('forwards OpenAI WIF identifiers supplied via additionalEnv to the sidecar', () => {
+    const env = buildOidcEnv({
+      ...baseConfig,
+      workDir: '/tmp/awf-test',
+      additionalEnv: {
+        AWF_AUTH_TYPE: 'github-oidc',
+        AWF_AUTH_PROVIDER: 'openai',
+        AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID: 'idp_test',
+        AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID: 'sa_test',
+      },
+    });
+    expect(env.AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID).toBe('idp_test');
+    expect(env.AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID).toBe('sa_test');
+  });
+
   it('forwards compiler-provided GCP project and location from the host environment', () => {
     const originalEnv = process.env;
     process.env = {

@@ -6,6 +6,19 @@ import {
 } from './api-proxy-config-domains';
 
 describe('resolveApiTargetsToAllowedDomains', () => {
+  it('does not add the OpenAI WIF token exchange host to the agent allowlist', () => {
+    const domains: string[] = ['github.com'];
+
+    resolveApiTargetsToAllowedDomains({}, domains, {
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'openai',
+      AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID: 'idp_test',
+      AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID: 'sa_test',
+    });
+
+    expect(domains).toEqual(['github.com']);
+  });
+
   it('should add copilot-api-target option to allowed domains', () => {
     const domains: string[] = ['github.com'];
     resolveApiTargetsToAllowedDomains({ copilotApiTarget: 'custom.copilot.com' }, domains);

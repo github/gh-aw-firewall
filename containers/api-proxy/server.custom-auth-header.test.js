@@ -133,12 +133,12 @@ describe('createOpenAIAdapter — custom auth header', () => {
     expect(config.opts.headers.Authorization).toBeUndefined();
   });
 
-  it('OIDC mode (Azure) uses custom header with token', () => {
+  it('Azure OIDC mode uses custom header with token', () => {
     const adapter = createOpenAIAdapter({
       OPENAI_API_KEY: 'sk-openai-test',
       AWF_OPENAI_AUTH_HEADER: 'api-key',
       AWF_AUTH_TYPE: 'github-oidc',
-      AWF_AUTH_PROVIDER: 'openai',
+      AWF_AUTH_PROVIDER: 'azure',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
       AWF_AUTH_AZURE_TENANT_ID: 'test-tenant',
@@ -158,11 +158,74 @@ describe('createOpenAIAdapter — custom auth header', () => {
     provider.shutdown();
   });
 
+  it('OpenAI WIF always uses Authorization Bearer, even with a custom static-key header', () => {
+    const adapter = createOpenAIAdapter({
+      OPENAI_API_KEY: 'sk-openai-test',
+      AWF_OPENAI_AUTH_HEADER: 'api-key',
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'openai',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
+      AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID: 'idp_test',
+      AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID: 'sa_test',
+    });
+    const provider = adapter.getOidcProvider();
+    provider._cachedToken = 'openai-oidc-token';
+    provider._expiresAt = Math.floor(Date.now() / 1000) + 600;
+
+    expect(adapter.getAuthHeaders(fakeReq)).toEqual({
+      Authorization: 'Bearer ' + 'openai-oidc-token',
+    });
+
+    provider.shutdown();
+  });
+
+  it('reports incomplete native OpenAI WIF configuration with required settings', () => {
+    const adapter = createOpenAIAdapter({
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'openai',
+      AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID: 'idp_test',
+      AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID: 'sa_test',
+    });
+
+    const response = adapter.getUnconfiguredResponse();
+    expect(response.body.error.message).toContain('ACTIONS_ID_TOKEN_REQUEST_URL');
+    expect(response.body.error.message).toContain('permissions: id-token: write');
+    expect(response.body.error.message).toContain('AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID');
+    expect(response.body.error.message).toContain('AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID');
+  });
+
+  it('fetches OpenAI models with bearer headers after the native WIF token is ready', () => {
+    const adapter = createOpenAIAdapter({
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'openai',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
+      AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID: 'idp_test',
+      AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID: 'sa_test',
+    });
+    const provider = adapter.getOidcProvider();
+    const wifToken = 'openai-wif-token';
+
+    try {
+      expect(adapter.getModelsFetchConfig()).toBeNull();
+
+      provider._cachedToken = wifToken;
+      provider._expiresAt = Math.floor(Date.now() / 1000) + 600;
+
+      expect(adapter.getModelsFetchConfig().opts.headers).toEqual({
+        Authorization: 'Bearer ' + wifToken,
+      });
+    } finally {
+      provider?.shutdown();
+    }
+  });
+
   it('OIDC mode (Azure) without custom header uses Authorization Bearer', () => {
     const adapter = createOpenAIAdapter({
       OPENAI_API_KEY: 'sk-openai-test',
       AWF_AUTH_TYPE: 'github-oidc',
-      AWF_AUTH_PROVIDER: 'openai',
+      AWF_AUTH_PROVIDER: 'azure',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
       AWF_AUTH_AZURE_TENANT_ID: 'test-tenant',
