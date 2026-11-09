@@ -111,6 +111,10 @@ describe('validateReasoningEffort', () => {
       .toThrow(expect.objectContaining({ code: 'unsupported_reasoning_effort' }));
     expect(() => validateReasoningEffort(Buffer.from(JSON.stringify({
       model: 'gpt-5.4-mini', reasoning_effort: 'future',
+    })), 'openai', '/chat/completions', {}))
+      .toThrow(expect.objectContaining({ code: 'unsupported_reasoning_effort' }));
+    expect(() => validateReasoningEffort(Buffer.from(JSON.stringify({
+      model: 'gpt-5.4-nano', reasoning_effort: 'future',
     })), 'openai', '/chat/completions', {})).not.toThrow();
   });
 

@@ -2,15 +2,15 @@
   "schemaVersion": 1,
   "provenance": {
     "authority": "maintained",
-    "source": "docs/model-api-mapping.json",
-    "revision": "decisions-endpoint-conventions-v1",
-    "at": "2026-11-08T22:25:19Z",
+    "source": "https://github.com/github/gh-aw-firewall/issues/11330",
+    "revision": "reviewed-native-mini-opus4-2026-11-09",
+    "at": "2026-11-09T00:10:26Z",
     "confidence": "estimated"
   },
   "mapping": {
     "title": "Model-to-API Endpoint Mapping",
     "description": "Maps AI model families to supported API endpoints and includes maintained task-routing effort/context metadata for selected model IDs.",
-    "lastUpdated": "2026-11-08T22:25:19Z",
+    "lastUpdated": "2026-11-09T00:10:26Z",
     "sources": {
       "openai": "https://developers.openai.com/api/docs/models",
       "openai_routing": "https://developers.openai.com/api/docs/models/gpt-5.4",
@@ -150,6 +150,48 @@
             "notes": "Supports both endpoints. Listed on the official GPT-5.5 model page. gpt-5.5-pro is responses-only (see separate entry above)."
           },
           {
+            "family": "gpt-5.4-mini",
+            "patterns": [
+              "gpt-5.4-mini*"
+            ],
+            "routingPatterns": [
+              "gpt-5.4-mini",
+              "gpt-5.4-mini-2026-03-17"
+            ],
+            "endpoints": [
+              "chat_completions",
+              "responses"
+            ],
+            "routing": {
+              "reasoningEfforts": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ],
+              "contextWindowTokens": 400000,
+              "reasoningMode": "optional",
+              "defaultEffort": "none"
+            },
+            "routingEvidence": {
+              "at": "2026-11-09T00:09:52.371Z",
+              "scope": {
+                "provider": "openai",
+                "channel": "native-api"
+              },
+              "sources": [
+                "https://developers.openai.com/api/docs/models/gpt-5.4-mini"
+              ],
+              "modelIds": [
+                "gpt-5.4-mini",
+                "gpt-5.4-mini-2026-03-17"
+              ],
+              "conditions": "Native OpenAI API model-page window, not a guaranteed remaining input budget or a Copilot/Codex/custom-deployment limit. The page lists none (default), low, medium, high and xhigh and the recorded snapshot."
+            },
+            "notes": "Independently reviewed GPT-5.4 mini effort/context facts; exact routing IDs only. No pro/cyber/research/preview/nano or future dated variants inherit them. Default is metadata, not request insertion."
+          },
+          {
             "family": "gpt-5.4",
             "patterns": [
               "gpt-5.4*"
@@ -172,7 +214,7 @@
               ],
               "contextWindowTokens": 1050000
             },
-            "notes": "Supports both endpoints on OpenAI. GPT-5.4 routing metadata is exact-model only; mini/nano variants need separately verified data. The model page lists none, low, medium, high, and xhigh reasoning effort and a 1,050,000-token context window."
+            "notes": "Supports both endpoints on OpenAI. GPT-5.4 routing metadata is exact-model only; mini has separately reviewed data and nano remains unverified. The model page lists none, low, medium, high, and xhigh reasoning effort and a 1,050,000-token context window."
           },
           {
             "family": "gpt-5.3-codex",
@@ -587,13 +629,11 @@
             "notes": "Best combination of speed and intelligence with verified 1M-token context windows and the Anthropic effort parameter."
           },
           {
-            "family": "claude-opus-4",
+            "family": "claude-opus-4-6",
             "patterns": [
-              "claude-opus-4*"
+              "claude-opus-4-6"
             ],
             "routingPatterns": [
-              "claude-opus-4-8",
-              "claude-opus-4-7",
               "claude-opus-4-6"
             ],
             "endpoints": [
@@ -606,9 +646,70 @@
                 "high",
                 "max"
               ],
-              "contextWindowTokens": 1000000
+              "contextWindowTokens": 1000000,
+              "reasoningMode": "optional",
+              "defaultEffort": "high"
             },
-            "notes": "Opus 4.6 and newer models have verified 1M-token context windows and support the Anthropic effort parameter."
+            "routingEvidence": {
+              "at": "2026-11-09T00:10:26.467Z",
+              "scope": {
+                "provider": "anthropic",
+                "channel": "native-api"
+              },
+              "sources": [
+                "https://platform.claude.com/docs/en/build-with-claude/effort",
+                "https://platform.claude.com/docs/en/build-with-claude/context-windows",
+                "https://github.com/anthropics/ClaudeForFoundationModels/blob/0262e1a766c461a4268dcec656eca95dd74cebf8/Sources/ClaudeForFoundationModels/ClaudeModel.swift"
+              ],
+              "modelIds": [
+                "claude-opus-4-6"
+              ],
+              "conditions": "Top-level output_config.effort on the native Messages API; high is equivalent to omission. Opus 4.6 supports max but not xhigh. Native 1M total context is default without a beta header; request-size and output/thinking tokens still constrain usable input."
+            },
+            "notes": "Reviewed Opus 4.6 separately from 4.7/4.8. No xhigh support; no inferred dated IDs or specialized variants. Default is metadata, not request insertion."
+          },
+          {
+            "family": "claude-opus-4",
+            "patterns": [
+              "claude-opus-4*"
+            ],
+            "routingPatterns": [
+              "claude-opus-4-8",
+              "claude-opus-4-7"
+            ],
+            "endpoints": [
+              "messages"
+            ],
+            "routing": {
+              "reasoningEfforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "contextWindowTokens": 1000000,
+              "reasoningMode": "optional",
+              "defaultEffort": "high"
+            },
+            "routingEvidence": {
+              "at": "2026-11-09T00:10:26.467Z",
+              "scope": {
+                "provider": "anthropic",
+                "channel": "native-api"
+              },
+              "sources": [
+                "https://platform.claude.com/docs/en/build-with-claude/effort",
+                "https://platform.claude.com/docs/en/build-with-claude/context-windows",
+                "https://github.com/anthropics/ClaudeForFoundationModels/blob/0262e1a766c461a4268dcec656eca95dd74cebf8/Sources/ClaudeForFoundationModels/ClaudeModel.swift"
+              ],
+              "modelIds": [
+                "claude-opus-4-7",
+                "claude-opus-4-8"
+              ],
+              "conditions": "Top-level output_config.effort on the native Messages API; high is equivalent to omission, while xhigh is a coding recommendation, not the default. Native 1M total context is default without a beta header; request-size and output/thinking tokens still constrain usable input."
+            },
+            "notes": "Reviewed exact Opus 4.7/4.8 effort/context facts. Opus 4.6 has a separate negative-xhigh record; broad endpoint patterns do not grant routing support to other revisions."
           },
           {
             "family": "claude-sonnet-4",

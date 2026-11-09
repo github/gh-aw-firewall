@@ -200,7 +200,10 @@ describe('model-api-mapping', () => {
         reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
         contextWindowTokens: 1_050_000,
       });
-      expect(lookupModelRoutingMetadata('gpt-5.4-mini', 'openai')).toBeNull();
+      expect(lookupModelRoutingMetadata('gpt-5.4-mini', 'openai')).toMatchObject({
+        reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+        contextWindowTokens: 400_000, reasoningMode: 'optional', defaultEffort: 'none',
+      });
       expect(lookupModelRoutingMetadata('o3', 'openai')).toBeNull();
       expect(lookupModelRoutingMetadata('gpt-5.4-2026-03-05', 'openai'))
         .toMatchObject({ contextWindowTokens: 1_050_000 });

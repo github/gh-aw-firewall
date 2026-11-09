@@ -114,6 +114,38 @@ describe('routing metadata in /reflect', () => {
       },
     ]);
   });
+
+  it('does not expose maintained reasoning or context metadata for a custom target', () => {
+    const adapter = {
+      name: 'openai',
+      getTargetHost: () => 'router.example.com',
+      getTargetScheme: () => 'https',
+      getReflectionInfo: () => ({
+        provider: 'openai', port: 10000, configured: true, models_cache_key: 'openai',
+      }),
+    };
+    const result = createManagementHandlers({
+      getAdapters: () => [adapter],
+      getCachedModels: () => ({ openai: ['gpt-5.4-mini'] }),
+      getRuntimeModelMetadata: () => ({ openai: [] }),
+      getRoutingModelMetadata: () => ({ openai: [] }),
+      isModelFetchComplete: () => true,
+      getModelAliases: () => null,
+      getModelFallback: () => null,
+      getEffectiveModelFallback: () => ({}),
+      getAiCreditsUsage: () => ({}),
+      getMaxRunsUsage: () => ({}),
+      getMaxCacheMissesUsage: () => ({}),
+      getPermissionDeniedUsage: () => ({}),
+    }).reflectEndpoints();
+
+    expect(result.endpoints[0].routing_models[0]).toMatchObject({
+      model_id: 'gpt-5.4-mini',
+      source: 'incomplete',
+      supported_reasoning_efforts: null,
+      context_window_tokens: null,
+    });
+  });
 });
 
 describe('model policy filtering in /reflect', () => {

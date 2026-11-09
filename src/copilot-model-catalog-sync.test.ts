@@ -112,6 +112,7 @@ const MAPPING_FAMILIES_NOT_EXPOSED_BY_COPILOT_CLI = new Set([
   'claude-3-5-haiku',
   'claude-3-7-sonnet',
   'claude-3-opus',
+  'claude-opus-4-6', // Exact native Opus 4.6 routing record, not a new Copilot CLI model.
   'claude-haiku-5', // API mapping covers this family; it is not in the Copilot CLI model picker.
 ]);
 
@@ -203,7 +204,6 @@ describe('SUPPORTED_COPILOT_MODELS ↔ ai-credits-pricing catalog sync', () => {
       'gpt-6.1-sol',
     ]
       .filter(family => !openai.find(entry => entry.family === family)?.routing)).toEqual([
-      'gpt-5.4-mini',
       'gpt-5.5',
       'gpt-5.6',
       'gpt-5.6-sol',
@@ -231,8 +231,6 @@ describe('SUPPORTED_COPILOT_MODELS ↔ ai-credits-pricing catalog sync', () => {
       'claude-opus-5-5',
       'claude-sonnet-5',
       'claude-sonnet-5-5',
-      'claude-opus-4-7',
-      'claude-opus-4-8',
     ];
     expect(missingXhigh.map(model => {
       const entry = mapping.providers.anthropic.models.find(candidate =>

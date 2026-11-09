@@ -309,6 +309,22 @@ test('ignores opaque tool arguments and image source metadata but checks nested 
   }, 'anthropic', request, '/v1/messages')).toBe(false);
 });
 
+test('does not use maintained context limits when checking recovery on a custom target', () => {
+  const { isRecoveryCompatible } = require('./model-recovery');
+  const original = { id: 'gpt-5.4-mini' };
+  const candidate = {
+    id: 'replacement',
+    supportedEndpoints: ['/responses'],
+    capabilities: { limits: { max_context_window_tokens: 300_000 } },
+  };
+  const request = { model: original.id, input: 'check' };
+
+  expect(isRecoveryCompatible(candidate, 'openai', request, '/v1/responses', original)).toBe(false);
+  expect(isRecoveryCompatible(candidate, 'openai', request, '/v1/responses', original, {
+    awfFallbackTarget: { targetHost: 'router.example.com', targetScheme: 'https' },
+  })).toBe(true);
+});
+
 test('returns to the original endpoint when replacing a model rejected on both wire APIs', async () => {
   catalog.replaceRuntimeModels('copilot', [record('primary'), record('next')]);
   await start({ model: 'primary', messages: [] });

@@ -134,6 +134,8 @@ function lookupModelRoutingMetadata(model, provider) {
     endpoints: [...entry.endpoints],
     reasoningEfforts: [...routing.reasoningEfforts],
     contextWindowTokens: routing.contextWindowTokens,
+    ...(routing.reasoningMode === undefined ? {} : { reasoningMode: routing.reasoningMode }),
+    ...(routing.defaultEffort === undefined ? {} : { defaultEffort: routing.defaultEffort }),
   };
 }
 

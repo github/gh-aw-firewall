@@ -29,12 +29,17 @@ function freezeModel(model) {
   return Object.freeze(model);
 }
 
-function normalizeModel(id, metadata, provider, scope, records) {
-  const mapped = lookupModelRoutingMetadata(id, provider);
+function normalizeModel(id, metadata, provider, scope, records, reasoningOptions) {
+  const mapped = scope?.deployment === undefined &&
+    (scope?.channel === undefined || scope.channel === 'native-api')
+    ? lookupModelRoutingMetadata(id, provider) : null;
   const endpointMapping = lookupModelEndpoints(id, provider);
   const limits = metadata?.capabilities?.limits;
+  const { scope: reasoningScope = scope, maintained } = reasoningOptions || {};
   const reasoning = resolveModelReasoning(id, provider, {
-    records: records || (metadata ? [{ ...metadata, id: metadata.id || id }] : []), scope,
+    records: records || (metadata ? [{ ...metadata, id: metadata.id || id }] : []),
+    scope: reasoningScope,
+    ...(maintained === undefined ? {} : { maintained }),
   });
   const efforts = ['absent', 'unknown'].includes(reasoning.support) ? undefined : reasoning.supportedEfforts;
   const runtimeContextWindow = limits?.max_context_window_tokens;

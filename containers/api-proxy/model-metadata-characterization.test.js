@@ -152,7 +152,7 @@ describe('model identity is intentionally different between consumers', () => {
   });
 
   it.each([
-    ['gpt-5.4-mini', 'openai'],
+    ['gpt-5.4-mini', 'openai', true],
     ['gpt-5.5', 'openai'],
     ['gpt-5.6', 'openai'],
     ['gpt-5.6-sol', 'openai'],
@@ -162,8 +162,12 @@ describe('model identity is intentionally different between consumers', () => {
     ['gpt-6-astra', 'openai'],
     ['gpt-6-luna', 'openai'],
     ['claude-haiku-5-5', 'anthropic'],
-  ])('#10030: %s currently has no maintained routing choices', (model, provider) => {
-    expect(lookupModelRoutingMetadata(model, provider)).toBeNull();
+  ])('#10030: %s has only explicitly activated routing facts', (model, provider, active = false) => {
+    if (active) {
+      expect(lookupModelRoutingMetadata(model, provider)).toMatchObject({
+        reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'], contextWindowTokens: 400_000,
+      });
+    } else expect(lookupModelRoutingMetadata(model, provider)).toBeNull();
   });
 
   it.each([
@@ -171,12 +175,13 @@ describe('model identity is intentionally different between consumers', () => {
     ['claude-opus-5-5', 'anthropic'],
     ['claude-sonnet-5', 'anthropic'],
     ['claude-sonnet-5-5', 'anthropic'],
-    ['claude-opus-4-7', 'anthropic'],
-    ['claude-opus-4-8', 'anthropic'],
-  ])('#10030: %s routing metadata currently omits xhigh', (model, provider) => {
+    ['claude-opus-4-7', 'anthropic', true],
+    ['claude-opus-4-8', 'anthropic', true],
+    ['claude-opus-4-6', 'anthropic'],
+  ])('#10030: %s has revision-specific xhigh coverage', (model, provider, xhigh = false) => {
     const routing = lookupModelRoutingMetadata(model, provider);
     expect(routing).not.toBeNull();
-    expect(routing.reasoningEfforts).not.toContain('xhigh');
+    expect(routing.reasoningEfforts.includes('xhigh')).toBe(xhigh);
   });
 });
 

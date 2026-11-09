@@ -23,6 +23,7 @@ const {
 } = require('./model-api-mapping');
 const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
 const { normalizeModel } = require('./routing-catalogue');
+const { getReasoningScope } = require('./model-reasoning');
 const { getModelRoutingChoices } = require('./routing-candidates');
 const { reflectScopedAuto } = require('./scoped-auto-model');
 const { projectModelDecisionDiagnostics } = require('./model-decision-diagnostics');
@@ -43,7 +44,7 @@ function filterModelCatalogue(entries, provider, modelPolicy, getModel) {
   });
 }
 
-function buildRoutingModelMetadata(provider, modelIds, runtimeRecords) {
+function buildRoutingModelMetadata(provider, modelIds, runtimeRecords, scope) {
   if (!Array.isArray(modelIds)) return null;
   const runtimeById = new Map(
     (Array.isArray(runtimeRecords) ? runtimeRecords : [])
@@ -52,9 +53,12 @@ function buildRoutingModelMetadata(provider, modelIds, runtimeRecords) {
   );
   return modelIds.map(id => {
     const runtime = runtimeById.get(id.toLowerCase());
-    const maintained = lookupModelRoutingMetadata(id, provider);
+    const maintained = scope?.deployment === undefined &&
+      (scope?.channel === undefined || scope.channel === 'native-api')
+      ? lookupModelRoutingMetadata(id, provider)
+      : null;
     const endpointMapping = lookupModelEndpoints(id, provider);
-    const normalized = normalizeModel(id, runtime, provider);
+    const normalized = normalizeModel(id, runtime, provider, scope);
     const efforts = Array.isArray(normalized.efforts) ? normalized.efforts : null;
     const endpoints = Array.isArray(runtime?.supportedEndpoints)
       ? runtime.supportedEndpoints
@@ -182,6 +186,11 @@ function createManagementHandlers(deps) {
     const reflection = {
       endpoints: getAdapters().map(adapter => {
         const info = adapter.getReflectionInfo();
+        const scope = getReasoningScope(
+          adapter.name,
+          adapter.getTargetHost?.(),
+          adapter.getTargetScheme?.(),
+        );
         const providerModels = info.models_cache_key !== null
           ? (cachedModels[info.models_cache_key] || null)
           : null;
@@ -221,6 +230,7 @@ function createManagementHandlers(deps) {
             adapter.name,
             models,
             privateRoutingModelMetadata,
+            scope,
           ),
           models_url: info.models_url,
           ...(info.credential_kind !== undefined && { credential_kind: info.credential_kind }),

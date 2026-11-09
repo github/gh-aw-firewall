@@ -65,19 +65,6 @@
   "routing": [
     {
       "provider": "openai",
-      "id": "gpt-5.4-mini",
-      "family": "gpt-5.4-mini",
-      "context": 400000,
-      "efforts": [
-        "none",
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ]
-    },
-    {
-      "provider": "openai",
       "id": "gpt-5.5",
       "family": "gpt-5.5",
       "context": 1050000,
@@ -303,41 +290,6 @@
         "medium",
         "high",
         "xhigh",
-        "max"
-      ]
-    },
-    {
-      "provider": "anthropic",
-      "id": "claude-opus-4.8",
-      "family": "claude-opus-4",
-      "efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ]
-    },
-    {
-      "provider": "anthropic",
-      "id": "claude-opus-4.7",
-      "family": "claude-opus-4",
-      "efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ]
-    },
-    {
-      "provider": "anthropic",
-      "id": "claude-opus-4.6",
-      "family": "claude-opus-4",
-      "efforts": [
-        "low",
-        "medium",
-        "high",
         "max"
       ]
     },
