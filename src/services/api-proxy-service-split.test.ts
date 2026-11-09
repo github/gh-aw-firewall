@@ -130,6 +130,7 @@ describe('API proxy split builders', () => {
       AWF_API_PROXY_COPILOT_URL: 'http://172.42.0.30:10002',
       AWF_API_PROXY_GEMINI_URL: 'http://172.42.0.30:10003',
       AWF_API_PROXY_VERTEX_URL: 'http://172.42.0.30:10004',
+      AWF_API_PROXY_FOUNDRY_URL: 'http://172.42.0.30:10005',
     });
   });
 

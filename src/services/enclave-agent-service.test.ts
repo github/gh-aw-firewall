@@ -354,6 +354,27 @@ describe('dedicated enclave agent API proxy', () => {
     }
   });
 
+  it('removes Foundry credentials and routing from the enclave proxy', () => {
+    const proxy = build({
+      additionalEnv: {
+        FOUNDRY_API_KEY: 'foundry-key',
+        FOUNDRY_ENTRA_TOKEN: 'foundry-token',
+        FOUNDRY_API_TARGET: 'resource.example.com',
+        FOUNDRY_API_BASE_PATH: '/providers/microsoft/v1',
+      },
+    }).agentApiProxyService as Record<string, any>;
+    const environment = proxy.environment as Record<string, string>;
+
+    for (const key of [
+      'FOUNDRY_API_KEY',
+      'FOUNDRY_ENTRA_TOKEN',
+      'FOUNDRY_API_TARGET',
+      'FOUNDRY_API_BASE_PATH',
+    ]) {
+      expect(environment[key]).toBeUndefined();
+    }
+  });
+
   it('drops the copilot credential for a non-copilot engine route', () => {
     const enclaves = normalizeEnclavesConfig([
       {

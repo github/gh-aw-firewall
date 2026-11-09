@@ -10,6 +10,7 @@ describe('createAllAdapters', () => {
       copilotBodyTransform: jest.fn(),
       geminiBodyTransform: jest.fn(),
       vertexBodyTransform: jest.fn(),
+      foundryBodyTransform: jest.fn(),
     };
 
     const adapters = createAllAdapters({
@@ -18,6 +19,8 @@ describe('createAllAdapters', () => {
       COPILOT_GITHUB_TOKEN: 'copilot-token',
       GEMINI_API_KEY: 'gemini-key',
       GOOGLE_API_KEY: 'vertex-key',
+      FOUNDRY_API_TARGET: 'resource.services.ai.azure.com',
+      FOUNDRY_API_KEY: 'foundry-key',
     }, transforms);
 
     expect(adapters.map(({ name, port }) => ({ name, port }))).toEqual([
@@ -26,6 +29,7 @@ describe('createAllAdapters', () => {
       { name: 'copilot', port: 10002 },
       { name: 'gemini', port: 10003 },
       { name: 'vertex', port: 10004 },
+      { name: 'foundry', port: 10005 },
     ]);
     expect(adapters.map(adapter => adapter.getBodyTransform())).toEqual([
       transforms.openaiBodyTransform,
@@ -33,6 +37,7 @@ describe('createAllAdapters', () => {
       expect.any(Function),
       transforms.geminiBodyTransform,
       transforms.vertexBodyTransform,
+      transforms.foundryBodyTransform,
     ]);
 
     const copilotBody = Buffer.from('{}');

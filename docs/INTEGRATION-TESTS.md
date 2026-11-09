@@ -8,6 +8,10 @@ A reference guide to what the gh-aw-firewall integration tests cover and how the
 
 ## Quick Navigation
 
+For the manually dispatched three-engine diagnostic utilization evaluation, see
+[Real-agent `/reflect` utilization smoke](../scripts/ci/reflect-smoke/README.md).
+Its provider-free fixture/grader checks are distinct from live-agent acceptance.
+
 | Area | Tests | Doc |
 |------|-------|-----|
 | Domain filtering, DNS, network security | 6 files, ~50 tests | [domain-network.md](test-analysis/domain-network.md) |

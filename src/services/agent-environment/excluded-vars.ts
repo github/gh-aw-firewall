@@ -62,6 +62,8 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     excludedEnvVars.add('GEMINI_API_BASE_URL');
     excludedEnvVars.add('GOOGLE_API_KEY');
     excludedEnvVars.add('GOOGLE_VERTEX_BASE_URL');
+    excludedEnvVars.add('FOUNDRY_API_KEY');
+    excludedEnvVars.add('FOUNDRY_ENTRA_TOKEN');
     // GitHub tokens are excluded when API proxy is enabled (strict mode):
     // the agent must not hold live credentials that can be extracted via
     // /proc/self/environ or environment inspection.

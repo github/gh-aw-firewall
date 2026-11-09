@@ -84,6 +84,22 @@ export interface LoadedFinding {
   source: string;
 }
 
+export function isCalendarDate(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    Number.isFinite(Date.parse(`${value}T00:00:00Z`)) &&
+    new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+}
+
+/** Review dates are inclusive: a record becomes overdue on the following UTC day. */
+export function overdueFindings(loaded: LoadedFinding[], asOf: string): LoadedFinding[] {
+  if (!isCalendarDate(asOf)) throw new Error('Review date must be a real UTC date (YYYY-MM-DD)');
+  return loaded.filter(({ finding }) => {
+    if (!isCalendarDate(finding.reviewBy)) throw new Error(`Invalid reviewBy for ${finding.id}`);
+    return finding.status !== 'superseded' && finding.reviewBy < asOf;
+  }).sort((a, b) => a.finding.reviewBy.localeCompare(b.finding.reviewBy) ||
+    compareFindings(a.finding, b.finding));
+}
+
 /**
  * Patterns that must never appear in a finding. They cover credential values,
  * environment dumps, token exchanges and isolation bypasses.
@@ -186,6 +202,10 @@ export function validateFindings(
         errors.push(`${prefix}: schema error at ${error.instancePath || '/'} ${error.message}`);
       }
       continue;
+    }
+
+    if (!isCalendarDate(finding.reviewBy)) {
+      errors.push(`${prefix}: reviewBy must be a real calendar date`);
     }
 
     const expectedDir = `docs/diagnostics/findings/${finding.boundary}/${finding.id}.json`;

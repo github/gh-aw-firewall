@@ -12,6 +12,24 @@ jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaM
 const { getConfig } = useAgentVolumesTestConfig();
 
 describe('agent service', () => {
+  it('masks a Foundry credential env file inside the /tmp bind', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'foundry-env-file-'));
+    const envFile = path.join(root, 'foundry.env');
+    fs.writeFileSync(envFile, 'FOUNDRY_API_KEY=synthetic-secret\n');
+    try {
+      const volumes = generateDockerCompose({
+        ...getConfig(),
+        enableApiProxy: true,
+        envFile,
+      }, mockNetworkConfig).services.agent.volumes as string[];
+
+      expect(volumes).toContain(`/dev/null:${envFile}:ro`);
+      expect(volumes).toContain(`/dev/null:/host${envFile}:ro`);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('masks GitLab credentials exposed through custom binds without duplicate mount targets', () => {
     const configDir = path.join(getConfig().workDir, 'gitlab-auth');
     fs.mkdirSync(configDir);

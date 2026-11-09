@@ -102,6 +102,7 @@ describe('microVM network planning', () => {
       { name: 'api-proxy-copilot', ip: '172.30.0.30', port: 10002 },
       { name: 'api-proxy-gemini', ip: '172.30.0.30', port: 10003 },
       { name: 'api-proxy-vertex', ip: '172.30.0.30', port: 10004 },
+      { name: 'api-proxy-foundry', ip: '172.30.0.30', port: 10005 },
     ]);
     expect(disabled.allowedEndpoints).toEqual([
       { name: 'squid', ip: '172.30.0.10', port: 3128 },
@@ -173,7 +174,7 @@ describe('microVM nftables policy', () => {
     expect(ruleset).toContain('tcp dport 53 counter drop');
     expect(ruleset).toContain('ct state established,related counter accept');
     expect(ruleset).toContain('ip daddr 172.30.0.10 tcp dport 3128');
-    for (let port = 10000; port <= 10004; port += 1) {
+    for (let port = 10000; port <= 10005; port += 1) {
       expect(ruleset).toContain(`ip daddr 172.30.0.30 tcp dport ${port}`);
     }
     expect(ruleset).not.toContain('masquerade');
