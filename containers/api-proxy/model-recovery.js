@@ -16,7 +16,7 @@ const {
   getModelEligibilityScope,
 } = require('./model-eligibility');
 const { assessRequestCompatibility } = require('./protocol-compatibility/assessment');
-const { getRequestReasoning } = require('./model-reasoning');
+const { getRequestReasoning, getReasoningScope } = require('./model-reasoning');
 
 const MAX_AUTOMATIC_RECOVERIES = 3;
 
@@ -73,11 +73,20 @@ function protocolForUrl(url) {
 
 // Automatic recovery is deliberately stricter than explicit fallback: unknown
 // capabilities are not evidence that a replacement can preserve a feature.
-function isRecoveryCompatible(record, provider, parsed, url, originalRecord) {
+function isRecoveryCompatible(record, provider, parsed, url, originalRecord, req = {}) {
   const protocol = protocolForUrl(url);
   if (!parsed || !protocol || record.modelPickerEnabled === false) return false;
   if (typeof parsed.model === 'string' && parsed.model.includes('?')) return false;
-  const model = normalizeModel(record.id, record, provider);
+  const scope = getReasoningScope(
+    provider,
+    req.awfFallbackTarget?.targetHost,
+    req.awfFallbackTarget?.targetScheme,
+    req,
+  );
+  const reasoningOptions = scope.deployment === undefined
+    ? undefined
+    : { scope: getReasoningScope(provider), maintained: false };
+  const model = normalizeModel(record.id, record, provider, scope, undefined, reasoningOptions);
   if (!model.protocols?.includes(protocol)) return false;
   if (record.supportedEndpoints && !record.supportedEndpoints.some(endpoint =>
     typeof endpoint === 'string' && !endpoint.includes(':') &&
@@ -86,7 +95,9 @@ function isRecoveryCompatible(record, provider, parsed, url, originalRecord) {
   const effort = protocol === 'responses' ? parsed.reasoning?.effort
     : protocol === 'messages' ? parsed.output_config?.effort : parsed.reasoning_effort;
   if (effort !== undefined && !model.efforts?.includes(effort)) return false;
-  const original = normalizeModel(originalRecord?.id || parsed.model, originalRecord, provider);
+  const original = normalizeModel(
+    originalRecord?.id || parsed.model, originalRecord, provider, scope, undefined, reasoningOptions,
+  );
   if (original?.contextWindow && (!model.contextWindow || model.contextWindow < original.contextWindow)) return false;
   const outputLimit = record.capabilities?.limits?.max_output_tokens;
   const originalOutputLimit = originalRecord?.capabilities?.limits?.max_output_tokens;
@@ -185,7 +196,7 @@ function getAutomaticRecoveryCandidates({ model, provider, body, url, req, isPer
   return records.filter(record =>
     record.id.toLowerCase() !== nativeModel(model, provider).toLowerCase() &&
     !getRetiredModelBlockState(record.id, provider, { inputMode: 'native' }) &&
-    isRecoveryCompatible(record, provider, parsed, url, originalRecord) &&
+    isRecoveryCompatible(record, provider, parsed, url, originalRecord, req) &&
     permitted(record.id, provider))
     .map(record => record.id)
     .sort((left, right) =>
