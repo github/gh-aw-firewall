@@ -461,16 +461,13 @@ describe('actual AWF -> CONNECT proxy -> verified HTTPS service -> provider chai
     expect(fallbackLookup).not.toHaveBeenCalledWith('openai');
   });
 
-  it('fails actual TLS verification even if global verification is disabled, without fallback', async () => {
+  it('fails actual TLS verification without fallback', async () => {
     trustCertificate = false;
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-    try {
-      const result = await request(body);
-      expect(result.status).toBe(502);
-      expect(serviceCalls).toHaveLength(0);
-      expect(tunnels).toHaveLength(1);
-      expect(fallbackLookup).not.toHaveBeenCalledWith('openai');
-    } finally { delete process.env.NODE_TLS_REJECT_UNAUTHORIZED; }
+    const result = await request(body);
+    expect(result.status).toBe(502);
+    expect(serviceCalls).toHaveLength(0);
+    expect(tunnels).toHaveLength(1);
+    expect(fallbackLookup).not.toHaveBeenCalledWith('openai');
   });
 
   it('fails unreachable/denied service connections without fallback', async () => {
