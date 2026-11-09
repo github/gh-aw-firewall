@@ -6,11 +6,24 @@ import { isCalendarDate } from './registry';
 
 const WEEK = 7 * 86400_000;
 
+function sanitizeForAgentText(value: string): string {
+  const noControls = value.replace(/[\u0000-\u001f\u007f]/g, ' ');
+  const neutralized = noControls
+    .replace(/```/g, '`\\`\\`')
+    .replace(/<\s*\/?\s*(system|assistant|user|tool)\s*>/gi, '[role-tag]')
+    .replace(/\b(ignore|override|bypass|disregard)\b/gi, '[redacted]');
+  return neutralized.trim().slice(0, 500);
+}
+
 export interface Candidate {
   number: number;
   title: string;
   html_url: string;
   updated_at: string;
+}
+
+function toSafeCandidate(candidate: Candidate): Candidate {
+  return { ...candidate, title: sanitizeForAgentText(candidate.title) };
 }
 
 export interface IntakeState {
@@ -192,7 +205,11 @@ async function main(): Promise<void> {
   const collected = await collectIntake(state, receipts,
     (since, until) => fetchMergedWindow(repository, since, until), now);
   fs.writeFileSync(path.join(outputDir, 'scan-since.txt'), `${state.since}\n`);
-  fs.writeFileSync(path.join(outputDir, 'candidates.json'), JSON.stringify(collected, null, 2) + '\n');
+  const safeForAgents = {
+    ...collected,
+    pending: collected.pending.map(toSafeCandidate),
+  };
+  fs.writeFileSync(path.join(outputDir, 'candidates.json'), JSON.stringify(safeForAgents, null, 2) + '\n');
   fs.writeFileSync(`${statePath}.tmp`, JSON.stringify(collected, null, 2) + '\n', { flag: 'wx' });
   fs.renameSync(`${statePath}.tmp`, statePath);
   console.log(`Collected ${collected.pending.length} unclassified/deferred merges; forward=${collected.since}; historical=${collected.historyBefore}`);
