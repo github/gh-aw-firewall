@@ -1432,6 +1432,7 @@ describe('standalone public enclave diagnostics collector', () => {
       backend: string; sourceUid: number; journal: string; debug: string; trustedRoot: string;
     }>;
     let sourceRoots: string[];
+    let openedPaths: Map<number, string>;
     const privilegedUid = process.getuid!();
     const privilegedGid = process.getgid!();
     const runnerUid = privilegedUid < 0xfffffffe ? privilegedUid + 1 : privilegedUid - 1;
@@ -1444,6 +1445,7 @@ describe('standalone public enclave diagnostics collector', () => {
       root = fs.mkdtempSync(path.join(os.tmpdir(), 'enclave-dispatcher-test-'));
       exportRoot = path.join(root, 'export');
       fs.mkdirSync(exportRoot, { mode: 0o711 });
+      openedPaths = new Map();
       sourceRoots = [0, 1].map(() => fs.mkdtempSync(path.join(os.tmpdir(), 'enclave-source-test-')));
       candidates = sourceRoots.map((sourceRoot, index) => {
         const journal = path.join(sourceRoot, 'journal');
@@ -1468,10 +1470,19 @@ describe('standalone public enclave diagnostics collector', () => {
         });
         return ownedStat;
       }) as typeof fs.lstatSync);
+      const actualOpenSync = mutableFs.openSync.bind(mutableFs);
+      jest.spyOn(mutableFs, 'openSync').mockImplementation(((
+        target: fs.PathLike, flags: fs.OpenMode, mode?: fs.Mode,
+      ) => {
+        const fd = actualOpenSync(target, flags, mode);
+        openedPaths.set(fd, path.resolve(target.toString()));
+        return fd;
+      }) as typeof fs.openSync);
       const actualFstatSync = mutableFs.fstatSync.bind(mutableFs);
       jest.spyOn(mutableFs, 'fstatSync').mockImplementation(((fd: number) => {
         const stat = actualFstatSync(fd);
-        const targetPath = path.resolve(mutableFs.readlinkSync(`/proc/self/fd/${fd}`));
+        const targetPath = openedPaths.get(fd);
+        if (targetPath === undefined) return stat;
         const sourceIndex = sourceRoots.findIndex(sourceRoot => targetPath === sourceRoot
           || targetPath.startsWith(`${sourceRoot}${path.sep}`));
         if (sourceIndex === -1) return stat;
