@@ -103,7 +103,7 @@ When `AWF_AUTH_TYPE=github-oidc` and `AWF_AUTH_PROVIDER=openai`, the sidecar req
 | Service account ID | `AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID` |
 | OIDC audience | `AWF_AUTH_OIDC_AUDIENCE` (default: `https://api.openai.com/v1`) |
 | Exchange endpoint | `https://auth.openai.com/oauth/token` |
-| Header sent upstream | `Authorization: ****** |
+| Header sent upstream | Returned OpenAI access token, used as bearer credential |
 
 The API-proxy environment pipeline keeps the federation settings in the sidecar. AWF automatically allows `auth.openai.com` through Squid only when OpenAI WIF is selected.
 

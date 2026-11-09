@@ -1,32 +1,29 @@
 import { WrapperConfig } from '../../types';
 import { getConfigEnvValue } from '../../env-utils';
 
-function resolveConfigOrEnvValue(
-  config: WrapperConfig,
-  configKey: keyof WrapperConfig,
-  envVar: string,
-): string | undefined {
-  const configValue = config[configKey];
-  if (typeof configValue === 'string' && configValue.trim()) {
-    return configValue.trim();
-  }
-  const configEnvValue = getConfigEnvValue(config, envVar)?.trim();
-  if (configEnvValue) {
-    return configEnvValue;
-  }
-  return process.env[envVar]?.trim() || undefined;
-}
-
-function resolveEnvValue(config: WrapperConfig, envVar: string): string | undefined {
-  const configEnvValue = getConfigEnvValue(config, envVar)?.trim();
-  return configEnvValue || process.env[envVar]?.trim() || undefined;
+function resolveValue(...values: Array<string | undefined>): string | undefined {
+  return values.map(value => value?.trim()).find(Boolean);
 }
 
 export function isOpenAiOidcConfigured(config: WrapperConfig): boolean {
-  const authType = resolveConfigOrEnvValue(config, 'authType', 'AWF_AUTH_TYPE')?.toLowerCase();
-  const authProvider = resolveConfigOrEnvValue(config, 'authProvider', 'AWF_AUTH_PROVIDER')?.toLowerCase();
-  const identityProviderId = resolveEnvValue(config, 'AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID');
-  const serviceAccountId = resolveEnvValue(config, 'AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID');
+  const authType = resolveValue(
+    config.authType,
+    getConfigEnvValue(config, 'AWF_AUTH_TYPE'),
+    process.env.AWF_AUTH_TYPE,
+  )?.toLowerCase();
+  const authProvider = resolveValue(
+    config.authProvider,
+    getConfigEnvValue(config, 'AWF_AUTH_PROVIDER'),
+    process.env.AWF_AUTH_PROVIDER,
+  )?.toLowerCase();
+  const identityProviderId = resolveValue(
+    getConfigEnvValue(config, 'AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID'),
+    process.env.AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID,
+  );
+  const serviceAccountId = resolveValue(
+    getConfigEnvValue(config, 'AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID'),
+    process.env.AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID,
+  );
 
   return authType === 'github-oidc'
     && authProvider === 'openai'
