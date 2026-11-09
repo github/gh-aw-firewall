@@ -161,8 +161,8 @@ export interface SquidConfig {
    */
   apiProxyPorts?: number[];
 
-  /** Exact custom-port upstreams reachable only from the trusted API proxy. */
-  apiProxyUpstreams?: Array<{ hostname: string; port: number }>;
+  /** Exact API proxy upstreams; proxyOnly also admits standard ports without widening agent ACLs. */
+  apiProxyUpstreams?: Array<{ hostname: string; port: number; proxyOnly?: boolean }>;
 
   /**
    * IP address of the credential-isolated CLI proxy sidecar.

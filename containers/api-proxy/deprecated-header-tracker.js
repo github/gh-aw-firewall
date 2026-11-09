@@ -1,6 +1,7 @@
 'use strict';
 
 const { logRequest } = require('./logging');
+const { TRUSTED_SERVICE_HEADERS } = require('./trusted-service');
 
 /** Map of headerName → Set of rejected values, learned from upstream 400 responses. */
 const deprecatedHeaderValues = new Map();
@@ -52,6 +53,7 @@ function getDeprecatedValuesForHeader(headerName) {
 
 function maybeStripLearnedHeaderValues(headers, requestId, provider) {
   for (const [headerName, rejectedValues] of deprecatedHeaderValues) {
+    if (headers[TRUSTED_SERVICE_HEADERS]?.has(headerName.toLowerCase())) continue;
     if (!headers[headerName] || !rejectedValues.size) continue;
     const stripped = stripValuesFromHeader(headers, headerName, rejectedValues);
     if (!stripped) continue;
@@ -74,6 +76,7 @@ function parseDeprecatedHeaderFromBody(body) {
 }
 
 function learnAndStripDeprecatedHeaderValue(headers, headerName, deprecatedValue, requestId, provider) {
+  if (headers[TRUSTED_SERVICE_HEADERS]?.has(headerName.toLowerCase())) return null;
   const rejectedValues = getDeprecatedValuesForHeader(headerName);
   rejectedValues.add(deprecatedValue);
   if (rejectedValues.size > MAX_CACHED_VALUES_PER_HEADER) {

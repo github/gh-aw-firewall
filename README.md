@@ -101,6 +101,7 @@ See [GitHub Actions](docs/github_actions.md) for advanced setup and `awf logs su
 - [ARC/DinD configuration](docs/arc-dind.md) — split-filesystem runner prerequisites and execution limitations
 - [Chroot mode](docs/chroot-mode.md) — use host binaries with network isolation (glibc-based daemon hosts)
 - [API proxy sidecar](docs/api-proxy-sidecar.md) — secure credential management for LLM APIs
+- [Trusted LLM services](docs/awf-config-spec.md#910-trusted-llm-services) — opt-in HTTPS service chaining, supplemental secret headers, and the separate native-telemetry gateway handoff
 - [Authentication architecture](docs/authentication-architecture.md) — deep dive into token handling and credential isolation
 - [Authentication matrix](docs/auth-matrix.md) — supported static, BYOK, and OIDC provider combinations
 - [Protected command output capture](docs/protected-command-output.md) — isolated raw stdout/stderr capture and completion metadata

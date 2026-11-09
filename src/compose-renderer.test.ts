@@ -53,4 +53,15 @@ describe('renderDockerCompose', () => {
     expect(parsed.services.agent.command).toEqual(compose.services.agent.command);
     expect(parsed.services.helper).toEqual(compose.services.helper);
   });
+
+  it('preserves null environment passthrough values', () => {
+    const compose: DockerComposeConfig = {
+      services: { 'api-proxy': { container_name: 'api-proxy', environment: { CORPORATE_SECRET: null } } },
+      networks: {},
+    };
+
+    const parsed = yaml.load(renderDockerCompose(compose)) as DockerComposeConfig;
+
+    expect(parsed.services['api-proxy'].environment?.CORPORATE_SECRET).toBeNull();
+  });
 });

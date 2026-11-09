@@ -11,6 +11,7 @@
  */
 
 'use strict';
+const { readTrustedService } = require('./trusted-service');
 
 const {
   normalizeApiTarget,
@@ -19,6 +20,7 @@ const {
   makeUnconfiguredHealthResponse,
   getTargetScheme,
   stripTargetScheme,
+  buildUpstreamPath,
 } = require('./proxy-utils');
 
 /**
@@ -92,6 +94,7 @@ function createBaseAdapterConfig(env, { keyEnvVar, targetEnvVar, basePathEnvVar,
  * @param {string|null} [opts.modelsCacheKey]
  * @param {boolean} [opts.credentialConfigured]
  * @param {boolean} [opts.participatesInValidation]
+ * @param {boolean} [opts.trustedService]
  * @param {boolean} [opts.reflectionConfigured]
  * @param {string|null} [opts.reflectionModelsPath]
  * @param {Record<string, unknown>|(() => Record<string, unknown>)} [opts.reflectionExtra]
@@ -126,6 +129,7 @@ function createAdapterMethods(opts) {
     modelsCacheKey = provider,
     credentialConfigured = !!apiKey,
     participatesInValidation = credentialConfigured,
+    trustedService = false,
     reflectionConfigured = !!apiKey,
     reflectionModelsPath = modelsPath,
     reflectionExtra = {},
@@ -162,7 +166,9 @@ function createAdapterMethods(opts) {
     // prefixes for OpenAI-compatible gateways, while validation probes use the
     // canonical default-target endpoint path.
     const modelsPrefix = basePath === '/' ? '' : basePath;
-    const path = modelsPrefix ? `${modelsPrefix}/models` : modelsPath;
+    const path = trustedService
+      ? buildUpstreamPath(modelsPath, targetHost, basePath)
+      : (modelsPrefix ? `${modelsPrefix}/models` : modelsPath);
     return {
       url: `${targetScheme}://${targetHost}${path}`,
       opts: { method: 'GET', headers: resolveValue(modelsFetchHeaders) },
@@ -250,7 +256,18 @@ function createStandardProviderAdapter(env, deps = {}, {
     ...envVars,
     defaultTarget,
   }));
+  const trustedService = ['openai', 'anthropic'].includes(name) ? readTrustedService(env, name) : null;
+  if (trustedService) {
+    config.rawTarget = trustedService.target;
+    config.basePath = trustedService.basePath;
+  }
   const headerBuilders = createHeaderBuilders(config);
+  if (trustedService) {
+    for (const name of ['buildStaticHeaders', 'buildOidcHeaders']) {
+      const build = headerBuilders[name];
+      headerBuilders[name] = (...args) => trustedService.inject(build(...args));
+    }
+  }
   const oidcAuthOptions = {
     staticAuthToken: config.apiKey,
     ...(createOidcAuthOptions ? createOidcAuthOptions(config) : {}),
@@ -259,7 +276,7 @@ function createStandardProviderAdapter(env, deps = {}, {
     typeof options === 'function' ? options(context) : options
   );
 
-  return createOidcAwareProviderAdapter({
+  const adapter = createOidcAwareProviderAdapter({
     env,
     oidcAuthOptions,
     ...headerBuilders,
@@ -270,6 +287,7 @@ function createStandardProviderAdapter(env, deps = {}, {
         apiKey: config.apiKey,
         rawTarget: config.rawTarget,
         basePath: config.basePath,
+        trustedService: !!trustedService,
         provider: name,
         port,
         defaultTarget,
@@ -294,6 +312,8 @@ function createStandardProviderAdapter(env, deps = {}, {
       ? (oidcContext) => getAuthHeaders({ ...config, ...headerBuilders, ...oidcContext })
       : undefined,
   });
+  if (trustedService) adapter.trustedService = true;
+  return adapter;
 }
 
 /**

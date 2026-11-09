@@ -11,6 +11,7 @@ import { normalizeClaudeHostedWebPolicy } from '../claude-hosted-web-policy';
 import { normalizeCodexHostedWebPolicy } from '../codex-hosted-web-policy';
 import { resolveCopilotApiRouting } from '../copilot-api-resolver';
 import { resolveCopilotBrokerRuntime, validateCopilotBrokerTarget } from '../copilot-token-broker';
+import { trustedServiceTargets } from '../trusted-service';
 
 const DEFAULT_API_PROXY_SHUTDOWN_TIMEOUT_MS = 8000;
 export const API_PROXY_UPSTREAM_CA_CERT_CONTAINER_PATH = '/usr/local/share/ca-certificates/awf-upstream-ca.crt';
@@ -96,13 +97,13 @@ export function buildProviderTargetEnv(config: WrapperConfig): Record<string, st
     env[COPILOT_ENV.API_TARGET] ??= 'api.githubcopilot.com';
   }
 
-  return env;
+  return { ...env, ...trustedServiceTargets(config) };
 }
 
 /** Uses the same effective routing values passed to the trusted sidecar. */
-export function resolveApiProxyUpstreams(config: WrapperConfig): Array<{ hostname: string; port: number }> {
+export function resolveApiProxyUpstreams(config: WrapperConfig): Array<{ hostname: string; port: number; proxyOnly?: boolean }> {
   const env = buildProviderTargetEnv(config);
-  const upstreams: Array<{ hostname: string; port: number }> = [];
+  const upstreams: Array<{ hostname: string; port: number; proxyOnly?: boolean }> = [];
   for (const key of [COPILOT_ENV.API_TARGET, OPENAI_ENV.TARGET, ANTHROPIC_ENV.TARGET, GEMINI_ENV.TARGET, VERTEX_ENV.TARGET, FOUNDRY_ENV.TARGET]) {
     const target = env[key];
     if (!target) continue;
@@ -118,8 +119,13 @@ export function resolveApiProxyUpstreams(config: WrapperConfig): Array<{ hostnam
     // Raw-IP targets never receive a custom-port exception.
     if (isIP(parsed.hostname.replace(/^\[|\]$/g, ''))) continue;
     const port = Number(parsed.port || (parsed.protocol === 'http:' ? 80 : 443));
-    if (!upstreams.some(endpoint => endpoint.hostname === parsed.hostname && endpoint.port === port)) {
-      upstreams.push({ hostname: parsed.hostname, port });
+    const proxyOnly = (key === OPENAI_ENV.TARGET && !!config.openaiTrustedService) ||
+      (key === ANTHROPIC_ENV.TARGET && !!config.anthropicTrustedService);
+    const existing = upstreams.find(endpoint => endpoint.hostname === parsed.hostname && endpoint.port === port);
+    if (existing) {
+      if (proxyOnly) existing.proxyOnly = true;
+    } else {
+      upstreams.push({ hostname: parsed.hostname, port, ...(proxyOnly ? { proxyOnly: true } : {}) });
     }
   }
   return upstreams;

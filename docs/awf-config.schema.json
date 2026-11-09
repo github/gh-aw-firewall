@@ -660,7 +660,7 @@
               "description": "OpenAI API target override."
             },
             "anthropic": {
-              "$ref": "#/$defs/providerTarget",
+              "$ref": "#/$defs/anthropicTarget",
               "description": "Anthropic API target override."
             },
             "copilot": {
@@ -2054,11 +2054,113 @@
         }
       }
     },
+    "trustedService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "endpoint",
+        "secretHeaders"
+      ],
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "pattern": "^https://[A-Za-z0-9.-]+(:443)?(/[A-Za-z0-9/_~-]*)?(?![\\s\\S])",
+          "description": "Fixed caller-managed remote HTTPS service on port 443, supported only with the ordinary Docker runtime. Optional base-path prefix; no credentials, query, fragment, traversal or redirects. Uses source-scoped Squid target rules without adding agent destinations, and verified TLS including apiProxy.caCert when configured."
+        },
+        "secretHeaders": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z][A-Za-z0-9-]*(?![\\s\\S])"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
+          },
+          "description": "Supplemental header names mapped to runner environment variable NAMES, never literal secret values. Reserved auth, routing, framing and hop-by-hop headers, duplicates and runtime-sensitive source variable names are rejected. Values are resolved only in the trusted sidecar; missing/empty/invalid values fail closed."
+        }
+      }
+    },
+    "anthropicTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "basePath": {
+          "type": "string"
+        },
+        "authHeader": {
+          "type": "string"
+        },
+        "trustedService": {
+          "$ref": "#/$defs/trustedService"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "trustedService"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "host"
+                  ]
+                },
+                {
+                  "required": [
+                    "basePath"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
     "openaiTarget": {
       "type": "object",
       "description": "OpenAI API target override, optionally resolved from a runner environment variable at runtime.",
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "trustedService"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "host"
+                  ]
+                },
+                {
+                  "required": [
+                    "basePath"
+                  ]
+                },
+                {
+                  "required": [
+                    "baseUrlEnv"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
       "properties": {
+        "trustedService": {
+          "$ref": "#/$defs/trustedService"
+        },
         "host": {
           "type": "string",
           "description": "Override the OpenAI API host."

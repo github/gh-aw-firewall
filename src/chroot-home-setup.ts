@@ -8,7 +8,7 @@ import { resolveRunnerToolCachePath } from './runner-tool-cache';
 import { HOME_TOOL_PATHS } from './config/mount-policy';
 
 function descriptorPath(fd: number): string {
-  return `${process.platform === 'linux' ? '/proc/self/fd' : '/dev/fd'}/${fd}`;
+  return `/proc/self/fd/${fd}`;
 }
 
 function openRealDirectory(directory: string): number {
@@ -56,7 +56,9 @@ function prepareChrootHomeMountpointAtFd(
 
   try {
     for (const segment of segments) {
-      const segmentPath = path.join(descriptorPath(parentFd), segment);
+      const segmentPath = process.platform === 'linux'
+        ? path.join(descriptorPath(parentFd), segment)
+        : path.join(chrootPath, segment);
       chrootPath = path.join(chrootPath, segment);
       try {
         fs.mkdirSync(segmentPath);

@@ -9,6 +9,7 @@
 
 const crypto = require('crypto');
 const { parseBodyAsObject } = require('./body-utils');
+const { redactTrustedServiceSecrets } = require('./trusted-service');
 
 // Only fixed protocol labels may reach shape logs, never caller-supplied types.
 const INPUT_ITEM_TYPES = new Set([
@@ -94,6 +95,10 @@ function sanitizeForLog(str, maxLen = 200) {
 function logRequest(level, event, fields = {}) {
   const sensitiveTarget = (process.env.AWF_SENSITIVE_OPENAI_TARGET || '').trim();
   const redact = (value) => {
+    if (Array.isArray(value)) return value.map(redact);
+    if (value && typeof value === 'object') return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, redact(item)]));
+    value = redactTrustedServiceSecrets(value);
     if (!sensitiveTarget || typeof value !== 'string') return value;
     return value.replace(
       new RegExp(sensitiveTarget.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'),

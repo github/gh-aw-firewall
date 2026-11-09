@@ -186,6 +186,7 @@ function createSendUpstreamRequest({
   // including model/endpoint retries. No refresh timer can touch active streams.
   function sendUpstreamRequest(requestHeaders, ctx) {
     const adapter = getProviderAdapter?.(ctx.provider);
+    if (adapter?.trustedService) ctx.req.awfTrustedService = true;
     if (!adapter?.renewableAuth) return dispatchUpstreamRequest(requestHeaders, ctx);
     return adapter.getAuthHeaders({ method: ctx.req.method, url: ctx.upstreamPath, headers: ctx.req.headers })
       .then(authHeaders => {
@@ -327,7 +328,7 @@ function createSendUpstreamRequest({
     // Evaluate candidates only after an eligible failure so skipped-entry
     // evidence is retained even when no candidate is usable.
     let onModelFallback = null;
-    if (!isRoutingClassifier && !req.awfScopedAuto) {
+    if (!isRoutingClassifier && !req.awfScopedAuto && !req.awfTrustedService) {
       const chain = getFallbackModelsDep();
       const automaticRecovery = isAutomaticRecoveryEnabled(provider, req) &&
         protocolForUrl(req.url) &&
@@ -805,6 +806,7 @@ function createSendUpstreamRequest({
       method: req.method, headers: outboundHeaders,
       agent: proxyAgent,
       signal: cancellation.controller.signal,
+      ...(req.awfTrustedService ? { rejectUnauthorized: true } : {}),
     };
 
     let responded = false;
@@ -815,6 +817,17 @@ function createSendUpstreamRequest({
         return;
       }
       responded = true;
+      if (req.awfTrustedService && proxyRes.statusCode >= 300 && proxyRes.statusCode < 400) {
+        proxyRes.on('error', () => {});
+        cancellation.finalized = true;
+        cancellation.cancel();
+        proxyRes.destroy();
+        metrics.gaugeDec('active_requests', { provider });
+        otel.endSpan(span, 502);
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { code: 'trusted_service_redirect', message: 'Trusted service redirects are not allowed' } }));
+        return;
+      }
       const adapter = getProviderAdapter?.(provider);
       if (adapter?.renewableAuth) {
         if (proxyRes.statusCode >= 200 && proxyRes.statusCode < 300) adapter.recordAuthReadiness?.(true);

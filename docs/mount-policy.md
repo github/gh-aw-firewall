@@ -11,8 +11,9 @@ drift. They are now centralized in a single declarative config:
 - **Config:** [`src/config/sandbox-mount-policy.json`](../src/config/sandbox-mount-policy.json)
 - **Loader / typed accessors:** [`src/config/mount-policy.ts`](../src/config/mount-policy.ts)
 
-The Docker/runc compose agent, the gVisor/runsc compose agent, and the sbx
-microVM all read from this one source of truth, so they can no longer diverge.
+The Docker/runc compose agent, the gVisor/runsc compose agent, the sbx
+microVM, and the NVX microVM (`--container-runtime nvx`) all read from this one
+source of truth, so they can no longer diverge.
 The Cloud Hypervisor microVM does not currently consult this policy: its
 production export path (`src/cloud-hypervisor/exports.ts`) only resolves the
 workspace (`rw`), the runner tool cache (`ro`, only under the non-default
@@ -36,10 +37,10 @@ for an example and fail-closed input verification guidance.
 | --- | --- | --- | --- |
 | `system.directories.default` / `.sysroot` | allow (dirs) | compose (Docker + gVisor) | `system-mounts.ts` |
 | `system.etc` | allow (files) | compose (Docker + gVisor) | `etc-mounts.ts` |
-| `home.toolSubdirs` | allow (dirs) | compose + sbx + microVM workspace tests | `home-strategy.ts`, `sbx-manager.ts`, `microvm/workspace.ts` |
-| `home.narrowPaths` | narrow allow override | compose + sbx + microVM workspace tests | `home-strategy.ts`, `sbx-manager.ts`, `microvm/workspace.ts` |
-| `home.forbiddenSubdirs` | deny guard | compose + sbx | invariant tests |
-| `credentials.entries` | deny (files/dirs) | compose + sbx; microVM workspace tests only | `credential-hiding.ts`, `sbx-manager.ts`, `microvm/workspace.ts` |
+| `home.toolSubdirs` | allow (dirs) | compose + sbx + NVX; microVM workspace tests | `home-strategy.ts`, `sbx-manager.ts`, `nvx/guest-config-layer.ts`, `microvm/workspace.ts` |
+| `home.narrowPaths` | narrow allow override | compose + sbx + NVX; microVM workspace tests | `home-strategy.ts`, `sbx-manager.ts`, `nvx/guest-config-layer.ts`, `microvm/workspace.ts` |
+| `home.forbiddenSubdirs` | deny guard | compose + sbx + NVX | invariant tests, `nvx/guest-config-layer.ts`, `nvx/filesystem-builder.ts`, `nvx/live-mount-policy.ts` |
+| `credentials.entries` | deny (files/dirs) | compose + sbx + NVX; microVM workspace tests | `credential-hiding.ts`, `sbx-manager.ts`, `nvx/guest-config-layer.ts`, `nvx/filesystem-builder.ts`, `nvx/live-mount-policy.ts`, `microvm/workspace.ts` |
 
 In compose, `~/.gemini` is mounted only when a Gemini or Google API key is
 configured; the other `toolSubdirs` are always bound (with `.local` replaced by
@@ -54,8 +55,8 @@ is absent or inaccessible
 ([`home-strategy.ts`](../src/services/agent-volumes/home-strategy.ts),
 [`workspace-mounts.ts`](../src/services/agent-volumes/workspace-mounts.ts)).
 
-The `system.*` section is compose-only: sbx gets its system libraries from a
-guest image, not from host mounts. Cloud Hypervisor also boots from a guest
+The `system.*` section is compose-only: sbx and NVX get their system libraries
+from a guest image, not from host mounts. Cloud Hypervisor also boots from a guest
 image and is not driven by this config at all.
 
 ## Host work-directory permissions
@@ -103,6 +104,15 @@ mechanisms, but from the **same list**:
   mounted) and **restores** it after teardown. It only touches entries whose
   top-level parent is actually mounted — paths under never-mounted dirs like
   `.ssh` or `.aws` are skipped because they never enter the VM.
+
+- **NVX microVM** copies the `HOME_TOOL_PATHS` directories that exist under the
+  host `$HOME` into the guest home seed, skipping every `credentials.entries`
+  and `home.forbiddenSubdirs` path
+  ([`guest-config-layer.ts`](../src/nvx/guest-config-layer.ts)); its builder and
+  live-share policy applies the same exclusions
+  ([`filesystem-builder.ts`](../src/nvx/filesystem-builder.ts),
+  [`live-mount-policy.ts`](../src/nvx/live-mount-policy.ts)). Credentials are
+  excluded from the copy rather than overlaid.
 
 **Cloud Hypervisor microVM** does not go through this list today. Its
 production export path (`src/cloud-hypervisor/exports.ts`) never exports
