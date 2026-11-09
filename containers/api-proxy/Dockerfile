@@ -1,6 +1,6 @@
 # Node.js API proxy for credential management
 # Routes through Squid to respect domain whitelisting
-FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a
+FROM node:26.13.0-alpine3.24@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216
 
 # Install current Alpine security updates and curl for healthchecks. Alpine 3.24's
 # stable repository still ships curl 8.22.0-r0, affected by CVE-2026-92392.
