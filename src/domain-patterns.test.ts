@@ -495,6 +495,19 @@ describe('isDomainMatchedByPattern', () => {
       expect(isDomainMatchedByPattern({ domain: 'api.github.com', protocol: 'https' }, httpsPatterns)).toBe(true);
     });
 
+    it('should keep searching later patterns after a protocol-incompatible match', () => {
+      const httpOnly = { original: '*.github.com', regex: `^${WILDCARD_DOMAIN_CHARS}\\.github\\.com$`, protocol: 'http' as const };
+      const httpsOnly = { original: 'api.*', regex: `^api\\.${WILDCARD_DOMAIN_CHARS}$`, protocol: 'https' as const };
+      const bothProtocols = { original: '*.github.com', regex: `^${WILDCARD_DOMAIN_CHARS}\\.github\\.com$`, protocol: 'both' as const };
+
+      // First pattern matches the host but not the protocol; the second covers it
+      expect(isDomainMatchedByPattern({ domain: 'api.github.com', protocol: 'https' }, [httpOnly, httpsOnly])).toBe(true);
+      // A single-protocol match cannot cover a "both" entry, but a later "both" pattern can
+      expect(isDomainMatchedByPattern({ domain: 'api.github.com', protocol: 'both' }, [httpOnly, bothProtocols])).toBe(true);
+      // No pattern covers it: stays denied
+      expect(isDomainMatchedByPattern({ domain: 'api.github.com', protocol: 'https' }, [httpOnly])).toBe(false);
+    });
+
     it('should not match when protocols do not match', () => {
       const httpPatterns = [{ original: '*.github.com', regex: `^${WILDCARD_DOMAIN_CHARS}\\.github\\.com$`, protocol: 'http' as const }];
       const httpsPatterns = [{ original: '*.github.com', regex: `^${WILDCARD_DOMAIN_CHARS}\\.github\\.com$`, protocol: 'https' as const }];
