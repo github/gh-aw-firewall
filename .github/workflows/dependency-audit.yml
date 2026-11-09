@@ -52,7 +52,7 @@ jobs:
 
       - name: Upload npm audit SARIF to GitHub Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@f68537f3d8a6955880f700730943f8a754454193 # v4
+        uses: github/codeql-action/upload-sarif@fbfa9f37476c0024508d051f3c34fcca3366b0e2 # v4
         with:
           sarif_file: npm-audit-main.sarif
           category: npm-audit-main
@@ -108,7 +108,7 @@ jobs:
 
       - name: Upload npm audit SARIF to GitHub Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@f68537f3d8a6955880f700730943f8a754454193 # v4
+        uses: github/codeql-action/upload-sarif@fbfa9f37476c0024508d051f3c34fcca3366b0e2 # v4
         with:
           sarif_file: npm-audit-docs.sarif
           category: npm-audit-docs
