@@ -17,6 +17,7 @@ The [Auth Doctor Updater workflow](../.github/workflows/auth-doctor-updater.md) 
 - [Provider: GitHub Copilot](#provider-github-copilot)
 - [Provider: Google Gemini](#provider-google-gemini)
 - [Provider: Google Vertex AI](#provider-google-vertex-ai)
+- [Provider: Azure Foundry](#provider-azure-foundry)
 - [OIDC Providers](#oidc-providers)
 - [GitHub Instance Types](#github-instance-types)
 - [Custom Headers & Injection](#custom-headers--injection)
@@ -30,7 +31,7 @@ Auth evaluation in the api-proxy is determined by the combination of these indep
 
 | # | Dimension | Controlled By | Values |
 |---|-----------|--------------|--------|
-| 1 | Engine | Port binding (10000–10004) | openai, anthropic, copilot, gemini, vertex |
+| 1 | Engine | Discrete ports 10000, 10001, 10002, 10003, 10004, 10005 | openai, anthropic, copilot, gemini, vertex, foundry |
 | 2 | Auth Type | `AWF_AUTH_TYPE` | `api-key` (default), `github-oidc` |
 | 3 | OIDC Provider | `AWF_AUTH_PROVIDER` | `azure`, `aws`, `gcp`, `anthropic` |
 | 4 | Instance Type | `GITHUB_SERVER_URL` | github.com, GHEC (`*.ghe.com`), GHES |
@@ -626,6 +627,36 @@ This adapter exists to support the [Gemini CLI](https://geminicli.com/)'s `GOOGL
 :::
 
 **Official docs:** https://geminicli.com/docs/get-started/authentication/
+
+---
+
+## Provider: Azure Foundry
+
+**Port:** 10005 (optional; binds only with a target and credential)
+
+**Implementation:** `containers/api-proxy/providers/foundry.js`
+
+| Setting | Value |
+|---------|-------|
+| Resource endpoint | `FOUNDRY_API_TARGET`, for example `my-resource.services.ai.azure.com` |
+| API key | `FOUNDRY_API_KEY`, injected as `api-key` |
+| Entra access token | `FOUNDRY_ENTRA_TOKEN`, injected as an Authorization bearer token |
+| Credential precedence | Entra token before API key |
+| Optional path prefix | `FOUNDRY_API_BASE_PATH` (default: resource root) |
+| Agent endpoint | `FOUNDRY_BASE_URL`, rewritten to the sidecar |
+
+Both credentials are sidecar-only, including when supplied through `--env`,
+`--env-file`, or `--env-all`. An Entra token must be obtained by the trusted
+caller for the resource's required audience before launching AWF; this adapter
+does not acquire or refresh tokens and does not use `AWF_AUTH_TYPE`.
+
+The adapter passes native Decision-1 requests at
+`/providers/microsoft/v1/systemone` and OpenAI-compatible requests at
+`/openai/v1/chat/completions` without changing their bodies. It performs no
+startup inference or model-list requests. See [Foundry configuration and
+accounting](environment.md#azure-foundry-decision-and-openai-compatible-endpoints).
+
+**Official docs:** [Deploy and use Microsoft-Decision-1](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-microsoft-decision)
 
 ---
 

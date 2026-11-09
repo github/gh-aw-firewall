@@ -30,7 +30,7 @@ const BASE_POLICY = {
   proxies: {
     squid: { port: 3128 },
     apiProxy: {
-      ports: { openai: 10000, anthropic: 10001, copilot: 10002, gemini: 10003, vertex: 10004 },
+      ports: { openai: 10000, anthropic: 10001, copilot: 10002, gemini: 10003, vertex: 10004, foundry: 10005 },
       healthPort: 10000,
     },
     cliProxy: { port: 11000 },

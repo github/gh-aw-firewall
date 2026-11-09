@@ -40,6 +40,7 @@ const INFERENCE_PATHS = [
   '/responses',
   '/v1/decisions',
   '/decisions',
+  '/providers/microsoft/v1/systemone',
   '/v1/messages',
 ];
 

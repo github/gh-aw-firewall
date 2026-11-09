@@ -179,6 +179,7 @@ describe('network-policy', () => {
         copilot: 10002,
         gemini: 10003,
         vertex: 10004,
+        foundry: 10005,
       });
     });
 
@@ -220,6 +221,7 @@ describe('network-policy', () => {
         COPILOT: 10002,
         GEMINI: 10003,
         VERTEX: 10004,
+        FOUNDRY: 10005,
       });
       expect(PORTS_HEALTH).toBe(API_PROXY_HEALTH_PORT);
       expect(PORTS_CLI).toBe(CLI_PROXY_PORT);
