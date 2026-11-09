@@ -24,23 +24,26 @@ function executable(file, body) {
 test('manual-only workflow launches all three pinned agents in parallel from the exact checkout', () => {
   const workflow = yaml.load(fs.readFileSync(path.join(root, '.github/workflows/agent-reflect-smoke.yml'), 'utf8'));
   assert.deepEqual(Object.keys(workflow.on), ['workflow_dispatch']);
-  const job = workflow.jobs.agents;
-  assert.deepEqual(job.strategy, {
-    'fail-fast': false, 'max-parallel': 3, matrix: { agent: ['copilot', 'claude', 'codex'] },
-  });
-  assert.equal(job.env.SOURCE_SHA, '${{ github.sha }}');
-  assert.equal(job.needs, 'deterministic');
-  for (const step of job.steps.filter(step => step.uses?.startsWith('actions/checkout@'))) {
-    assert.equal(step.with['persist-credentials'], false);
-    assert.equal(step.with.ref, undefined);
+  const copilot = workflow.jobs.copilot;
+  const nonCopilot = workflow.jobs.non_copilot;
+  assert.deepEqual(copilot.permissions, { contents: 'read', 'copilot-requests': 'write' });
+  assert.deepEqual(nonCopilot.permissions, { contents: 'read' });
+  assert.deepEqual(nonCopilot.strategy.matrix.agent, ['claude', 'codex']);
+  for (const job of [copilot, nonCopilot]) {
+    assert.equal(job.env.SOURCE_SHA, '${{ github.sha }}');
+    assert.equal(job.needs, 'deterministic');
+    for (const step of job.steps.filter(step => step.uses?.startsWith('actions/checkout@'))) {
+      assert.equal(step.with['persist-credentials'], false);
+      assert.equal(step.with.ref, undefined);
+    }
+    const builds = job.steps.find(step => step.name?.startsWith('Build exact')).run;
+    assert.ok(builds.includes('test "$(git rev-parse HEAD)" = "$SOURCE_SHA"'));
+    assert.ok(builds.includes('awf-reflect/$image:$SOURCE_SHA'));
+    assert.ok(builds.includes('AWF_VERSION=0.0.0-reflect$SOURCE_SHA'));
+    assert.ok(!builds.includes('latest'));
+    assert.equal(job.steps.at(-1).if, 'always()');
+    assert.equal(job.steps.at(-1).with['if-no-files-found'], 'error');
   }
-  const builds = job.steps.find(step => step.name?.startsWith('Build exact')).run;
-  assert.ok(builds.includes('test "$(git rev-parse HEAD)" = "$SOURCE_SHA"'));
-  assert.ok(builds.includes('awf-reflect/$image:$SOURCE_SHA'));
-  assert.ok(builds.includes('AWF_VERSION=0.0.0-reflect$SOURCE_SHA'));
-  assert.ok(!builds.includes('latest'));
-  assert.equal(job.steps.at(-1).if, 'always()');
-  assert.equal(job.steps.at(-1).with['if-no-files-found'], 'error');
 });
 
 test('host orchestration cannot pass a noop CLI or forged agent marker and freezes both fixtures', t => {
@@ -72,15 +75,15 @@ test('host orchestration cannot pass a noop CLI or forged agent marker and freez
     const fs = require('fs');
     const args = process.argv.slice(2);
     fs.appendFileSync(process.env.CALLS, JSON.stringify({ tool: 'sudo', args }) + '\\n');
-    if (args[0] === 'docker') {
+    if (args[0].endsWith('/docker')) {
       const result = require('child_process').spawnSync(args[0], args.slice(1), {
         stdio: 'inherit', env: process.env
       });
       process.exit(result.status ?? 1);
     }
-    if (!args[0].startsWith('--preserve-env=') || args[1] !== 'timeout' ||
+    if (!args[0].startsWith('--preserve-env=') || !args[1].endsWith('/timeout') ||
         args[2] !== '--signal=TERM' || args[3] !== '--kill-after=30s' || args[4] !== '480s') process.exit(2);
-    const result = require('child_process').spawnSync(args[5], args.slice(6), {
+    const result = require('child_process').spawnSync(args[1], args.slice(2), {
       stdio: 'inherit', env: process.env
     });
     process.exit(result.status ?? 1);
@@ -120,7 +123,26 @@ test('host orchestration cannot pass a noop CLI or forged agent marker and freez
   }
   const dockerCalls = records.filter(record => record.tool === 'docker');
   assert.equal(dockerCalls.filter(record => record.args[0] === 'stop').length, 2);
-  assert.equal(dockerCalls.filter(record => record.args[0] === 'rm').length, 2);
+  const removals = dockerCalls.filter(record => record.args[0] === 'rm');
+  assert.equal(removals.length, 2);
+  for (const record of removals) assert.ok(record.args.includes('--volumes'));
+  const networkDisconnects = dockerCalls.filter(record =>
+    record.args[0] === 'network' && record.args[1] === 'disconnect');
+  assert.equal(networkDisconnects.length, 2);
+  for (const record of networkDisconnects) assert.equal(record.args[2], 'none');
+  const fixtureRuns = dockerCalls.filter(record => record.args[0] === 'run');
+  assert.equal(fixtureRuns.length, 2);
+  for (const record of fixtureRuns) {
+    assert.ok(record.args.includes('type=volume,dst=/evidence'));
+    assert.ok(!record.args.some(arg => arg.startsWith('/evidence:')));
+  }
+  for (const invocation of invocations) {
+    const invocationIndex = records.indexOf(invocation);
+    assert.equal(records.slice(0, invocationIndex).filter(record =>
+      record.tool === 'docker' && record.args[0] === 'network' && record.args[1] === 'disconnect').length,
+    invocations.indexOf(invocation) + 1);
+  }
+  assert.match(fs.readFileSync(path.join(__dirname, 'run.sh'), 'utf8'), /rm --force --volumes/);
   const teardown = dockerCalls.filter(record => record.args[0] === 'compose');
   assert.equal(teardown.length, 2);
   for (const record of teardown) assert.deepEqual(record.args.slice(-4), ['down', '-v', '-t', '1']);
@@ -136,21 +158,29 @@ for (const agent of ['copilot', 'claude', 'codex']) {
   test(`real guest launcher invokes ${agent}, not a scripted inference client`, t => {
     const dir = directory(t);
     const log = path.join(dir, 'args.jsonl');
+    const pinnedBin = path.join(dir, 'tools/node_modules/.bin');
+    fs.mkdirSync(pinnedBin, { recursive: true });
     executable(path.join(dir, agent), `
+      require('fs').appendFileSync(process.env.DECOY_LOG, 'decoy selected\\n');
+    `);
+    executable(path.join(pinnedBin, agent), `
       require('fs').appendFileSync(process.env.ARGS_LOG, JSON.stringify({
-        args: process.argv.slice(2), key: process.env.CODEX_API_KEY
+        args: process.argv.slice(2), key: process.env.CODEX_API_KEY, path: process.env.PATH
       }) + '\\n');
       if (process.argv.includes('--version')) console.log('1.2.3');
     `);
     const run = spawnSync('bash', [path.join(__dirname, 'guest.sh'), agent, 'http://isolated-fixture:8080'], {
       cwd: dir, encoding: 'utf8',
       env: { PATH: `${dir}:${process.env.PATH}`, HOME: dir, ARGS_LOG: log,
+        DECOY_LOG: path.join(dir, 'decoy.log'),
         OPENAI_BASE_URL: 'http://configured-sidecar:10000/v1' },
     });
     assert.equal(run.status, 0, run.stderr);
     const calls = fs.readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line));
     assert.equal(calls.length, 2);
     const call = calls[1];
+    assert.ok(call.path.startsWith(`${pinnedBin}:`));
+    assert.equal(fs.existsSync(path.join(dir, 'decoy.log')), false);
     const prompt = call.args.find(arg => arg.includes('Perform the task'));
     assert.ok(prompt.includes('http://isolated-fixture:8080/reflect'));
     assert.ok(prompt.includes('First submit its request unchanged'));

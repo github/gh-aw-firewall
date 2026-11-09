@@ -3,6 +3,7 @@ set -euo pipefail
 
 agent=${1:?agent required}
 target=${2:?target required}
+export PATH="$PWD/tools/node_modules/.bin:$PATH"
 export HOME="$PWD/home"
 export XDG_CACHE_HOME="$HOME/.cache"
 export XDG_CONFIG_HOME="$HOME/.config"
