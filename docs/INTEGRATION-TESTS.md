@@ -75,6 +75,14 @@ digests. Scan targets, vulnerability database updates, and the blocking
 High/Critical PR-image gate are unchanged. The setup script validates the merged
 daemon configuration before restart and refuses local or self-hosted runners.
 
+PR-image builds run in three independent shards: build-tools plus enclave-agent,
+agent alone, and the six remaining service images. Each shard has a 60-minute
+budget instead of sharing one 40-minute budget across all nine images, so a slow
+package mirror does not delay unrelated builds. Builds remain sequential within
+each shard. Published-image CVE and license scans retain their 40-minute budgets,
+and the required aggregate check still requires compilation and every shard to
+succeed, with matrix fail-fast disabled.
+
 For PR-image scans only, the runner opts into Docker's containerd image store
 before pulling images, then uses Buildx's `docker` driver with `--load`. Each
 image imports/exports a separate GitHub Actions v2 build cache (`mode=max`),
