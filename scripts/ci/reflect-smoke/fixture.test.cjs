@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { fork } = require('node:child_process');
+const { fork, spawnSync } = require('node:child_process');
 const { once } = require('node:events');
 const { grade, failureId } = require('./grade.cjs');
 const { collect } = require('./collect.cjs');
@@ -43,12 +43,91 @@ async function fixture(t, scenario) {
     });
     return { status: res.status, body: await res.json() };
   };
-  return { task, request, directory, async finish() {
+  return { task, request, directory, port: ready.port, async finish() {
     child.kill('SIGTERM');
     const [code] = await exited;
     assert.equal(code, 0, logs);
     return JSON.parse(fs.readFileSync(path.join(directory, 'evidence.json')));
   } };
+}
+
+function submitInitialFromGuest(f, agent) {
+  const guest = path.join(f.directory, 'guest');
+  const bin = path.join(guest, 'tools/node_modules/.bin');
+  fs.mkdirSync(bin, { recursive: true });
+  for (const name of ['task.json', 'initial-request.json']) {
+    fs.copyFileSync(path.join(f.directory, name), path.join(guest, name));
+  }
+  const initial = JSON.parse(fs.readFileSync(path.join(guest, 'initial-request.json')));
+  assert.deepEqual(initial, f.task.request);
+  assert.notDeepEqual(initial, f.task);
+  // The fake CLI executes only the literal initial command from the real prompt.
+  // Diagnostics, correction and reports below are test-driver actions, not a recovery helper.
+  fs.writeFileSync(path.join(bin, agent), `#!${process.execPath}
+    const fs = require('node:fs');
+    const { spawnSync } = require('node:child_process');
+    if (process.argv.includes('--version')) {
+      console.log('1.2.3');
+    } else {
+      const prompt = process.argv.find(arg => arg.startsWith('Perform the task'));
+      fs.writeFileSync('prompt.json', JSON.stringify(prompt));
+      const commands = prompt.split('\\n').filter(line => line.startsWith('curl '));
+      if (commands.length !== 1) process.exit(2);
+      const result = spawnSync('bash', ['-c', commands[0]], { encoding: 'utf8' });
+      if (result.status !== 0) throw new Error(result.stderr);
+      fs.writeFileSync('initial-response.json', result.stdout);
+    }
+  `, { mode: 0o700 });
+  const run = spawnSync('bash', [path.join(__dirname, 'guest.sh'), agent,
+    `http://127.0.0.1:${f.port}`], {
+    cwd: guest, encoding: 'utf8',
+    env: { PATH: process.env.PATH, HOME: guest, OPENAI_BASE_URL: 'http://unused-sidecar/v1' },
+    timeout: 5000,
+  });
+  assert.equal(run.status, 0, run.stderr);
+  const prompt = JSON.parse(fs.readFileSync(path.join(guest, 'prompt.json')));
+  assert.ok(prompt.includes('--data-binary @initial-request.json'));
+  assert.ok(prompt.includes('do_not_repeat'));
+  assert.ok(prompt.includes('change only reasoning.effort'));
+  assert.ok(prompt.includes('not proof of a permanent model-policy denial'));
+  assert.equal(fs.existsSync(path.join(guest, 'report.json')), false);
+  return JSON.parse(fs.readFileSync(path.join(guest, 'initial-response.json')));
+}
+
+for (const agent of ['copilot', 'claude', 'codex']) {
+  for (const scenario of ['recover', 'deny']) {
+    test(`${agent} guest initial command uses the published request in ${scenario}`,
+      { timeout: 20000 }, async t => {
+        const f = await fixture(t, scenario);
+        const rejected = submitInitialFromGuest(f, agent);
+        assert.equal(rejected.error.code || rejected.error.type,
+          scenario === 'recover' ? 'unsupported_reasoning_effort' : 'model_policy_violation');
+        const reflected = await f.request('GET', '/reflect');
+        const diagnostics = reflected.body.model_decision_diagnostics;
+        const reason = scenario === 'recover' ? 'unsupported_reasoning_effort' : 'policy_denied';
+        assert.ok(diagnostics.recent.decisions.some(item => item.reason === reason &&
+          item.action.kind === 'change_request' && item.action.retry === 'do_not_repeat'));
+        let report = { status: 'blocked', reason: 'model_policy_violation', retry: false };
+        if (scenario === 'recover') {
+          const current = diagnostics.current.decisions.find(item =>
+            item.identity?.provider === 'copilot' && item.identity.model_id === f.task.request.model &&
+            item.scope.endpoint === '/responses' && item.effort?.support === 'reported_supported');
+          assert.ok(current, 'Production diagnostics must provide exact-model, endpoint-scoped evidence');
+          assert.equal(current.effort.field, 'reasoning.effort');
+          assert.equal(current.effort.omission_supported, null);
+          const corrected = structuredClone(f.task.request);
+          corrected.reasoning.effort = current.effort.supported_values[0];
+          const response = await f.request('POST', '/responses', corrected);
+          assert.equal(response.status, 200);
+          report = { status: 'completed', result: response.body.output[0].content[0].text };
+        } else {
+          assert.deepEqual(reflected.body.endpoints.flatMap(item => item.models || []), []);
+        }
+        const evidence = await f.finish();
+        assert.equal(evidence.events[0].status, scenario === 'recover' ? 400 : 403);
+        assert.equal(grade(evidence, report, 0).status, 'pass');
+      });
+  }
 }
 
 for (const scenario of ['recover', 'deny']) {
@@ -143,14 +222,16 @@ for (const scenario of ['recover', 'deny']) {
   });
 }
 
-// These reproduce retained chronologies with one known malformed-input cause.
-// The old public artifacts contain no bodies and cannot establish that cause.
+// These chronologies span two reviewed runs; neither retains raw bodies.
+// Envelope submission is a local reproduction, not a proven historical payload.
 for (const [name, scenario, steps] of [
   ['Copilot recovery', 'recover', ['envelope', 'reflect', 'initial', 'corrected']],
   ['Claude recovery', 'recover', ['envelope', 'reflect', 'initial']],
   ['Claude denial', 'deny', ['envelope', 'reflect', 'initial']],
   ['Codex recovery', 'recover', ['envelope', 'reflect', 'reflect', 'corrected']],
   ['Codex denial', 'deny', ['initial', 'post-reflect']],
+  ['follow-up Codex recovery', 'recover', ['envelope', 'reflect', 'corrected']],
+  ['follow-up Codex denial', 'deny', ['envelope', 'reflect', 'reflect']],
 ]) {
   test(`retained ${name} chronology fails with sanitized boundary evidence`, { timeout: 20000 }, async t => {
     const f = await fixture(t, scenario);
@@ -184,11 +265,13 @@ for (const [name, scenario, steps] of [
     assert.equal(summary.failedAssertion, name === 'Codex denial' ? 'endpoint_method' : 'initial_request_exact');
     assert.deepEqual(summary.trace.map(event => event.status), evidence.events.map(event => event.status));
     if (steps[0] === 'envelope') {
-      assert.equal(summary.trace[0].requestShape.exactInitialMatches, false);
-      assert.equal(summary.trace[0].requestShape.modelMatches, false);
+      for (const field of ['modelMatches', 'initialEffortMatches', 'supportedEffortMatches',
+        'inputMatches', 'streamMatches', 'exactInitialMatches', 'exactCorrectedMatches']) {
+        assert.equal(summary.trace[0].requestShape[field], false);
+        assert.equal(summary.upstream[0].requestShape[field], false);
+      }
       assert.equal(summary.upstream[0].reason, 'fixture_task_mismatch');
       assert.equal(summary.upstream[0].status, 422);
-      assert.equal(summary.upstream[0].requestShape.modelMatches, false);
     } else {
       assert.equal(summary.trace[1].method, 'POST');
       assert.equal(summary.trace[1].path, '/reflect');
@@ -197,6 +280,31 @@ for (const [name, scenario, steps] of [
     assert.ok(!text.includes(evidence.nonce) && !text.includes(evidence.result));
   });
 }
+
+test('follow-up Claude recovery stops after valid rejection and diagnostics but must not pass',
+  { timeout: 20000 }, async t => {
+    const f = await fixture(t, 'recover');
+    assert.equal((await f.request('POST', '/responses', f.task.request)).status, 400);
+    const reflected = await f.request('GET', '/reflect');
+    assert.equal(reflected.status, 200);
+    assert.ok(reflected.body.model_decision_diagnostics.recent.decisions.some(item =>
+      item.reason === 'unsupported_reasoning_effort' && item.action.retry === 'do_not_repeat'));
+    const evidence = await f.finish();
+    const reportFile = path.join(f.directory, 'report.json');
+    const output = path.join(f.directory, 'summary.json');
+    // Neither zero exit nor misclassifying a correctable rejection as policy denial is success.
+    for (const report of [{}, { status: 'blocked', reason: 'model_policy_violation', retry: false }]) {
+      fs.writeFileSync(reportFile, JSON.stringify(report));
+      assert.equal(collect(path.join(f.directory, 'evidence.json'), reportFile, 0, output), false);
+      const summary = JSON.parse(fs.readFileSync(output, 'utf8'));
+      assert.equal(summary.failedAssertion, 'recovery_attempt_count');
+      assert.deepEqual(summary.trace.map(event => event.status), [400, 200]);
+      assert.deepEqual(summary.trace[1].diagnosticReasons, ['unsupported_reasoning_effort']);
+      assert.equal(summary.trace[0].requestShape.exactInitialMatches, true);
+      assert.deepEqual(summary.upstream, []);
+      assert.ok(!fs.readFileSync(output, 'utf8').includes(evidence.nonce));
+    }
+  });
 
 for (const [name, change, mismatchedFlag] of [
   ['missing effort', request => { delete request.reasoning; }, 'supportedEffortMatches'],
