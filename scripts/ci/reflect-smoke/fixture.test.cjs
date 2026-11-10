@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { fork } = require('node:child_process');
 const { once } = require('node:events');
-const { grade } = require('./grade.cjs');
+const { grade, failureId } = require('./grade.cjs');
 const { collect } = require('./collect.cjs');
 
 async function fixture(t, scenario) {
@@ -83,25 +83,40 @@ for (const scenario of ['recover', 'deny']) {
     const summaryText = fs.readFileSync(summaryFile, 'utf8');
     const summary = JSON.parse(summaryText);
     assert.equal(summary.reflectRead, true);
+    assert.equal(summary.failedAssertion, null);
     assert.equal(summary.upstreamRequests, scenario === 'recover' ? 1 : 0);
+    assert.equal(summary.trace[0].requestShape.exactInitialMatches, true);
+    assert.equal(summary.trace[0].requestShape.supportedEffortMatches, false);
+    if (scenario === 'recover') {
+      assert.equal(summary.trace[2].requestShape.exactCorrectedMatches, true);
+      assert.equal(summary.upstream[0].requestShape.exactCorrectedMatches, true);
+    }
     assert.ok(!summaryText.includes(evidence.nonce) && !summaryText.includes(evidence.result));
-    const bad = mutate => {
+    const bad = (mutate, expectedId) => {
       const copy = structuredClone(evidence);
       mutate(copy);
-      assert.throws(() => grade(copy, report, 0));
+      assert.throws(() => grade(copy, report, 0), error => {
+        assert.ok(failureId(error));
+        if (expectedId) assert.equal(failureId(error), expectedId);
+        return true;
+      });
     };
     bad(copy => { copy.complete = false; });
     bad(copy => { copy.events = []; });
-    bad(copy => { copy.events[0].status = 200; });
-    bad(copy => { copy.events[0].body.model = 'other-model'; });
+    bad(copy => { copy.events[0].status = 200; }, 'initial_rejection_status');
+    bad(copy => { copy.events[0].body.model = 'other-model'; }, 'initial_request_exact');
     bad(copy => { delete copy.events[0].status; });
     bad(copy => { delete copy.events[0].finished; });
-    bad(copy => { copy.events[1].reflection.recent.decisions = []; });
+    bad(copy => { copy.events[1].reflection.recent.decisions = []; }, 'reflect_rejection');
+    bad(copy => { delete copy.events[1].reflection.recent; }, 'reflect_rejection');
+    bad(copy => { copy.events[1].reflection.schema = 'other'; }, 'reflect_schema');
+    bad(copy => { copy.events[1].reflection.recent.decisions[0].action.retry = 'retry'; }, 'reflect_rejection');
     bad(copy => { copy.events[1].path = '/health'; });
     bad(copy => {
       copy.events.splice(1, 1);
       copy.events.forEach((event, index) => { event.sequence = index; });
     });
+
     bad(copy => {
       while (copy.events.length < 6) {
         copy.events.push({ ...structuredClone(copy.events[1]), sequence: copy.events.length });
@@ -127,6 +142,111 @@ for (const scenario of ['recover', 'deny']) {
     }
   });
 }
+
+// These reproduce retained chronologies with one known malformed-input cause.
+// The old public artifacts contain no bodies and cannot establish that cause.
+for (const [name, scenario, steps] of [
+  ['Copilot recovery', 'recover', ['envelope', 'reflect', 'initial', 'corrected']],
+  ['Claude recovery', 'recover', ['envelope', 'reflect', 'initial']],
+  ['Claude denial', 'deny', ['envelope', 'reflect', 'initial']],
+  ['Codex recovery', 'recover', ['envelope', 'reflect', 'reflect', 'corrected']],
+  ['Codex denial', 'deny', ['initial', 'post-reflect']],
+]) {
+  test(`retained ${name} chronology fails with sanitized boundary evidence`, { timeout: 20000 }, async t => {
+    const f = await fixture(t, scenario);
+    let supportedEffort;
+    let report = scenario === 'deny'
+      ? { status: 'blocked', reason: 'model_policy_violation', retry: false } : {};
+    for (const step of steps) {
+      if (step === 'reflect') {
+        const reflected = await f.request('GET', '/reflect');
+        assert.equal(reflected.status, 200);
+        assert.deepEqual(reflected.body.model_decision_diagnostics.recent.decisions, []);
+        supportedEffort = reflected.body.model_decision_diagnostics.current.decisions.find(item =>
+          item.identity?.model_id === f.task.request.model)?.effort?.supported_values[0];
+      } else {
+        const body = step === 'envelope' ? f.task : structuredClone(f.task.request);
+        if (step === 'corrected') body.reasoning.effort = supportedEffort;
+        const response = await f.request('POST', step === 'post-reflect' ? '/reflect' : '/responses', body);
+        assert.equal(response.status, step === 'envelope' ? 422 : step === 'corrected' ? 200 :
+          scenario === 'deny' ? 403 : 400);
+        if (step === 'corrected') report = { status: 'completed', result: response.body.output[0].content[0].text };
+      }
+    }
+    const evidence = await f.finish();
+    const reportFile = path.join(f.directory, 'report.json');
+    const output = path.join(f.directory, 'summary.json');
+    fs.writeFileSync(reportFile, JSON.stringify(report));
+    assert.equal(collect(path.join(f.directory, 'evidence.json'), reportFile, 0, output), false);
+    const text = fs.readFileSync(output, 'utf8');
+    const summary = JSON.parse(text);
+    assert.equal(summary.stage, 'grade');
+    assert.equal(summary.failedAssertion, name === 'Codex denial' ? 'endpoint_method' : 'initial_request_exact');
+    assert.deepEqual(summary.trace.map(event => event.status), evidence.events.map(event => event.status));
+    if (steps[0] === 'envelope') {
+      assert.equal(summary.trace[0].requestShape.exactInitialMatches, false);
+      assert.equal(summary.trace[0].requestShape.modelMatches, false);
+      assert.equal(summary.upstream[0].reason, 'fixture_task_mismatch');
+      assert.equal(summary.upstream[0].status, 422);
+      assert.equal(summary.upstream[0].requestShape.modelMatches, false);
+    } else {
+      assert.equal(summary.trace[1].method, 'POST');
+      assert.equal(summary.trace[1].path, '/reflect');
+      assert.deepEqual(summary.upstream, []);
+    }
+    assert.ok(!text.includes(evidence.nonce) && !text.includes(evidence.result));
+  });
+}
+
+for (const [name, change, mismatchedFlag] of [
+  ['missing effort', request => { delete request.reasoning; }, 'supportedEffortMatches'],
+  ['wrong input shape', request => { request.input = [{ role: 'user', content: request.input }]; }, 'inputMatches'],
+  ['missing stream flag', request => { delete request.stream; }, 'streamMatches'],
+]) {
+  test(`real upstream 422 isolates ${name} without publishing values`, { timeout: 20000 }, async t => {
+    const f = await fixture(t, 'recover');
+    await f.request('POST', '/responses', f.task.request);
+    const reflected = await f.request('GET', '/reflect');
+    const corrected = structuredClone(f.task.request);
+    corrected.reasoning.effort = reflected.body.model_decision_diagnostics.current.decisions.find(item =>
+      item.identity?.model_id === corrected.model && item.effort?.supported_values?.length).effort.supported_values[0];
+    change(corrected);
+    assert.equal((await f.request('POST', '/responses', corrected)).status, 422);
+    const evidence = await f.finish();
+    const reportFile = path.join(f.directory, 'report.json');
+    const output = path.join(f.directory, 'summary.json');
+    fs.writeFileSync(reportFile, '{}');
+    assert.equal(collect(path.join(f.directory, 'evidence.json'), reportFile, 0, output), false);
+    const summary = JSON.parse(fs.readFileSync(output, 'utf8'));
+    assert.equal(summary.failedAssertion, 'correction_status');
+    assert.equal(summary.trace[2].requestShape[mismatchedFlag], false);
+    assert.equal(summary.upstream[0].requestShape[mismatchedFlag], false);
+    assert.equal(summary.upstream[0].reason, 'fixture_task_mismatch');
+    assert.equal(summary.upstream[0].requestShape.modelMatches, true);
+    const text = fs.readFileSync(output, 'utf8');
+    assert.ok(!text.includes(evidence.nonce) && !text.includes(evidence.result));
+  });
+}
+
+test('incoming and forwarded flags distinguish a real production model normalization', { timeout: 20000 }, async t => {
+  const f = await fixture(t, 'recover');
+  await f.request('POST', '/responses', f.task.request);
+  const reflected = await f.request('GET', '/reflect');
+  const corrected = structuredClone(f.task.request);
+  corrected.reasoning.effort = reflected.body.model_decision_diagnostics.current.decisions.find(item =>
+    item.identity?.model_id === corrected.model && item.effort?.supported_values?.length).effort.supported_values[0];
+  corrected.model = `copilot/${corrected.model}`;
+  assert.equal((await f.request('POST', '/responses', corrected)).status, 200);
+  await f.finish();
+  const reportFile = path.join(f.directory, 'report.json');
+  const output = path.join(f.directory, 'summary.json');
+  fs.writeFileSync(reportFile, '{}');
+  assert.equal(collect(path.join(f.directory, 'evidence.json'), reportFile, 0, output), false);
+  const summary = JSON.parse(fs.readFileSync(output, 'utf8'));
+  assert.equal(summary.failedAssertion, 'corrected_request_exact');
+  assert.equal(summary.trace[2].requestShape.modelMatches, false);
+  assert.equal(summary.upstream[0].requestShape.modelMatches, true);
+});
 
 test('real repeated invalid and policy-evasion requests cannot pass', { timeout: 20000 }, async t => {
   const f = await fixture(t, 'deny');

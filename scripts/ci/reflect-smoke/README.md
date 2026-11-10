@@ -88,6 +88,68 @@ request/status/reason chronology, verdicts, harness exit, source SHA, image IDs 
 numeric CLI version only: no prompts, response text, arbitrary agent output or
 credentials. Missing artifact evidence is an error, not a passing skip.
 
+### Sanitized failure evidence
+
+Verdicts retain `stage` and a `failedAssertion`: the **first** failed contract's
+static ID, or `null` for success and failures outside a recognized grading
+assertion (for example, an unreadable report). Assertion messages, diffs, stacks
+and arbitrary exception properties are never copied. Useful IDs include
+`initial_request_exact`, `initial_rejection_status`, `endpoint_method`,
+`reflect_get_success`, `reflect_schema`, `reflect_rejection`,
+`recovery_attempt_count`, `corrected_request_exact`, `recovery_upstream_exact`,
+`denial_attempt_count`, `denial_upstream_empty` and the scenario's report ID.
+Later failures can coexist; the first ID is not a complete diagnosis.
+
+`trace` describes incoming requests; `upstream` describes what the production
+proxy actually forwarded to the deterministic backend. Each has an independent
+sequence. The backend now records its own status and fixed
+`fixture_task_mismatch` classification, including when a streamed upstream
+response did not leave an error code in the incoming journal. This is a fixture
+gate failure, **not** the required production effort/policy rejection.
+
+Non-diagnostic requests have a `requestShape` of booleans only:
+
+| Flag | Comparison with private host-owned fixture state |
+|---|---|
+| `methodMatches`, `pathMatches` | Exactly `POST`, `/responses`. |
+| `modelMatches` | Exact task model. |
+| `initialEffortMatches`, `supportedEffortMatches` | Initial `max`, or the randomized supported effort. |
+| `inputMatches`, `streamMatches` | Exact nonce input, and literal `false`. |
+| `exactInitialMatches`, `exactCorrectedMatches` | Entire initial/corrected body, including absence of extra keys. |
+
+These are comparisons, not the values or alternate request bodies. A mismatch
+already present on ingress differs from one first appearing after forwarding;
+neither alone proves a production bug. Each public trace is capped at thirteen
+entries (the target's twelve-request cap plus its refusal); grading still
+requires at most **five**. Methods, paths, reasons and assertion IDs are
+allowlisted, reflection reasons are deduplicated to two known classes, and
+sequence/status/exit numbers are bounded. No bodies, nonce, expected result,
+headers, transcripts, error text or arbitrary agent strings are published.
+
+### First live run: observed versus established
+
+The [first authorized run](https://github.com/github/gh-aw-firewall/actions/runs/42678673312)
+at `eeefa05f0d457b43d693dd74f68de2348d69ddc9` passed provider-free checks and
+only Copilot denial (one of six live scenarios). All three CLIs exited zero;
+that did not satisfy grading. Four failing scenarios started with HTTP 422,
+then read `/reflect` without a relevant recent rejection; Codex denial instead
+POSTed to `/reflect` after HTTP 403, without a successful diagnostic GET.
+The old artifacts discarded the 422 classification, request shapes and failed
+assertion, so the historical request-mismatch cause remains **unknown**.
+No canonical diagnosis registry finding establishes a production fix.
+
+Provider-free regressions reproduce all five failing chronologies using the
+real fixture/grader/collector. For the 422 traces, submitting the task envelope
+instead of its nested request is one **demonstrated local cause**, not a claim
+about what the live agents sent. Separate regressions isolate missing effort,
+wrong input shape, missing stream and a production model-prefix normalization
+across ingress/forwarded boundaries. Exact requests still produce the required
+400/403 and both original success paths still pass. No model subsystem,
+prompt, admission rule or substantive acceptance requirement is changed.
+The mock host-orchestration test supplies its own bounded timeout executable so
+these provider-free tests also run on hosts without GNU `timeout`; the Linux
+live harness continues to require the real host timeout.
+
 ## Provider-free local validation
 
 With root and API-proxy dependencies installed:
@@ -107,6 +169,6 @@ the three guest invocation contracts and Codex transport configuration; they are
 not live-agent acceptance. Build Verification also runs these provider-free
 checks on Node 22; the manual workflow runs this gate before any live engine.
 
-**Live acceptance is pending until a separately authorized manual dispatch**
+**Live acceptance remains pending until a separately authorized manual dispatch**
 passes both scenarios for all three real CLIs. Local fixture/grader success must
 not be reported as proof that a live agent recovered.
