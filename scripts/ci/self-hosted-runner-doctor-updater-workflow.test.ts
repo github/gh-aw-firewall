@@ -14,6 +14,8 @@ describe('runner doctor updater workflow config', () => {
     expect(source).toContain('schedule: daily');
     expect(source).toContain('workflow_dispatch:');
     expect(source).toContain('- shared/diagnosis-maintenance.md');
+    expect(source).toContain('allowed-repos: [github/gh-aw-firewall]');
+    expect(source).toContain('min-integrity: none');
     expect(source).not.toContain('prepare_candidates');
     expect(source).not.toContain('- shared/self-hosted-failure-modes.md');
     expect(source).toContain('reserve IDs appearing in either surface');
@@ -33,6 +35,8 @@ describe('runner doctor updater workflow config', () => {
     expect(lock).toContain('cron:');
     expect(lock).toContain('issues: read');
     expect(lock).toContain('pull-requests: read');
+    expect(lock).toContain("GH_AW_GITHUB_REPOS: '[\"github/gh-aw-firewall\"]'");
+    expect(lock).toContain("GH_AW_GITHUB_MIN_INTEGRITY: 'none'");
     expect(lock).toContain('🩺 Runner Doctor Update');
     expect(lock).toContain('Collect merged PR intake and historical catchup');
     expect(lock).toContain('name: diagnosis-intake');

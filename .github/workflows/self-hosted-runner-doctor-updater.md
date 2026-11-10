@@ -17,6 +17,8 @@ imports:
 tools:
   github:
     toolsets: [issues, pull_requests]
+    allowed-repos: [github/gh-aw-firewall]
+    min-integrity: none
   bash: true
 sandbox:
   agent:
