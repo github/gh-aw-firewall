@@ -74,7 +74,7 @@ test('host orchestration cannot pass a noop CLI or forged agent marker and freez
     if (args[0] === 'image') console.log('sha256:fixture');
     if (args[0] === 'inspect') console.log('true');
     if (args[0] === 'cp') {
-      fs.writeFileSync(args[2], args[1].endsWith('task.json') ? '{}' :
+      fs.writeFileSync(args[2], /(?:task|initial-request)\\.json$/.test(args[1]) ? '{}' :
         JSON.stringify({ version: 1, complete: true, events: [], upstream: [] }));
     }
   `);
@@ -129,6 +129,13 @@ test('host orchestration cannot pass a noop CLI or forged agent marker and freez
     assert.equal(record.args[record.args.indexOf('--agent-timeout') + 1], '6');
   }
   const dockerCalls = records.filter(record => record.tool === 'docker');
+  for (const scenario of ['recover', 'deny']) {
+    for (const file of ['task.json', 'initial-request.json']) {
+      assert.equal(dockerCalls.filter(record => record.args[0] === 'cp' &&
+        record.args[1] === `awf-reflect-codex-${scenario}-123-1:/evidence/${file}` &&
+        record.args[2] === path.join(temp, `reflect-private-codex/guest-${scenario}/${file}`)).length, 1);
+    }
+  }
   assert.equal(dockerCalls.filter(record => record.args[0] === 'stop').length, 2);
   const removals = dockerCalls.filter(record => record.args[0] === 'rm');
   assert.equal(removals.length, 2);
@@ -190,7 +197,12 @@ for (const agent of ['copilot', 'claude', 'codex']) {
     assert.equal(fs.existsSync(path.join(dir, 'decoy.log')), false);
     const prompt = call.args.find(arg => arg.includes('Perform the task'));
     assert.ok(prompt.includes('http://isolated-fixture:8080/reflect'));
-    assert.ok(prompt.includes('First submit its request unchanged'));
+    assert.ok(prompt.includes("--data-binary @initial-request.json 'http://isolated-fixture:8080/responses'"));
+    assert.ok(prompt.includes('ONLY task.json.request, not the task envelope'));
+    assert.ok(prompt.includes('do_not_repeat forbids repeating the rejected request unchanged'));
+    assert.ok(prompt.includes('change only reasoning.effort'));
+    assert.ok(prompt.includes('stop without another target POST'));
+    assert.ok(prompt.includes('not proof of a permanent model-policy denial'));
     assert.ok(!prompt.includes('"effort":"low"') && !prompt.includes('"effort":"high"'));
     assert.equal(fs.existsSync(path.join(dir, 'report.json')), false, 'Noop CLI must not create success');
     if (agent === 'codex') {

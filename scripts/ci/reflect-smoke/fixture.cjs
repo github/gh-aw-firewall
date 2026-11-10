@@ -110,6 +110,7 @@ async function start({ directory, proxyDirectory, scenario, port = 8080, host = 
   });
   await new Promise(resolve => server.listen(port, host, resolve));
   const task = { scenario, request: { model, reasoning: { effort: 'max' }, input: nonce, stream: false } };
+  fs.writeFileSync(path.join(directory, 'initial-request.json'), JSON.stringify(task.request));
   fs.writeFileSync(path.join(directory, 'task.json'), JSON.stringify(task));
   persist();
   return {
