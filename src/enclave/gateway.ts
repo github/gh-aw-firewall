@@ -1,6 +1,7 @@
 import * as http from 'http';
 import * as https from 'https';
 import execa from 'execa';
+import { isIPv4 } from 'node:net';
 import { TIMING_BUCKETS_MS } from '../bounded-execution';
 import { ENCLAVE_MCP_SERVER_CONTAINER_NAME } from '../constants';
 import { getLocalDockerEnv } from '../docker-host';
@@ -11,6 +12,7 @@ import {
 } from './startup-progress';
 import { HostPreflightReporter } from '../cloud-hypervisor/host-preflight-progress';
 import {
+  ENCLAVE_MCP_CONTROL_ALIAS,
   ENCLAVE_MCP_CONTROL_NETWORK,
 } from './network';
 import { readGatewayReadinessResponse } from './gateway-readiness';
@@ -284,7 +286,7 @@ async function inspectGateway(contract: EnclaveGatewayContract): Promise<void> {
   }
 }
 
-async function assertControlNetworkMembership(contract: EnclaveGatewayContract): Promise<void> {
+async function assertControlNetworkMembership(contract: EnclaveGatewayContract): Promise<string> {
   const result = await execa(
     'docker',
     ['network', 'inspect', '--format', '{{json .Containers}}', ENCLAVE_MCP_CONTROL_NETWORK],
@@ -293,7 +295,7 @@ async function assertControlNetworkMembership(contract: EnclaveGatewayContract):
   if (result.exitCode !== 0) {
     throw new Error('Enclave MCP control network is unavailable');
   }
-  let containers: Record<string, { Name?: string }>;
+  let containers: Record<string, { Name?: string; IPv4Address?: string }>;
   try {
     containers = JSON.parse(result.stdout);
   } catch {
@@ -306,6 +308,41 @@ async function assertControlNetworkMembership(contract: EnclaveGatewayContract):
       `Enclave MCP control network contains unexpected members `
       + `(expected: ${expected.join(', ')}; actual: ${names.join(', ') || '<none>'})`,
     );
+  }
+  const server = Object.values(containers).find(
+    (entry) => entry.Name === ENCLAVE_MCP_SERVER_CONTAINER_NAME,
+  );
+  const serverIp = server?.IPv4Address?.split('/')[0];
+  if (!serverIp || !isIPv4(serverIp)) {
+    throw new Error('Enclave MCP server address could not be verified');
+  }
+  return serverIp;
+}
+
+// mcpg starts on Docker's default bridge, so later network attachment does not
+// give its resolver Docker's private-network service discovery.
+async function configureGatewayHostResolution(
+  contract: EnclaveGatewayContract,
+  serverIp: string,
+): Promise<void> {
+  const result = await execa(
+    'docker',
+    [
+      'exec',
+      '--user',
+      '0',
+      contract.containerName,
+      '/bin/sh',
+      '-c',
+      `sed -i "/[[:space:]]$2\\([[:space:]]\\|$\\)/d" /etc/hosts && printf "%s %s\\n" "$1" "$2" >> /etc/hosts`,
+      'awf-enclave-hosts',
+      serverIp,
+      ENCLAVE_MCP_CONTROL_ALIAS,
+    ],
+    { env: getLocalDockerEnv(), reject: false, timeout: 10_000 },
+  );
+  if (result.exitCode !== 0) {
+    throw new Error('Failed to configure private enclave service resolution for the trusted gateway');
   }
 }
 
@@ -331,7 +368,10 @@ export async function connectEnclaveGateway(
     }
   });
   try {
-    await report.check('network-membership', () => assertControlNetworkMembership(contract));
+    await report.check('network-membership', async () => {
+      const serverIp = await assertControlNetworkMembership(contract);
+      await configureGatewayHostResolution(contract, serverIp);
+    });
   } catch (error) {
     // Leave the fixed-name control network reusable by startup retries.
     await execa(
