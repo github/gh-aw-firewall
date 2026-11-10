@@ -218,6 +218,7 @@ remain `unknown` unless independently established.
 | AUTH-004 | Merged [#10495](https://github.com/github/gh-aw-firewall/pull/10495), API-proxy service configuration and Compose tests: healthy Squid precedes primary proxy OIDC initialization. |
 | CI-002 | Merged [#9488](https://github.com/github/gh-aw-firewall/pull/9488), gateway and GitHub-gateway tests plus integration contract: bounded retryable backend unavailability is not arbitrary protocol/auth failure. |
 | CI-003 | Merged [#11223](https://github.com/github/gh-aw-firewall/pull/11223), ordinary-workflow admission and runtime-validation regressions: regional OIDC endpoints and finite rejection reasons, without token probes. |
+| CI-004 | Merged [#11194](https://github.com/github/gh-aw-firewall/pull/11194), regression finalization gates and collector projection tests: validated invocation results are separate from post-success audit/cleanup failures, with audit retained outside the AWF work directory. |
 | A4, RT-001, NET-002 | Corrected misleading probes: an Alpine probe container does not identify daemon libc; daemon default does not establish explicit runtime selection; chroot DNS and transient Squid failures need distinct checks. Current `config-sections.ts` uses a 10-second DNS timeout, not the 5 seconds in historical [#8171](https://github.com/github/gh-aw-firewall/pull/8171). |
 
 ## Agent entry point

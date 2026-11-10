@@ -5,7 +5,7 @@
   "title": "Enclave regression fails after a successful invocation at a finalization gate",
   "symptoms": ["AWF_ENCLAVE_REGRESSION_FINALIZATION", "Enclave agent regression fails although the invocation result validated"],
   "conditions": [
-    "The daily enclave agent regression reached result validation or later stages",
+    "The finalization record has resultValidated: true and primaryFailure.gate is a finalization gate other than result",
     "Older code deleted the harness audit directory with AWF work-directory shutdown, so audit validation could fail after a successful invocation",
     "An old aggregate failure without a finalization record does not identify the failing gate"
   ],

@@ -84,6 +84,12 @@ describe('diagnosis registry', () => {
     expect(finding.probe.command).not.toContain('enclave-session.log');
   });
 
+  it('limits CI-004 to validated invocation results and non-result finalization failures', () => {
+    const finding = loaded.find((entry) => entry.finding.id === 'CI-004')!.finding;
+    expect(finding.conditions.join(' ')).toContain('resultValidated: true');
+    expect(finding.conditions.join(' ')).toContain('primaryFailure.gate is a finalization gate other than result');
+  });
+
   it('keeps generated artifacts in sync with the canonical records', () => {
     expect(checkSync(loaded).stale).toEqual([]);
   });
