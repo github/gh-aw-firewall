@@ -250,7 +250,7 @@ When using OpenAI native Workload Identity Federation (`AWF_AUTH_TYPE=github-oid
 - `AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID` (required)
 - `AWF_AUTH_OIDC_AUDIENCE` (optional; defaults to `https://api.openai.com/v1`)
 
-These values are consumed by the sidecar and excluded from the agent environment. See [auth-matrix.md](auth-matrix.md#openai-native-workload-identity-federation).
+The two OpenAI IDs are consumed by the sidecar and excluded from the agent environment. `AWF_AUTH_OIDC_AUDIENCE` configures the audience used by the sidecar. See [auth-matrix.md](auth-matrix.md#openai-native-workload-identity-federation).
 
 ## Anthropic WIF environment notes
 
