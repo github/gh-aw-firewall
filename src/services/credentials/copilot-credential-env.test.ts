@@ -75,8 +75,20 @@ describe('buildCopilotCredentialEnv', () => {
     const result = buildCopilotCredentialEnv({ config, proxyIp });
     expect(result.COPILOT_API_URL).toBe(`http://${proxyIp}:10002`);
     expect(result.COPILOT_OFFLINE).toBe('true');
+    expect(result.COPILOT_PROVIDER_VISION).toBe('true');
     expect(result.COPILOT_TOKEN).toBe(COPILOT_PLACEHOLDER_TOKEN);
     expect(result.COPILOT_GITHUB_TOKEN).toBe(COPILOT_PLACEHOLDER_TOKEN);
+  });
+
+  it.each(['true', 'false'])('preserves COPILOT_PROVIDER_VISION=%s', (vision) => {
+    const config = { ...baseConfig, copilotGithubToken: 'ghu_token' } as WrapperConfig;
+    mockGetConfigEnvValue.mockImplementation((_, key) =>
+      key === 'COPILOT_PROVIDER_VISION' ? vision : undefined
+    );
+
+    const result = buildCopilotCredentialEnv({ config, proxyIp });
+
+    expect(result.COPILOT_PROVIDER_VISION).toBe(vision);
   });
 
   it('returns env additions when copilotProviderApiKey is set', () => {

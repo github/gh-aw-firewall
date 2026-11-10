@@ -216,6 +216,19 @@ The workflow-level `AGENT_API_KEY` secret declaration and mapping for the select
 `engine.id` belong to the gh-aw compiler; this AWF alias does not change compiler
 validation or reusable workflow secret declarations.
 
+## Copilot tool images (API proxy)
+
+AWF runs Copilot in offline BYOK mode through the API proxy, including when
+using `COPILOT_GITHUB_TOKEN`. AWF defaults `COPILOT_PROVIDER_VISION=true` so
+images returned by tools (for example, viewing a PNG) reach vision-capable models.
+This setting requires **Copilot CLI 1.0.106 or later**; older versions do not
+support it. For gh-aw workflows, ensure the compiler's `DefaultCopilotVersion`
+or the workflow's Copilot version override selects 1.0.106 or later.
+
+An explicit value supplied through `--env`, `--env-file`, or `--env-all` takes
+precedence. For example, use `--env COPILOT_PROVIDER_VISION=false` to disable
+vision for a text-only provider.
+
 ## `COPILOT_GITHUB_TOKEN` and Classic PAT Compatibility
 
 When `COPILOT_GITHUB_TOKEN` is set in the host environment, AWF injects it into the agent container so the Copilot CLI can authenticate against the GitHub Copilot API.
