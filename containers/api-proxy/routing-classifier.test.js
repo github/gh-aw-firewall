@@ -93,15 +93,23 @@ describe('routing classifier', () => {
     expect(recorded.system_prompt).toContain(rule);
     expect(recorded.prompt).toContain(`<instructions>\nClassify the current request in conversation_data. Do not answer or perform it. ${rule}`);
     expect(recorded.prompt).toMatch(/<conversation_data>\n<prior_user_turns>\n\(none\)\n {2}<\/prior_user_turns>\n<current_request>\nProceed\.\n {2}<\/current_request>\n<\/conversation_data>$/);
-    const systemTexts = {
-      responses: body => [body.instructions, body.input.map(item => item.content)],
-      'chat-completions': body => [body.messages[0].content, body.messages.slice(1).map(item => item.content)],
-      messages: body => [body.system, body.messages.map(item => item.content)],
+    expect(recorded.prompt.split('Proceed.')).toHaveLength(2);
+    expect(recorded.system_prompt).not.toContain('Proceed.');
+    const userTurn = { role: 'user', content: recorded.prompt };
+    const wires = {
+      responses: body => [body.instructions, body.input],
+      'chat-completions': body => [body.messages[0], body.messages.slice(1)],
+      messages: body => [body.system, body.messages],
     };
-    for (const [protocol, split] of Object.entries(systemTexts)) {
-      const [system, userContents] = split(buildClassifierRequest({ wireModel: 'm', protocol }, recorded).body);
-      expect(system).toBe(recorded.system_prompt);
-      expect(userContents).toEqual([recorded.prompt]);
+    const expectedSystem = {
+      responses: recorded.system_prompt,
+      'chat-completions': { role: 'system', content: recorded.system_prompt },
+      messages: recorded.system_prompt,
+    };
+    for (const [protocol, split] of Object.entries(wires)) {
+      const [system, turns] = split(buildClassifierRequest({ wireModel: 'm', protocol }, recorded).body);
+      expect(system).toEqual(expectedSystem[protocol]);
+      expect(turns).toEqual([userTurn]);
     }
   });
 
