@@ -191,11 +191,11 @@ describe('shared diagnosis-maintenance contract', () => {
       'ci-integration-doctor-updater',
     ]) {
       const lock = read(`.github/workflows/${workflow}.lock.yml`);
-      expect(lock).toContain(
-        'key: memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ github.run_id }}'
+      expect(lock).toMatch(
+        /key: memory-(?:none|approved)-(?:nopolicy|[a-f0-9]{8})-\$\{\{ env\.GH_AW_WORKFLOW_ID_SANITIZED \}\}-\$\{\{ github\.run_id \}\}/
       );
-      expect(lock).toContain(
-        'memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-\n'
+      expect(lock).toMatch(
+        /memory-(?:none|approved)-(?:nopolicy|[a-f0-9]{8})-\$\{\{ env\.GH_AW_WORKFLOW_ID_SANITIZED \}\}-\n/
       );
       expect(lock).not.toContain('CACHE_MEMORY_DATE');
       expect(lock).not.toContain('--add-dir /tmp/gh-aw/cache-memory/');

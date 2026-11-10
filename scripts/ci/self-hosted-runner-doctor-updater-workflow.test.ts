@@ -14,6 +14,9 @@ describe('runner doctor updater workflow config', () => {
     expect(source).toContain('schedule: daily');
     expect(source).toContain('workflow_dispatch:');
     expect(source).toContain('- shared/diagnosis-maintenance.md');
+    expect(source).toContain('allowed-repos: [github/gh-aw-firewall]');
+    expect(source).toContain('min-integrity: approved');
+    expect(source).toContain('threat-detection:\n    enabled: true');
     expect(source).not.toContain('prepare_candidates');
     expect(source).not.toContain('- shared/self-hosted-failure-modes.md');
     expect(source).toContain('reserve IDs appearing in either surface');
@@ -33,6 +36,8 @@ describe('runner doctor updater workflow config', () => {
     expect(lock).toContain('cron:');
     expect(lock).toContain('issues: read');
     expect(lock).toContain('pull-requests: read');
+    expect(lock).toContain("GH_AW_GITHUB_REPOS: '[\"github/gh-aw-firewall\"]'");
+    expect(lock).toContain("GH_AW_GITHUB_MIN_INTEGRITY: 'approved'");
     expect(lock).toContain('🩺 Runner Doctor Update');
     expect(lock).toContain('Collect merged PR intake and historical catchup');
     expect(lock).toContain('name: diagnosis-intake');
@@ -47,7 +52,20 @@ describe('runner doctor updater workflow config', () => {
     const manifestLine = lock.split('\n').find((line) => line.startsWith('# gh-aw-manifest: '))!;
     const manifest = JSON.parse(manifestLine.slice('# gh-aw-manifest: '.length)) as {
       mcp_servers: { name: string; tools: string[] }[];
+      threat_detection: { mode: string };
     };
+    expect(manifest.threat_detection.mode).toBe('enabled');
+    const compiled = yaml.load(lock) as {
+      jobs: { agent: { steps: { id?: string; env?: Record<string, string> }[] } };
+    };
+    const finalRecoveryStep = compiled.jobs.agent.steps.find(
+      (step) => step.id === 'validate_final_recovery_envelopes',
+    );
+    const recoveryRoots = JSON.parse(
+      finalRecoveryStep?.env?.GH_AW_RECOVERY_ADDITIONAL_ROOTS ?? '[]',
+    ) as string[];
+    expect(recoveryRoots).not.toContain('/tmp/gh-aw/proxy-logs/');
+    expect(recoveryRoots).not.toContain('/tmp/gh-aw');
     const githubTools = manifest.mcp_servers.find((server) => server.name === 'github')?.tools;
     expect(githubTools).toEqual(expect.arrayContaining(['issue_read', 'pull_request_read']));
     expect(githubTools).not.toContain('get_commit');
