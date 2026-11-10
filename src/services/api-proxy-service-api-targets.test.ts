@@ -168,6 +168,18 @@ describe('API proxy sidecar: API targets and auth forwarding', () => {
         expect(env.COPILOT_PROVIDER_BASE_URL).toBe('http://172.30.0.30:10002');
       });
 
+      it.each([undefined, 'true', 'false'])('should default vision to true and preserve COPILOT_PROVIDER_VISION=%s in agent', (vision) => {
+        const configWithProxy: WrapperConfig = {
+          ...mockConfig,
+          enableApiProxy: true,
+          copilotGithubToken: 'ghu_test_token',
+          additionalEnv: vision === undefined ? {} : { COPILOT_PROVIDER_VISION: vision },
+        };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.COPILOT_PROVIDER_VISION).toBe(vision ?? 'true');
+      });
+
       it('should set COPILOT_PROVIDER_API_KEY placeholder in agent when copilotGithubToken is provided (offline+BYOK mode)', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test_token' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
