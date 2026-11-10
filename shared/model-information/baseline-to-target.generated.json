@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogRevision": "f0f68c2555e3724074bea3c28ba767112fa781603508c431a043e938c5490687",
+  "catalogRevision": "2d3d94dcb0c1354f5e4da36eae217ffc4480befa3519cbc88280cc8a5dda253e",
   "activation": "staged: phases 4, 5 and 6",
   "differences": [
     {
@@ -27,8 +27,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -38,8 +38,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -49,8 +49,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -60,8 +60,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -70,8 +70,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -79,8 +79,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -108,8 +108,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -119,8 +119,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -130,8 +130,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -141,8 +141,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -151,8 +151,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -160,8 +160,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -216,8 +216,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -227,8 +227,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -238,8 +238,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -249,8 +249,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -259,8 +259,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -268,8 +268,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -297,8 +297,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -308,8 +308,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -319,8 +319,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -330,8 +330,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -340,8 +340,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -349,8 +349,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -405,8 +405,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -416,8 +416,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -427,8 +427,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -438,8 +438,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -448,8 +448,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -457,8 +457,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -486,8 +486,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -497,8 +497,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -508,8 +508,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -519,8 +519,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -529,8 +529,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -538,8 +538,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -752,8 +752,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -763,8 +763,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -774,8 +774,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -785,8 +785,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -795,8 +795,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -804,8 +804,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -833,8 +833,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -844,8 +844,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -855,8 +855,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -866,8 +866,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -876,8 +876,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -885,8 +885,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -941,8 +941,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -952,8 +952,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -963,8 +963,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -974,8 +974,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -984,8 +984,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -993,8 +993,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -1022,8 +1022,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1033,8 +1033,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1044,8 +1044,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1055,8 +1055,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1065,8 +1065,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -1074,8 +1074,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -1130,8 +1130,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1141,8 +1141,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1152,8 +1152,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1163,8 +1163,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1173,8 +1173,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -1182,8 +1182,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -1211,8 +1211,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1222,8 +1222,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1233,8 +1233,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1244,8 +1244,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1254,8 +1254,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -1263,8 +1263,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -1317,8 +1317,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1328,8 +1328,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1339,8 +1339,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1350,8 +1350,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1360,8 +1360,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -1369,8 +1369,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -1398,8 +1398,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1409,8 +1409,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1420,8 +1420,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1431,8 +1431,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1441,8 +1441,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -1450,8 +1450,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -1506,8 +1506,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1517,8 +1517,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1528,8 +1528,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1539,8 +1539,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1549,8 +1549,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -1558,8 +1558,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -1587,8 +1587,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1598,8 +1598,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1609,8 +1609,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1620,8 +1620,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1630,8 +1630,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -1639,8 +1639,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -2753,8 +2753,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2764,8 +2764,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2775,8 +2775,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2785,8 +2785,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -2794,8 +2794,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -2823,8 +2823,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2834,8 +2834,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2845,8 +2845,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2855,8 +2855,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -2864,8 +2864,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -2930,8 +2930,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2941,8 +2941,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2951,8 +2951,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -2960,8 +2960,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -2989,8 +2989,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3000,8 +3000,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3010,8 +3010,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -3019,8 +3019,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -3163,8 +3163,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3174,8 +3174,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3185,8 +3185,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3196,8 +3196,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3206,8 +3206,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -3215,8 +3215,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -3244,8 +3244,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3255,8 +3255,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3266,8 +3266,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3277,8 +3277,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3287,8 +3287,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -3296,8 +3296,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -3364,8 +3364,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3375,8 +3375,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3386,8 +3386,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3397,8 +3397,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3407,8 +3407,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -3416,8 +3416,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -3445,8 +3445,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3456,8 +3456,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3467,8 +3467,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3478,8 +3478,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3488,8 +3488,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -3497,8 +3497,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -3565,8 +3565,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3576,8 +3576,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3587,8 +3587,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3598,8 +3598,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3608,8 +3608,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -3617,8 +3617,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -3646,8 +3646,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3657,8 +3657,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3668,8 +3668,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3679,8 +3679,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3689,8 +3689,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -3698,8 +3698,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -3766,8 +3766,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3777,8 +3777,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3788,8 +3788,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3799,8 +3799,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3809,8 +3809,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -3818,8 +3818,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -3847,8 +3847,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3858,8 +3858,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3869,8 +3869,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3880,8 +3880,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -3890,8 +3890,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -3899,8 +3899,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -4000,8 +4000,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4011,8 +4011,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4022,8 +4022,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4033,8 +4033,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4043,8 +4043,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -4108,8 +4108,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4119,8 +4119,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4130,8 +4130,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4141,8 +4141,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4151,8 +4151,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -4220,8 +4220,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4231,8 +4231,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4242,8 +4242,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4253,8 +4253,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4263,8 +4263,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -4272,8 +4272,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -4301,8 +4301,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4312,8 +4312,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4323,8 +4323,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4334,8 +4334,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4344,8 +4344,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -4353,8 +4353,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -4421,8 +4421,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4432,8 +4432,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4443,8 +4443,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4454,8 +4454,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4464,8 +4464,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -4473,8 +4473,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -4502,8 +4502,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4513,8 +4513,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4524,8 +4524,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4535,8 +4535,8 @@
               "provenance": {
                 "authority": "imported",
                 "source": "https://openrouter.ai/api/v1/models",
-                "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-                "at": "2026-11-09T12:53:09.140Z",
+                "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+                "at": "2026-11-10T12:53:39.888Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -4545,8 +4545,8 @@
           "provenance": {
             "authority": "imported",
             "source": "https://openrouter.ai/api/v1/models",
-            "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-            "at": "2026-11-09T12:53:09.140Z",
+            "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+            "at": "2026-11-10T12:53:39.888Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
@@ -4554,8 +4554,8 @@
         "provenance": {
           "authority": "imported",
           "source": "https://openrouter.ai/api/v1/models",
-          "revision": "5396d1d1b625c9c78c73244915779c490860a21650050d073a4dfb83f2d05806",
-          "at": "2026-11-09T12:53:09.140Z",
+          "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+          "at": "2026-11-10T12:53:39.888Z",
           "confidence": "imported",
           "freshness": "unknown"
         },

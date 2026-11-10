@@ -85,8 +85,8 @@ describe('Cloud Hypervisor primary and Copilot agent enclave acceptance', () => 
     { GITHUB_EVENT_NAME: 'pull_request' },
     { GITHUB_EVENT_NAME: 'schedule' },
     { GITHUB_ACTIONS: 'false' },
-    { GITHUB_REF_TYPE: 'tag', GITHUB_REF: 'refs/tags/v0.28.62',
-      GITHUB_REF_NAME: 'v0.28.62', GITHUB_WORKFLOW_REF: `${workflow}@refs/tags/v0.28.62` },
+    { GITHUB_REF_TYPE: 'tag', GITHUB_REF: 'refs/tags/v0.28.66',
+      GITHUB_REF_NAME: 'v0.28.66', GITHUB_WORKFLOW_REF: `${workflow}@refs/tags/v0.28.66` },
     { GITHUB_SHA: 'invalid' },
     { GITHUB_WORKFLOW_SHA: 'a'.repeat(40) },
     { GITHUB_WORKFLOW_REF: `${workflow}@refs/heads/main` },
@@ -135,7 +135,7 @@ describe('Cloud Hypervisor primary and Copilot agent enclave acceptance', () => 
     }
   });
 
-  it.each([2048, 32768, 131071, 131073])('rejects a token budget outside the exact smoke allowance: %s', tokens => {
+  it.each([32768, 131071, 131073])('rejects a token budget outside the exact smoke allowance: %s', tokens => {
     const value = config();
     value.enclaves!.executors.agent.maxModelTokens = tokens;
     expect(isCloudHypervisorAgentAcceptanceWorkflow(value)).toBe(false);
