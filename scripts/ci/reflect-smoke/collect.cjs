@@ -1,7 +1,8 @@
 'use strict';
 
 const fs = require('node:fs');
-const { grade } = require('./grade.cjs');
+const { grade, failureId } = require('./grade.cjs');
+const { trace, boundedInteger } = require('./diagnostics.cjs');
 
 function readSmallRegularFile(file) {
   const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
@@ -26,25 +27,19 @@ function readReport(file) {
 
 function collect(evidenceFile, reportFile, exitCode, output) {
   let state;
-  const summary = { status: 'fail', stage: 'read_evidence', agentExit: exitCode, trace: [] };
+  const summary = { status: 'fail', stage: 'read_evidence',
+    agentExit: boundedInteger(exitCode, 0, 255), failedAssertion: null, trace: [], upstream: [] };
   try {
     state = JSON.parse(fs.readFileSync(evidenceFile, 'utf8'));
-    summary.trace = state.events.map(event => ({
-      sequence: event.sequence,
-      method: ['GET', 'POST'].includes(event.method) ? event.method : 'unexpected',
-      path: ['/responses', '/reflect'].includes(event.path) ? event.path : 'unexpected',
-      status: Number.isInteger(event.status) ? event.status : null,
-      reason: ['unsupported_reasoning_effort', 'model_policy_violation'].includes(event.error)
-        ? event.error : null,
-      diagnosticReasons: (event.reflection?.recent?.decisions || []).map(item => item.reason)
-        .filter(reason => ['unsupported_reasoning_effort', 'policy_denied'].includes(reason)),
-    }));
+    summary.trace = trace(state.events, state);
+    summary.upstream = trace(state.upstream, state);
     summary.stage = 'read_report';
     const report = readReport(reportFile);
     summary.stage = 'grade';
     Object.assign(summary, grade(state, report, exitCode));
     summary.stage = 'complete';
-  } catch {
+  } catch (error) {
+    summary.failedAssertion = failureId(error);
     // Agent output, assertion diffs and raw logs are untrusted and may contain secrets.
     console.error('Reflect smoke evidence failed the contract; see sanitized trace.');
   } finally {

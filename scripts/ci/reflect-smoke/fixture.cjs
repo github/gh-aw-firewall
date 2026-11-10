@@ -26,11 +26,12 @@ async function start({ directory, proxyDirectory, scenario, port = 8080, host = 
     let body = '';
     for await (const chunk of req) body += chunk;
     const parsed = JSON.parse(body);
-    state.upstream.push({ method: req.method, path: req.url, body: parsed });
-    persist();
     const valid = req.method === 'POST' && req.url === '/responses' &&
       parsed.model === model && parsed.reasoning?.effort === effort &&
       parsed.input === nonce && parsed.stream === false;
+    state.upstream.push({ sequence: state.upstream.length, method: req.method, path: req.url, body: parsed,
+      status: valid ? 200 : 422, error: valid ? null : 'fixture_task_mismatch' });
+    persist();
     res.writeHead(valid ? 200 : 422, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(valid
       ? { id: 'fixture-response', object: 'response', model, status: 'completed',
