@@ -66,6 +66,13 @@ startup, runsc, Kata, chroot, ENOSPC, mount propagation, session logs, admission
 and cleanup. Read old unresolved investigation sections as historical evidence,
 not proof that current code is still broken.
 
+Review every candidate in `reviewQueue.firstTime` before the rotated deferred
+queue. The intake file contains metadata only: for each reviewed PR, fetch and
+read its body and changed-file list, then inspect relevant implementation and
+test changes on the default branch. Do not classify a PR from its title alone;
+each receipt must cite the source and tests that support its disposition. If
+evidence is unavailable, leave the candidate pending as `needs-evidence`.
+
 Distinguish host preparation from guest execution; AWF host readiness from
 harness readiness; primary failure from cleanup failure; missing observations
 from success. A merged fix proves source behavior, not a released version or
