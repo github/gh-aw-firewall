@@ -18,7 +18,7 @@ tools:
   github:
     toolsets: [issues, pull_requests]
     allowed-repos: [github/gh-aw-firewall]
-    min-integrity: none
+    min-integrity: approved
   bash: true
 sandbox:
   agent:
@@ -28,7 +28,7 @@ network:
     - github
 safe-outputs:
   threat-detection:
-    enabled: false
+    enabled: true
   create-issue:
     title-prefix: "🩺 Runner Doctor Update"
     labels: [runner-doctor, automated]
