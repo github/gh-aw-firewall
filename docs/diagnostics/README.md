@@ -218,6 +218,7 @@ remain `unknown` unless independently established.
 | AUTH-004 | Merged [#10495](https://github.com/github/gh-aw-firewall/pull/10495), API-proxy service configuration and Compose tests: healthy Squid precedes primary proxy OIDC initialization. |
 | CI-002 | Merged [#9488](https://github.com/github/gh-aw-firewall/pull/9488), gateway and GitHub-gateway tests plus integration contract: bounded retryable backend unavailability is not arbitrary protocol/auth failure. |
 | CI-003 | Merged [#11223](https://github.com/github/gh-aw-firewall/pull/11223), ordinary-workflow admission and runtime-validation regressions: regional OIDC endpoints and finite rejection reasons, without token probes. |
+| CI-004 | Merged [#11194](https://github.com/github/gh-aw-firewall/pull/11194), regression finalization gates and collector projection tests: validated invocation results are separate from post-success audit/cleanup failures, with audit retained outside the AWF work directory. |
 | A4, RT-001, NET-002 | Corrected misleading probes: an Alpine probe container does not identify daemon libc; daemon default does not establish explicit runtime selection; chroot DNS and transient Squid failures need distinct checks. Current `config-sections.ts` uses a 10-second DNS timeout, not the 5 seconds in historical [#8171](https://github.com/github/gh-aw-firewall/pull/8171). |
 
 ## Agent entry point
@@ -264,6 +265,7 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | CI-001 | ci | gh-aw safe-output step fails because the emitted payload violates the declared contract | workaround | [`findings/ci/CI-001.json`](./findings/ci/CI-001.json) |
 | CI-002 | ci | Compiler-owned enclave gateway is unavailable or violates the handoff contract | workaround | [`findings/ci/CI-002.json`](./findings/ci/CI-002.json) |
 | CI-003 | ci | Cloud Hypervisor regression admission rejects a regional Actions OIDC endpoint | fixed | [`findings/ci/CI-003.json`](./findings/ci/CI-003.json) |
+| CI-004 | ci | Enclave regression fails after a successful invocation at a finalization gate | fixed | [`findings/ci/CI-004.json`](./findings/ci/CI-004.json) |
 | SEC-001 | security | Suspected isolation or credential-boundary regression must go to security review, not a bypass | needs-evidence | [`findings/security/SEC-001.json`](./findings/security/SEC-001.json) |
 
 ### Symptom lookup
@@ -323,6 +325,8 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | AWF host gateway readiness fails before primary-agent startup | CI-002 | ci | workaround |
 | cloud-hypervisor-enclave-admission-token-acquisition | CI-003 | ci | fixed |
 | Cloud Hypervisor regression profiles reject before broker startup | CI-003 | ci | fixed |
+| AWF_ENCLAVE_REGRESSION_FINALIZATION | CI-004 | ci | fixed |
+| Enclave agent regression fails although the invocation result validated | CI-004 | ci | fixed |
 | The agent container can reach a domain that is not allowlisted | SEC-001 | security | needs-evidence |
 | A provider credential is observable inside the agent environment while the api-proxy is enabled | SEC-001 | security | needs-evidence |
 | Egress succeeds without a corresponding Squid access-log entry | SEC-001 | security | needs-evidence |

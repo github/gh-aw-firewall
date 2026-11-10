@@ -62,6 +62,8 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 | AWF host gateway readiness fails before primary-agent startup | CI-002 | ci | workaround |
 | cloud-hypervisor-enclave-admission-token-acquisition | CI-003 | ci | fixed |
 | Cloud Hypervisor regression profiles reject before broker startup | CI-003 | ci | fixed |
+| AWF_ENCLAVE_REGRESSION_FINALIZATION | CI-004 | ci | fixed |
+| Enclave agent regression fails although the invocation result validated | CI-004 | ci | fixed |
 | The agent container can reach a domain that is not allowlisted | SEC-001 | security | needs-evidence |
 | A provider credential is observable inside the agent environment while the api-proxy is enabled | SEC-001 | security | needs-evidence |
 | Egress succeeds without a corresponding Squid access-log entry | SEC-001 | security | needs-evidence |
@@ -350,6 +352,20 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 - **Action:** Use source containing regional endpoint validation and finite admission subreasons with the exact signed ordinary-workflow profile. Keep HTTPS namespace, signature, claims, source pins, runtime, artifact and storage requirements. Let AWF create its work directory so a harness-owned directory does not create secondary cleanup rejection. Hosted acceptance remains separate.
 - **Related:** AUTH-002, RT-004
 - **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11223 · code: src/enclave/cloud-hypervisor-conformance-acceptance.ts · test: src/cloud-hypervisor/runtime-validation.test.ts · test: scripts/ci/enclave-agent-regression.test.ts · doc: docs/cloud-hypervisor-foundation.md
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2026-12-09
+
+### CI-004 — Enclave regression fails after a successful invocation at a finalization gate
+
+- **Boundary:** ci · **Status:** fixed
+- **Affects:** runner=github-hosted, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** AWF_ENCLAVE_REGRESSION_FINALIZATION · Enclave agent regression fails although the invocation result validated
+- **Discriminating conditions:** The finalization record has resultValidated: true and primaryFailure.gate is a finalization gate other than result · Older code deleted the harness audit directory with AWF work-directory shutdown, so audit validation could fail after a successful invocation · An old aggregate failure without a finalization record does not identify the failing gate
+- **Root cause:** Finalization previously conflated result validation with AWF stop/exit, audit retention, audit schema/invocation checks and cleanup, and shutdown could remove the audit before validation. The failing gate was therefore hidden behind one aggregate error.
+- **Safe probe:** `jq '{checks, primaryFailure, secondaryFailures, resultValidated}' path/to/protected/finalization.json` → Read the first failed gate (primaryFailure) separately from later secondaryFailures; each carries a closed gate and reason code. Startup and invocation evidence are exported independently, and a missing finalization.json is unknown, not success.
+- **Action:** Use source that retains audit outside the AWF work directory and emits the bounded finalization record. Fix the gate named by primaryFailure; treat secondary failures (for example cleanup) as separate causes. Do not relax audit, ownership or cleanup checks, and do not retain raw exception text or audit payloads. Hosted acceptance remains separate.
+- **Related:** CI-002, CI-003
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11194 · code: scripts/ci/run-enclave-agent-regression.js · code: scripts/ci/collect-enclave-smoke-debug.cjs · test: scripts/ci/collect-enclave-smoke-debug.test.ts · test: scripts/ci/enclave-agent-regression.test.ts · doc: docs/cloud-hypervisor-foundation.md
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2026-12-09
 
 ## Boundary: security
