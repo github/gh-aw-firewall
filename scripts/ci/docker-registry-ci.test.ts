@@ -383,7 +383,7 @@ echo "$*" >> "$TRACE"
   it('builds the reviewed prerelease compiler before scanning', () => {
     const steps = jobs('supply-chain-scan.yml').compile.steps;
     const install = steps.findIndex(
-      (step) => step.name === 'Build gh-aw v1.2.1 and scoped acceptance compiler',
+      (step) => step.name === 'Build gh-aw v1.2.2 and scoped acceptance compiler',
     );
     const compile = steps.findIndex((step) =>
       step.name === 'Compile + generate SBOMs (Syft)');
@@ -391,21 +391,22 @@ echo "$*" >> "$TRACE"
       step.name === 'Compile Copilot acceptance with scoped backport');
     expect(install).toBeGreaterThanOrEqual(0);
     expect(compile).toBeGreaterThan(install);
-    expect(steps[install - 2].name).toBe('Checkout gh-aw v1.2.1');
-    expect(steps[install - 2].with?.ref).toBe('8f3224323bdfd3ae8574c99c5da8a65d450577bb');
+    expect(steps[install - 2].name).toBe('Checkout gh-aw v1.2.2');
+    expect(steps[install - 2].with?.ref).toBe('399a445fe2d8926c616b54b1b82a16b5b2be4445');
     expect(steps[install].run).toContain('compiler-agent-acceptance-v0.28.66.patch');
     expect(steps[install].run).toContain('go test -C .tmp/gh-aw-compiler ./pkg/workflow');
     expect(steps[install].run).toContain('./pkg/parser');
-    expect(steps[install].run).toContain('dev-v1.2.1-agent-acceptance-v0.28.66-budget131072');
-    expect(steps[install].run).toContain('-ldflags="-X main.version=v1.2.1"');
+    expect(steps[install].run).toContain('dev-v1.2.2-agent-acceptance-v0.28.66-budget131072');
+    expect(steps[install].run).toContain('-ldflags="-X main.version=v1.2.2"');
     expect(steps[install].run).toContain('gh aw version');
+    expect(steps[install].run).toContain('gh-aw-agent-acceptance" version');
     expect(steps[install].env?.GH_TOKEN).toBe('${{ github.token }}');
     expect(steps[compile].run).toContain("find .github/workflows -maxdepth 1 -type f -name '*.md'");
     expect(steps[compile].run)
       .toContain("! -name 'smoke-enclave-cloud-hypervisor-copilot.md'");
     expect(steps[compile].run)
-      .toContain('gh aw compile --syft --action-mode action --action-tag v1.2.1 "${workflows[@]}"');
-    for (const index of [install, compile]) {
+      .toContain('gh aw compile --syft --action-mode action --action-tag v1.2.2 "${workflows[@]}"');
+    for (const index of [install, compile, acceptanceCompile]) {
       expect(steps[index].if).toBeUndefined();
       expect(steps[index]['continue-on-error']).toBeUndefined();
     }
