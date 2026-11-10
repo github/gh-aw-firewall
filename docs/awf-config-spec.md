@@ -2333,10 +2333,26 @@ validation and model discovery and selects one model/effort for the run.
 The host workflow stages and validates `apiProxy.routing` input before
 the proxy starts ([PR #8985](https://github.com/github/gh-aw-firewall/pull/8985)):
 it writes the task conversation into a private per-run routing directory,
-rejects unsupported configurations (non-Linux, non-runc, disabled API proxy,
-`--keep-containers`, DinD/split filesystems, Docker-socket exposure, or an
-unpinned router image),
+rejects unsupported configurations (non-Linux, an unsupported container
+runtime, disabled API proxy, `--keep-containers`, DinD/split filesystems,
+Docker-socket exposure, or an unpinned router image),
 and waits for `selection.json` before starting the agent.
+
+**Backend capability contract.** Primary-agent routing is admitted on the
+default Docker `runc` runtime and, in AWF releases after v0.29.11, on the
+`cloud-hypervisor` microVM runtime (still subject to its own preview,
+eligible-host and artifact gates). Every other `containerRuntime` — including
+`nvx`, `sbx`, and `gvisor`/`runsc` — is rejected before any infrastructure or
+workload starts with an error that names the runtime and links
+[gh-aw-firewall#10335](https://github.com/github/gh-aw-firewall/issues/10335).
+Compilers should reject other explicit runtime/routing combinations, and
+`cloud-hypervisor` with AWF v0.29.11 or older, at compile time. On Cloud
+Hypervisor the router and API proxy stay on the host as Compose
+infrastructure: the guest reaches only the API proxy (including
+`GET /reflect`), never the router, and the routing selection completes before
+the microVM is created. AWF refuses to boot a guest whose resolved directory
+exports overlap the private routing state. See the
+[cross-backend capability inventory](enclaves-architecture.md#capability-inventory).
 
 The selection is **advisory**, not admitted-only. The agent is seeded with the
 selected model, effort, and endpoint, but the proxy does not pin requests to

@@ -3,7 +3,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { WrapperConfig } from '../types';
 import {
+  assertRoutingStateNotExportedToGuest,
   cleanupRoutingState,
+  MODEL_ROUTING_BACKEND_PARITY_URL,
   pathsOverlap,
   routingBootstrapTestHelpers,
   RoutingFailureExitError,
@@ -142,6 +144,82 @@ describe('routing bootstrap', () => {
       'Model routing is not supported with --keep-containers',
     );
     expect(config.modelRoutingBootstrap).toBeUndefined();
+  });
+
+  it.each([undefined, '', 'runc', 'cloud-hypervisor'])('admits routing with the %p container runtime', runtime => {
+    const conversationFile = path.join(tempDir, 'conversation.json');
+    writeConversation(conversationFile);
+    const config = { ...makeConfig(path.join(tempDir, 'work'), conversationFile), containerRuntime: runtime };
+
+    const state = stageRoutingConversation(config)!;
+
+    expect(config.modelRoutingBootstrap).toBe(state);
+    cleanupRoutingState(config);
+  });
+
+  it.each(['nvx', 'sbx', 'gvisor', 'runsc', 'kata'])(
+    'rejects routing with the unsupported %s runtime before staging, naming it and linking backend parity',
+    runtime => {
+      const conversationFile = path.join(tempDir, 'conversation.json');
+      writeConversation(conversationFile);
+      const config = { ...makeConfig(path.join(tempDir, 'work'), conversationFile), containerRuntime: runtime };
+
+      expect(() => stageRoutingConversation(config)).toThrow(
+        `Model routing is not supported with the "${runtime}" container runtime`,
+      );
+      expect(() => stageRoutingConversation(config)).toThrow(MODEL_ROUTING_BACKEND_PARITY_URL);
+      expect(MODEL_ROUTING_BACKEND_PARITY_URL).toBe('https://github.com/github/gh-aw-firewall/issues/10335');
+      expect(config.modelRoutingBootstrap).toBeUndefined();
+      expect(fs.existsSync(routingBootstrapTestHelpers.routingRootForWorkDir(config.workDir))).toBe(false);
+    },
+  );
+
+  it('keeps the remaining host restrictions for cloud-hypervisor routing', () => {
+    const conversationFile = path.join(tempDir, 'conversation.json');
+    writeConversation(conversationFile);
+    const base = {
+      ...makeConfig(path.join(tempDir, 'work'), conversationFile),
+      containerRuntime: 'cloud-hypervisor',
+    };
+
+    expect(() => stageRoutingConversation({ ...base, keepContainers: true }))
+      .toThrow('Model routing is not supported with --keep-containers');
+    expect(() => stageRoutingConversation({ ...base, enableApiProxy: false }))
+      .toThrow('Model routing requires apiProxy.enabled');
+    expect(() => stageRoutingConversation({ ...base, enableDind: true }))
+      .toThrow('Model routing is not supported with Docker-in-Docker');
+    expect(() => stageRoutingConversation({ ...base, dockerHostPathPrefix: '/host' }))
+      .toThrow('Model routing is not supported with split runner/Docker filesystems');
+    expect(() => stageRoutingConversation({ ...base, images: undefined }))
+      .toThrow('Model routing requires container.images.router to be pinned by digest');
+  });
+
+  it('rejects guest exports that would expose private routing state', () => {
+    const conversationFile = path.join(tempDir, 'conversation.json');
+    writeConversation(conversationFile);
+    const config = {
+      ...makeConfig(path.join(tempDir, 'work'), conversationFile),
+      containerRuntime: 'cloud-hypervisor',
+    };
+    expect(() => assertRoutingStateNotExportedToGuest(config, [
+      { tag: 'workspace', source: os.homedir() },
+    ])).not.toThrow();
+
+    const state = stageRoutingConversation(config)!;
+    try {
+      for (const source of [os.homedir(), state.root, state.inputDir, state.outputDir]) {
+        expect(() => assertRoutingStateNotExportedToGuest(config, [
+          { tag: 'workspace', source: tempDir },
+          { tag: 'tmp-gh-aw', source },
+        ])).toThrow('Model routing private state overlaps guest export "tmp-gh-aw"');
+      }
+      expect(() => assertRoutingStateNotExportedToGuest(config, [
+        { tag: 'workspace', source: tempDir },
+        { tag: 'sibling', source: `${state.root}-sibling` },
+      ])).not.toThrow();
+    } finally {
+      cleanupRoutingState(config);
+    }
   });
 
   it('waits for a valid selection and reports routing failures with exit 78', async () => {
