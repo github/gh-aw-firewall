@@ -242,6 +242,16 @@ Copilot CLI 1.0.21 introduced a startup model validation step: when `COPILOT_MOD
 1. Replace the classic PAT with a **fine-grained PAT** or **OAuth token** (these are accepted by the `/models` endpoint). Since [PR #8038](https://github.com/github/gh-aw-firewall/pull/8038), fine-grained PATs (`github_pat_*`) always authenticate to every Copilot target (github.com, GHEC, GHES, Business) with the standard `Bearer` prefix. Classic PATs/OAuth tokens use `token` on enterprise and business targets, while GHEC data-residency targets use `Bearer` — see [docs/auth-matrix.md](auth-matrix.md#auth-header-prefix-rules).
 2. Remove `COPILOT_MODEL` from the agent environment to skip model validation entirely.
 
+## OpenAI WIF environment notes
+
+When using OpenAI native Workload Identity Federation (`AWF_AUTH_TYPE=github-oidc`, `AWF_AUTH_PROVIDER=openai`), the API proxy exchanges the GitHub OIDC token for an OpenAI access token. AWF supports:
+
+- `AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID` (required)
+- `AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID` (required)
+- `AWF_AUTH_OIDC_AUDIENCE` (optional; defaults to `https://api.openai.com/v1`)
+
+The two OpenAI IDs are consumed by the sidecar and excluded from the agent environment. `AWF_AUTH_OIDC_AUDIENCE` configures the audience used by the sidecar. See [auth-matrix.md](auth-matrix.md#openai-native-workload-identity-federation).
+
 ## Anthropic WIF environment notes
 
 When using Anthropic Workload Identity Federation (OIDC exchange in the API proxy), AWF supports:
