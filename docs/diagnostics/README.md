@@ -258,6 +258,7 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | NET-002 | network | DNS resolution fails because the resolver is not in the trusted DNS server list | workaround | [`findings/network/NET-002.json`](./findings/network/NET-002.json) |
 | NET-003 | network | Custom provider upstream port is lost or rejected by Squid | fixed | [`findings/network/NET-003.json`](./findings/network/NET-003.json) |
 | NET-004 | network | Proxy-unaware HTTPS client sends raw TLS to the forward proxy | workaround | [`findings/network/NET-004.json`](./findings/network/NET-004.json) |
+| NET-005 | network | Published host-service port is rejected after Docker DNAT despite --allow-host-service-ports | fixed | [`findings/network/NET-005.json`](./findings/network/NET-005.json) |
 | AUTH-001 | auth | Enterprise or Business Copilot target rejects the Authorization header prefix | fixed | [`findings/auth/AUTH-001.json`](./findings/auth/AUTH-001.json) |
 | AUTH-002 | auth | API-proxy OIDC mode is configured but the Actions token request variables are missing | workaround | [`findings/auth/AUTH-002.json`](./findings/auth/AUTH-002.json) |
 | AUTH-003 | auth | gh-aw-launched HTTP MCP GitHub server fails the OIDC boundary check | workaround | [`findings/auth/AUTH-003.json`](./findings/auth/AUTH-003.json) |
@@ -308,6 +309,8 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | Trusted API-proxy custom-port request is rejected as an unsafe port | NET-003 | network | fixed |
 | TLS handshake fails when the client ignores HTTPS_PROXY | NET-004 | network | workaround |
 | Raw ClientHello reaches Squid instead of an HTTP CONNECT request | NET-004 | network | workaround |
+| Connection to a host-published service (for example Redis or PostgreSQL) through the host gateway is rejected or times out | NET-005 | network | fixed |
+| The port is listed in --allow-host-service-ports but a connectivity check still fails | NET-005 | network | fixed |
 | 400 Bad Request: Authorization header is badly formatted | AUTH-001 | auth | fixed |
 | Copilot requests fail immediately against api.enterprise.githubcopilot.com or api.business.githubcopilot.com | AUTH-001 | auth | fixed |
 | api-proxy reports that no OIDC token could be minted | AUTH-002 | auth | workaround |
