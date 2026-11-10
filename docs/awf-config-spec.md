@@ -284,6 +284,8 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.targets.openai.basePath` → `--openai-api-base-path`
 - `apiProxy.targets.openai.authHeader` → `--openai-api-auth-header`
 - `apiProxy.targets.openai.baseUrlEnv` → `--openai-base-url-env` *(names a runner environment variable holding a secret OpenAI-compatible base URL; see [§9.7 Secret-Backed OpenAI Target](#97-secret-backed-openai-target))*
+- `apiProxy.targets.openai.trustedService` → *(config-only; opt-in trusted LLM service endpoint and `secretHeaders` mapping header names to runner environment variable names, never literal values; see the trusted-service contract in this spec)*
+- `apiProxy.targets.anthropic.trustedService` → *(config-only; same contract as `apiProxy.targets.openai.trustedService`)*
 - `apiProxy.targets.anthropic.basePath` → `--anthropic-api-base-path`
 - `apiProxy.targets.anthropic.authHeader` → `--anthropic-api-auth-header`
 - `apiProxy.targets.gemini.basePath` → `--gemini-api-base-path`
