@@ -2,6 +2,7 @@
  * Tests for stats-formatter module
  */
 
+import chalk from 'chalk';
 import { formatStats } from './stats-formatter';
 import { AggregatedStats, DomainStats } from './log-aggregator';
 import { RuleStats } from './audit-enricher';
@@ -204,9 +205,20 @@ describe('stats-formatter', () => {
 
     it('should work with colorize enabled', () => {
       const stats = createSampleStats();
-      // Just verify it doesn't throw with colorize enabled
-      const output = formatStats(stats, 'pretty', true);
-      expect(output).toBeTruthy();
+      const originalLevel = chalk.level;
+      chalk.level = 1; // force ANSI output even when stdout is not a TTY
+      try {
+        const ESC = String.fromCharCode(27);
+        const colored = formatStats(stats, 'pretty', true);
+        const plain = formatStats(stats, 'pretty', false);
+
+        expect(plain).not.toContain('\u001b[');
+        expect(colored).toContain('\u001b[');
+        // Colorizing must not alter the text content, only add escape codes
+        expect(colored.replace(new RegExp(`${ESC}\\[[0-9;]*m`, 'g'), '')).toBe(plain);
+      } finally {
+        chalk.level = originalLevel;
+      }
     });
   });
 
