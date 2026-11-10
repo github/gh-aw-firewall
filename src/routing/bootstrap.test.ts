@@ -42,6 +42,12 @@ function makeConfig(workDir: string, conversationFile: string): WrapperConfig {
   };
 }
 
+// The routing root is derived from the work directory basename, so a
+// per-test unique basename keeps parallel suites from sharing it.
+function workDirFor(tempDir: string): string {
+  return path.join(tempDir, `work-${path.basename(tempDir)}`);
+}
+
 function writeConversation(filename: string): void {
   fs.writeFileSync(filename, JSON.stringify([
     { role: 'user', parts: [{ text: 'please fix the tests' }] },
@@ -68,7 +74,7 @@ describe('routing bootstrap', () => {
   });
 
   it('does not stage routing without both opt-in and a routing request', () => {
-    const config = makeConfig(path.join(tempDir, 'work'), path.join(tempDir, 'missing.json'));
+    const config = makeConfig(workDirFor(tempDir), path.join(tempDir, 'missing.json'));
     for (const optIn of [undefined, false]) {
       config.experimentalModelRouting = optIn;
       expect(stageRoutingConversation(config)).toBeUndefined();
@@ -83,7 +89,7 @@ describe('routing bootstrap', () => {
   it('validates and stages one private conversation copy with rewritten config', () => {
     const conversationFile = path.join(tempDir, 'conversation.json');
     writeConversation(conversationFile);
-    const config = makeConfig(path.join(tempDir, 'work'), conversationFile);
+    const config = makeConfig(workDirFor(tempDir), conversationFile);
 
     const state = stageRoutingConversation(config)!;
 
@@ -103,7 +109,7 @@ describe('routing bootstrap', () => {
   it('refuses oversized and invalid conversations with public messages', () => {
     const conversationFile = path.join(tempDir, 'conversation.json');
     fs.writeFileSync(conversationFile, '{');
-    const config = makeConfig(path.join(tempDir, 'work'), conversationFile);
+    const config = makeConfig(workDirFor(tempDir), conversationFile);
 
     expect(() => stageRoutingConversation(config)).toThrow('The routing conversation is invalid');
 
@@ -114,7 +120,7 @@ describe('routing bootstrap', () => {
   it('refuses an unpinned default router image before staging', () => {
     const conversationFile = path.join(tempDir, 'conversation.json');
     writeConversation(conversationFile);
-    const config = makeConfig(path.join(tempDir, 'work'), conversationFile);
+    const config = makeConfig(workDirFor(tempDir), conversationFile);
     delete config.images;
 
     expect(() => stageRoutingConversation(config)).toThrow(
@@ -126,7 +132,7 @@ describe('routing bootstrap', () => {
   it('accepts a router built from the checkout with --build-local without a digest pin', () => {
     const conversationFile = path.join(tempDir, 'conversation.json');
     writeConversation(conversationFile);
-    const config = { ...makeConfig(path.join(tempDir, 'work'), conversationFile), buildLocal: true };
+    const config = { ...makeConfig(workDirFor(tempDir), conversationFile), buildLocal: true };
     delete config.images;
 
     const state = stageRoutingConversation(config)!;
@@ -138,7 +144,7 @@ describe('routing bootstrap', () => {
   it('refuses routing with preserved containers before staging', () => {
     const conversationFile = path.join(tempDir, 'conversation.json');
     writeConversation(conversationFile);
-    const config = { ...makeConfig(path.join(tempDir, 'work'), conversationFile), keepContainers: true };
+    const config = { ...makeConfig(workDirFor(tempDir), conversationFile), keepContainers: true };
 
     expect(() => stageRoutingConversation(config)).toThrow(
       'Model routing is not supported with --keep-containers',
@@ -149,7 +155,7 @@ describe('routing bootstrap', () => {
   it.each([undefined, '', 'runc', 'cloud-hypervisor'])('admits routing with the %p container runtime', runtime => {
     const conversationFile = path.join(tempDir, 'conversation.json');
     writeConversation(conversationFile);
-    const config = { ...makeConfig(path.join(tempDir, 'work'), conversationFile), containerRuntime: runtime };
+    const config = { ...makeConfig(workDirFor(tempDir), conversationFile), containerRuntime: runtime };
 
     const state = stageRoutingConversation(config)!;
 
@@ -162,7 +168,7 @@ describe('routing bootstrap', () => {
     runtime => {
       const conversationFile = path.join(tempDir, 'conversation.json');
       writeConversation(conversationFile);
-      const config = { ...makeConfig(path.join(tempDir, 'work'), conversationFile), containerRuntime: runtime };
+      const config = { ...makeConfig(workDirFor(tempDir), conversationFile), containerRuntime: runtime };
 
       expect(() => stageRoutingConversation(config)).toThrow(
         `Model routing is not supported with the "${runtime}" container runtime`,
@@ -178,7 +184,7 @@ describe('routing bootstrap', () => {
     const conversationFile = path.join(tempDir, 'conversation.json');
     writeConversation(conversationFile);
     const base = {
-      ...makeConfig(path.join(tempDir, 'work'), conversationFile),
+      ...makeConfig(workDirFor(tempDir), conversationFile),
       containerRuntime: 'cloud-hypervisor',
     };
 
@@ -198,7 +204,7 @@ describe('routing bootstrap', () => {
     const conversationFile = path.join(tempDir, 'conversation.json');
     writeConversation(conversationFile);
     const config = {
-      ...makeConfig(path.join(tempDir, 'work'), conversationFile),
+      ...makeConfig(workDirFor(tempDir), conversationFile),
       containerRuntime: 'cloud-hypervisor',
     };
     expect(() => assertRoutingStateNotExportedToGuest(config, [

@@ -8,6 +8,8 @@ import {
   cloudHypervisorRuntimeTestHelpers,
   type CloudHypervisorRuntimeBackendDependencies,
 } from '../cloud-hypervisor-runtime-backend';
+import { CloudHypervisorUnsupportedHostError } from '../cloud-hypervisor/errors';
+import * as hostEligibility from '../cloud-hypervisor/host-eligibility';
 import {
   cloudHypervisorHostTools,
   createCloudHypervisorInfrastructureSnapshot,
@@ -34,6 +36,7 @@ jest.mock('../harness-observation', () => ({ observeHarness: jest.fn().mockResol
 
 const digest = 'a'.repeat(64);
 const originalPlatform = process.platform;
+const realAssertGithubHostedRunnerEligibility = hostEligibility.assertGithubHostedRunnerEligibility;
 
 const preflightResult = {
   version: '53.0',
@@ -85,7 +88,9 @@ function fixture(tempDir: string, options: {
   const workspace = path.join(tempDir, 'workspace');
   fs.mkdirSync(workspace);
   const config = createCloudHypervisorTestConfig({
-    workDir: path.join(tempDir, 'work'),
+    // The routing root is derived from the work directory basename, so a
+    // per-test unique basename keeps parallel suites from sharing it.
+    workDir: path.join(tempDir, `work-${path.basename(tempDir)}`),
     experimentalModelRouting: true,
     images: { router: `ghcr.io/example/router:test@sha256:${digest}` },
     modelRouting: {
@@ -211,6 +216,7 @@ function fixture(tempDir: string, options: {
 
 describe('Cloud Hypervisor primary-agent model routing (fixture)', () => {
   let tempDir: string;
+  let eligibilitySpy: jest.SpyInstance;
 
   beforeAll(() => {
     Object.defineProperty(process, 'platform', { value: 'linux' });
@@ -222,9 +228,15 @@ describe('Cloud Hypervisor primary-agent model routing (fixture)', () => {
 
   beforeEach(() => {
     tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awf-ch-routing-test-')));
+    // Host eligibility (GitHub-hosted Ubuntu x64) is bypassed so these
+    // fixtures are deterministic on any host; the production call path is
+    // still asserted below.
+    eligibilitySpy = jest.spyOn(hostEligibility, 'assertGithubHostedRunnerEligibility')
+      .mockImplementation(() => undefined);
   });
 
   afterEach(() => {
+    eligibilitySpy.mockRestore();
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -257,6 +269,21 @@ describe('Cloud Hypervisor primary-agent model routing (fixture)', () => {
       }
     }
     expect(fs.existsSync(routingRoot)).toBe(false);
+  });
+
+  it('still runs the real host eligibility check through the production preflight', async () => {
+    eligibilitySpy.mockImplementation(() => realAssertGithubHostedRunnerEligibility({
+      platform: 'linux', arch: 'x64', githubActions: undefined,
+    }));
+    const { config, deps, manager, order, run } = fixture(tempDir);
+
+    await expect(run()).rejects.toBeInstanceOf(CloudHypervisorUnsupportedHostError);
+    expect(eligibilitySpy).toHaveBeenCalled();
+    expect(deps.preflight).not.toHaveBeenCalled();
+    expect(deps.createManager).not.toHaveBeenCalled();
+    expect(manager.execute).not.toHaveBeenCalled();
+    expect(order).not.toContain('workload');
+    cleanupRoutingState(config);
   });
 
   it('fails a proxy routing failure with exit 78 before any microVM or workload starts', async () => {
