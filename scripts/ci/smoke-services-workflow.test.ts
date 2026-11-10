@@ -55,7 +55,7 @@ describe('Smoke Services workflow token optimization', () => {
       `        run: ${JSON.stringify(connectivityStep.run)}\n` +
       '      - name: Checkout PR branch\n        id: checkout-pr\n' +
       '      - name: Install AWF binary\n' +
-      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.29.7\n' +
+      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.29.11\n' +
       '      - name: Execute GitHub Copilot CLI\n        run: awf --skip-pull -- echo smoke\n';
     const patched = applyGeneralWorkflowPatches(input, lockPath).content;
     const steps = yaml.load(patched) as { name: string; run?: string; 'timeout-minutes'?: number }[];

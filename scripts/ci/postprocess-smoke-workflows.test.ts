@@ -123,7 +123,7 @@ describe('installStepRegex', () => {
       '        env:\n' +
       '          GH_TOKEN: ${{ github.token }}\n' +
       '          GH_HOST: github.com\n' +
-      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.29.7 --rootless\n';
+      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.29.11 --rootless\n';
     expect(installStepRegex.test(input)).toBe(true);
   });
 
