@@ -1,0 +1,34 @@
+{
+  "$schema": "../../schema.json",
+  "id": "CI-005",
+  "boundary": "ci",
+  "title": "Daily agent regression rejects an exit-0 run at a completion or routing evidence gate",
+  "symptoms": ["AWF-REGRESSION-COMPLETE not found although the agent exited 0", "Codex routing evidence rejected after successful inference"],
+  "conditions": [
+    "The agent exit code is 0 but the host-side evidence gate (completion marker or Codex routing audit) fails",
+    "Older code required the marker on its own line without tolerating a preceding terminal control sequence, and required token-usage records that can be absent after successful inference",
+    "An old aggregate failure without marker-check.json or routing-audit classification does not identify the failing gate"
+  ],
+  "affects": { "runner": "github-hosted", "runtime": "any", "provider": "any", "authMode": "any" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "fixed",
+  "rootCause": "Success evidence was coupled to terminal output formatting (a cursor-show sequence prefixed the marker line) and to token-usage records. The gates now require an exact standalone LF/CRLF marker line and, for Codex, a persisted api-proxy audit with an HTTP 2xx upstream status or WebSocket 101 handshake.",
+  "probe": {
+    "command": "jq '.' path/to/protected/marker-check.json",
+    "expect": "Read the bounded classification only: proof/response match|mismatch|missing|rejected and completion match-lf|match-crlf|unterminated|embedded-or-decorated|partial|missing. Raw private log bytes are not retained, so historical failures remain unknown.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use source that emits the marker on its own line and collects marker-check.json and the routing audit projection. Fix the classified gate; do not loosen exact marker, proof/response or nonzero-exit checks, and do not accept start/close events as routing success. Hosted acceptance remains separate.",
+  "references": [
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11158" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11191" },
+    { "kind": "code", "ref": "scripts/ci/collect-agent-regression-evidence.cjs" },
+    { "kind": "code", "ref": "scripts/ci/run-agent-regression-guest.sh" },
+    { "kind": "test", "ref": "scripts/ci/collect-agent-regression-evidence.test.ts" },
+    { "kind": "test", "ref": "scripts/ci/agent-runtime-regression.test.ts" }
+  ],
+  "related": ["CI-004"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2026-12-09"
+}

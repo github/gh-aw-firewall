@@ -1,0 +1,32 @@
+{
+  "$schema": "../../schema.json",
+  "id": "CI-006",
+  "boundary": "ci",
+  "title": "Claude enclave agent exits 1 before initialization with an invalid launch option",
+  "symptoms": ["Claude enclave agent exit 1 before stream initialization", "classification unknown-option or invalid-option-value in enclave startup diagnostics"],
+  "conditions": [
+    "The Claude enclave fails before initialization, not by timeout",
+    "Older code passed --permission-prompts auto, which Claude Code 2.1.280 rejects, and omitted unattended shell/file approvals",
+    "Only the bounded classification is retained; raw stderr, prompts and model output are not"
+  ],
+  "affects": { "runner": "any", "runtime": "any", "provider": "anthropic", "authMode": "any" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "fixed",
+  "rootCause": "The launch policy used a permission-prompts value rejected by the installed Claude Code CLI and the production environment builder did not supply the fixed unattended approvals, so the process failed at argument parsing.",
+  "probe": {
+    "command": "jq '.diagnostic' path/to/protected/startup.json",
+    "expect": "Read the finite classification (unknown-option, invalid-option-value, missing-option-value, invalid-settings, invalid-mcp-config or unknown). A classification identifies a configuration class, not the offending value; absence is unknown, not success.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use source whose trusted child-environment builder fixes the policy (host default; none with a closed Read/Write/Edit/Bash/Glob/Grep allowlist for unattended runs). Do not allow request-controlled policy or broad environment passthrough. Hosted acceptance remains separate.",
+  "references": [
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11222" },
+    { "kind": "code", "ref": "containers/enclave/agent-entrypoint.py" },
+    { "kind": "test", "ref": "src/enclave/claude-unattended.test.ts" },
+    { "kind": "test", "ref": "src/enclave/agent-entrypoint-diagnostics.test.ts" }
+  ],
+  "related": ["CI-004"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2026-12-09"
+}
