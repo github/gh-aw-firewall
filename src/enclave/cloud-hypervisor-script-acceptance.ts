@@ -19,7 +19,7 @@ export function isCloudHypervisorAgentAcceptanceWorkflow(
 ): boolean {
   if (
     process.env.GITHUB_REF_TYPE !== 'branch'
-    || config.cloudHypervisor?.artifactReleaseTag !== 'v0.28.62'
+    || config.cloudHypervisor?.artifactReleaseTag !== 'v0.28.66'
   ) return false;
   return isAcceptanceWorkflow(
     config,
@@ -131,7 +131,7 @@ function isAcceptanceWorkflow(
       || agent.maxOutputBytes !== 256
       || agent.maxTaskBytes !== 4096
       || agent.maxModelRequests !== 8
-      || agent.maxModelTokens !== 2048
+      || agent.maxModelTokens !== 131072
     ) {
       return false;
     }
