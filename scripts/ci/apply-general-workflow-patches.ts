@@ -717,6 +717,12 @@ export function applyGeneralWorkflowPatches(
     );
   }
 
+  // Codex ships a prebuilt binary and must not run dependency lifecycle scripts.
+  content = content.replace(
+    /^([ \t]*run: npm install )(?![^\n]*--ignore-scripts)([^\n]*@openai\/codex@[^\n]*)$/gm,
+    '$1--ignore-scripts $2',
+  );
+
   // Claude Code: no --ignore-scripts injection (needs postinstall for native binary)
 
   // Rewrite the compiler-emitted "Copy Copilot CLI to daemon-visible path"

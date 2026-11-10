@@ -207,7 +207,7 @@ fails closed on missing usage. The pinned guest does not itself enforce these
 budgets; request/output limits and proxy credential isolation remain mandatory.
 
 AWF and guest assets remain pinned to the verified v0.28.66 acceptance fixture,
-with a scoped compiler backport based on gh-aw v1.2.1, mcpg v0.5.4 and
+with an acceptance-specific scoped backport to gh-aw v1.2.2, mcpg v0.5.6 and
 primary Copilot 1.0.96.
 The guest Copilot CLI is the version baked into the attested agent rootfs,
 not installed or upgraded by this workflow.
@@ -218,9 +218,9 @@ The exact-PR unattested supervisor override and its build steps are removed;
 both primary and enclave supervisors must come from verified release artifacts.
 No unattested-artifact flag is enabled.
 
-Compilation uses `github/gh-aw@v1.2.1` with a narrow acceptance-fixture
-backport that preserves the 32,768-token ceiling for ordinary workflows while
-allowing this exact fixture's 131,072-token budget and v0.28.66 guest release.
+Compilation uses `github/gh-aw@v1.2.2` with a scoped compiler backport for this
+acceptance fixture, while preserving the 32,768-token ceiling for ordinary
+workflows and requiring the reviewed v0.28.66 guest release.
 Regeneration runs the mandatory smoke postprocessor. The AWF and compiler gates
 still reject every other token value, topology, or release.
 Under a separate explicit user authorization, the branch-built AWF
