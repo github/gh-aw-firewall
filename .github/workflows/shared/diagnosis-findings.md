@@ -66,6 +66,10 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 | Cloud Hypervisor regression profiles reject before broker startup | CI-003 | ci | fixed |
 | AWF_ENCLAVE_REGRESSION_FINALIZATION | CI-004 | ci | fixed |
 | Enclave agent regression fails although the invocation result validated | CI-004 | ci | fixed |
+| AWF-REGRESSION-COMPLETE not found although the agent exited 0 | CI-005 | ci | fixed |
+| Codex routing evidence rejected after successful inference | CI-005 | ci | fixed |
+| Claude enclave agent exit 1 before stream initialization | CI-006 | ci | fixed |
+| classification unknown-option or invalid-option-value in enclave startup diagnostics | CI-006 | ci | fixed |
 | The agent container can reach a domain that is not allowlisted | SEC-001 | security | needs-evidence |
 | A provider credential is observable inside the agent environment while the api-proxy is enabled | SEC-001 | security | needs-evidence |
 | Egress succeeds without a corresponding Squid access-log entry | SEC-001 | security | needs-evidence |
@@ -382,6 +386,34 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 - **Action:** Use source that retains audit outside the AWF work directory and emits the bounded finalization record. Fix the gate named by primaryFailure; treat secondary failures (for example cleanup) as separate causes. Do not relax audit, ownership or cleanup checks, and do not retain raw exception text or audit payloads. Hosted acceptance remains separate.
 - **Related:** CI-002, CI-003
 - **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11194 · code: scripts/ci/run-enclave-agent-regression.js · code: scripts/ci/collect-enclave-smoke-debug.cjs · test: scripts/ci/collect-enclave-smoke-debug.test.ts · test: scripts/ci/enclave-agent-regression.test.ts · doc: docs/cloud-hypervisor-foundation.md
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2026-12-09
+
+### CI-005 — Daily agent regression rejects an exit-0 run at a completion or routing evidence gate
+
+- **Boundary:** ci · **Status:** fixed
+- **Affects:** runner=github-hosted, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** AWF-REGRESSION-COMPLETE not found although the agent exited 0 · Codex routing evidence rejected after successful inference
+- **Discriminating conditions:** The agent exit code is 0 but the host-side evidence gate (completion marker or Codex routing audit) fails · Older code required the marker on its own line without tolerating a preceding terminal control sequence, and required token-usage records that can be absent after successful inference · An old aggregate failure without marker-check.json or codex-routing.json status/diagnostics does not identify the failing gate
+- **Root cause:** Success evidence was coupled to terminal output formatting (a cursor-show sequence prefixed the marker line) and to token-usage records. The gates now require an exact standalone LF/CRLF marker line and, for Codex, a persisted api-proxy audit with an HTTP 2xx upstream status or WebSocket 101 handshake.
+- **Safe probe:** `jq -s '{marker: (.[0] | {proof, response, completion}), routing: (.[1] | {status, diagnostics, requests})}' path/to/protected/marker-check.json path/to/protected/codex-routing.json` → Read the bounded marker proof/response and completion classifications together with Codex routing status, diagnostics and projected requests. Raw private log bytes are not retained, so historical failures remain unknown.
+- **Action:** Use source that emits the marker on its own line and collects marker-check.json and the routing audit projection. Fix the classified gate; do not loosen exact marker, proof/response or nonzero-exit checks, and do not accept start/close events as routing success. Hosted acceptance remains separate.
+- **Related:** CI-004
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11158 · pull-request: https://github.com/github/gh-aw-firewall/pull/11191 · code: scripts/ci/collect-agent-regression-evidence.cjs · code: scripts/ci/run-agent-regression-guest.sh · test: scripts/ci/collect-agent-regression-evidence.test.ts · test: scripts/ci/agent-runtime-regression.test.ts
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2026-12-09
+
+### CI-006 — Claude enclave agent exits 1 before initialization with an invalid launch option
+
+- **Boundary:** ci · **Status:** fixed
+- **Affects:** runner=any, runtime=any, provider=anthropic, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Claude enclave agent exit 1 before stream initialization · classification unknown-option or invalid-option-value in enclave startup diagnostics
+- **Discriminating conditions:** The Claude enclave fails before initialization, not by timeout · Older code passed --permission-prompts auto, which Claude Code 2.1.280 rejects, and omitted unattended shell/file approvals · Only the bounded classification is retained; raw stderr, prompts and model output are not
+- **Root cause:** The launch policy used a permission-prompts value rejected by the installed Claude Code CLI and the production environment builder did not supply the fixed unattended approvals, so the process failed at argument parsing.
+- **Safe probe:** `jq '.session.claudeStartupFailure.classification // "unknown"' path/to/protected/diagnostics.json` → Read the finite Claude session classification (unknown-option, invalid-option-value, missing-option-value, invalid-settings, invalid-mcp-config or unknown). A classification identifies a configuration class, not the offending value; absence is unknown, not success.
+- **Action:** Use source whose trusted child-environment builder fixes the policy (host default; none with a closed Read/Write/Edit/Bash/Glob/Grep allowlist for unattended runs). Do not allow request-controlled policy or broad environment passthrough. Hosted acceptance remains separate.
+- **Related:** CI-004
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11222 · code: containers/enclave/agent-entrypoint.py · test: src/enclave/claude-unattended.test.ts · test: src/enclave/agent-entrypoint-diagnostics.test.ts
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2026-12-09
 
 ## Boundary: security

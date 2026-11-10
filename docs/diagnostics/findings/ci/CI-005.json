@@ -7,15 +7,15 @@
   "conditions": [
     "The agent exit code is 0 but the host-side evidence gate (completion marker or Codex routing audit) fails",
     "Older code required the marker on its own line without tolerating a preceding terminal control sequence, and required token-usage records that can be absent after successful inference",
-    "An old aggregate failure without marker-check.json or routing-audit classification does not identify the failing gate"
+    "An old aggregate failure without marker-check.json or codex-routing.json status/diagnostics does not identify the failing gate"
   ],
   "affects": { "runner": "github-hosted", "runtime": "any", "provider": "any", "authMode": "any" },
   "versions": { "introduced": "unknown", "fixed": "unknown" },
   "status": "fixed",
   "rootCause": "Success evidence was coupled to terminal output formatting (a cursor-show sequence prefixed the marker line) and to token-usage records. The gates now require an exact standalone LF/CRLF marker line and, for Codex, a persisted api-proxy audit with an HTTP 2xx upstream status or WebSocket 101 handshake.",
   "probe": {
-    "command": "jq '.' path/to/protected/marker-check.json",
-    "expect": "Read the bounded classification only: proof/response match|mismatch|missing|rejected and completion match-lf|match-crlf|unterminated|embedded-or-decorated|partial|missing. Raw private log bytes are not retained, so historical failures remain unknown.",
+    "command": "jq -s '{marker: (.[0] | {proof, response, completion}), routing: (.[1] | {status, diagnostics, requests})}' path/to/protected/marker-check.json path/to/protected/codex-routing.json",
+    "expect": "Read the bounded marker proof/response and completion classifications together with Codex routing status, diagnostics and projected requests. Raw private log bytes are not retained, so historical failures remain unknown.",
     "readOnly": true,
     "secretSafe": true
   },

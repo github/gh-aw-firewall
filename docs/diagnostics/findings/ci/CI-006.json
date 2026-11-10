@@ -14,8 +14,8 @@
   "status": "fixed",
   "rootCause": "The launch policy used a permission-prompts value rejected by the installed Claude Code CLI and the production environment builder did not supply the fixed unattended approvals, so the process failed at argument parsing.",
   "probe": {
-    "command": "jq '.diagnostic' path/to/protected/startup.json",
-    "expect": "Read the finite classification (unknown-option, invalid-option-value, missing-option-value, invalid-settings, invalid-mcp-config or unknown). A classification identifies a configuration class, not the offending value; absence is unknown, not success.",
+    "command": "jq '.session.claudeStartupFailure.classification // \"unknown\"' path/to/protected/diagnostics.json",
+    "expect": "Read the finite Claude session classification (unknown-option, invalid-option-value, missing-option-value, invalid-settings, invalid-mcp-config or unknown). A classification identifies a configuration class, not the offending value; absence is unknown, not success.",
     "readOnly": true,
     "secretSafe": true
   },
