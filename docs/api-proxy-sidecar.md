@@ -1884,7 +1884,7 @@ AWF supports OIDC-based credential exchange with multiple cloud providers via Gi
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `AWF_AUTH_TYPE` | ✅ | Set to `github-oidc` to enable OIDC authentication |
-| `AWF_AUTH_PROVIDER` | No | Cloud provider: `azure` (default), `aws`, `gcp`, or `anthropic` |
+| `AWF_AUTH_PROVIDER` | No | Cloud provider: `azure` (default), `aws`, `gcp`, `anthropic`, or `openai` |
 | `AWF_AUTH_OIDC_AUDIENCE` | No | Override the OIDC audience (provider-specific defaults apply) |
 | `ACTIONS_ID_TOKEN_REQUEST_URL` | ✅ | Provided automatically by the GitHub Actions runtime |
 | `ACTIONS_ID_TOKEN_REQUEST_TOKEN` | ✅ | Provided automatically by the GitHub Actions runtime |
@@ -1973,6 +1973,18 @@ Regional locations use `LOCATION-aiplatform.googleapis.com`; the `us` and `eu` m
 
 OpenAI-compatible Vertex endpoints can still use the OpenAI adapter (`OPENAI_API_TARGET` plus a resource-specific `OPENAI_API_BASE_PATH` such as `/v1/projects/PROJECT_ID/locations/LOCATION/endpoints/openapi`).
 :::
+
+### OpenAI native workload identity federation
+
+Exchanges the GitHub OIDC JWT at `https://auth.openai.com/oauth/token` for a short-lived OpenAI access token, then injects it as `Authorization: Bearer` on upstream OpenAI requests. Select it with `AWF_AUTH_PROVIDER=openai`. Agent base-URL/placeholder routing is enabled from this configuration alone, without a static `OPENAI_API_KEY`.
+
+| Environment variable | Required | Description |
+|---|---|---|
+| `AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID` | ✅ | OpenAI identity provider ID |
+| `AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID` | ✅ | OpenAI service account ID |
+| `AWF_AUTH_OIDC_AUDIENCE` | No | OIDC audience (default `https://api.openai.com/v1`) |
+
+Both OpenAI IDs must be set for the sidecar to treat OpenAI WIF as configured. See [auth-matrix.md](auth-matrix.md#openai-native-workload-identity-federation) for the header and egress details.
 
 ### Anthropic API
 
