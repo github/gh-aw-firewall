@@ -5,7 +5,9 @@ index 24061ac..0000000 100644
 @@ -4140 +4140 @@
 -                  "max-model-tokens": { "type": "integer", "minimum": 1, "maximum": 32768, "default": 1024 },
 +                  "max-model-tokens": { "type": "integer", "minimum": 1, "maximum": 131072, "default": 1024 },
-@@ -14842,0 +14843,36 @@
+@@ -14957,1 +14957,37 @@
+-    }
++    },
 +    {
 +      "if": {
 +        "required": ["features", "sandbox"],
@@ -41,7 +43,7 @@ index 24061ac..0000000 100644
 +          }
 +        }
 +      }
-+    },
++    }
 diff --git a/pkg/workflow/enclaves_agent_acceptance_test.go b/pkg/workflow/enclaves_agent_acceptance_test.go
 index c25f783..0000000 100644
 --- a/pkg/workflow/enclaves_agent_acceptance_test.go
