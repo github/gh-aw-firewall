@@ -152,6 +152,25 @@ describe('passthroughHostEnvironment', () => {
       expect(environment).toHaveProperty('GITHUB_TOKEN', 'ghs_allowed');
     });
 
+    it('forwards Go build and module cache paths by default', () => {
+      const environment: Record<string, string> = {};
+      const excludedEnvVars = new Set<string>();
+
+      withEnv({
+        GOCACHE: '/tmp/gh-aw/agent/go-build-cache',
+        GOMODCACHE: '/tmp/gh-aw/agent/go-mod-cache',
+      }, () => {
+        passthroughHostEnvironment({
+          config: makeConfig(),
+          environment,
+          excludedEnvVars,
+        });
+      });
+
+      expect(environment).toHaveProperty('GOCACHE', '/tmp/gh-aw/agent/go-build-cache');
+      expect(environment).toHaveProperty('GOMODCACHE', '/tmp/gh-aw/agent/go-mod-cache');
+    });
+
     it('forwards GH_TOKEN when it is NOT in the exclusion set', () => {
       const environment: Record<string, string> = {};
       const excludedEnvVars = new Set<string>();

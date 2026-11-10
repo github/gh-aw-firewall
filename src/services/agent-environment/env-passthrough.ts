@@ -45,6 +45,8 @@ export function passthroughHostEnvironment(params: EnvPassthroughParams): void {
     'GH_TOKEN',
     'GITHUB_PERSONAL_ACCESS_TOKEN',
     'USER',
+    'GOCACHE',
+    'GOMODCACHE',
     'XDG_CONFIG_HOME',
     'GITHUB_SERVER_URL',
     'GITHUB_API_URL',
