@@ -45,6 +45,8 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 | Trusted API-proxy custom-port request is rejected as an unsafe port | NET-003 | network | fixed |
 | TLS handshake fails when the client ignores HTTPS_PROXY | NET-004 | network | workaround |
 | Raw ClientHello reaches Squid instead of an HTTP CONNECT request | NET-004 | network | workaround |
+| Connection to a host-published service (for example Redis or PostgreSQL) through the host gateway is rejected or times out | NET-005 | network | fixed |
+| The port is listed in --allow-host-service-ports but a connectivity check still fails | NET-005 | network | fixed |
 | 400 Bad Request: Authorization header is badly formatted | AUTH-001 | auth | fixed |
 | Copilot requests fail immediately against api.enterprise.githubcopilot.com or api.business.githubcopilot.com | AUTH-001 | auth | fixed |
 | api-proxy reports that no OIDC token could be minted | AUTH-002 | auth | workaround |
@@ -252,6 +254,20 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 - **Related:** NET-001, RT-001
 - **Provenance:** code: containers/agent/setup-iptables.sh · code: containers/agent/entrypoint.sh · code: src/services/agent-environment/core-environment.ts · doc: docs/troubleshooting.md
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2026-12-09
+
+### NET-005 — Published host-service port is rejected after Docker DNAT despite --allow-host-service-ports
+
+- **Boundary:** network · **Status:** fixed
+- **Affects:** runner=any, runtime=runc|chroot, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Connection to a host-published service (for example Redis or PostgreSQL) through the host gateway is rejected or times out · The port is listed in --allow-host-service-ports but a connectivity check still fails
+- **Discriminating conditions:** Host access is enabled and the service port is allowed for the AWF gateway · Docker translates the published port before the DOCKER-USER chain, so the filter sees the container address and port rather than the gateway tuple · Observed on Ubuntu 26.04 / Docker 29 runners; other Docker versions are unknown · A rejection of a port that is not allowed, or of a direct container address, is expected policy rather than this defect
+- **Root cause:** Gateway-destination ACCEPT rules matched the post-DNAT destination, so published-service traffic fell through to the default reject. Matching conntrack's original gateway IP and port restores access without allowing direct container destinations.
+- **Safe probe:** `grep -n -- '--ctorigdst' src/host-iptables-rules.ts` → Confirm the checked-out source adds a conntrack DNAT rule scoped to the original gateway IP and allowed port; compare with the redacted operator port list without sending traffic or dumping environments.
+- **Action:** Use source containing the original-gateway-tuple conntrack rule and re-run with the required ports in --allow-host-service-ports. Keep host access gateway-scoped and limited to the listed ports. A failure for a port outside the configured list is expected.
+- **Related:** NET-001
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11083 · code: src/host-iptables-rules.ts · test: src/host-iptables-host-access.test.ts · doc: docs/usage.md
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
 
 ## Boundary: auth
 
