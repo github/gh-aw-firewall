@@ -26,8 +26,9 @@ name: Supply Chain Scan
 #
 # All scanners run via Docker (pre-installed on `ubuntu-latest`).
 # Compile once, then run PR-image CVE, published-image CVE, and license scans
-# on separate runners. Keep PR builds sequential to bound disk use and retain
-# the shared build-tools image until the enclave-agent build finishes.
+# on separate runners. Shard PR builds across independent runners, keeping builds
+# sequential within each shard to bound disk use. Build-tools and enclave-agent
+# share a shard so the exact local base survives until its dependent build finishes.
 #
 # To make this a *required* check, add
 # "Supply Chain Scan / Compile + Syft/Grype/Grant"
@@ -157,11 +158,29 @@ jobs:
     name: Scan / ${{ matrix.scan }}
     needs: [compile]
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
-        scan: [pr-images, published-cves, licenses]
+        include:
+          # A slow apt mirror must not consume the budget for all nine images.
+          # Keep the exact local build-tools -> enclave-agent dependency together.
+          - scan: pr-toolchain
+            pr-images: true
+            images: [build-tools, enclave-agent]
+            timeout: 60
+          - scan: pr-agent
+            pr-images: true
+            images: [agent]
+            timeout: 60
+          - scan: pr-services
+            pr-images: true
+            images: [api-proxy, router, cli-proxy, gh-aw-node, enclave-script, enclave-mcp-server]
+            timeout: 60
+          - scan: published-cves
+            timeout: 40
+          - scan: licenses
+            timeout: 40
 
     steps:
       - name: Checkout repository
@@ -170,7 +189,7 @@ jobs:
           persist-credentials: false
 
       - name: Free unused hosted-runner disk space
-        if: matrix.scan == 'pr-images'
+        if: matrix.pr-images == true
         run: |
           df -h /
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
@@ -179,17 +198,17 @@ jobs:
 
       - name: Configure Docker Hub cache
         env:
-          AWF_DOCKER_CONTAINERD_SNAPSHOTTER: ${{ matrix.scan == 'pr-images' && 'true' || 'false' }}
+          AWF_DOCKER_CONTAINERD_SNAPSHOTTER: ${{ matrix.pr-images == true && 'true' || 'false' }}
         run: bash scripts/ci/configure-docker-mirror.sh
 
       - name: Set up Docker Buildx for cached PR builds
-        if: matrix.scan == 'pr-images'
+        if: matrix.pr-images == true
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver: docker
 
       - name: Expose GitHub Actions cache runtime for Buildx CLI
-        if: matrix.scan == 'pr-images'
+        if: matrix.pr-images == true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
@@ -300,16 +319,17 @@ jobs:
           PYEOF
 
       - name: Build and scan PR container images (BLOCKING gate, Grype v0.116.0)
-        if: matrix.scan == 'pr-images'
+        if: matrix.pr-images == true
         # Builds every production image from the Dockerfiles in
         # this PR and scans them with --fail-on high. This is the BLOCKING supply-chain
         # gate: it is the only scan that reflects the CVE fixes in a PR, so a
         # High/Critical finding here fails the job.
         env:
           GRYPE_DB: ${{ runner.temp }}/grype-db
+          PR_IMAGES: ${{ toJSON(matrix.images) }}
         run: |
           python3 - <<'PYEOF'
-          import datetime, hashlib, os, subprocess, sys
+          import datetime, hashlib, json, os, subprocess, sys
           cwd = os.getcwd()
           db_cache = os.environ['GRYPE_DB']
           # Never import yesterday's package layers: refresh apt/apk security
@@ -329,6 +349,13 @@ jobs:
               ('enclave-agent',       'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-agent', '--build-arg', 'BUILD_TOOLS_IMAGE=awf-pr-scan-build-tools:pr']),
               ('enclave-mcp-server',  'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-mcp-server']),
           ]
+          selected = json.loads(os.environ['PR_IMAGES'])
+          known = {name for name, _, _ in containers}
+          if not isinstance(selected, list) or not selected or any(name not in known for name in selected):
+              raise ValueError(f'Invalid PR image shard: {selected!r}')
+          if 'enclave-agent' in selected and 'build-tools' not in selected:
+              raise ValueError('enclave-agent must share a shard with build-tools')
+          containers = [entry for entry in containers if entry[0] in selected]
           def report_disk(label):
               print(f'::group::disk usage ({label})', flush=True)
               subprocess.run(['df', '-h', '/', '/tmp'])
