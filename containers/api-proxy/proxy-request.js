@@ -343,6 +343,9 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       return;
     }
     if (steering) req.awfSteering = steering;
+    // The client may have disconnected while the body was being transformed,
+    // before the notice was claimed; such a request is never dispatched.
+    if (res.destroyed && !res.writableFinished) releaseSteering();
 
     // Step 3: dispatch upstream
     if (wireApiCompatibility) {

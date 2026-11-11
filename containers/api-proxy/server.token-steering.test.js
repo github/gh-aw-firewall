@@ -430,6 +430,44 @@ describe('budget steering and injectSteeringMessage', () => {
       .toBeNull();
   });
 
+  it('leaves a notice pending when the client disconnects before dispatch', async () => {
+    process.env.AWF_MAX_AI_CREDITS = '1';
+    let responseHandler;
+    jest.spyOn(https, 'request').mockImplementation((_options, callback) => {
+      responseHandler = callback;
+      return makeProxyReq();
+    });
+    const firstReq = new EventEmitter();
+    firstReq.url = '/v1/chat/completions';
+    firstReq.method = 'POST';
+    firstReq.headers = { 'content-type': 'application/json' };
+    proxyRequest(firstReq, { headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() },
+      'api.openai.com', { Authorization: '******' }, 'openai');
+    firstReq.emit('end');
+    await flushPromises();
+    completeUpstreamResponse(responseHandler, {
+      body: { model: 'gpt-5-mini', usage: { prompt_tokens: 32_000, completion_tokens: 0 } },
+    });
+    expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
+
+    const body = Buffer.from(JSON.stringify({ messages: [{ role: 'user', content: 'Disconnected' }] }));
+    const req = new EventEmitter();
+    req.url = '/v1/chat/completions';
+    req.method = 'POST';
+    req.headers = { 'content-type': 'application/json', 'content-length': String(body.length) };
+    const res = Object.assign(new EventEmitter(), {
+      headersSent: false, destroyed: true, writableFinished: false,
+      setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn(),
+    });
+    proxyRequest(req, res, 'api.openai.com', { Authorization: '******' }, 'openai');
+    req.emit('data', body);
+    req.emit('end');
+    await flushPromises();
+
+    expect(req.awfSteering).toEqual({ type: 'ai_credit', threshold: 80 });
+    expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
+  });
+
   it('does not inject any warning when AWF_ENABLE_TOKEN_STEERING is not set', async () => {
     // Disable token steering for this test
     delete process.env.AWF_ENABLE_TOKEN_STEERING;
