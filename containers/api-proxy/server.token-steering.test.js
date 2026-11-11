@@ -11,7 +11,6 @@ const os = require('os');
 const path = require('path');
 const { tokenLogDir } = require('./test-helpers/token-tracker-setup');
 const { setupServerTestEnv, flushPromises, makeProxyReq, completeUpstreamResponse } = require('./test-helpers/server-mock-factories');
-const { createRoutingObservation } = require('./routing-observation');
 
 let proxyRequest;
 let closeTokenUsageLog;
@@ -476,13 +475,13 @@ describe('budget steering and injectSteeringMessage', () => {
   describe('notice delivery completion', () => {
     let cycles;
 
-    const makeRequest = async (requestId, url = '/v1/responses', observeRouting = true) => {
+    const makeRequest = async requestId => {
       const body = Buffer.from(JSON.stringify({
         model: 'gpt-5-mini',
         input: [{ role: 'user', content: requestId }],
       }));
       const req = new EventEmitter();
-      req.url = url;
+      req.url = '/v1/responses';
       req.method = 'POST';
       req.headers = {
         'content-type': 'application/json',
@@ -503,19 +502,6 @@ describe('budget steering and injectSteeringMessage', () => {
           this.emit('finish');
         }),
       });
-      if (observeRouting) {
-        const routing = createRoutingObservation({
-          getSelection: () => ({
-            schema: 'awf-routing-selection/v1',
-            engine: 'copilot',
-            provider: 'openai',
-            choice: { id: 'notice-delivery', model: 'openai/gpt-5-mini' },
-            wire_model: 'gpt-5-mini',
-          }),
-          recordFailure: () => {},
-        });
-        routing.observeRequest(req, res, { name: 'openai' });
-      }
       proxyRequest(req, res, 'api.openai.com', { Authorization: '******' }, 'openai');
       req.emit('data', body);
       req.emit('end');
@@ -553,16 +539,21 @@ describe('budget steering and injectSteeringMessage', () => {
       });
     });
 
-    it('keeps a notice acknowledged when the client closes after response.completed but before upstream EOF', async () => {
-      await seedPendingNotice();
-      const delivered = await makeRequest('completed-stream', '/v1/responses', false);
-      expect(noticeIn(delivered.body)).toBe(true);
-
+    const startStream = cycle => {
       const proxyRes = new EventEmitter();
       proxyRes.statusCode = 200;
       proxyRes.headers = { 'content-type': 'text/event-stream' };
       proxyRes.pipe = jest.fn();
-      delivered.cycle.responseHandler(proxyRes);
+      cycle.responseHandler(proxyRes);
+      return proxyRes;
+    };
+
+    it('does not repeat a notice when the client closes after response.completed but before upstream EOF', async () => {
+      await seedPendingNotice();
+      const delivered = await makeRequest('completed-stream');
+      expect(noticeIn(delivered.body)).toBe(true);
+
+      const proxyRes = startStream(delivered.cycle);
       proxyRes.emit('data', Buffer.from('data: {"type":"response.completed","response":{}}\n\n'));
       delivered.res.emit('close');
 
@@ -570,22 +561,18 @@ describe('budget steering and injectSteeringMessage', () => {
       expect(noticeIn(next.body)).toBe(false);
     });
 
-    it('redelivers a notice when a 200 stream ends with response.failed', async () => {
+    it('counts a 2xx stream that ends with response.failed as delivered', async () => {
       await seedPendingNotice();
       const failed = await makeRequest('failed-stream');
       expect(noticeIn(failed.body)).toBe(true);
 
-      const proxyRes = new EventEmitter();
-      proxyRes.statusCode = 200;
-      proxyRes.headers = { 'content-type': 'text/event-stream' };
-      proxyRes.pipe = jest.fn();
-      failed.cycle.responseHandler(proxyRes);
+      const proxyRes = startStream(failed.cycle);
       proxyRes.emit('data', Buffer.from('data: {"type":"response.failed","response":{"error":{"code":"failed"}}}\n\n'));
       proxyRes.emit('end');
       failed.res.emit('close');
 
-      const retry = await makeRequest('retry-failed-stream');
-      expect(noticeIn(retry.body)).toBe(true);
+      const next = await makeRequest('after-failed-stream');
+      expect(noticeIn(next.body)).toBe(false);
     });
 
     it('redelivers a non-streaming notice when the client closes before finish', async () => {
@@ -603,6 +590,18 @@ describe('budget steering and injectSteeringMessage', () => {
       interrupted.res.emit('close');
 
       const retry = await makeRequest('retry-interrupted-response');
+      expect(noticeIn(retry.body)).toBe(true);
+    });
+
+    it('redelivers a notice when the client disconnects before the upstream response arrives', async () => {
+      await seedPendingNotice();
+      const abandoned = await makeRequest('abandoned-request');
+      expect(noticeIn(abandoned.body)).toBe(true);
+
+      abandoned.res.emit('close');
+      startStream(abandoned.cycle);
+
+      const retry = await makeRequest('retry-abandoned-request');
       expect(noticeIn(retry.body)).toBe(true);
     });
   });

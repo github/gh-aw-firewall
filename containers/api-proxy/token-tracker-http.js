@@ -144,7 +144,7 @@ function createChunkHandler(state, { requestId, provider, onSseData }) {
  * @param {object|null} [res] - Downstream client response, used to detect the
  *   client tearing down the connection (see onPrematureClose below)
  */
-function wireListeners(proxyRes, decompressor, state, onChunk, onFinalize, res = null, settleSteeringDelivery = false) {
+function wireListeners(proxyRes, decompressor, state, onChunk, onFinalize, res = null) {
   // Finalization must run at most once. Both the clean-completion path ('end')
   // and the premature-close fallback ('aborted'/'close') route through here so
   // usage is never written twice.
@@ -225,7 +225,7 @@ function wireListeners(proxyRes, decompressor, state, onChunk, onFinalize, res =
   if (res && typeof res.on === 'function') {
     res.on('close', () => {
       if (!state.streaming) return;
-      if (!settleSteeringDelivery && Object.keys(state.streamingUsage).length === 0) return;
+      if (Object.keys(state.streamingUsage).length === 0) return;
       onPrematureClose();
     });
   }
@@ -623,7 +623,7 @@ function trackTokenUsage(proxyRes, opts) {
       completeSseInspection();
     }
   };
-  wireListeners(proxyRes, decompressor, state, onChunk, onFinalize, res, opts.settleSteeringDelivery);
+  wireListeners(proxyRes, decompressor, state, onChunk, onFinalize, res);
 }
 
 module.exports = {

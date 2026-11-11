@@ -28,44 +28,6 @@ function isChatUsageOnlyChunk(event) {
   return !!event && !event.error && !event.choices?.[0] && !!event.usage;
 }
 
-function inspectSseTerminalLine(line, telemetry, state) {
-  const translatedResponses = isTranslatedResponses(telemetry);
-  if (line === '[DONE]') {
-    if (telemetry.upstream_endpoint === '/chat/completions' && !translatedResponses) {
-      state.upstreamCompleted = true;
-      state.upstreamTerminated = true;
-    }
-    return {
-      event: null,
-      outcome: state.sseFailed ? 'failure' : state.upstreamCompleted ? 'success' : null,
-    };
-  }
-
-  let event;
-  try {
-    event = JSON.parse(line);
-  } catch {
-    return { event: null, outcome: null };
-  }
-
-  const chatCompletionFinished = telemetry.upstream_endpoint === '/chat/completions'
-    && !translatedResponses
-    && event.choices?.some(choice => choice && choice.finish_reason != null);
-  const translatedUsageCompletion = translatedResponses && isChatUsageOnlyChunk(event);
-  if (TERMINAL_PROTOCOL_EVENTS.has(event?.type) || chatCompletionFinished || translatedUsageCompletion) {
-    state.upstreamTerminated = true;
-  }
-  if (TERMINAL_SUCCESS_EVENTS.has(event?.type) || chatCompletionFinished || translatedUsageCompletion) {
-    state.upstreamCompleted = true;
-  }
-  if (event?.error || event?.type === 'response.failed' || event?.type === 'error') {
-    state.sseFailed = true;
-  }
-
-  const failed = state.sseFailed || event?.type === 'response.incomplete';
-  return { event, outcome: failed ? 'failure' : state.upstreamCompleted ? 'success' : null };
-}
-
 /**
  * Record a per-request routing observation. Never throws: observability must
  * not change the live request or response.
@@ -365,15 +327,35 @@ function createRoutingObservation({
       const responseHooks = trackResponse(req, res, state);
       observeFailure(res, state, adapter.name === (selection.provider || 'copilot'));
       const onSseData = line => {
-        const { event, outcome } = inspectSseTerminalLine(line, state.telemetry, state);
+        if (line === '[DONE]') {
+          if (state.telemetry.upstream_endpoint === '/chat/completions') {
+            state.upstreamCompleted = true;
+            state.upstreamTerminated = true;
+          }
+          return;
+        }
+        let event;
+        try {
+          event = JSON.parse(line);
+        } catch {
+          return;
+        }
+        if (TERMINAL_PROTOCOL_EVENTS.has(event?.type)
+          || (isTranslatedResponses(state.telemetry) && isChatUsageOnlyChunk(event))) {
+          state.upstreamTerminated = true;
+        }
+        if (TERMINAL_SUCCESS_EVENTS.has(event?.type)
+          || (isTranslatedResponses(state.telemetry) && isChatUsageOnlyChunk(event))) {
+          state.upstreamCompleted = true;
+        }
         if (event?.error || event?.type === 'response.failed' || event?.type === 'error') {
+          state.sseFailed = true;
           rememberErrorFields(state, event);
           if (state.selectedModel) {
             const error = event.error || event.response?.error || event;
             recordNativeFailure(state, error.code || error.type);
           }
         }
-        return outcome;
       };
       // Observes the body the agent sent and never changes it: returning null
       // leaves the adapter's own transform in charge of the request.
@@ -442,4 +424,4 @@ function createRoutingObservation({
   });
 }
 
-module.exports = { createRoutingObservation, endpointFor, inspectSseTerminalLine };
+module.exports = { createRoutingObservation };

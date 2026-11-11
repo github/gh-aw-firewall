@@ -131,6 +131,37 @@ function shouldCaptureErrorBodyChunk(currentBytes, chunkLength, maxCaptureBytes)
   return currentBytes < maxCaptureBytes && chunkLength > 0;
 }
 
+/**
+ * Acknowledge a budget notice carried by this request once the model has
+ * accepted it. A 2xx stream counts as delivered when its headers arrive, so a
+ * client that closes early (Codex closes right after response.completed) does
+ * not cause the notice to be repeated. A non-streaming 2xx reply counts once
+ * the upstream body has ended and the downstream response has finished. Any
+ * other outcome leaves the notice to be released when the client response
+ * closes (see proxy-request.js).
+ */
+function acknowledgeSteeringDelivery(req, res, proxyRes, isStreaming) {
+  const delivery = req.awfSteeringDelivery;
+  if (!delivery || proxyRes.statusCode < 200 || proxyRes.statusCode >= 300) return;
+  if (isStreaming) {
+    delivery.acknowledge();
+    return;
+  }
+  let upstreamEnded = false;
+  let downstreamFinished = false;
+  const acknowledgeWhenComplete = () => {
+    if (upstreamEnded && downstreamFinished) delivery.acknowledge();
+  };
+  proxyRes.once('end', () => {
+    upstreamEnded = true;
+    acknowledgeWhenComplete();
+  });
+  res?.once?.('finish', () => {
+    downstreamFinished = true;
+    acknowledgeWhenComplete();
+  });
+}
+
 function createUpstreamResponseHandlers({
   metrics,
   logRequest,
@@ -347,10 +378,7 @@ function createUpstreamResponseHandlers({
 
     const isStreaming = (proxyRes.headers['content-type'] || '').includes('text/event-stream');
     const isJson = (proxyRes.headers['content-type'] || '').includes('application/json');
-    if (req.awfSteeringDelivery) {
-      req.awfSteeringStreaming = isStreaming;
-      req.awfSteeringSseInspectionComplete = !isStreaming;
-    }
+    acknowledgeSteeringDelivery(req, res, proxyRes, isStreaming);
     // A cross-provider fallback attempt is translated back into the protocol
     // of the listener that received the request; Codex compatibility follows
     // that originating provider rather than the serving one.
