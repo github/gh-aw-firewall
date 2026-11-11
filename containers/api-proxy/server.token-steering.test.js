@@ -859,6 +859,7 @@ describe('budget steering and injectSteeringMessage', () => {
         protocol: 'responses',
         system: null,
       });
+      expect(first).toBe(crypto.createHmac('sha256', secret).update(canonicalOpening).digest('hex').slice(0, 12));
       expect(first).not.toBe(crypto.createHash('sha256').update(canonicalOpening).digest('hex').slice(0, 12));
       for (const encoding of ['hex', 'base64', 'base64url']) {
         expect(log).not.toContain(secret.toString(encoding));

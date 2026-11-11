@@ -10,7 +10,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const { logRequest } = require('./logging');
 const { callerRecordFields } = require('./caller-header');
 
@@ -22,7 +21,6 @@ const AUDIT_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-tracker-audit.jsonl');
 const UPSTREAM_ERROR_LOG_FILE = path.join(TOKEN_LOG_DIR, 'upstream-errors.jsonl');
 const ENCLAVE_RESPONSE_LOG_FILE = path.join(TOKEN_LOG_DIR, 'enclave-proxy-events.jsonl');
 const DIAG_ENABLED = process.env.AWF_DEBUG_TOKENS === '1';
-const STEERING_CONVERSATION_RUN_KEY = crypto.randomBytes(32);
 
 // AWF version used to identify schema version in JSONL records.
 // Set to the container image version at build time via ARG AWF_VERSION in the Dockerfile
@@ -247,25 +245,6 @@ function validateTokenUsageRecord(record) {
 }
 
 /**
- * Build a per-run pseudonymous conversation identifier for persistence.
- *
- * The input is a deterministic, content-derived short hash from earlier stages.
- * We HMAC it with an in-memory random key so exported logs cannot be correlated
- * across process runs or trivially matched against precomputed dictionaries.
- *
- * @param {string|null|undefined} conversation
- * @returns {string|null}
- */
-function pseudonymizeSteeringConversation(conversation) {
-  if (!conversation) return null;
-  return crypto
-    .createHmac('sha256', STEERING_CONVERSATION_RUN_KEY)
-    .update(String(conversation))
-    .digest('hex')
-    .slice(0, 12);
-}
-
-/**
  * Budget-notice fields for a usage record.
  *
  * `steering: { type, threshold }` is written once per threshold per run, on
@@ -283,7 +262,7 @@ function steeringRecordFields(steering) {
     steering_delivery: {
       type,
       threshold,
-      conversation: pseudonymizeSteeringConversation(steering.conversation),
+      conversation: steering.conversation ?? null,
       first: steering.first === true,
     },
   };

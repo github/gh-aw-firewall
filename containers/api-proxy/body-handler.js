@@ -1,7 +1,5 @@
 'use strict';
 
-const crypto = require('crypto');
-
 /**
  * AWF API Proxy — Request body I/O and transformation.
  *
@@ -36,16 +34,6 @@ const {
   claimTimeoutSteeringWarning,
 } = require('./guards/timeout-steering');
 
-const LOG_PSEUDONYM_KEY = crypto.randomBytes(32);
-
-function pseudonymizeConversationForLog(shortConversation) {
-  if (!shortConversation) return null;
-  return crypto
-    .createHmac('sha256', LOG_PSEUDONYM_KEY)
-    .update(String(shortConversation))
-    .digest('hex')
-    .slice(0, 16);
-}
 const {
   getPendingAiCreditSteeringWarning,
   hasCrossedAiCreditSteeringThreshold,
@@ -347,7 +335,7 @@ function createBodyHandler({ handleRequestError, otel }) {
             request_id: requestId,
             provider,
             threshold: nextWarning.warning.threshold,
-            conversation: pseudonymizeConversationForLog(shortConversation),
+            conversation: shortConversation,
             message: nextWarning.warning.message,
           });
         }
