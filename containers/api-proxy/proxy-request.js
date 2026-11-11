@@ -294,6 +294,10 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
   collectRequestBody(req, provider, requestId, res, span, startTime, targetHost).then(async (rawBody) => {
     if (rawBody === null) return;
     logRequestShape(rawBody, provider, requestId, 'inbound');
+    // A budget notice injected below is acknowledged only after a successful
+    // upstream response; any other outcome leaves it pending for the next request.
+    const releaseSteering = () => req.awfSteeringDelivery?.release();
+    if (typeof res.once === 'function') res.once('close', releaseSteering);
 
     // Step 2: apply transform pipeline
     const inboundBytes = rawBody.length;
@@ -306,6 +310,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       ({ body, codexCompatibility, wireApiCompatibility, wireApiSourceBody, steering } =
         await transformRequestBody(rawBody, provider, req, requestId, bodyTransform));
     } catch (err) {
+      releaseSteering();
       const statusCode = Number.isInteger(err && err.statusCode) ? err.statusCode : 400;
       const duration = Date.now() - startTime;
       metrics.gaugeDec('active_requests', { provider });
@@ -350,7 +355,10 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       injectHeaders, provider, targetHost, requestId, codexCompatibility, wireApiCompatibility,
     });
 
-    if (enforceGuards({ body, provider, req, res, requestId, startTime, span, inboundBytes })) return;
+    if (enforceGuards({ body, provider, req, res, requestId, startTime, span, inboundBytes })) {
+      releaseSteering();
+      return;
+    }
 
     sendUpstreamRequest(headers, {
       body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes, requestSigner,

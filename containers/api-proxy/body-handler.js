@@ -25,11 +25,11 @@ const { sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const {
   getPendingTimeoutSteeringWarning,
-  acknowledgeTimeoutSteeringWarning,
+  claimTimeoutSteeringWarning,
 } = require('./guards/timeout-steering');
 const {
   getPendingAiCreditSteeringWarning,
-  acknowledgeAiCreditSteeringWarning,
+  claimAiCreditSteeringWarning,
 } = require('./guards/ai-credits-guard');
 const { translateCodexCustomToolsForCopilot } = require('./codex-compat');
 const { endpointForPath, translateCopilotWireApi } = require('./wire-api-compat');
@@ -267,13 +267,13 @@ function createBodyHandler({ handleRequestError, otel }) {
           type: 'timeout',
           priority: 3,
           warning: getPendingTimeoutSteeringWarning(),
-          acknowledge: acknowledgeTimeoutSteeringWarning,
+          claim: claimTimeoutSteeringWarning,
         },
         {
           type: 'ai_credit',
           priority: 2,
           warning: getPendingAiCreditSteeringWarning(),
-          acknowledge: acknowledgeAiCreditSteeringWarning,
+          claim: claimAiCreditSteeringWarning,
         },
       ];
       const nextWarning = steeringMessages
@@ -286,7 +286,10 @@ function createBodyHandler({ handleRequestError, otel }) {
         if (steered) {
           body = steered;
           steering = { type: nextWarning.type, threshold: nextWarning.warning.threshold };
-          nextWarning.acknowledge(nextWarning.warning.threshold);
+          // The notice stays pending until the request carrying it succeeds:
+          // the upstream response handler acknowledges it on a 2xx response
+          // and proxy-request releases it when the request fails.
+          req.awfSteeringDelivery = nextWarning.claim(nextWarning.warning.threshold);
           logRequest('info', `${nextWarning.type}_steering`, {
             request_id: requestId,
             provider,

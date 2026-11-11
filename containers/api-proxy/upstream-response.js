@@ -431,6 +431,10 @@ function createUpstreamResponseHandlers({
       }
     }
 
+    if (req.awfSteeringDelivery && proxyRes.statusCode >= 200 && proxyRes.statusCode < 300) {
+      proxyRes.once('end', () => req.awfSteeringDelivery.acknowledge());
+    }
+
     setupTokenTracking(proxyRes, body, {
       requestId, provider, req, res, startTime, billingInfo,
       initiatorSent, span, isStreaming,

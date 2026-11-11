@@ -16,6 +16,7 @@ let proxyRequest;
 let closeTokenUsageLog;
 let getAndClearPendingTimeoutSteeringMessage;
 let getAiCreditsReflectState;
+let getPendingAiCreditSteeringWarning;
 let injectSteeringMessage;
 let resetAiCreditsGuardForTests;
 let resetTimeoutSteeringForTests;
@@ -31,12 +32,17 @@ setupServerTestEnv(() => {
     injectSteeringMessage,
     resetTimeoutSteeringForTests,
   } = require('./proxy-request'));
-  ({ getAiCreditsReflectState, resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard'));
+  ({
+    getAiCreditsReflectState,
+    getPendingAiCreditSteeringWarning,
+    resetAiCreditsGuardForTests,
+  } = require('./guards/ai-credits-guard'));
   ({ replaceRuntimeModels, clearRuntimeModels } = require('./runtime-model-catalog'));
   return {
     proxyRequest,
     getAndClearPendingTimeoutSteeringMessage,
     getAiCreditsReflectState,
+    getPendingAiCreditSteeringWarning,
     injectSteeringMessage,
     resetAiCreditsGuardForTests,
     resetTimeoutSteeringForTests,
@@ -97,9 +103,9 @@ describe('budget steering and injectSteeringMessage', () => {
 
     nowSpy.mockReturnValue(start + Math.floor(9.6 * 60 * 1000));
     const msg95 = getAndClearPendingTimeoutSteeringMessage();
-    const msg90 = getAndClearPendingTimeoutSteeringMessage();
     expect(msg95).toContain('95%');
-    expect(msg90).toContain('90%');
+    // The superseded 90% notice is dropped once the 95% notice is delivered.
+    expect(getAndClearPendingTimeoutSteeringMessage()).toBeNull();
   });
 
   it('injects timeout steering warning into OpenAI request body', async () => {
@@ -340,7 +346,9 @@ describe('budget steering and injectSteeringMessage', () => {
     req.url = '/v1/chat/completions';
     req.method = 'POST';
     req.headers = { 'content-type': 'application/json', 'content-length': String(invalidBody.length) };
-    const res = { headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
+    const res = Object.assign(new EventEmitter(), {
+      headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn(),
+    });
     const routeToMini = body => {
       const parsed = JSON.parse(body.toString('utf8'));
       parsed.model = 'gpt-5-mini';
@@ -363,7 +371,63 @@ describe('budget steering and injectSteeringMessage', () => {
         message: 'reasoning_effort "short" is not supported by model gpt-5-mini; supported values: [low medium high]',
       },
     });
+    res.emit('close');
+    // The rejected request never reached the provider, so its notice stays pending.
+    expect(getAiCreditsReflectState().thresholds_pending).toEqual([80]);
+    expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
+  });
+
+  it('redelivers a notice after a failed request and never follows it with a superseded one', async () => {
+    process.env.AWF_MAX_AI_CREDITS = '1';
+    const cycles = [];
+    jest.spyOn(https, 'request').mockImplementation((_options, callback) => {
+      const upstreamReq = makeProxyReq();
+      cycles.push({ upstreamReq, responseHandler: callback });
+      return upstreamReq;
+    });
+
+    const sendRequest = async (requestId, response) => {
+      const body = Buffer.from(JSON.stringify({ messages: [{ role: 'user', content: requestId }] }));
+      const req = new EventEmitter();
+      req.url = '/v1/chat/completions';
+      req.method = 'POST';
+      req.headers = {
+        'content-type': 'application/json',
+        'content-length': String(body.length),
+        'x-request-id': requestId,
+      };
+      const res = Object.assign(new EventEmitter(), {
+        headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn(),
+      });
+      proxyRequest(req, res, 'api.openai.com', { Authorization: '******' }, 'openai');
+      req.emit('data', body);
+      req.emit('end');
+      await flushPromises();
+      const cycle = cycles.at(-1);
+      const writtenBody = JSON.parse(cycle.upstreamReq.write.mock.calls[0][0].toString());
+      completeUpstreamResponse(cycle.responseHandler, response);
+      await flushPromises();
+      res.emit('close');
+      const notice = writtenBody.messages.find(message => message.content.includes('[AWF AI CREDIT WARNING]'));
+      return notice ? notice.content : null;
+    };
+
+    // One expensive request crosses both 80% and 90%.
+    expect(await sendRequest('expensive', {
+      body: { model: 'gpt-5-mini', usage: { prompt_tokens: 36_000, completion_tokens: 0 } },
+    })).toBeNull();
+    expect(getAiCreditsReflectState().thresholds_pending).toEqual([80, 90]);
+
+    const failed = await sendRequest('upstream-error', { statusCode: 500, body: { error: { message: 'boom' } } });
+    expect(failed).toContain('90%');
+    expect(getAiCreditsReflectState().thresholds_pending).toEqual([80, 90]);
+
+    const delivered = await sendRequest('redelivered', { body: { model: 'gpt-5-mini', usage: { prompt_tokens: 1, completion_tokens: 0 } } });
+    expect(delivered).toContain('90%');
     expect(getAiCreditsReflectState().thresholds_pending).toEqual([]);
+
+    expect(await sendRequest('after-notice', { body: { model: 'gpt-5-mini', usage: { prompt_tokens: 1, completion_tokens: 0 } } }))
+      .toBeNull();
   });
 
   it('does not inject any warning when AWF_ENABLE_TOKEN_STEERING is not set', async () => {
