@@ -20,7 +20,12 @@
  * model-not-supported retry backoff.
  */
 
-const { sanitizeNullToolCallTypes, injectSteeringMessage, injectStreamOptions } = require('./body-transform');
+const {
+  sanitizeNullToolCallTypes,
+  injectSteeringMessage,
+  describeSteeringConversation,
+  injectStreamOptions,
+} = require('./body-transform');
 const { sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const {
@@ -261,18 +266,26 @@ function createBodyHandler({ handleRequestError, otel }) {
     }
 
     const allowSteering = req.awfRequestContext?.purpose !== 'routing_classification';
-    if (allowSteering && isSteeringEnabled() && (req.method === 'POST' || req.method === 'PUT')) {
+    // A notice goes only on a request that ends with tool results, the kind a
+    // working agent makes, so harness housekeeping requests (e.g. a request to
+    // summarize the conversation) are skipped. Every conversation hears each
+    // notice once, on its own next such request.
+    const target = allowSteering && isSteeringEnabled() && (req.method === 'POST' || req.method === 'PUT')
+      ? describeSteeringConversation(body, provider, req.url)
+      : null;
+    if (target?.endsWithToolResult) {
+      const { conversation } = target;
       const steeringMessages = [
         {
           type: 'timeout',
           priority: 3,
-          warning: getPendingTimeoutSteeringWarning(),
+          warning: getPendingTimeoutSteeringWarning(conversation),
           claim: claimTimeoutSteeringWarning,
         },
         {
           type: 'ai_credit',
           priority: 2,
-          warning: getPendingAiCreditSteeringWarning(),
+          warning: getPendingAiCreditSteeringWarning(conversation),
           claim: claimAiCreditSteeringWarning,
         },
       ];
@@ -285,15 +298,32 @@ function createBodyHandler({ handleRequestError, otel }) {
         const steered = injectSteeringMessage(body, provider, nextWarning.warning.message, req.url);
         if (steered) {
           body = steered;
-          steering = { type: nextWarning.type, threshold: nextWarning.warning.threshold };
+          const shortConversation = conversation ? conversation.slice(0, 12) : null;
+          // `first` is set when this turns out to be the run's first delivery
+          // of the threshold; only that record carries the `steering` field.
+          steering = {
+            type: nextWarning.type,
+            threshold: nextWarning.warning.threshold,
+            conversation: shortConversation,
+            first: false,
+          };
           // The notice stays pending until the request carrying it succeeds:
           // the upstream response handler acknowledges it on a 2xx response
-          // and proxy-request releases it when the request fails.
-          req.awfSteeringDelivery = nextWarning.claim(nextWarning.warning.threshold);
+          // and proxy-request releases it when the request fails. The
+          // conversation is recorded as having heard it only on acknowledge.
+          const delivery = nextWarning.claim(nextWarning.warning.threshold, conversation);
+          const steeringRecord = steering;
+          req.awfSteeringDelivery = Object.freeze({
+            acknowledge: () => {
+              if (delivery.acknowledge()) steeringRecord.first = true;
+            },
+            release: delivery.release,
+          });
           logRequest('info', `${nextWarning.type}_steering`, {
             request_id: requestId,
             provider,
             threshold: nextWarning.warning.threshold,
+            conversation: shortConversation,
             message: nextWarning.warning.message,
           });
         }

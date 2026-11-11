@@ -1,4 +1,4 @@
-const { injectSteeringMessage, injectStreamOptions } = require('./body-transform');
+const { injectSteeringMessage, injectStreamOptions, describeSteeringConversation } = require('./body-transform');
 const { makeAnthropicTransform } = require('./anthropic-transforms');
 
 describe('injectStreamOptions', () => {
@@ -315,4 +315,117 @@ describe('injectStreamOptions', () => {
       expect(JSON.parse(transformed.body.toString('utf8')).stream_options).toEqual({ include_usage: true });
     }
   );
+});
+
+describe('describeSteeringConversation', () => {
+  const describe_ = (body, provider, url) =>
+    describeSteeringConversation(Buffer.from(JSON.stringify(body)), provider, url);
+
+  test('recognises a Messages conversation across turns, ignoring moved cache breakpoints', () => {
+    const system = [
+      { type: 'text', text: 'x-anthropic-billing-header: cc_version=1; cch=aaaa;' },
+      { type: 'text', text: 'You are a sub-agent.', cache_control: { type: 'ephemeral' } },
+    ];
+    const first = describe_({
+      system,
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'Screen batch 1.', cache_control: { type: 'ephemeral' } }] },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'read', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'x' }] },
+      ],
+    }, 'anthropic', '/v1/messages');
+    const later = describe_({
+      system: [{ ...system[0], text: 'x-anthropic-billing-header: cc_version=1; cch=bbbb;' }, system[1]],
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'Screen batch 1.' }] },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'read', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'x' }] },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't2', name: 'read', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't2', content: 'y' }, { type: 'text', text: 'reminder' }] },
+      ],
+    }, 'anthropic', '/v1/messages');
+    const other = describe_({
+      system,
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'Screen batch 2.' }] },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'read', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'x' }] },
+      ],
+    }, 'anthropic', '/v1/messages');
+
+    expect(first).toEqual({ endsWithToolResult: true, conversation: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(later).toEqual({ endsWithToolResult: true, conversation: first.conversation });
+    expect(other.conversation).not.toBe(first.conversation);
+  });
+
+  test('distinguishes conversations by their system prompt or instructions', () => {
+    const input = [
+      { role: 'user', content: 'Task.' },
+      { type: 'function_call', call_id: 'c1', name: 'read', arguments: '{}' },
+      { type: 'function_call_output', call_id: 'c1', output: 'x' },
+    ];
+    const main = describe_({ instructions: 'Main agent.', input }, 'openai', '/v1/responses');
+    const sub = describe_({ instructions: 'Sub-agent.', input }, 'openai', '/v1/responses');
+    expect(main.endsWithToolResult).toBe(true);
+    expect(main.conversation).not.toBe(sub.conversation);
+  });
+
+  test('includes every opening Responses message before the model replies', () => {
+    const opening = [
+      { type: 'message', role: 'developer', content: [{ type: 'input_text', text: 'Permissions.' }] },
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'AGENTS.md' }] },
+    ];
+    const tail = [
+      { type: 'function_call', call_id: 'c1', name: 'shell', arguments: '{}' },
+      { type: 'custom_tool_call_output', call_id: 'c1', output: 'x' },
+    ];
+    const a = describe_({ instructions: 'Codex.', input: [...opening, { role: 'user', content: 'Task A.' }, ...tail] },
+      'openai', '/v1/responses');
+    const b = describe_({ instructions: 'Codex.', input: [...opening, { role: 'user', content: 'Task B.' }, ...tail] },
+      'openai', '/v1/responses');
+    expect(a.endsWithToolResult).toBe(true);
+    expect(a.conversation).not.toBe(b.conversation);
+  });
+
+  test('has no conversation for Responses requests continuing a stored response', () => {
+    expect(describe_({
+      previous_response_id: 'resp_1',
+      input: [{ type: 'function_call_output', call_id: 'c1', output: 'x' }],
+    }, 'openai', '/v1/responses')).toEqual({ endsWithToolResult: true, conversation: null });
+  });
+
+  test.each([
+    ['chat tool message', 'openai', '/v1/chat/completions', {
+      messages: [
+        { role: 'user', content: 'Task.' },
+        { role: 'assistant', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read', arguments: '{}' } }] },
+        { role: 'tool', tool_call_id: 'c1', content: 'x' },
+      ],
+    }, true],
+    ['chat user message', 'openai', '/v1/chat/completions', {
+      messages: [{ role: 'user', content: 'Summarize the conversation.' }],
+    }, false],
+    ['messages text-only user turn', 'anthropic', '/v1/messages', {
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'Task.' }] }],
+    }, false],
+    ['responses user message', 'openai', '/v1/responses', {
+      input: [{ role: 'user', content: 'Task.' }],
+    }, false],
+    ['gemini function response', 'gemini', '/v1beta/models/m:generateContent', {
+      contents: [
+        { role: 'user', parts: [{ text: 'Task.' }] },
+        { role: 'model', parts: [{ functionCall: { name: 'read', args: {} } }] },
+        { role: 'user', parts: [{ functionResponse: { name: 'read', response: {} } }] },
+      ],
+    }, true],
+    ['gemini text turn', 'gemini', '/v1beta/models/m:generateContent', {
+      contents: [{ role: 'user', parts: [{ text: 'Task.' }] }],
+    }, false],
+  ])('detects whether a %s ends with a tool result', (_name, provider, url, body, expected) => {
+    expect(describe_(body, provider, url).endsWithToolResult).toBe(expected);
+  });
+
+  test('returns null for a body that is not JSON', () => {
+    expect(describeSteeringConversation(Buffer.from('not json'), 'openai', '/v1/chat/completions')).toBeNull();
+  });
 });

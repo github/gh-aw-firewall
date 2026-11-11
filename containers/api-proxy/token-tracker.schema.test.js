@@ -128,7 +128,7 @@ describe('shared token usage helpers', () => {
       streaming: false,
       duration: 123,
       responseBytes: 456,
-      steering: { type: 'ai_credit', threshold: 90 },
+      steering: { type: 'ai_credit', threshold: 90, conversation: '0123456789ab', first: true },
       requestedEndpoint: '/chat/completions',
       upstreamEndpoint: '/responses',
     });
@@ -148,10 +148,37 @@ describe('shared token usage helpers', () => {
       duration_ms: 123,
       response_bytes: 456,
       steering: { type: 'ai_credit', threshold: 90 },
+      steering_delivery: { type: 'ai_credit', threshold: 90, conversation: '0123456789ab', first: true },
       requested_endpoint: '/chat/completions',
       upstream_endpoint: '/responses',
     });
     expect(validateTokenUsageRecord(record)).toBe(true);
+  });
+
+  test('buildTokenUsageRecord writes steering only for the first delivery of a threshold', () => {
+    const usage = { input_tokens: 1, output_tokens: 2, cache_read_tokens: 0, cache_write_tokens: 0 };
+    const base = {
+      requestId: 'later-delivery', provider: 'openai', model: 'gpt-5-mini', reqPath: '/v1/responses',
+      status: 200, streaming: false, duration: 1, responseBytes: 1,
+    };
+    const later = buildTokenUsageRecord(usage, {
+      ...base,
+      steering: { type: 'timeout', threshold: 80, conversation: 'abcdef012345', first: false },
+    });
+    expect(later.steering).toBeUndefined();
+    expect(later.steering_delivery).toEqual({ type: 'timeout', threshold: 80, conversation: 'abcdef012345', first: false });
+    expect(validateTokenUsageRecord(later)).toBe(true);
+
+    const stored = buildTokenUsageRecord(usage, {
+      ...base,
+      steering: { type: 'ai_credit', threshold: 95, conversation: null, first: true },
+    });
+    expect(stored.steering).toEqual({ type: 'ai_credit', threshold: 95 });
+    expect(stored.steering_delivery).toEqual({ type: 'ai_credit', threshold: 95, conversation: null, first: true });
+
+    const none = buildTokenUsageRecord(usage, base);
+    expect(none.steering).toBeUndefined();
+    expect(none.steering_delivery).toBeUndefined();
   });
 
   test('buildTokenUsageRecord persists a trusted request purpose and omits it otherwise', () => {

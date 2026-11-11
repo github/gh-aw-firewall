@@ -168,7 +168,50 @@
         }
       },
       "additionalProperties": false,
-      "description": "Present when an advisory steering notice was injected into this request."
+      "description": "Present on the request that first delivered an advisory steering notice threshold in the run; written at most once per threshold per run. See steering_delivery for every delivery."
+    },
+    "steering_delivery": {
+      "type": "object",
+      "required": [
+        "type",
+        "threshold",
+        "conversation",
+        "first"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "timeout",
+            "ai_credit"
+          ],
+          "description": "Kind of advisory steering notice delivered with this request."
+        },
+        "threshold": {
+          "type": "integer",
+          "enum": [
+            80,
+            90,
+            95,
+            99
+          ],
+          "description": "Percent threshold of the delivered notice."
+        },
+        "conversation": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{12}$",
+          "description": "Short hash (first 12 hex characters of SHA-256) of the conversation opening: the system prompt or instructions plus the opening user turn. Null for requests that continue a stored response (previous_response_id), which have no history to hash."
+        },
+        "first": {
+          "type": "boolean",
+          "description": "True when this was the run's first delivery of this threshold (the record that also carries steering)."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Present on every request that delivered an advisory steering notice. Each conversation in the run receives each current notice once."
     },
     "model_fallback": {
       "type": "object",

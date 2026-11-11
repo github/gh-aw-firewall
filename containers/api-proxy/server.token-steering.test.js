@@ -51,6 +51,16 @@ setupServerTestEnv(() => {
   };
 });
 
+// Budget notices go only on requests that end with tool results; the opening
+// user message identifies the conversation.
+const chatToolResult = (opening = 'Continue.') => ({
+  messages: [
+    { role: 'user', content: opening },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read_file', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'call-1', content: 'contents' },
+  ],
+});
+
 describe('budget steering and injectSteeringMessage', () => {
   // injectSteeringMessage is loaded here
   // for unit-level tests (pure function tests).
@@ -137,9 +147,7 @@ describe('budget steering and injectSteeringMessage', () => {
 
     nowSpy.mockReturnValue(start + (8 * 60 * 1000));
 
-    const req2Body = Buffer.from(JSON.stringify({
-      messages: [{ role: 'user', content: 'Second request' }],
-    }));
+    const req2Body = Buffer.from(JSON.stringify(chatToolResult('Second request')));
     const req2 = new EventEmitter();
     req2.url = '/v1/chat/completions';
     req2.method = 'POST';
@@ -152,10 +160,10 @@ describe('budget steering and injectSteeringMessage', () => {
 
     expect(upstreamReq2.write).toHaveBeenCalledTimes(1);
     const writtenBody2 = JSON.parse(upstreamReq2.write.mock.calls[0][0].toString());
-    expect(writtenBody2.messages[0]).toEqual({ role: 'user', content: 'Second request' });
-    expect(writtenBody2.messages[1].role).toBe('user');
-    expect(writtenBody2.messages[1].content).toContain('[AWF TIME WARNING]');
-    expect(writtenBody2.messages[1].content).toContain('80%');
+    expect(writtenBody2.messages.slice(0, 3)).toEqual(chatToolResult('Second request').messages);
+    expect(writtenBody2.messages[3].role).toBe('user');
+    expect(writtenBody2.messages[3].content).toContain('[AWF TIME WARNING]');
+    expect(writtenBody2.messages[3].content).toContain('80%');
   });
 
   it('injects Copilot Messages steering after the final user content, leaving system unchanged', async () => {
@@ -171,11 +179,16 @@ describe('budget steering and injectSteeringMessage', () => {
       .mockImplementationOnce(() => upstreamReq1)
       .mockImplementationOnce(() => upstreamReq2);
 
+    const toolResultMessages = [
+      { role: 'user', content: 'Start.' },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu-1', name: 'read_file', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu-1', content: 'Second request' }] },
+    ];
     const makeCopilotRequest = (content) => {
       const body = Buffer.from(JSON.stringify({
         model: 'claude-sonnet-4',
         system: 'Be helpful.',
-        messages: [{ role: 'user', content }],
+        messages: content === null ? toolResultMessages : [{ role: 'user', content }],
       }));
       const req = new EventEmitter();
       req.url = '/v1/messages';
@@ -190,19 +203,22 @@ describe('budget steering and injectSteeringMessage', () => {
 
     await makeCopilotRequest('First request');
     nowSpy.mockReturnValue(start + (8 * 60 * 1000));
-    await makeCopilotRequest('Second request');
+    await makeCopilotRequest(null);
 
     expect(upstreamReq2.write).toHaveBeenCalledTimes(1);
     const writtenBody = JSON.parse(upstreamReq2.write.mock.calls[0][0].toString());
     expect(writtenBody.system).toBe('Be helpful.');
-    expect(writtenBody.messages).toEqual([{
-      role: 'user',
-      content: [
-        { type: 'text', text: 'Second request' },
-        { type: 'text', text: expect.stringContaining('[AWF TIME WARNING]') },
-      ],
-    }]);
-    expect(writtenBody.messages[0].content[1].text).toContain('80%');
+    expect(writtenBody.messages).toEqual([
+      ...toolResultMessages.slice(0, 2),
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'toolu-1', content: 'Second request' },
+          { type: 'text', text: expect.stringContaining('[AWF TIME WARNING]') },
+        ],
+      },
+    ]);
+    expect(writtenBody.messages[2].content[1].text).toContain('80%');
   });
 
   it('steers gh-aw default AI-credit-only Copilot Responses requests end to end', async () => {
@@ -394,7 +410,7 @@ describe('budget steering and injectSteeringMessage', () => {
     });
 
     const sendRequest = async (requestId, response) => {
-      const body = Buffer.from(JSON.stringify({ messages: [{ role: 'user', content: requestId }] }));
+      const body = Buffer.from(JSON.stringify(chatToolResult()));
       const req = new EventEmitter();
       req.url = '/v1/chat/completions';
       req.method = 'POST';
@@ -419,7 +435,7 @@ describe('budget steering and injectSteeringMessage', () => {
         res.emit('finish');
       }
       res.emit('close');
-      const notice = writtenBody.messages.find(message => message.content.includes('[AWF AI CREDIT WARNING]'));
+      const notice = writtenBody.messages.find(message => message.content?.includes('[AWF AI CREDIT WARNING]'));
       return notice ? notice.content : null;
     };
 
@@ -461,7 +477,7 @@ describe('budget steering and injectSteeringMessage', () => {
     });
     expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
 
-    const body = Buffer.from(JSON.stringify({ messages: [{ role: 'user', content: 'Disconnected' }] }));
+    const body = Buffer.from(JSON.stringify(chatToolResult('Disconnected')));
     const req = new EventEmitter();
     req.url = '/v1/chat/completions';
     req.method = 'POST';
@@ -475,7 +491,9 @@ describe('budget steering and injectSteeringMessage', () => {
     req.emit('end');
     await flushPromises();
 
-    expect(req.awfSteering).toEqual({ type: 'ai_credit', threshold: 80 });
+    expect(req.awfSteering).toEqual({
+      type: 'ai_credit', threshold: 80, conversation: expect.stringMatching(/^[0-9a-f]{12}$/), first: false,
+    });
     expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
   });
 
@@ -486,7 +504,14 @@ describe('budget steering and injectSteeringMessage', () => {
       provider = 'openai',
       targetHost = 'api.openai.com',
       url = '/v1/responses',
-      requestBody = { model: 'gpt-5-mini', input: [{ role: 'user', content: requestId }] },
+      requestBody = {
+        model: 'gpt-5-mini',
+        input: [
+          { role: 'user', content: 'Continue.' },
+          { type: 'function_call', call_id: 'call-1', name: 'read_file', arguments: '{}' },
+          { type: 'function_call_output', call_id: 'call-1', output: requestId },
+        ],
+      },
     } = {}) => {
       const body = Buffer.from(JSON.stringify(requestBody));
       const req = new EventEmitter();
@@ -645,7 +670,13 @@ describe('budget steering and injectSteeringMessage', () => {
         provider: 'gemini',
         targetHost: 'generativelanguage.googleapis.com',
         url: '/v1beta/models/gemini-2.5-pro:streamGenerateContent',
-        requestBody: { contents: [{ role: 'user', parts: [{ text: requestId }] }] },
+        requestBody: {
+          contents: [
+            { role: 'user', parts: [{ text: 'Continue.' }] },
+            { role: 'model', parts: [{ functionCall: { name: 'read_file', args: {} } }] },
+            { role: 'user', parts: [{ functionResponse: { name: 'read_file', response: { output: requestId } } }] },
+          ],
+        },
       });
       const geminiNoticeIn = body => JSON.stringify(body.contents.at(-1))
         .includes('[AWF AI CREDIT WARNING]');
@@ -683,6 +714,52 @@ describe('budget steering and injectSteeringMessage', () => {
       const records = await steeringRecordsFor(['interrupted-gemini-stream', 'retry-interrupted-gemini-stream']);
       expect(records.length).toBeLessThanOrEqual(1);
       expect(records.map(record => record.request_id)).not.toContain('retry-interrupted-gemini-stream');
+    });
+
+    it('delivers a notice to each conversation and records steering once per threshold', async () => {
+      await seedPendingNotice();
+      const conversation = (opening, requestId) => ({
+        model: 'gpt-5-mini',
+        input: [
+          { role: 'user', content: opening },
+          { type: 'function_call', call_id: 'call-1', name: 'read_file', arguments: '{}' },
+          { type: 'function_call_output', call_id: 'call-1', output: requestId },
+        ],
+      });
+      const complete = request => completeUpstreamResponse(request.cycle.responseHandler, {
+        body: { model: 'gpt-5-mini', usage: { input_tokens: 1, output_tokens: 0 } },
+      });
+
+      const main = await makeRequest('main-notice', { requestBody: conversation('Main task.', 'main-notice') });
+      const sub = await makeRequest('sub-notice', { requestBody: conversation('Sub-agent task.', 'sub-notice') });
+      expect(noticeIn(main.body)).toBe(true);
+      expect(noticeIn(sub.body)).toBe(true);
+      complete(sub);
+      complete(main);
+      await flushPromises();
+
+      const mainAgain = await makeRequest('main-again', { requestBody: conversation('Main task.', 'main-again') });
+      expect(noticeIn(mainAgain.body)).toBe(false);
+      complete(mainAgain);
+      await flushPromises();
+
+      await closeTokenUsageLog();
+      const records = fs.readFileSync(path.join(tokenLogDir, 'token-usage.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map(line => JSON.parse(line));
+      const recordFor = requestId => records.find(record => record.request_id === requestId);
+      expect(recordFor('sub-notice').steering).toEqual({ type: 'ai_credit', threshold: 90 });
+      expect(recordFor('sub-notice').steering_delivery).toEqual({
+        type: 'ai_credit', threshold: 90, conversation: expect.stringMatching(/^[0-9a-f]{12}$/), first: true,
+      });
+      expect(recordFor('main-notice').steering).toBeUndefined();
+      expect(recordFor('main-notice').steering_delivery).toEqual({
+        type: 'ai_credit', threshold: 90, conversation: expect.stringMatching(/^[0-9a-f]{12}$/), first: false,
+      });
+      expect(recordFor('main-notice').steering_delivery.conversation)
+        .not.toBe(recordFor('sub-notice').steering_delivery.conversation);
+      expect(recordFor('main-again').steering_delivery).toBeUndefined();
     });
 
     it('redelivers a notice when the client disconnects before the upstream response arrives', async () => {

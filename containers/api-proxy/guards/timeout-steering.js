@@ -2,7 +2,8 @@
 
 const {
   BUDGET_WARNING_THRESHOLDS,
-  selectPendingSteeringThreshold,
+  createSteeringDeliveryState,
+  selectSteeringThreshold,
   acknowledgeSteeringThreshold,
   claimSteeringThreshold,
 } = require('./steering-thresholds');
@@ -21,8 +22,7 @@ function createTimeoutSteeringState(configKey = null, startTimeMs = null) {
     configKey,
     startTimeMs,
     emittedThresholds: new Set(),
-    uninjectedThresholds: new Set(),
-    inFlightThresholds: new Map(),
+    delivery: createSteeringDeliveryState(),
   };
 }
 
@@ -73,18 +73,22 @@ function updateTimeoutSteeringThresholds(state, timeoutMinutes) {
   for (const threshold of BUDGET_WARNING_THRESHOLDS) {
     if (percentElapsed >= threshold && !state.emittedThresholds.has(threshold)) {
       state.emittedThresholds.add(threshold);
-      state.uninjectedThresholds.add(threshold);
+      state.delivery.pending.add(threshold);
     }
   }
 }
 
-function getPendingTimeoutSteeringWarning() {
+/**
+ * @param {string|null} [conversation] - Conversation hash; omit for the
+ *   run-level notice (each notice once per run).
+ */
+function getPendingTimeoutSteeringWarning(conversation = null) {
   const timeoutMinutes = getTimeoutSteeringConfig();
   const state = getTimeoutSteeringState(timeoutMinutes);
   if (!state) return null;
 
   updateTimeoutSteeringThresholds(state, timeoutMinutes);
-  const threshold = selectPendingSteeringThreshold(state.uninjectedThresholds, state.inFlightThresholds);
+  const threshold = selectSteeringThreshold(state.delivery, state.emittedThresholds, conversation);
   if (threshold === null) return null;
 
   const text = TIMEOUT_STEERING_MESSAGES[threshold] ||
@@ -93,12 +97,11 @@ function getPendingTimeoutSteeringWarning() {
 }
 
 function acknowledgeTimeoutSteeringWarning(threshold) {
-  acknowledgeSteeringThreshold(timeoutSteeringState.uninjectedThresholds, threshold);
+  acknowledgeSteeringThreshold(timeoutSteeringState.delivery.pending, threshold);
 }
 
-function claimTimeoutSteeringWarning(threshold) {
-  return claimSteeringThreshold(
-    timeoutSteeringState.uninjectedThresholds, timeoutSteeringState.inFlightThresholds, threshold);
+function claimTimeoutSteeringWarning(threshold, conversation = null) {
+  return claimSteeringThreshold(timeoutSteeringState.delivery, threshold, conversation);
 }
 
 function getAndClearPendingTimeoutSteeringMessage() {
@@ -130,7 +133,7 @@ function getTimeoutSteeringReflectState() {
     started_at_ms: state.startTimeMs,
     percent_elapsed: Math.round(percentElapsed * 100) / 100,
     thresholds_crossed: [...state.emittedThresholds].sort((a, b) => a - b),
-    thresholds_pending: [...state.uninjectedThresholds].sort((a, b) => a - b),
+    thresholds_pending: [...state.delivery.pending].sort((a, b) => a - b),
   };
 }
 

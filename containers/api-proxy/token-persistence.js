@@ -245,6 +245,29 @@ function validateTokenUsageRecord(record) {
 }
 
 /**
+ * Budget-notice fields for a usage record.
+ *
+ * `steering: { type, threshold }` is written once per threshold per run, on
+ * the request that first delivered it (gh-aw reads it and expects at most one
+ * per threshold). `steering_delivery` is written for every delivery and adds
+ * the short conversation hash (null for requests that continue a stored
+ * response) and whether this was that first delivery.
+ */
+function steeringRecordFields(steering) {
+  if (!steering) return {};
+  const { type, threshold } = steering;
+  return {
+    ...(steering.first ? { steering: { type, threshold } } : {}),
+    steering_delivery: {
+      type,
+      threshold,
+      conversation: steering.conversation ?? null,
+      first: steering.first === true,
+    },
+  };
+}
+
+/**
  * Build a token usage record for JSONL persistence.
  *
  * @param {object} normalized - Normalized usage object from normalizeUsage()
@@ -283,7 +306,7 @@ function buildTokenUsageRecord(normalized, opts) {
     duration_ms: duration,
     response_bytes: responseBytes,
     ...callerRecordFields(purpose, caller),
-    ...(steering ? { steering } : {}),
+    ...steeringRecordFields(steering),
     ...(requestedEndpoint ? { requested_endpoint: requestedEndpoint } : {}),
     ...(upstreamEndpoint ? { upstream_endpoint: upstreamEndpoint } : {}),
   };

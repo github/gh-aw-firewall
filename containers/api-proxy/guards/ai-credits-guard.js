@@ -13,7 +13,8 @@ const { parsePositiveNumber } = require('./guard-utils');
 const { PROVIDER_ANTHROPIC, PROVIDER_COPILOT } = require('../provider-names');
 const {
   BUDGET_WARNING_THRESHOLDS,
-  selectPendingSteeringThreshold,
+  createSteeringDeliveryState,
+  selectSteeringThreshold,
   acknowledgeSteeringThreshold,
   claimSteeringThreshold,
 } = require('./steering-thresholds');
@@ -107,8 +108,7 @@ function updateAiCreditSteeringThresholds() {
   if (aiCreditsState.steeringConfigKey !== configKey) {
     aiCreditsState.steeringConfigKey = configKey;
     aiCreditsState.emittedThresholds = new Set();
-    aiCreditsState.uninjectedThresholds = new Set();
-    aiCreditsState.inFlightThresholds = new Map();
+    aiCreditsState.steeringDelivery = createSteeringDeliveryState();
   }
 
   for (const threshold of BUDGET_WARNING_THRESHOLDS) {
@@ -116,7 +116,7 @@ function updateAiCreditSteeringThresholds() {
       exact.multiply(ceiling, exact.decimal(threshold))) >= 0 &&
       !aiCreditsState.emittedThresholds.has(threshold)) {
       aiCreditsState.emittedThresholds.add(threshold);
-      aiCreditsState.uninjectedThresholds.add(threshold);
+      aiCreditsState.steeringDelivery.pending.add(threshold);
     }
   }
 }
@@ -129,8 +129,7 @@ function createAiCreditsState() {
     pricingFailure: false,
     steeringConfigKey: null,
     emittedThresholds: new Set(),
-    uninjectedThresholds: new Set(),
-    inFlightThresholds: new Map(),
+    steeringDelivery: createSteeringDeliveryState(),
   };
 }
 
@@ -580,7 +579,7 @@ function buildAiCreditsReflectState() {
     effective_max_ai_credits: Number(config.max ?? config.hardCap),
     percent_used: exact.number(exact.multiply(exact.divide(reflectedTotal, effectiveCeiling), exact.decimal(100)), 2),
     thresholds_crossed: [...aiCreditsState.emittedThresholds].sort((a, b) => a - b),
-    thresholds_pending: [...aiCreditsState.uninjectedThresholds].sort((a, b) => a - b),
+    thresholds_pending: [...aiCreditsState.steeringDelivery.pending].sort((a, b) => a - b),
     by_model: byModel,
   };
 }
@@ -592,14 +591,18 @@ const AI_CREDIT_STEERING_MESSAGES = {
   99: 'You have used 99% of your AI-credit budget. You are about to be cut off. Submit immediately.',
 };
 
-function getPendingAiCreditSteeringWarning() {
+/**
+ * @param {string|null} [conversation] - Conversation hash; omit for the
+ *   run-level notice (each notice once per run).
+ */
+function getPendingAiCreditSteeringWarning(conversation = null) {
   try {
     updateAiCreditSteeringThresholds();
   } catch (error) {
     throwAccountingFailure(error);
   }
-  const threshold = selectPendingSteeringThreshold(
-    aiCreditsState.uninjectedThresholds, aiCreditsState.inFlightThresholds);
+  const threshold = selectSteeringThreshold(
+    aiCreditsState.steeringDelivery, aiCreditsState.emittedThresholds, conversation);
   if (threshold === null) return null;
   const text = AI_CREDIT_STEERING_MESSAGES[threshold] ||
     `You have used ${threshold}% of your AI-credit budget.`;
@@ -607,12 +610,11 @@ function getPendingAiCreditSteeringWarning() {
 }
 
 function acknowledgeAiCreditSteeringWarning(threshold) {
-  acknowledgeSteeringThreshold(aiCreditsState.uninjectedThresholds, threshold);
+  acknowledgeSteeringThreshold(aiCreditsState.steeringDelivery.pending, threshold);
 }
 
-function claimAiCreditSteeringWarning(threshold) {
-  return claimSteeringThreshold(
-    aiCreditsState.uninjectedThresholds, aiCreditsState.inFlightThresholds, threshold);
+function claimAiCreditSteeringWarning(threshold, conversation = null) {
+  return claimSteeringThreshold(aiCreditsState.steeringDelivery, threshold, conversation);
 }
 
 function getAiCreditsBlockState() {

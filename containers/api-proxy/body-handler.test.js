@@ -338,6 +338,25 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
       applyAiCreditsUsage({ input_tokens: 32 }, 'gpt-5-mini', 'copilot');
     }
 
+    // A Chat Completions request that ends with a tool result; `opening` sets
+    // the first user message, which identifies the conversation.
+    function toolResultChat(opening = 'Continue.') {
+      return Buffer.from(JSON.stringify({
+        messages: [
+          { role: 'user', content: opening },
+          { role: 'assistant', content: null, tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read_file', arguments: '{}' } }] },
+          { role: 'tool', tool_call_id: 'call-1', content: 'contents' },
+        ],
+      }));
+    }
+
+    const delivered = (type, threshold, first = false) => ({
+      type,
+      threshold,
+      conversation: expect.stringMatching(/^[0-9a-f]{12}$/),
+      first,
+    });
+
     test.each([
       '/decisions',
       '/v1/decisions',
@@ -458,17 +477,17 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
           null,
         );
         createCreditWarning();
+        const req = { method: 'POST', url: testCase.url };
         const result = await transformRequestBody(
           body,
           testCase.provider,
-          { method: 'POST', url: testCase.url },
+          req,
           `request-${index}`,
           null,
         );
         const parsed = json(result.body);
 
-        expect(getPendingAiCreditSteeringWarning()).toBeNull();
-        expect(result.steering).toEqual({ type: 'ai_credit', threshold: 80 });
+        expect(result.steering).toEqual(delivered('ai_credit', 80));
         // Everything before the notice — including the system prompt or
         // instructions — is byte-identical to the request without a notice.
         const serialized = result.body.toString('utf8');
@@ -477,6 +496,20 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
         expect(serialized.indexOf('Caller instructions.')).toBe(baseline.body.toString('utf8').indexOf('Caller instructions.'));
         testCase.removeNotice(parsed);
         expect(Buffer.from(JSON.stringify(parsed))).toEqual(baseline.body);
+
+        // While the notice is in flight the same conversation does not repeat it.
+        const concurrent = await transformRequestBody(
+          body,
+          testCase.provider,
+          { method: 'POST', url: testCase.url },
+          `concurrent-${index}`,
+          null,
+        );
+        expect(concurrent.steering).toBeNull();
+
+        req.awfSteeringDelivery.acknowledge();
+        expect(result.steering.first).toBe(true);
+        expect(getPendingAiCreditSteeringWarning()).toBeNull();
 
         const later = await transformRequestBody(
           body,
@@ -533,6 +566,7 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
         const baseline = await transformRequestBody(body, 'copilot', req, 'chat-baseline', null);
         createCreditWarning();
         const result = await transformRequestBody(body, 'copilot', req, 'chat-steered', null);
+        req.awfSteeringDelivery.acknowledge();
         const parsed = json(result.body);
 
         expect(result.wireApiCompatibility.direction).toBe('responses_to_chat');
@@ -543,7 +577,7 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
           content: expect.stringContaining(warningPrefix),
         });
         expect(Buffer.from(JSON.stringify(parsed))).toEqual(baseline.body);
-        expect(result.steering).toEqual({ type: 'ai_credit', threshold: 80 });
+        expect(result.steering).toEqual(delivered('ai_credit', 80, true));
         expect(getPendingAiCreditSteeringWarning()).toBeNull();
       } finally {
         clearRuntimeModels();
@@ -570,6 +604,7 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
         const baseline = await transformRequestBody(body, 'copilot', req, 'responses-baseline', null);
         createCreditWarning();
         const result = await transformRequestBody(body, 'copilot', req, 'responses-steered', null);
+        req.awfSteeringDelivery.acknowledge();
         const parsed = json(result.body);
 
         expect(result.wireApiCompatibility.direction).toBe('chat_to_responses');
@@ -581,7 +616,7 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
           content: expect.stringContaining(warningPrefix),
         });
         expect(Buffer.from(JSON.stringify(parsed))).toEqual(baseline.body);
-        expect(result.steering).toEqual({ type: 'ai_credit', threshold: 80 });
+        expect(result.steering).toEqual(delivered('ai_credit', 80, true));
         expect(getPendingAiCreditSteeringWarning()).toBeNull();
       } finally {
         clearRuntimeModels();
@@ -599,13 +634,15 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
 
       for (const [threshold, inputTokens] of creditUsageByThreshold) {
         applyAiCreditsUsage({ input_tokens: inputTokens }, 'gpt-5-mini', 'copilot');
+        const req = { method: 'POST', url: '/v1/chat/completions' };
         const result = await transformRequestBody(
-          Buffer.from(JSON.stringify({ messages: [{ role: 'user', content: 'Continue.' }] })),
+          toolResultChat(),
           'openai',
-          { method: 'POST', url: '/v1/chat/completions' },
+          req,
           `credit-threshold-${threshold}`,
           null,
         );
+        req.awfSteeringDelivery.acknowledge();
         const parsed = json(result.body);
 
         expect(parsed.messages.at(-1).content).toContain(warningPrefix);
@@ -627,7 +664,7 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
       const runRequest = async requestId => {
         const req = { method: 'POST', url: '/v1/chat/completions' };
         const result = await transformRequestBody(
-          Buffer.from(JSON.stringify({ messages: [{ role: 'user', content: 'Continue.' }] })),
+          toolResultChat(),
           'openai',
           req,
           requestId,
@@ -645,13 +682,13 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
         // The superseded 80% time notice is dropped once the 90% one is delivered.
         expect(await runRequest('time-credit-2')).toContain('[AWF AI CREDIT WARNING]');
         expect(getPendingAiCreditSteeringWarning()).toBeNull();
-        expect(json((await transformRequestBody(
-          Buffer.from(JSON.stringify({ messages: [{ role: 'user', content: 'Continue.' }] })),
+        expect((await transformRequestBody(
+          toolResultChat(),
           'openai',
           { method: 'POST', url: '/v1/chat/completions' },
           'time-credit-3',
           null,
-        )).body).messages).toEqual([{ role: 'user', content: 'Continue.' }]);
+        )).body).toEqual(toolResultChat());
       } finally {
         fs.rmSync(runtimeDir, { recursive: true, force: true });
       }
@@ -659,29 +696,118 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
 
     test('leaves a notice pending when its request is released and drops it once acknowledged', async () => {
       createCreditWarning();
-      const send = async requestId => {
+      const send = async (requestId, opening) => {
         const req = { method: 'POST', url: '/v1/chat/completions' };
-        const result = await transformRequestBody(
-          Buffer.from(JSON.stringify({ messages: [{ role: 'user', content: 'Continue.' }] })),
-          'openai',
-          req,
-          requestId,
-          null,
-        );
+        const result = await transformRequestBody(toolResultChat(opening), 'openai', req, requestId, null);
         return { req, result };
       };
 
       const failed = await send('notice-failed');
-      expect(failed.result.steering).toEqual({ type: 'ai_credit', threshold: 80 });
+      expect(failed.result.steering).toEqual(delivered('ai_credit', 80));
       const concurrent = await send('notice-concurrent');
       expect(concurrent.result.steering).toBeNull();
       failed.req.awfSteeringDelivery.release();
+      expect(failed.result.steering.first).toBe(false);
 
       const retried = await send('notice-retried');
-      expect(retried.result.steering).toEqual({ type: 'ai_credit', threshold: 80 });
+      expect(retried.result.steering).toEqual(delivered('ai_credit', 80));
       retried.req.awfSteeringDelivery.acknowledge();
+      expect(retried.result.steering.first).toBe(true);
       expect(getPendingAiCreditSteeringWarning()).toBeNull();
       expect((await send('notice-after')).result.steering).toBeNull();
+    });
+
+    test('delivers each notice once to every conversation, on its own next tool-result request', async () => {
+      createCreditWarning();
+      const send = async (requestId, body) => {
+        const req = { method: 'POST', url: '/v1/chat/completions' };
+        const result = await transformRequestBody(body, 'openai', req, requestId, null);
+        return { req, result };
+      };
+
+      // Main agent and a sub-agent carry the notice at the same time.
+      const main = await send('main-1', toolResultChat('Research the papers.'));
+      const sub = await send('sub-1', toolResultChat('Screen this batch.'));
+      expect(main.result.steering).toEqual(delivered('ai_credit', 80));
+      expect(sub.result.steering).toEqual(delivered('ai_credit', 80));
+      expect(main.result.steering.conversation).not.toBe(sub.result.steering.conversation);
+      sub.req.awfSteeringDelivery.acknowledge();
+      main.req.awfSteeringDelivery.acknowledge();
+      // Only the first acknowledged delivery carries the run-level record.
+      expect(sub.result.steering.first).toBe(true);
+      expect(main.result.steering.first).toBe(false);
+
+      // Neither conversation hears it again; a new conversation hears it once.
+      expect((await send('main-2', toolResultChat('Research the papers.'))).result.steering).toBeNull();
+      expect((await send('sub-2', toolResultChat('Screen this batch.'))).result.steering).toBeNull();
+      const other = await send('other-1', toolResultChat('Screen another batch.'));
+      expect(other.result.steering).toEqual(delivered('ai_credit', 80));
+      other.req.awfSteeringDelivery.acknowledge();
+      expect(other.result.steering.first).toBe(false);
+
+      // The next threshold reaches each conversation again.
+      applyAiCreditsUsage({ input_tokens: 4 }, 'gpt-5-mini', 'copilot');
+      const mainNext = await send('main-3', toolResultChat('Research the papers.'));
+      expect(mainNext.result.steering).toEqual(delivered('ai_credit', 90));
+    });
+
+    test('does not record a conversation as notified until its request is acknowledged', async () => {
+      createCreditWarning();
+      const req = { method: 'POST', url: '/v1/chat/completions' };
+      await transformRequestBody(toolResultChat(), 'openai', req, 'released', null);
+      req.awfSteeringDelivery.release();
+      const retry = await transformRequestBody(
+        toolResultChat(), 'openai', { method: 'POST', url: '/v1/chat/completions' }, 'retry', null);
+      expect(retry.steering).toEqual(delivered('ai_credit', 80));
+    });
+
+    test('skips requests that do not end with tool results and keeps the notice for the next one', async () => {
+      createCreditWarning();
+      const cases = [
+        { messages: [{ role: 'user', content: 'Continue.' }] },
+        {
+          messages: [
+            { role: 'user', content: 'Continue.' },
+            { role: 'assistant', content: 'Done.' },
+            { role: 'user', content: 'Summarize the conversation so far.' },
+          ],
+        },
+      ];
+      for (const [index, body] of cases.entries()) {
+        const encoded = Buffer.from(JSON.stringify(body));
+        const result = await transformRequestBody(
+          encoded, 'openai', { method: 'POST', url: '/v1/chat/completions' }, `housekeeping-${index}`, null);
+        expect(result.body).toEqual(encoded);
+        expect(result.steering).toBeNull();
+      }
+      const working = await transformRequestBody(
+        toolResultChat(), 'openai', { method: 'POST', url: '/v1/chat/completions' }, 'working', null);
+      expect(working.steering).toEqual(delivered('ai_credit', 80));
+    });
+
+    test('gives requests continuing a stored response each notice once per run', async () => {
+      createCreditWarning();
+      const continuation = Buffer.from(JSON.stringify({
+        previous_response_id: 'resp_1',
+        input: [{ type: 'function_call_output', call_id: 'call-1', output: 'contents' }],
+      }));
+      const send = async requestId => {
+        const req = { method: 'POST', url: '/v1/responses' };
+        const result = await transformRequestBody(continuation, 'openai', req, requestId, null);
+        return { req, result };
+      };
+
+      const first = await send('stored-1');
+      expect(first.result.steering).toEqual({ type: 'ai_credit', threshold: 80, conversation: null, first: false });
+      expect((await send('stored-concurrent')).result.steering).toBeNull();
+      first.req.awfSteeringDelivery.acknowledge();
+      expect(first.result.steering.first).toBe(true);
+      expect((await send('stored-2')).result.steering).toBeNull();
+
+      // A conversation with history still hears the notice.
+      const withHistory = await transformRequestBody(
+        toolResultChat(), 'openai', { method: 'POST', url: '/v1/chat/completions' }, 'history', null);
+      expect(withHistory.steering).toEqual(delivered('ai_credit', 80));
     });
   });
 

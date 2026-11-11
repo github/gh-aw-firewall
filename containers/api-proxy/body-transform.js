@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { parseBodyAsObject } = require('./body-utils');
 
 /**
@@ -73,6 +74,19 @@ function isResponsesRequest(requestPath) {
 }
 
 /**
+ * Which request body format a budget notice is placed into.
+ * @returns {'messages'|'gemini'|'responses'|'chat'}
+ */
+function steeringProtocol(parsed, provider, requestPath) {
+  if (provider === 'anthropic' || isMessagesRequest(requestPath)) return 'messages';
+  if (provider === 'gemini') return 'gemini';
+  if (isResponsesRequest(requestPath) || (parsed.input !== undefined && !Array.isArray(parsed.messages))) {
+    return 'responses';
+  }
+  return 'chat';
+}
+
+/**
  * Inject a token-budget warning message into a request body.
  *
  * Handles four JSON body formats. The notice always goes at the end of the
@@ -112,8 +126,9 @@ function injectSteeringMessage(body, provider, message, requestPath = '') {
   }
   let parsed = parseBodyAsObject(body);
   if (!parsed) return null;
+  const protocol = steeringProtocol(parsed, provider, requestPath);
 
-  if (provider === 'anthropic' || isMessagesRequest(requestPath)) {
+  if (protocol === 'messages') {
     // Append after the tool_result blocks of the final user message so the
     // system prompt, tools and conversation prefix (and any cache breakpoint
     // on the last existing block) stay byte-identical.
@@ -134,7 +149,7 @@ function injectSteeringMessage(body, provider, message, requestPath = '') {
     const messages = [...parsed.messages];
     messages[messages.length - 1] = { ...last, content };
     parsed = { ...parsed, messages };
-  } else if (provider === 'gemini') {
+  } else if (protocol === 'gemini') {
     // Append after the function responses of the final user turn, leaving
     // systemInstruction and earlier contents unchanged.
     if (!Array.isArray(parsed.contents) || parsed.contents.length === 0) return null;
@@ -148,10 +163,7 @@ function injectSteeringMessage(body, provider, message, requestPath = '') {
       contents.push({ role: 'user', parts: [{ text: message }] });
     }
     parsed = { ...parsed, contents };
-  } else if (
-    isResponsesRequest(requestPath) ||
-    (parsed.input !== undefined && !Array.isArray(parsed.messages))
-  ) {
+  } else if (protocol === 'responses') {
     if (typeof parsed.input !== 'string' && !Array.isArray(parsed.input)) return null;
     if (parsed.instructions !== undefined && parsed.instructions !== null && typeof parsed.instructions !== 'string') return null;
     const input = typeof parsed.input === 'string'
@@ -169,6 +181,113 @@ function injectSteeringMessage(body, provider, message, requestPath = '') {
   }
 
   return Buffer.from(JSON.stringify(parsed));
+}
+
+// Per-request prompt-cache markers move between turns and do not identify a
+// conversation, so they are left out of the opening hash.
+const OPENING_IGNORED_KEYS = new Set(['cache_control', 'copilot_cache_control']);
+
+function canonicalOpeningValue(value) {
+  if (Array.isArray(value)) return value.map(canonicalOpeningValue);
+  if (!value || typeof value !== 'object') return value;
+  const result = {};
+  for (const key of Object.keys(value).sort()) {
+    if (!OPENING_IGNORED_KEYS.has(key)) result[key] = canonicalOpeningValue(value[key]);
+  }
+  return result;
+}
+
+// Claude Code sends a per-request billing attribution block as the first
+// system text block; it is not part of the conversation's instructions.
+function withoutBillingHeaderBlocks(system) {
+  if (!Array.isArray(system)) return system;
+  return system.filter(block => !(block && typeof block.text === 'string' &&
+    block.text.startsWith('x-anthropic-billing-header:')));
+}
+
+function leadingItems(items, isOpening) {
+  const opening = [];
+  for (const item of items) {
+    if (!item || typeof item !== 'object' || !isOpening(item)) break;
+    opening.push({ role: item.role, content: item.content ?? item.parts });
+  }
+  return opening;
+}
+
+function hasGeminiFunctionResponse(content) {
+  return Array.isArray(content?.parts) &&
+    content.parts.some(part => part && (part.functionResponse || part.function_response));
+}
+
+/**
+ * Describe which conversation a request belongs to, for budget notices.
+ *
+ * A conversation is recognised by a hash of its opening: the system prompt or
+ * instructions plus the opening user turn (every message before the model's
+ * first reply, which for most harnesses is the first user message). Harnesses
+ * keep this fixed for the length of a conversation to keep their prompt cache,
+ * and each sub-agent starts with its own opening. A Responses request that
+ * continues a stored response (`previous_response_id` or `conversation`)
+ * carries no history, so it has no conversation hash.
+ *
+ * `endsWithToolResult` is true when the request's last item is a tool result:
+ * a `tool` message for Chat Completions, a final user message with
+ * `tool_result` blocks for Messages, a tool output item such as
+ * `function_call_output` for Responses, or function responses for Gemini.
+ *
+ * @param {Buffer} body
+ * @param {string} provider
+ * @param {string} [requestPath]
+ * @returns {{ endsWithToolResult: boolean, conversation: string|null }|null}
+ *   null when the body cannot be parsed.
+ */
+function describeSteeringConversation(body, provider, requestPath = '') {
+  const parsed = parseBodyAsObject(body);
+  if (!parsed) return null;
+  const protocol = steeringProtocol(parsed, provider, requestPath);
+  let endsWithToolResult = false;
+  let system;
+  let opening = [];
+  let stateless = true;
+
+  if (protocol === 'messages' || protocol === 'chat') {
+    const messages = Array.isArray(parsed.messages) ? parsed.messages : [];
+    const last = messages[messages.length - 1];
+    if (protocol === 'messages') {
+      endsWithToolResult = last?.role === 'user' && Array.isArray(last.content) &&
+        last.content.some(block => block?.type === 'tool_result');
+      system = withoutBillingHeaderBlocks(parsed.system);
+      opening = leadingItems(messages, message => message.role === 'user');
+    } else {
+      endsWithToolResult = last?.role === 'tool' || last?.role === 'function';
+      opening = leadingItems(messages, message =>
+        message.role === 'system' || message.role === 'developer' || message.role === 'user');
+    }
+  } else if (protocol === 'gemini') {
+    const contents = Array.isArray(parsed.contents) ? parsed.contents : [];
+    const last = contents[contents.length - 1];
+    endsWithToolResult = !!last && last.role !== 'model' && hasGeminiFunctionResponse(last);
+    system = parsed.systemInstruction ?? parsed.system_instruction;
+    opening = leadingItems(contents, content =>
+      (content.role === undefined || content.role === 'user') && !hasGeminiFunctionResponse(content));
+  } else {
+    const input = Array.isArray(parsed.input) ? parsed.input : [];
+    const last = input[input.length - 1];
+    endsWithToolResult = typeof last?.type === 'string' && last.type.endsWith('_call_output');
+    system = parsed.instructions;
+    stateless = !parsed.previous_response_id && parsed.conversation === undefined;
+    opening = leadingItems(input, item =>
+      (item.type === undefined || item.type === 'message') &&
+      (item.role === 'system' || item.role === 'developer' || item.role === 'user'));
+  }
+
+  let conversation = null;
+  if (stateless && opening.length > 0) {
+    conversation = crypto.createHash('sha256')
+      .update(JSON.stringify(canonicalOpeningValue({ protocol, system: system ?? null, opening })))
+      .digest('hex');
+  }
+  return { endsWithToolResult, conversation };
 }
 
 /**
@@ -231,5 +350,6 @@ function injectStreamOptions(body, provider, requestPath = '') {
 module.exports = {
   sanitizeNullToolCallTypes,
   injectSteeringMessage,
+  describeSteeringConversation,
   injectStreamOptions,
 };
