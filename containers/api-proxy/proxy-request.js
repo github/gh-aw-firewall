@@ -294,9 +294,12 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
   collectRequestBody(req, provider, requestId, res, span, startTime, targetHost).then(async (rawBody) => {
     if (rawBody === null) return;
     logRequestShape(rawBody, provider, requestId, 'inbound');
-    // A budget notice injected below is acknowledged only after a successful
-    // upstream response; any other outcome leaves it pending for the next request.
-    const releaseSteering = () => req.awfSteeringDelivery?.release();
+    // A budget notice injected below is settled only after a complete reply;
+    // any other outcome leaves it pending for the next request.
+    const releaseSteering = () => {
+      if (req.awfSteeringStreaming && !req.awfSteeringSseInspectionComplete) return;
+      req.awfSteeringDelivery?.release();
+    };
     if (typeof res.once === 'function') res.once('close', releaseSteering);
 
     // Step 2: apply transform pipeline

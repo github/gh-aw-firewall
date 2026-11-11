@@ -11,6 +11,7 @@ const os = require('os');
 const path = require('path');
 const { tokenLogDir } = require('./test-helpers/token-tracker-setup');
 const { setupServerTestEnv, flushPromises, makeProxyReq, completeUpstreamResponse } = require('./test-helpers/server-mock-factories');
+const { createRoutingObservation } = require('./routing-observation');
 
 let proxyRequest;
 let closeTokenUsageLog;
@@ -407,6 +408,10 @@ describe('budget steering and injectSteeringMessage', () => {
       const writtenBody = JSON.parse(cycle.upstreamReq.write.mock.calls[0][0].toString());
       completeUpstreamResponse(cycle.responseHandler, response);
       await flushPromises();
+      if (response.statusCode === undefined || (response.statusCode >= 200 && response.statusCode < 300)) {
+        res.writableFinished = true;
+        res.emit('finish');
+      }
       res.emit('close');
       const notice = writtenBody.messages.find(message => message.content.includes('[AWF AI CREDIT WARNING]'));
       return notice ? notice.content : null;
@@ -466,6 +471,140 @@ describe('budget steering and injectSteeringMessage', () => {
 
     expect(req.awfSteering).toEqual({ type: 'ai_credit', threshold: 80 });
     expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
+  });
+
+  describe('notice delivery completion', () => {
+    let cycles;
+
+    const makeRequest = async (requestId, url = '/v1/responses', observeRouting = true) => {
+      const body = Buffer.from(JSON.stringify({
+        model: 'gpt-5-mini',
+        input: [{ role: 'user', content: requestId }],
+      }));
+      const req = new EventEmitter();
+      req.url = url;
+      req.method = 'POST';
+      req.headers = {
+        'content-type': 'application/json',
+        'content-length': String(body.length),
+        'x-request-id': requestId,
+      };
+      const res = Object.assign(new EventEmitter(), {
+        headersSent: false,
+        writableFinished: false,
+        statusCode: 200,
+        setHeader: jest.fn(),
+        writeHead: jest.fn(function writeHead(statusCode) {
+          this.headersSent = true;
+          this.statusCode = statusCode;
+        }),
+        end: jest.fn(function end() {
+          this.writableFinished = true;
+          this.emit('finish');
+        }),
+      });
+      if (observeRouting) {
+        const routing = createRoutingObservation({
+          getSelection: () => ({
+            schema: 'awf-routing-selection/v1',
+            engine: 'copilot',
+            provider: 'openai',
+            choice: { id: 'notice-delivery', model: 'openai/gpt-5-mini' },
+            wire_model: 'gpt-5-mini',
+          }),
+          recordFailure: () => {},
+        });
+        routing.observeRequest(req, res, { name: 'openai' });
+      }
+      proxyRequest(req, res, 'api.openai.com', { Authorization: '******' }, 'openai');
+      req.emit('data', body);
+      req.emit('end');
+      await flushPromises();
+      const cycle = cycles.at(-1);
+      return {
+        req,
+        res,
+        cycle,
+        body: JSON.parse(cycle.upstreamReq.write.mock.calls[0][0].toString()),
+      };
+    };
+
+    const seedPendingNotice = async () => {
+      const initial = await makeRequest('cross-credit-threshold');
+      completeUpstreamResponse(initial.cycle.responseHandler, {
+        body: { model: 'gpt-5-mini', usage: { prompt_tokens: 36_000, completion_tokens: 0 } },
+      });
+      initial.res.writableFinished = true;
+      initial.res.emit('finish');
+      await flushPromises();
+      expect(getPendingAiCreditSteeringWarning()).not.toBeNull();
+    };
+
+    const noticeIn = body => body.input.some(item =>
+      item.role === 'developer' && item.content.includes('[AWF AI CREDIT WARNING]'));
+
+    beforeEach(() => {
+      process.env.AWF_MAX_AI_CREDITS = '1';
+      cycles = [];
+      jest.spyOn(https, 'request').mockImplementation((_options, callback) => {
+        const upstreamReq = makeProxyReq();
+        cycles.push({ upstreamReq, responseHandler: callback });
+        return upstreamReq;
+      });
+    });
+
+    it('keeps a notice acknowledged when the client closes after response.completed but before upstream EOF', async () => {
+      await seedPendingNotice();
+      const delivered = await makeRequest('completed-stream', '/v1/responses', false);
+      expect(noticeIn(delivered.body)).toBe(true);
+
+      const proxyRes = new EventEmitter();
+      proxyRes.statusCode = 200;
+      proxyRes.headers = { 'content-type': 'text/event-stream' };
+      proxyRes.pipe = jest.fn();
+      delivered.cycle.responseHandler(proxyRes);
+      proxyRes.emit('data', Buffer.from('data: {"type":"response.completed","response":{}}\n\n'));
+      delivered.res.emit('close');
+
+      const next = await makeRequest('after-completed-stream');
+      expect(noticeIn(next.body)).toBe(false);
+    });
+
+    it('redelivers a notice when a 200 stream ends with response.failed', async () => {
+      await seedPendingNotice();
+      const failed = await makeRequest('failed-stream');
+      expect(noticeIn(failed.body)).toBe(true);
+
+      const proxyRes = new EventEmitter();
+      proxyRes.statusCode = 200;
+      proxyRes.headers = { 'content-type': 'text/event-stream' };
+      proxyRes.pipe = jest.fn();
+      failed.cycle.responseHandler(proxyRes);
+      proxyRes.emit('data', Buffer.from('data: {"type":"response.failed","response":{"error":{"code":"failed"}}}\n\n'));
+      proxyRes.emit('end');
+      failed.res.emit('close');
+
+      const retry = await makeRequest('retry-failed-stream');
+      expect(noticeIn(retry.body)).toBe(true);
+    });
+
+    it('redelivers a non-streaming notice when the client closes before finish', async () => {
+      await seedPendingNotice();
+      const interrupted = await makeRequest('interrupted-response');
+      expect(noticeIn(interrupted.body)).toBe(true);
+
+      const proxyRes = new EventEmitter();
+      proxyRes.statusCode = 200;
+      proxyRes.headers = { 'content-type': 'application/json' };
+      proxyRes.pipe = jest.fn();
+      interrupted.cycle.responseHandler(proxyRes);
+      proxyRes.emit('data', Buffer.from('{"id":"response"}'));
+      proxyRes.emit('end');
+      interrupted.res.emit('close');
+
+      const retry = await makeRequest('retry-interrupted-response');
+      expect(noticeIn(retry.body)).toBe(true);
+    });
   });
 
   it('does not inject any warning when AWF_ENABLE_TOKEN_STEERING is not set', async () => {

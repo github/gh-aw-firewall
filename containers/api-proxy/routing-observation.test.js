@@ -854,6 +854,8 @@ describe('advisory routing observation', () => {
         JSON.stringify({ type: 'response.completed', response: { usage: { input_tokens: 10, output_tokens: 2 } } })],
       ['/v1/messages', COPILOT_MESSAGES_SELECTION, { model: 'claude-sonnet-5', output_config: { effort: 'max' } },
         JSON.stringify({ type: 'message_stop' })],
+      ['/chat/completions', CHAT_SELECTION, { model: 'chat-test' },
+        JSON.stringify({ choices: [{ finish_reason: 'stop' }] })],
       ['/chat/completions', CHAT_SELECTION, { model: 'chat-test' }, '[DONE]'],
     ])('records a client close after terminal success on %s without a routing failure', (url, selection, body, terminal) => {
       const harness = createHarness(selection);

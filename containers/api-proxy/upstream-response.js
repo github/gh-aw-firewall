@@ -347,6 +347,10 @@ function createUpstreamResponseHandlers({
 
     const isStreaming = (proxyRes.headers['content-type'] || '').includes('text/event-stream');
     const isJson = (proxyRes.headers['content-type'] || '').includes('application/json');
+    if (req.awfSteeringDelivery) {
+      req.awfSteeringStreaming = isStreaming;
+      req.awfSteeringSseInspectionComplete = !isStreaming;
+    }
     // A cross-provider fallback attempt is translated back into the protocol
     // of the listener that received the request; Codex compatibility follows
     // that originating provider rather than the serving one.
@@ -429,10 +433,6 @@ function createUpstreamResponseHandlers({
         res.writeHead(proxyRes.statusCode, resHeaders);
         proxyRes.pipe(res);
       }
-    }
-
-    if (req.awfSteeringDelivery && proxyRes.statusCode >= 200 && proxyRes.statusCode < 300) {
-      proxyRes.once('end', () => req.awfSteeringDelivery.acknowledge());
     }
 
     setupTokenTracking(proxyRes, body, {

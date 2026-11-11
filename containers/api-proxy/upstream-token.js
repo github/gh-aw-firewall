@@ -1,6 +1,7 @@
 'use strict';
 
 const { computeTokenBudgetUsage } = require('./token-budget-log');
+const { endpointFor, inspectSseTerminalLine } = require('./routing-observation');
 
 function setupTokenTracking(proxyRes, body, {
   requestId, provider, req, res, startTime, billingInfo,
@@ -11,6 +12,54 @@ function setupTokenTracking(proxyRes, body, {
   const steering = req.awfSteering;
   const requestedEndpoint = wireApiCompatibility?.requestedEndpoint || null;
   const upstreamEndpoint = wireApiCompatibility?.upstreamEndpoint || null;
+  const steeringDelivery = req.awfSteeringDelivery;
+  const successfulUpstream = proxyRes.statusCode >= 200 && proxyRes.statusCode < 300;
+  let streamOutcome = null;
+  const requestPath = typeof req.url === 'string' ? req.url.split('?')[0] : '';
+  const terminalTelemetry = {
+    requested_endpoint: endpointFor(requestedEndpoint || requestPath),
+    upstream_endpoint: endpointFor(upstreamEndpoint || requestPath),
+  };
+  const terminalState = { upstreamCompleted: false, upstreamTerminated: false, sseFailed: false };
+
+  if (steeringDelivery && successfulUpstream && !isStreaming) {
+    let upstreamEnded = false;
+    let downstreamFinished = false;
+    const acknowledgeWhenComplete = () => {
+      if (upstreamEnded && downstreamFinished) steeringDelivery.acknowledge();
+    };
+    proxyRes.once('end', () => {
+      upstreamEnded = true;
+      acknowledgeWhenComplete();
+    });
+    res?.once?.('finish', () => {
+      downstreamFinished = true;
+      acknowledgeWhenComplete();
+    });
+  }
+
+  const onSseData = line => {
+    const outcome = typeof req.awfRouting?.onSseData === 'function'
+      ? req.awfRouting.onSseData(line)
+      : inspectSseTerminalLine(line, terminalTelemetry, terminalState).outcome;
+    if (outcome === 'success') {
+      streamOutcome = outcome;
+      if (successfulUpstream) steeringDelivery?.acknowledge();
+    } else if (outcome === 'failure') {
+      streamOutcome = outcome;
+      steeringDelivery?.release();
+    }
+  };
+  const onSseInspectionComplete = () => {
+    req.awfRouting?.onSseInspectionComplete?.();
+    if (isStreaming && steeringDelivery) {
+      req.awfSteeringSseInspectionComplete = true;
+    }
+    if (isStreaming && (!successfulUpstream || streamOutcome !== 'success')) {
+      steeringDelivery?.release();
+    }
+  };
+
   // Extract model from request body as fallback for token tracking when the
   // upstream response omits the model field (e.g., Copilot SDK streaming).
   let requestModel = null;
@@ -25,11 +74,10 @@ function setupTokenTracking(proxyRes, body, {
     caller: req.awfCaller || null,
     ...(requestedEndpoint ? { requestedEndpoint, upstreamEndpoint } : {}),
     ...(req.awfModelFallback ? { modelFallback: req.awfModelFallback } : {}),
-    ...(req.awfRouting ? {
-      onSseData: req.awfRouting.onSseData,
-      onSseInspectionStart: req.awfRouting.onSseInspectionStart,
-      onSseInspectionComplete: req.awfRouting.onSseInspectionComplete,
-    } : {}),
+    settleSteeringDelivery: !!steeringDelivery,
+    onSseData,
+    onSseInspectionStart: () => req.awfRouting?.onSseInspectionStart?.(),
+    onSseInspectionComplete,
     onUsage: (normalizedUsage, model) => {
       req.awfEnclaveModelBudgetAttempt?.settle(normalizedUsage);
       otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
