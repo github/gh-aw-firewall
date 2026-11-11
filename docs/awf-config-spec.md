@@ -1358,10 +1358,21 @@ budget and allotted run time.
 
 **Provider-specific injection rules:**
 
-- **OpenAI / Copilot Chat Completions** — the proxy inserts a `{ "role": "system", "content": "<message>" }` entry into the `messages` array immediately after any pre-existing system messages.
-- **OpenAI / Copilot Responses** — the proxy appends one final `developer` message item to `input`, after all existing items (including tool results), leaving `instructions`, tools, existing input items, and streaming fields unchanged to preserve the prompt-cache prefix. A string `input` becomes a single user message followed by the notice. The notice is one-shot and is not added to later requests; when translated to Chat Completions, it remains the final message and the leading system message from `instructions` is unchanged.
-- **Anthropic** — the proxy appends the warning to the `system` field: if `system` is a string it is concatenated (separated by `\n\n`); if `system` is an array of content blocks a `{ "type": "text", "text": "<message>" }` block is appended; if `system` is absent it is created as the warning string.
-- **Gemini** — the proxy appends a `{ "text": "<message>" }` part to `systemInstruction.parts`; if `systemInstruction` is absent it is created.
+Every notice is added at the end of the conversation, after the last tool
+result. The proxy never changes the top-level system prompt, `instructions`,
+`systemInstruction`, tools, or earlier conversation items, so the provider
+prompt-cache prefix (including any cache breakpoint the harness or
+`anthropicAutoCache` placed on the last existing block) is preserved and the
+notice request reads the cache like its neighbours. The notice is one-shot and
+is not added to later requests.
+
+- **OpenAI / Copilot Chat Completions** — the proxy appends a final `{ "role": "user", "content": "<message>" }` message after the last message (typically the last `tool` message). When translated to Responses, it remains the final `input` item; it is not moved into `instructions`.
+- **OpenAI / Copilot Responses** — the proxy appends one final `developer` message item to `input`, after all existing items (including tool results), leaving `instructions`, tools, existing input items, and streaming fields unchanged. A string `input` becomes a single user message followed by the notice. When translated to Chat Completions, it remains the final message and the leading system message from `instructions` is unchanged.
+- **Anthropic / Copilot Messages** — the proxy appends a `{ "type": "text", "text": "<message>" }` block to the final user message, after its `tool_result` blocks (Anthropic requires tool results first and allows text after them). String content becomes a text block followed by the notice. `system` is never changed.
+- **Gemini** — the proxy appends a `{ "text": "<message>" }` part to the final user turn, after its function responses (a final `function`-role turn is followed by a new user turn holding the notice). `systemInstruction` is never changed.
+
+A request whose conversation is empty or ends in an assistant/model turn (for
+example an assistant prefill) is not modified, and the warning stays pending.
 
 ### 10.2 Introspection
 
