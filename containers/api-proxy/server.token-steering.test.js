@@ -811,35 +811,55 @@ describe('budget steering and injectSteeringMessage', () => {
       const secret = Buffer.from('a5'.repeat(32), 'hex');
       jest.spyOn(crypto, 'randomBytes').mockReturnValueOnce(secret);
       resetTimeoutSteeringForTests();
-      await seedPendingNotice();
-      const requestBody = {
+      const conversation = (opening, requestId) => ({
         model: 'gpt-5-mini',
         input: [
-          { role: 'user', content: 'Confidential task.' },
+          { role: 'user', content: opening },
           { type: 'function_call', call_id: 'call-1', name: 'read_file', arguments: '{}' },
-          { type: 'function_call_output', call_id: 'call-1', output: 'contents' },
+          { type: 'function_call_output', call_id: 'call-1', output: requestId },
         ],
-      };
-      const delivered = await makeRequest('keyed-notice', { requestBody });
-      expect(noticeIn(delivered.body)).toBe(true);
-      completeUpstreamResponse(delivered.cycle.responseHandler, {
-        body: { model: 'gpt-5-mini', usage: { input_tokens: 1, output_tokens: 0 } },
       });
+      const complete = (request, usage = { input_tokens: 1, output_tokens: 0 }) => {
+        completeUpstreamResponse(request.cycle.responseHandler, { body: { model: 'gpt-5-mini', usage } });
+        request.res.writableFinished = true;
+        request.res.emit('finish');
+      };
+      const deliver = async (requestId, opening) => {
+        const request = await makeRequest(requestId, { requestBody: conversation(opening, requestId) });
+        expect(noticeIn(request.body)).toBe(true);
+        complete(request);
+        await flushPromises();
+      };
+
+      const cross80 = await makeRequest('cross-80', { requestBody: conversation('Threshold crossing.', 'cross-80') });
+      complete(cross80, { input_tokens: 32_000, output_tokens: 0 });
       await flushPromises();
+      expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
+      await deliver('confidential-80', 'Confidential task.');
+      await deliver('other-80', 'Other task.');
+
+      const cross90 = await makeRequest('cross-90', { requestBody: conversation('Threshold crossing.', 'cross-90') });
+      complete(cross90, { input_tokens: 4_000, output_tokens: 0 });
+      await flushPromises();
+      expect(getPendingAiCreditSteeringWarning().threshold).toBe(90);
+      await deliver('confidential-90', 'Confidential task.');
 
       await closeTokenUsageLog();
       const log = fs.readFileSync(path.join(tokenLogDir, 'token-usage.jsonl'), 'utf8');
-      const record = log.trim().split('\n').map(line => JSON.parse(line))
-        .find(entry => entry.request_id === 'keyed-notice');
+      const records = log.trim().split('\n').map(line => JSON.parse(line));
+      const conversationFor = requestId =>
+        records.find(entry => entry.request_id === requestId).steering_delivery.conversation;
+      const first = conversationFor('confidential-80');
+      expect(first).toMatch(/^[0-9a-f]{12}$/);
+      expect(conversationFor('confidential-90')).toBe(first);
+      expect(conversationFor('other-80')).toMatch(/^[0-9a-f]{12}$/);
+      expect(conversationFor('other-80')).not.toBe(first);
       const canonicalOpening = JSON.stringify({
         opening: [{ content: 'Confidential task.', role: 'user' }],
         protocol: 'responses',
         system: null,
       });
-      expect(record.steering_delivery.conversation).toBe(
-        crypto.createHmac('sha256', secret).update(canonicalOpening).digest('hex').slice(0, 12));
-      expect(record.steering_delivery.conversation).not.toBe(
-        crypto.createHash('sha256').update(canonicalOpening).digest('hex').slice(0, 12));
+      expect(first).not.toBe(crypto.createHash('sha256').update(canonicalOpening).digest('hex').slice(0, 12));
       for (const encoding of ['hex', 'base64', 'base64url']) {
         expect(log).not.toContain(secret.toString(encoding));
         expect(log).not.toContain(secret.toString(encoding).slice(0, 12));
