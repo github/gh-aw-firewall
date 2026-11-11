@@ -85,11 +85,12 @@ function steeringPathname(requestPath) {
 }
 
 // Requests that never carry a budget notice: evaluation evidence, which must
-// not be changed by conversational warnings, and token-counting requests,
-// which are not model calls.
+// not be changed by conversational warnings, and token-counting and
+// compaction requests, which are not working model calls.
 function isSteeringExcluded(requestPath) {
   const path = steeringPathname(requestPath);
-  return path === null || path.endsWith('/decisions') || isTokenCountingRequest(path);
+  return path === null || path.endsWith('/decisions') || isTokenCountingRequest(path) ||
+    path.endsWith('/responses/compact');
 }
 
 // Anthropic models on Vertex use the Messages schema.

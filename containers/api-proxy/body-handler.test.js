@@ -843,6 +843,30 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
       expect(working.steering).toEqual(delivered('ai_credit', 80));
     });
 
+    test('never claims a notice on a compaction request', async () => {
+      createCreditWarning();
+      const responsesBody = Buffer.from(JSON.stringify({
+        input: [
+          { role: 'user', content: 'Task.' },
+          { type: 'function_call', call_id: 'c1', name: 'read', arguments: '{}' },
+          { type: 'function_call_output', call_id: 'c1', output: 'x' },
+        ],
+      }));
+      for (const url of ['/v1/responses/compact', '/responses/compact/']) {
+        const req = { method: 'POST', url };
+        const compacted = await transformRequestBody(responsesBody, 'openai', req, `compact-${url}`, null);
+        expect(compacted.body).toEqual(responsesBody);
+        expect(compacted.steering).toBeNull();
+        expect(req.awfSteeringDelivery).toBeUndefined();
+        expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
+      }
+
+      // The same conversation still hears the notice on its next model call.
+      const working = await transformRequestBody(
+        responsesBody, 'openai', { method: 'POST', url: '/v1/responses' }, 'working', null);
+      expect(working.steering).toEqual(delivered('ai_credit', 80));
+    });
+
     test('gives requests continuing a stored response each notice once per run', async () => {
       createCreditWarning();
       const continuation = Buffer.from(JSON.stringify({

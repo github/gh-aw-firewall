@@ -1377,8 +1377,9 @@ on that conversation's own next eligible request:
   item such as `function_call_output` (Responses; an input message without a
   `role` counts as a user message), or function responses (Gemini). Other
   requests, such as a harness request to summarize the conversation, are left
-  unchanged. Token-counting requests (such as `/v1/messages/count_tokens`) are
-  not model calls and never carry or acknowledge a warning.
+  unchanged. Token-counting requests (such as `/v1/messages/count_tokens`) and
+  compaction requests (`/v1/responses/compact`) are not working model calls
+  and never carry or acknowledge a warning.
 - A Responses request continuing a stored response with `previous_response_id`
   (or a non-null `conversation`) has no history to hash. All such requests
   together count as one conversation, recorded alongside the hashed ones: each

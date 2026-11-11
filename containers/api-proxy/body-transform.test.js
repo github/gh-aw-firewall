@@ -505,7 +505,10 @@ describe('describeSteeringConversation', () => {
     ['openai', '/v1/responses/input_tokens'],
     ['gemini', '/v1beta/models/gemini-2.5-pro:countTokens'],
     ['vertex', '/v1/projects/p/locations/us-east5/publishers/anthropic/models/count-tokens:rawPredict'],
-  ])('never steers %s token-counting request %s', (provider, url) => {
+    ['openai', '/v1/responses/compact'],
+    ['openai', '/responses/compact/'],
+    ['copilot', '/responses/compact'],
+  ])('never steers %s token-counting or compaction request %s', (provider, url) => {
     const body = {
       messages: [
         { role: 'user', content: [{ type: 'text', text: 'Task.' }] },
