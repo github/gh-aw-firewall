@@ -5,6 +5,64 @@ const crypto = require('crypto');
 const BUDGET_WARNING_THRESHOLDS = [80, 90, 95, 99];
 
 /**
+ * Line that follows the facts in every notice, the same for every
+ * conversation; each agent reads it according to its own role.
+ */
+const STEERING_DIRECTIVE = "If you are responsible for this workflow's final output, " +
+  'stop the remaining work and submit it now with what you have. Otherwise, finish your ' +
+  'current step and return what you have to the agent that started you.';
+
+/** `steering_delivery.trigger` of a notice sent because a percent threshold was crossed. */
+const STEERING_TRIGGER_THRESHOLD = 'threshold';
+/**
+ * `steering_delivery.trigger` of the "little left" notice: about five model
+ * requests' worth of AI credits, or about five minutes, remain. It has no
+ * threshold, so it is never written to the legacy `steering` record field.
+ */
+const STEERING_TRIGGER_LITTLE_LEFT = 'little_left';
+/** The "little left" notice fires only once at least this percentage is used. */
+const LITTLE_LEFT_MIN_PERCENT = 50;
+
+/**
+ * Rank of the "little left" notice, given the notices crossed so far
+ * (including thresholds crossed in the same update).
+ *
+ * Notices of one kind are identified and ordered by rank: a threshold notice
+ * ranks as its percentage, and the "little left" notice ranks just above the
+ * highest threshold already crossed when it fires (for example 90.5 if it fires
+ * after the 90% threshold and before 95%). It is therefore the current notice
+ * when it fires, and the next threshold crossed (95 or 99 in that example)
+ * supersedes it. Ranks are integers only for thresholds.
+ *
+ * @param {Iterable<number>} crossed
+ * @returns {number}
+ */
+function littleLeftSteeringRank(crossed) {
+  let highest = 0;
+  for (const rank of crossed) {
+    if (Number.isInteger(rank) && rank > highest) highest = rank;
+  }
+  return highest + 0.5;
+}
+
+/**
+ * Trigger and threshold of a notice rank.
+ *
+ * @param {number} rank
+ * @returns {{ rank: number, threshold: number|null, trigger: string }}
+ */
+function describeSteeringRank(rank) {
+  return Number.isInteger(rank)
+    ? { rank, threshold: rank, trigger: STEERING_TRIGGER_THRESHOLD }
+    : { rank, threshold: null, trigger: STEERING_TRIGGER_LITTLE_LEFT };
+}
+
+/** Threshold percentages (not the "little left" rank) among `ranks`, ascending. */
+function steeringThresholdsOnly(ranks) {
+  return [...ranks].filter(Number.isInteger).sort((a, b) => a - b);
+}
+
+/**
  * Upper bound on conversations remembered per notice kind. When full, the
  * conversation that received a notice least recently is dropped; if it comes
  * back it hears the current notice once more.
@@ -47,6 +105,10 @@ function resetSteeringConversationSecretForTests() {
 
 /**
  * Delivery state for one notice kind (time or AI credits).
+ *
+ * Notices are keyed by rank: a threshold notice by its percentage, the
+ * "little left" notice by littleLeftSteeringRank(). "Threshold" below means
+ * either.
  *
  * - `pending` / `inFlight`: run-level state for requests that have no
  *   conversation key (a history with no opening to hash). Each notice goes to
@@ -177,6 +239,13 @@ function claimSteeringThreshold(delivery, threshold, conversation = null) {
 
 module.exports = {
   BUDGET_WARNING_THRESHOLDS,
+  STEERING_DIRECTIVE,
+  STEERING_TRIGGER_THRESHOLD,
+  STEERING_TRIGGER_LITTLE_LEFT,
+  LITTLE_LEFT_MIN_PERCENT,
+  littleLeftSteeringRank,
+  describeSteeringRank,
+  steeringThresholdsOnly,
   MAX_STEERING_CONVERSATIONS,
   STORED_RESPONSE_CONVERSATION,
   steeringConversationKey,

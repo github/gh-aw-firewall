@@ -20,6 +20,7 @@ function computeTokenBudgetUsage(context, normalizedUsage, model) {
   const { logRequest, requestId, provider, purpose } = context;
   const options = Object.hasOwn(context, 'catalogue') ? { catalogue: context.catalogue } : {};
   if (context.runtimeCatalog) options.runtimeCatalog = context.runtimeCatalog;
+  if (purpose) options.purpose = purpose;
   const aiCreditsUsage = applyAiCreditsUsage(normalizedUsage, model, provider, options);
   if (purpose !== 'routing_classification') applyMaxCacheMissesUsage(normalizedUsage);
   if (aiCreditsUsage) {

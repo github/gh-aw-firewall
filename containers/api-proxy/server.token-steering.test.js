@@ -108,13 +108,12 @@ describe('budget steering and injectSteeringMessage', () => {
 
     nowSpy.mockReturnValue(start + (8 * 60 * 1000));
     const msg80 = getAndClearPendingTimeoutSteeringMessage();
-    expect(msg80).toContain('[AWF TIME WARNING]');
-    expect(msg80).toContain('80%');
+    expect(msg80).toContain('[AWF TIME WARNING] 8 of 10 minutes have passed; about 2 minutes remain.');
     expect(getAndClearPendingTimeoutSteeringMessage()).toBeNull();
 
     nowSpy.mockReturnValue(start + Math.floor(9.6 * 60 * 1000));
     const msg95 = getAndClearPendingTimeoutSteeringMessage();
-    expect(msg95).toContain('95%');
+    expect(msg95).toContain('[AWF TIME WARNING] 9 of 10 minutes have passed; less than a minute remains.');
     // The superseded 90% notice is dropped once the 95% notice is delivered.
     expect(getAndClearPendingTimeoutSteeringMessage()).toBeNull();
   });
@@ -163,8 +162,8 @@ describe('budget steering and injectSteeringMessage', () => {
     const writtenBody2 = JSON.parse(upstreamReq2.write.mock.calls[0][0].toString());
     expect(writtenBody2.messages.slice(0, 3)).toEqual(chatToolResult('Second request').messages);
     expect(writtenBody2.messages[3].role).toBe('user');
-    expect(writtenBody2.messages[3].content).toContain('[AWF TIME WARNING]');
-    expect(writtenBody2.messages[3].content).toContain('80%');
+    expect(writtenBody2.messages[3].content).toContain(
+      '[AWF TIME WARNING] 8 of 10 minutes have passed; about 2 minutes remain.');
   });
 
   it('injects Copilot Messages steering after the final user content, leaving system unchanged', async () => {
@@ -219,7 +218,7 @@ describe('budget steering and injectSteeringMessage', () => {
         ],
       },
     ]);
-    expect(writtenBody.messages[2].content[1].text).toContain('80%');
+    expect(writtenBody.messages[2].content[1].text).toContain('8 of 10 minutes have passed');
   });
 
   it('steers gh-aw default AI-credit-only Copilot Responses requests end to end', async () => {
@@ -287,14 +286,17 @@ describe('budget steering and injectSteeringMessage', () => {
     );
     expect(classifier).toEqual({ input: 'Classify this request.' });
 
+    // The crossing request alone cost 80% of the budget, so the "little left"
+    // notice fires with the 80% threshold and, ranking just above it, is the
+    // current notice. Each later threshold supersedes it.
     const delivered = [];
-    for (const [threshold, inputTokens] of [
-      [80, 4_000_000],
-      [90, 2_000_000],
-      [95, 1_600_000],
-      [99, 0],
+    for (const [expected, used, inputTokens] of [
+      ['little-left', 800, 4_000_000],
+      [90, 900, 2_000_000],
+      [95, 950, 1_600_000],
+      [99, 990, 0],
     ]) {
-      const requestId = `credit-delivery-${threshold}`;
+      const requestId = `credit-delivery-${expected}`;
       const writtenBody = await sendRequest(
         requestId,
         requestBody,
@@ -310,7 +312,10 @@ describe('budget steering and injectSteeringMessage', () => {
       expect(notice).toEqual({
         type: 'message',
         role: 'developer',
-        content: expect.stringContaining(`[AWF AI CREDIT WARNING] You have used ${threshold}%`),
+        content: `[AWF AI CREDIT WARNING] ${used} of 1000 AI credits are used; at the current rate less than ` +
+          "one more model request fits. If you are responsible for this workflow's final output, stop the " +
+          'remaining work and submit it now with what you have. Otherwise, finish your current step and ' +
+          'return what you have to the agent that started you.',
       });
       expect(notice.content).not.toContain('[AWF TIME WARNING]');
       expect(Buffer.from(JSON.stringify(writtenBody))).toEqual(baselineBuffer);
@@ -324,14 +329,23 @@ describe('budget steering and injectSteeringMessage', () => {
       .trim()
       .split('\n')
       .map(line => JSON.parse(line));
-    for (const threshold of [80, 90, 95, 99]) {
-      const requestId = `credit-delivery-${threshold}`;
-      expect(tokenRecords.find(record => record.request_id === requestId).steering).toEqual({
-        type: 'ai_credit',
-        threshold,
-      });
+    const recordFor = requestId => tokenRecords.find(record => record.request_id === requestId);
+    for (const threshold of [90, 95, 99]) {
+      const record = recordFor(`credit-delivery-${threshold}`);
+      expect(record.steering).toEqual({ type: 'ai_credit', threshold });
+      expect(record.steering_delivery).toMatchObject({ type: 'ai_credit', trigger: 'threshold', threshold, first: true });
     }
-    expect(delivered).toEqual([80, 90, 95, 99].map(value => `credit-delivery-${value}`));
+    // The "little left" notice has no threshold, so it is recorded only in
+    // steering_delivery, never in the legacy steering field.
+    const littleLeft = recordFor('credit-delivery-little-left');
+    expect(littleLeft.steering).toBeUndefined();
+    expect(littleLeft.steering_delivery).toEqual({
+      type: 'ai_credit', trigger: 'little_left', threshold: null,
+      conversation: expect.stringMatching(/^[0-9a-f]{12}$/), first: true,
+    });
+    expect(tokenRecords.filter(record => record.steering).map(record => record.steering.threshold))
+      .toEqual([90, 95, 99]);
+    expect(delivered).toEqual(['little-left', 90, 95, 99].map(value => `credit-delivery-${value}`));
   });
 
   it('rejects an unsupported effort after model routing and token steering', async () => {
@@ -413,8 +427,11 @@ describe('budget steering and injectSteeringMessage', () => {
     rejected.res.emit('close');
     // The notice was claimed for the rejected request, then released because
     // the request never reached the provider, so it stays pending.
+    // The only request so far cost 80% of the budget, so the current notice
+    // is the "little left" one, ranked just above the 80% threshold.
     expect(rejected.req.awfSteering).toEqual({
-      type: 'ai_credit', threshold: 80, conversation: expect.stringMatching(/^[0-9a-f]{12}$/), first: false,
+      type: 'ai_credit', trigger: 'little_left', threshold: null,
+      conversation: expect.stringMatching(/^[0-9a-f]{12}$/), first: false,
     });
     expect(rejected.delivery.claimed).not.toBeNull();
     expect(rejected.delivery.release).toHaveBeenCalled();
@@ -491,11 +508,11 @@ describe('budget steering and injectSteeringMessage', () => {
     expect(getAiCreditsReflectState().thresholds_pending).toEqual([80, 90]);
 
     const failed = await sendRequest('upstream-error', { statusCode: 500, body: { error: { message: 'boom' } } });
-    expect(failed).toContain('90%');
+    expect(failed).toContain('0.9 of 1 AI credits are used');
     expect(getAiCreditsReflectState().thresholds_pending).toEqual([80, 90]);
 
     const delivered = await sendRequest('redelivered', { body: { model: 'gpt-5-mini', usage: { prompt_tokens: 1, completion_tokens: 0 } } });
-    expect(delivered).toContain('90%');
+    expect(delivered).toContain('0.9 of 1 AI credits are used');
     expect(getAiCreditsReflectState().thresholds_pending).toEqual([]);
 
     expect(await sendRequest('after-notice', { body: { model: 'gpt-5-mini', usage: { prompt_tokens: 1, completion_tokens: 0 } } }))
@@ -520,7 +537,7 @@ describe('budget steering and injectSteeringMessage', () => {
     completeUpstreamResponse(responseHandler, {
       body: { model: 'gpt-5-mini', usage: { prompt_tokens: 32_000, completion_tokens: 0 } },
     });
-    expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
+    expect(getPendingAiCreditSteeringWarning().rank).toBe(80.5);
 
     const body = Buffer.from(JSON.stringify(chatToolResult('Disconnected')));
     const req = new EventEmitter();
@@ -537,9 +554,10 @@ describe('budget steering and injectSteeringMessage', () => {
     await flushPromises();
 
     expect(req.awfSteering).toEqual({
-      type: 'ai_credit', threshold: 80, conversation: expect.stringMatching(/^[0-9a-f]{12}$/), first: false,
+      type: 'ai_credit', trigger: 'little_left', threshold: null,
+      conversation: expect.stringMatching(/^[0-9a-f]{12}$/), first: false,
     });
-    expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
+    expect(getPendingAiCreditSteeringWarning().rank).toBe(80.5);
   });
 
   describe('notice delivery completion', () => {
@@ -557,11 +575,13 @@ describe('budget steering and injectSteeringMessage', () => {
           { type: 'function_call_output', call_id: 'call-1', output: requestId },
         ],
       },
+      purpose,
     } = {}) => {
       const body = Buffer.from(JSON.stringify(requestBody));
       const req = new EventEmitter();
       req.url = url;
       req.method = 'POST';
+      if (purpose) req.awfRequestContext = { purpose };
       req.headers = {
         'content-type': 'application/json',
         'content-length': String(body.length),
@@ -594,8 +614,10 @@ describe('budget steering and injectSteeringMessage', () => {
       };
     };
 
-    const seedPendingNotice = async () => {
-      const initial = await makeRequest('cross-credit-threshold');
+    // Seeding through a routing-classifier request crosses the thresholds
+    // without a recent request cost, so the "little left" notice does not fire.
+    const seedPendingNotice = async ({ purpose } = {}) => {
+      const initial = await makeRequest('cross-credit-threshold', { purpose });
       completeUpstreamResponse(initial.cycle.responseHandler, {
         body: { model: 'gpt-5-mini', usage: { prompt_tokens: 36_000, completion_tokens: 0 } },
       });
@@ -614,7 +636,7 @@ describe('budget steering and injectSteeringMessage', () => {
         .trim()
         .split('\n')
         .map(line => JSON.parse(line))
-        .filter(record => requestIds.includes(record.request_id) && record.steering);
+        .filter(record => requestIds.includes(record.request_id) && record.steering_delivery);
     };
 
     beforeEach(() => {
@@ -762,7 +784,7 @@ describe('budget steering and injectSteeringMessage', () => {
     });
 
     it('delivers a notice to each conversation and records steering once per threshold', async () => {
-      await seedPendingNotice();
+      await seedPendingNotice({ purpose: 'routing_classification' });
       const conversation = (opening, requestId) => ({
         model: 'gpt-5-mini',
         input: [
@@ -796,11 +818,13 @@ describe('budget steering and injectSteeringMessage', () => {
       const recordFor = requestId => records.find(record => record.request_id === requestId);
       expect(recordFor('sub-notice').steering).toEqual({ type: 'ai_credit', threshold: 90 });
       expect(recordFor('sub-notice').steering_delivery).toEqual({
-        type: 'ai_credit', threshold: 90, conversation: expect.stringMatching(/^[0-9a-f]{12}$/), first: true,
+        type: 'ai_credit', trigger: 'threshold', threshold: 90,
+        conversation: expect.stringMatching(/^[0-9a-f]{12}$/), first: true,
       });
       expect(recordFor('main-notice').steering).toBeUndefined();
       expect(recordFor('main-notice').steering_delivery).toEqual({
-        type: 'ai_credit', threshold: 90, conversation: expect.stringMatching(/^[0-9a-f]{12}$/), first: false,
+        type: 'ai_credit', trigger: 'threshold', threshold: 90,
+        conversation: expect.stringMatching(/^[0-9a-f]{12}$/), first: false,
       });
       expect(recordFor('main-notice').steering_delivery.conversation)
         .not.toBe(recordFor('sub-notice').steering_delivery.conversation);
@@ -834,7 +858,7 @@ describe('budget steering and injectSteeringMessage', () => {
       const cross80 = await makeRequest('cross-80', { requestBody: conversation('Threshold crossing.', 'cross-80') });
       complete(cross80, { input_tokens: 32_000, output_tokens: 0 });
       await flushPromises();
-      expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
+      expect(getPendingAiCreditSteeringWarning().rank).toBe(80.5);
       await deliver('confidential-80', 'Confidential task.');
       await deliver('other-80', 'Other task.');
 

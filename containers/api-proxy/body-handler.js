@@ -296,10 +296,13 @@ function createBodyHandler({ handleRequestError, otel }) {
           claim: claimAiCreditSteeringWarning,
         },
       ];
+      // Ranks order notices: a threshold notice ranks as its percentage, the
+      // "little left" notice just above the highest threshold crossed when it
+      // fired (see littleLeftSteeringRank()).
       const nextWarning = steeringMessages
         .filter(candidate => candidate.warning)
         .sort((a, b) =>
-          b.warning.threshold - a.warning.threshold || b.priority - a.priority
+          b.warning.rank - a.warning.rank || b.priority - a.priority
         )[0];
       if (nextWarning) {
         const steered = injectSteeringMessage(body, provider, nextWarning.warning.message, req.url);
@@ -314,9 +317,11 @@ function createBodyHandler({ handleRequestError, otel }) {
             ? conversation.slice(0, 12)
             : null;
           // `first` is set when this turns out to be the run's first delivery
-          // of the threshold; only that record carries the `steering` field.
+          // of the notice; only that record of a threshold notice carries the
+          // `steering` field. The "little left" notice has no threshold.
           steering = {
             type: nextWarning.type,
+            trigger: nextWarning.warning.trigger,
             threshold: nextWarning.warning.threshold,
             conversation: shortConversation,
             first: false,
@@ -325,7 +330,7 @@ function createBodyHandler({ handleRequestError, otel }) {
           // the upstream response handler acknowledges it on a 2xx response
           // and proxy-request releases it when the request fails. The
           // conversation is recorded as having heard it only on acknowledge.
-          const delivery = nextWarning.claim(nextWarning.warning.threshold, conversation);
+          const delivery = nextWarning.claim(nextWarning.warning.rank, conversation);
           const steeringRecord = steering;
           req.awfSteeringDelivery = Object.freeze({
             acknowledge: () => {
@@ -336,6 +341,7 @@ function createBodyHandler({ handleRequestError, otel }) {
           logRequest('info', `${nextWarning.type}_steering`, {
             request_id: requestId,
             provider,
+            trigger: nextWarning.warning.trigger,
             threshold: nextWarning.warning.threshold,
             conversation: shortConversation,
             message: nextWarning.warning.message,
