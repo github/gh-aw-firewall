@@ -1374,6 +1374,15 @@ is not added to later requests.
 A request whose conversation is empty or ends in an assistant/model turn (for
 example an assistant prefill) is not modified, and the warning stays pending.
 
+Known limitation: on Anthropic models older than Claude Opus 4.5 (for example
+Sonnet 4.5 and Haiku 4.5) with extended thinking, a text block in the final user
+message starts a new assistant loop, and Anthropic then strips earlier thinking
+blocks. The notice request therefore misses the message-prefix cache once (no
+worse than the previous system-prompt placement); the next request is
+tool-result-only again and reads the cache normally. Claude Opus 4.5 and later
+keep earlier thinking blocks by default and are unaffected. AWF does not apply
+model-specific handling.
+
 ### 10.2 Introspection
 
 The API proxy exposes a `GET /reflect` endpoint on every provider port

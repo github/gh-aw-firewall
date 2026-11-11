@@ -116,6 +116,7 @@ function injectSteeringMessage(body, provider, message, requestPath = '') {
     // Append after the tool_result blocks of the final user message so the
     // system prompt, tools and conversation prefix (and any cache breakpoint
     // on the last existing block) stay byte-identical.
+    // Known limitation: with extended thinking on models before Opus 4.5 this text starts a new assistant loop, so the notice request misses the cache once (documented).
     if (!Array.isArray(parsed.messages) || parsed.messages.length === 0) return null;
     const last = parsed.messages[parsed.messages.length - 1];
     if (!last || typeof last !== 'object' || last.role !== 'user') return null;
