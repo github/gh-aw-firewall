@@ -7,6 +7,10 @@
  */
 
 const http = require('http');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
 const {
   validateArgs,
   validateEnclaveArgs,
@@ -21,6 +25,83 @@ const {
 } = require('./security');
 const { runGhCommand } = require('./gh-runner');
 const { requestHandler } = require('./server');
+
+const deniedCommandSpellings = [
+  ['pr', 'checkout'],
+  ['pr', 'co'],
+  ['co'],
+  ['repo', 'clone'],
+  ['repo', 'fork'],
+  ['repo', 'sync'],
+  ['gist', 'clone'],
+  ['codespace'],
+  ['cs'],
+  ['alias'],
+  ['auth'],
+  ['browse'],
+  ['config'],
+  ['extension'],
+  ['extensions'],
+  ['ext'],
+];
+const discoveryFlags = [
+  ['-R', 'owner/repo'],
+  ['--repo', 'owner/repo'],
+  ['--repo=owner/repo'],
+  ['-Rowner/repo'],
+  ['-R=owner/repo'],
+  ['--help'],
+  ['--help=false'],
+];
+const deniedInvocations = deniedCommandSpellings.flatMap((command) => [
+  [...command, '42'],
+  ...discoveryFlags.flatMap((flags) => [
+    [...flags, ...command, '42'],
+    [command[0], ...flags, ...command.slice(1), '42'],
+    [...command, ...flags, '42'],
+  ]),
+]);
+deniedInvocations.push(
+  ['pr', '--help=false', '-R', 'checkout', 'co', '42'],
+  ['--repo', 'co', 'pr', 'checkout', '42'],
+  ['pr', 'checkout', '--', 'co'],
+  ['pr', '-R', '--', 'co', '42'],
+  ['repo', '--clone=false', 'fork', 'owner/repo'],
+  ['repo', '--force=false', 'sync', 'owner/repo'],
+  ['pr', '--detach=false', 'checkout', '42'],
+);
+const allowedInvocations = [
+  [],
+  ['--version'],
+  ['--help'],
+  ['pr', 'list', '--json', 'number,title'],
+  ['pr', '--repo', 'owner/repo', 'view', '42'],
+  ['-Rowner/repo', 'pr', 'list'],
+  ['--repo=owner/repo', 'pr', 'view', '42'],
+  ['pr', 'view', 'co'],
+  ['pr', 'view', 'checkout'],
+  ['repo', 'view', 'clone'],
+  ['repo', 'list', 'fork'],
+  ['gist', 'view', 'clone'],
+  ['--repo', 'co', 'pr', 'view', '42'],
+  ['pr', '--repo', 'checkout', 'view', '42'],
+  ['pr', '--repo=checkout', 'view', '42'],
+  ['pr', '-Rcheckout', 'view', '42'],
+  ['pr', '-R=co', 'view', '42'],
+  ['pr', 'create', '--title', 'checkout', '--body', 'co'],
+  ['api', '--method', 'GET', 'repos/owner/repo'],
+  ['pr', '--repo', '--help', 'view', '42'],
+  // Cobra stops command discovery at --, not just flag parsing.
+  ['--', 'co', '42'],
+  ['pr', '--', 'checkout', '42'],
+  ['repo', '--', 'clone', 'owner/repo'],
+  ['pr', 'view', '--', 'checkout'],
+  // Unknown separate flags consume a value during discovery, even if the
+  // leaf would have parsed that flag as boolean. gh rejects these itself.
+  ['pr', '-f', 'checkout'],
+  ['repo', '--clone', 'fork'],
+  ['-h', 'pr', 'checkout'],
+];
 
 function postExec(payload) {
   return new Promise((resolve, reject) => {
@@ -67,6 +148,117 @@ describe('POST /exec request boundary', () => {
       body: { error: 'Request contains an unsupported field' },
     });
   });
+
+  describe('command policy before subprocess dispatch', () => {
+    let fixtureDir;
+    let recordPath;
+    let originalEnv;
+
+    beforeAll(() => {
+      originalEnv = process.env;
+      fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-gh-policy-'));
+      recordPath = path.join(fixtureDir, 'argv.jsonl');
+      fs.writeFileSync(recordPath, '');
+      fs.writeFileSync(path.join(fixtureDir, 'gh'), `#!${process.execPath}
+'use strict';
+const fs = require('fs');
+fs.appendFileSync(${JSON.stringify(recordPath)}, JSON.stringify(process.argv.slice(2)) + '\\n');
+process.stdout.write('inert gh fixture\\n');
+`, { mode: 0o755 });
+      process.env = {
+        PATH: fixtureDir,
+        HOME: fixtureDir,
+        GH_CONFIG_DIR: fixtureDir,
+        GH_TOKEN: 'dummy',
+        GH_HOST: '127.0.0.1:1',
+      };
+    });
+
+    afterAll(() => {
+      process.env = originalEnv;
+      fs.rmSync(fixtureDir, { recursive: true, force: true });
+    });
+
+    it.each(deniedInvocations.map((args) => [args]))('never dispatches denied argv %j', async (args) => {
+      const before = fs.readFileSync(recordPath, 'utf8');
+      const response = await postExec({ args });
+      expect(response.statusCode).toBe(403);
+      expect(response.body.error).toContain('not permitted');
+      expect(fs.readFileSync(recordPath, 'utf8')).toBe(before);
+    });
+
+    it.each(allowedInvocations.map((args) => [args]))('dispatches allowed argv unchanged %j', async (args) => {
+      fs.writeFileSync(recordPath, '');
+      expect(await postExec({ args })).toEqual({
+        statusCode: 200,
+        body: { stdout: 'inert gh fixture\n', stderr: '', exitCode: 0 },
+      });
+      expect(fs.readFileSync(recordPath, 'utf8')).toBe(`${JSON.stringify(args)}\n`);
+    });
+  });
+});
+
+describe('gh command-discovery contract (isolated help only)', () => {
+  let directory;
+  let env;
+
+  beforeAll(() => {
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-gh-discovery-'));
+    env = {
+      PATH: process.env.PATH,
+      HOME: directory,
+      GH_CONFIG_DIR: directory,
+      GH_TOKEN: 'dummy',
+      GH_ENTERPRISE_TOKEN: 'dummy',
+      GH_HOST: '127.0.0.1:1',
+      GH_PROMPT_DISABLED: '1',
+      GH_PAGER: 'cat',
+      GH_BROWSER: 'false',
+      GH_EDITOR: 'false',
+    };
+  });
+
+  afterAll(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  it.each([
+    [['co'], 'pr checkout'],
+    [['pr', 'co'], 'pr checkout'],
+    [['cs'], 'codespace'],
+    [['ext'], 'extension'],
+    [['extensions'], 'extension'],
+    ...discoveryFlags.flatMap((flags) => [
+      [[...flags, 'pr', 'co'], 'pr checkout'],
+      [['pr', ...flags, 'co'], 'pr checkout'],
+    ]),
+    [['pr', '--repo', 'checkout', 'view'], 'pr view'],
+    [['--repo', 'co', 'pr', 'view'], 'pr view'],
+    [['repo', '--clone=false', 'fork'], 'repo fork'],
+    [['repo', '--force=false', 'sync'], 'repo sync'],
+    [['pr', '--detach=false', 'checkout'], 'pr checkout'],
+  ])('resolves %j to %s without executing the operation', (args, command) => {
+    const result = spawnSync('gh', [...args, '--help'], {
+      cwd: directory, env, encoding: 'utf8', timeout: 5000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toContain(`USAGE\n  gh ${command} `);
+  });
+
+  it.each([
+    ['--', 'pr', 'checkout'],
+    ['pr', '--', 'checkout'],
+    ['pr', '-f', 'checkout'],
+    ['repo', '--clone', 'fork'],
+  ])('does not select a leaf from %j', (...args) => {
+    const result = spawnSync('gh', [...args, '--help'], {
+      cwd: directory, env, encoding: 'utf8', timeout: 5000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('unknown');
+    expect(validateArgs(args).valid).toBe(true);
+  });
 });
 
 describe('validateExecRequest', () => {
@@ -90,6 +282,32 @@ describe('validateExecRequest', () => {
 });
 
 describe('validateArgs', () => {
+  it.each(deniedInvocations.map((args) => [args]))('rejects denied command semantics %j', (args) => {
+    expect(validateArgs(args).valid).toBe(false);
+  });
+
+  it.each(allowedInvocations.map((args) => [args]))('preserves accepted argv %j', (args) => {
+    expect(validateArgs(args)).toEqual({ valid: true });
+  });
+
+  it('keeps enclave mode on its separate issues-read-v1 grammar', () => {
+    const original = process.env;
+    process.env = { ...original, AWF_CLI_PROXY_MODE: 'enclave' };
+    try {
+      expect(validateArgs(['api', 'repos/octo/private/issues'])).toEqual({ valid: true });
+      for (const args of [
+        ['pr', 'list'],
+        ['co', '42'],
+        ['pr', '-Rowner/repo', 'co', '42'],
+        ['api', '--method=POST', 'repos/octo/private/issues'],
+      ]) {
+        expect(validateArgs(args).valid).toBe(false);
+      }
+    } finally {
+      process.env = original;
+    }
+  });
+
   describe('input validation', () => {
     it('should reject non-array args', () => {
       const result = validateArgs('pr list');
