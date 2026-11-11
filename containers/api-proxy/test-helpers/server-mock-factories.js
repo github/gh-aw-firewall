@@ -58,6 +58,12 @@ function setupServerTestEnv(importFn) {
   beforeAll(() => {
     delete process.env.HTTPS_PROXY;
     jest.resetModules();
+    // These tests manually emit mocked HTTP responses, not Readable streams.
+    // Real socket/stream protection is exercised by server.credential-isolation.
+    jest.doMock('../credential-protection', () => ({
+      ...jest.requireActual('../credential-protection'),
+      protectUpstreamResponse: source => source,
+    }));
     imported = importFn() || {};
   });
 
@@ -68,6 +74,7 @@ function setupServerTestEnv(importFn) {
       process.env.HTTPS_PROXY = originalHttpsProxy;
     }
     jest.resetModules();
+    jest.dontMock('../credential-protection');
   });
 
   return { get: () => imported };

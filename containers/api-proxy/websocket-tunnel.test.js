@@ -8,7 +8,7 @@ const { createWebSocketTunnel, extractRequestModelFromUrl } = require('./websock
 function makeSocket() {
   const socket = new EventEmitter();
   socket.write = jest.fn();
-  socket.pipe = jest.fn();
+  socket.pipe = jest.fn(destination => destination);
   socket.destroy = jest.fn();
   socket.writable = true;
   socket.destroyed = false;
@@ -107,7 +107,7 @@ describe('websocket-tunnel', () => {
       connectReq.emit('connect', { statusCode: 200 }, tunnel);
 
       expect(trackWebSocketTokenUsage).toHaveBeenCalledTimes(1);
-      expect(trackWebSocketTokenUsage).toHaveBeenCalledWith(tunnel, expect.objectContaining({
+      expect(trackWebSocketTokenUsage).toHaveBeenCalledWith(tunnel.pipe.mock.calls[0][0], expect.objectContaining({
         requestId: 'req-caller',
         requestModel: 'gpt-5',
         caller: req.awfCaller,
@@ -118,7 +118,7 @@ describe('websocket-tunnel', () => {
       expect(upgradeRequest).toContain(`GET ${req.url} HTTP/1.1\r\n`);
       expect(upgradeRequest).toContain('upgrade: websocket\r\n');
       expect(upgradeRequest.toLowerCase()).not.toContain('x-awf-caller');
-      expect(tunnel.pipe).toHaveBeenCalledWith(socket);
+      expect(tunnel.pipe).toHaveBeenCalledWith(expect.objectContaining({ pipe: expect.any(Function) }));
       expect(socket.pipe).toHaveBeenCalledWith(tunnel);
     } finally {
       requestSpy.mockRestore();

@@ -67,6 +67,35 @@ Agent-side routing for Vertex mode:
 
 ## Upstream error diagnostics
 
+Response headers and bodies are checked against the actual credentials injected
+for that request, including custom auth headers, OIDC/renewable tokens, trusted
+service secret headers and AWS signing material sent on the wire. Exact,
+case-sensitive literal values (and their JSON-escaped spelling) are masked before
+forwarding, error inspection and diagnostic logging. Credentials from earlier
+attempts remain protected across retries and cross-provider fallback. This does
+not add agent-facing caller authentication.
+
+The body filter streams with bounded lookbehind (at most a credential prefix),
+not whole-response buffering. It also covers error events inside successful SSE
+responses. Identity bodies keep their byte lengths; gzip, deflate and Brotli
+responses are streamed through decoding and re-encoding with stale
+`Content-Length` removed. Original representation digests and ETags are removed.
+Unsupported encodings fail with 502; malformed or truncated encoded streams
+terminate the response if headers have already been sent.
+
+WebSocket handshake headers, message payloads and close reasons use the same
+literal masking, including credentials split across fragments. Frame lengths,
+fragmentation and close status codes are preserved. Optional WebSocket
+compression is not negotiated so payloads remain inspectable. Rejected upgrades
+retain their HTTP status but omit upstream headers and opaque diagnostic bodies.
+Handshake buffering is limited to 16 KiB, and framing/control bytes held behind
+a partial credential are limited to 64 KiB; violations close the connection.
+
+This protects against accidental credential echoes, not arbitrary encoding or
+deliberate exfiltration by a malicious upstream. Only synthetic local upstreams
+and dummy credentials are used by the isolation regressions; no behavior of a
+specific third-party provider or released container image is implied.
+
 Terminal non-2xx upstream responses are logged as `upstream_error_response`
 records containing the sanitized response headers and a redacted, size-capped
 copy of the response body (`AWF_MAX_ERROR_RESPONSE_CAPTURE_BYTES`, default
