@@ -137,7 +137,12 @@ describe('bounded WebSocket credential protection', () => {
       frame(2, Buffer.alloc(150, 0x78)), frame(1, Buffer.alloc(70000, 0x79)),
       frame(8, Buffer.from([0x03, 0xe8])),
     ]);
-    expect(await collect(createWebSocketCredentialTransform(context()), [wire])).toEqual(wire);
+    const expected = Buffer.concat([
+      HANDSHAKE, frame(1, 'ordinary output'), frame(10, 'pong'),
+      frame(2, Buffer.alloc(150, 0x78)), frame(1, Buffer.alloc(70000, 0x79)),
+      frame(8, Buffer.from([0x03, 0xe8])),
+    ]);
+    expect(await collect(createWebSocketCredentialTransform(context()), [wire])).toEqual(expected);
   });
 
   it('masks byte-split frames and credentials spanning continuations and interleaved pings', async () => {
@@ -189,12 +194,15 @@ describe('bounded WebSocket credential protection', () => {
     await expect(collect(createWebSocketCredentialTransform(context()), [wire])).rejects.toThrow(message);
   });
 
-  it('bounds control/framing bytes retained behind a partial credential', async () => {
+  it('handles many pings without blocking a fragmented credential prefix', async () => {
     const chunks = [
       HANDSHAKE, frame(1, 'SECRET-', false),
       ...Array.from({ length: 600 }, () => frame(9, Buffer.alloc(125, 0x78))),
+      frame(0, 'DUMMY'),
     ];
-    await expect(collect(createWebSocketCredentialTransform(context()), chunks))
-      .rejects.toThrow('Upstream WebSocket pending framing limit exceeded');
+    const expected = Buffer.concat([
+      HANDSHAKE, frame(1, '*******', false), frame(0, '*****'),
+    ]);
+    expect(await collect(createWebSocketCredentialTransform(context()), chunks)).toEqual(expected);
   });
 });
