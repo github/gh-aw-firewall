@@ -96,6 +96,19 @@ function getPendingTimeoutSteeringWarning(conversation = null) {
   return { threshold, message: `[AWF TIME WARNING] ${text}` };
 }
 
+/**
+ * Whether any time threshold has been crossed in this run, updating the
+ * crossed thresholds first. Unlike the run-level pending notices, this stays
+ * true after a notice is delivered, since other conversations may still need it.
+ */
+function hasCrossedTimeoutSteeringThreshold() {
+  const timeoutMinutes = getTimeoutSteeringConfig();
+  const state = getTimeoutSteeringState(timeoutMinutes);
+  if (!state) return false;
+  updateTimeoutSteeringThresholds(state, timeoutMinutes);
+  return state.emittedThresholds.size > 0;
+}
+
 function acknowledgeTimeoutSteeringWarning(threshold) {
   acknowledgeSteeringThreshold(timeoutSteeringState.delivery.pending, threshold);
 }
@@ -146,6 +159,7 @@ function resetTimeoutSteeringForTests() {
 module.exports = {
   getAndClearPendingTimeoutSteeringMessage,
   getPendingTimeoutSteeringWarning,
+  hasCrossedTimeoutSteeringThreshold,
   acknowledgeTimeoutSteeringWarning,
   claimTimeoutSteeringWarning,
   getTimeoutSteeringReflectState,

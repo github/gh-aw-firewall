@@ -30,10 +30,12 @@ const { sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const {
   getPendingTimeoutSteeringWarning,
+  hasCrossedTimeoutSteeringThreshold,
   claimTimeoutSteeringWarning,
 } = require('./guards/timeout-steering');
 const {
   getPendingAiCreditSteeringWarning,
+  hasCrossedAiCreditSteeringThreshold,
   claimAiCreditSteeringWarning,
 } = require('./guards/ai-credits-guard');
 const { STORED_RESPONSE_CONVERSATION } = require('./guards/steering-thresholds');
@@ -270,8 +272,11 @@ function createBodyHandler({ handleRequestError, otel }) {
     // A notice goes only on a request that ends with tool results, the kind a
     // working agent makes, so harness housekeeping requests (e.g. a request to
     // summarize the conversation) are skipped. Every conversation hears each
-    // notice once, on its own next such request.
-    const target = allowSteering && isSteeringEnabled() && (req.method === 'POST' || req.method === 'PUT')
+    // notice once, on its own next such request. Until a threshold of either
+    // kind is crossed no notice can be selected, so the body is not inspected;
+    // both guards are asked so each updates its crossed thresholds.
+    const target = allowSteering && isSteeringEnabled() && (req.method === 'POST' || req.method === 'PUT') &&
+      [hasCrossedTimeoutSteeringThreshold(), hasCrossedAiCreditSteeringThreshold()].includes(true)
       ? describeSteeringConversation(body, provider, req.url)
       : null;
     if (target?.endsWithToolResult) {

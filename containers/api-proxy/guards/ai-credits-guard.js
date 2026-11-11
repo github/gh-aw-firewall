@@ -609,6 +609,20 @@ function getPendingAiCreditSteeringWarning(conversation = null) {
   return { threshold, message: `[AWF AI CREDIT WARNING] ${text}` };
 }
 
+/**
+ * Whether any AI-credit threshold has been crossed in this run, updating the
+ * crossed thresholds first. Unlike the run-level pending notices, this stays
+ * true after a notice is delivered, since other conversations may still need it.
+ */
+function hasCrossedAiCreditSteeringThreshold() {
+  try {
+    updateAiCreditSteeringThresholds();
+  } catch (error) {
+    throwAccountingFailure(error);
+  }
+  return aiCreditsState.emittedThresholds.size > 0;
+}
+
 function acknowledgeAiCreditSteeringWarning(threshold) {
   acknowledgeSteeringThreshold(aiCreditsState.steeringDelivery.pending, threshold);
 }
@@ -679,6 +693,7 @@ module.exports = {
   getAiCreditsBlockState,
   buildAiCreditsLimitError,
   getPendingAiCreditSteeringWarning,
+  hasCrossedAiCreditSteeringThreshold,
   acknowledgeAiCreditSteeringWarning,
   claimAiCreditSteeringWarning,
   checkModelPricing,

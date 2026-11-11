@@ -751,6 +751,42 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
       expect(mainNext.result.steering).toEqual(delivered('ai_credit', 90));
     });
 
+    test('inspects the conversation only once a threshold has been crossed', async () => {
+      await jest.isolateModulesAsync(async () => {
+        const bodyTransform = require('./body-transform');
+        const inspect = jest.spyOn(bodyTransform, 'describeSteeringConversation');
+        const credits = require('./guards/ai-credits-guard');
+        const { transformRequestBody: transform } = require('./body-handler')
+          .createBodyHandler({ handleRequestError() {}, otel: {} });
+        const send = async (requestId, opening) => {
+          const req = { method: 'POST', url: '/v1/chat/completions' };
+          const result = await transform(toolResultChat(opening), 'openai', req, requestId, null);
+          return { req, result };
+        };
+
+        // Below every threshold, no request inspects the body.
+        credits.applyAiCreditsUsage({ input_tokens: 4 }, 'gpt-5-mini', 'copilot');
+        const early = await send('early', 'Research the papers.');
+        expect(early.result.steering).toBeNull();
+        expect(inspect).not.toHaveBeenCalled();
+
+        // Once a threshold is crossed, inspection resumes and the notice is delivered.
+        credits.applyAiCreditsUsage({ input_tokens: 28 }, 'gpt-5-mini', 'copilot');
+        const first = await send('first', 'Research the papers.');
+        expect(inspect).toHaveBeenCalledTimes(1);
+        expect(first.result.steering).toEqual(delivered('ai_credit', 80));
+        first.req.awfSteeringDelivery.acknowledge();
+        expect(credits.getPendingAiCreditSteeringWarning()).toBeNull();
+
+        // With no run-level notice pending, another conversation is still
+        // inspected and hears the notice.
+        const second = await send('second', 'Screen this batch.');
+        expect(inspect).toHaveBeenCalledTimes(2);
+        expect(second.result.steering).toEqual(delivered('ai_credit', 80));
+        inspect.mockRestore();
+      });
+    });
+
     test('does not record a conversation as notified until its request is acknowledged', async () => {
       createCreditWarning();
       const req = { method: 'POST', url: '/v1/chat/completions' };
