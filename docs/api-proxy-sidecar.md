@@ -2085,14 +2085,18 @@ The message formats are:
 [AWF TIME WARNING] You have used 90% of your allotted run time. Complete your current task and prepare final output.
 ```
 
-Injection is protocol-aware and preserves caller content and tool exchanges:
+Injection is protocol-aware and preserves caller content and tool exchanges. The notice is always added at the end of the conversation, after the last tool result; the top-level system prompt, instructions, tools, and earlier items are never changed, so the prompt-cache prefix (and any cache breakpoint on the last existing block, whether placed by the harness or by `AWF_ANTHROPIC_AUTO_CACHE`) is preserved:
 
 | Request format | Injection mechanism |
 |---------------|---------------------|
-| OpenAI / Copilot Chat Completions | Inserts a `system` message after existing system messages |
-| OpenAI / Copilot Responses | Appends one final `developer` message item to `input` after all existing items, preserving `instructions`, tools, existing input/tool history, and stream fields for prompt-cache reuse; string input becomes a user message followed by the notice |
-| Anthropic / Copilot Messages | Appends a text block to `system` |
-| Gemini | Appends a text part to `systemInstruction.parts` |
+| OpenAI / Copilot Chat Completions | Appends a final `user` message after the last (tool) message; it stays the final `input` item when translated to Responses |
+| OpenAI / Copilot Responses | Appends one final `developer` message item to `input` after all existing items, preserving `instructions`, tools, existing input/tool history, and stream fields; string input becomes a user message followed by the notice |
+| Anthropic / Copilot Messages | Appends a text block to the final user message, after its `tool_result` blocks; `system` is unchanged |
+| Gemini | Appends a text part to the final user turn, after its function responses; `systemInstruction` is unchanged |
+
+For Messages, Chat Completions and Gemini, requests whose conversation is empty or ends in an assistant/model turn (such as an assistant prefill) are left unchanged and the warning stays pending.
+
+Known limitation: on Anthropic models older than Claude Opus 4.5 (for example Sonnet 4.5 and Haiku 4.5) with extended thinking, a text block in the final user message starts a new assistant loop and Anthropic strips earlier thinking blocks, so the notice request misses the message-prefix cache once (no worse than the previous system-prompt placement). The next request is tool-result-only again and reads the cache normally. Claude Opus 4.5 and later keep earlier thinking blocks by default and are unaffected; AWF does not apply model-specific handling.
 
 `/reflect` exposes AI-credit `thresholds_crossed` and `thresholds_pending`, and runtime deadline state at `time_steering` (`started_at_ms`, `percent_elapsed`, and threshold fields).
 

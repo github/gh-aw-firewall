@@ -367,8 +367,17 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
         {
           provider: 'openai',
           url: '/v1/chat/completions',
-          body: { messages: [{ role: 'system', content: 'Caller instructions.' }, { role: 'user', content: 'Hi' }] },
-          getWarning: parsed => parsed.messages.find(message => message.role === 'system' && message.content.includes(warningPrefix))?.content,
+          body: {
+            messages: [
+              { role: 'system', content: 'Caller instructions.' },
+              { role: 'user', content: 'Continue.' },
+              { role: 'assistant', content: null, tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read_file', arguments: '{}' } }] },
+              { role: 'tool', tool_call_id: 'call-1', content: 'contents' },
+            ],
+          },
+          removeNotice: parsed => {
+            expect(parsed.messages.pop()).toEqual({ role: 'user', content: expect.stringContaining(warningPrefix) });
+          },
         },
         {
           provider: 'openai',
@@ -381,25 +390,60 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
               { type: 'function_call_output', call_id: 'call-1', output: 'contents' },
             ],
           },
-          getWarning: parsed => parsed.input.at(-1).content,
+          removeNotice: parsed => {
+            expect(parsed.input.pop()).toEqual({
+              type: 'message',
+              role: 'developer',
+              content: expect.stringContaining(warningPrefix),
+            });
+          },
         },
         {
           provider: 'anthropic',
           url: '/v1/messages',
-          body: { system: 'Caller instructions.', messages: [{ role: 'user', content: 'Hi' }] },
-          getWarning: parsed => parsed.system,
+          body: {
+            system: 'Caller instructions.',
+            messages: [
+              { role: 'user', content: 'Continue.' },
+              { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu-1', name: 'read_file', input: {} }] },
+              { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu-1', content: 'contents' }] },
+            ],
+          },
+          removeNotice: parsed => {
+            expect(parsed.messages.at(-1).content.pop())
+              .toEqual({ type: 'text', text: expect.stringContaining(warningPrefix) });
+          },
         },
         {
           provider: 'copilot',
           url: '/v1/messages',
-          body: { system: [{ type: 'text', text: 'Caller instructions.' }], messages: [{ role: 'user', content: 'Hi' }] },
-          getWarning: parsed => parsed.system.map(block => block.text).join('\n'),
+          body: {
+            system: [{ type: 'text', text: 'Caller instructions.' }],
+            messages: [
+              { role: 'user', content: 'Continue.' },
+              { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu-1', name: 'read_file', input: {} }] },
+              { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu-1', content: 'contents' }] },
+            ],
+          },
+          removeNotice: parsed => {
+            expect(parsed.messages.at(-1).content.pop())
+              .toEqual({ type: 'text', text: expect.stringContaining(warningPrefix) });
+          },
         },
         {
           provider: 'gemini',
           url: '/v1beta/models/gemini-2.0-flash:generateContent',
-          body: { systemInstruction: { parts: [{ text: 'Caller instructions.' }] }, contents: [{ role: 'user', parts: [{ text: 'Hi' }] }] },
-          getWarning: parsed => parsed.systemInstruction.parts.map(part => part.text).join('\n'),
+          body: {
+            systemInstruction: { parts: [{ text: 'Caller instructions.' }] },
+            contents: [
+              { role: 'user', parts: [{ text: 'Continue.' }] },
+              { role: 'model', parts: [{ functionCall: { name: 'read_file', args: {} } }] },
+              { role: 'user', parts: [{ functionResponse: { name: 'read_file', response: { output: 'contents' } } }] },
+            ],
+          },
+          removeNotice: parsed => {
+            expect(parsed.contents.at(-1).parts.pop()).toEqual({ text: expect.stringContaining(warningPrefix) });
+          },
         },
       ];
 
@@ -423,31 +467,26 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
         );
         const parsed = json(result.body);
 
-        expect(testCase.getWarning(parsed)).toContain(warningPrefix);
-        expect(JSON.stringify(parsed)).toContain('Caller instructions.');
         expect(getPendingAiCreditSteeringWarning()).toBeNull();
-        if (testCase.url === '/v1/responses') {
-          const prefixEnd = baseline.body.indexOf(Buffer.from(JSON.stringify(testCase.body.input)))
-            + Buffer.byteLength(JSON.stringify(testCase.body.input)) - 1;
-          expect(result.body.subarray(0, prefixEnd)).toEqual(baseline.body.subarray(0, prefixEnd));
-          expect(parsed.input).toHaveLength(testCase.body.input.length + 1);
-          expect(parsed.input.pop()).toEqual({
-            type: 'message',
-            role: 'developer',
-            content: expect.stringContaining(warningPrefix),
-          });
-          expect(Buffer.from(JSON.stringify(parsed))).toEqual(baseline.body);
-          expect(result.steering).toEqual({ type: 'ai_credit', threshold: 80 });
-          const later = await transformRequestBody(
-            body,
-            testCase.provider,
-            { method: 'POST', url: testCase.url },
-            `later-${index}`,
-            null,
-          );
-          expect(later.body).toEqual(baseline.body);
-          expect(later.steering).toBeNull();
-        }
+        expect(result.steering).toEqual({ type: 'ai_credit', threshold: 80 });
+        // Everything before the notice — including the system prompt or
+        // instructions — is byte-identical to the request without a notice.
+        const serialized = result.body.toString('utf8');
+        const noticeStart = serialized.indexOf(warningPrefix);
+        expect(noticeStart).toBeGreaterThan(serialized.indexOf('contents'));
+        expect(serialized.indexOf('Caller instructions.')).toBe(baseline.body.toString('utf8').indexOf('Caller instructions.'));
+        testCase.removeNotice(parsed);
+        expect(Buffer.from(JSON.stringify(parsed))).toEqual(baseline.body);
+
+        const later = await transformRequestBody(
+          body,
+          testCase.provider,
+          { method: 'POST', url: testCase.url },
+          `later-${index}`,
+          null,
+        );
+        expect(later.body).toEqual(baseline.body);
+        expect(later.steering).toBeNull();
       }
     });
 
@@ -511,6 +550,44 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
       }
     });
 
+    test('keeps steering last and instructions unchanged when translating Chat to Responses', async () => {
+      replaceRuntimeModels('copilot', [{
+        id: 'responses-only',
+        supportedEndpoints: ['/responses'],
+      }]);
+      const body = Buffer.from(JSON.stringify({
+        model: 'responses-only',
+        messages: [
+          { role: 'system', content: 'Caller instructions.' },
+          { role: 'user', content: 'Continue.' },
+          { role: 'assistant', content: null, tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read_file', arguments: '{}' } }] },
+          { role: 'tool', tool_call_id: 'call-1', content: 'contents' },
+        ],
+      }));
+      const req = { method: 'POST', url: '/v1/chat/completions' };
+
+      try {
+        const baseline = await transformRequestBody(body, 'copilot', req, 'responses-baseline', null);
+        createCreditWarning();
+        const result = await transformRequestBody(body, 'copilot', req, 'responses-steered', null);
+        const parsed = json(result.body);
+
+        expect(result.wireApiCompatibility.direction).toBe('chat_to_responses');
+        expect(parsed.instructions).toBe('Caller instructions.');
+        expect(parsed.input).toHaveLength(json(baseline.body).input.length + 1);
+        expect(parsed.input.at(-2)).toEqual({ type: 'function_call_output', call_id: 'call-1', output: 'contents' });
+        expect(parsed.input.pop()).toEqual({
+          role: 'user',
+          content: expect.stringContaining(warningPrefix),
+        });
+        expect(Buffer.from(JSON.stringify(parsed))).toEqual(baseline.body);
+        expect(result.steering).toEqual({ type: 'ai_credit', threshold: 80 });
+        expect(getPendingAiCreditSteeringWarning()).toBeNull();
+      } finally {
+        clearRuntimeModels();
+      }
+    });
+
     test('delivers AI-credit warnings at each configured threshold on later eligible requests', async () => {
       process.env.AWF_MAX_AI_CREDITS = '1';
       const creditUsageByThreshold = new Map([
@@ -531,8 +608,8 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
         );
         const parsed = json(result.body);
 
-        expect(parsed.messages[0].content).toContain(warningPrefix);
-        expect(parsed.messages[0].content).toContain(`${threshold}%`);
+        expect(parsed.messages.at(-1).content).toContain(warningPrefix);
+        expect(parsed.messages.at(-1).content).toContain(`${threshold}%`);
         expect(getPendingAiCreditSteeringWarning()).toBeNull();
       }
     });
@@ -557,7 +634,7 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
           null,
         );
         req.awfSteeringDelivery?.acknowledge();
-        return json(result.body).messages[0].content;
+        return json(result.body).messages.at(-1).content;
       };
 
       try {
@@ -574,7 +651,7 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
           { method: 'POST', url: '/v1/chat/completions' },
           'time-credit-3',
           null,
-        )).body).messages[0].role).toBe('user');
+        )).body).messages).toEqual([{ role: 'user', content: 'Continue.' }]);
       } finally {
         fs.rmSync(runtimeDir, { recursive: true, force: true });
       }

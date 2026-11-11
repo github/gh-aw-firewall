@@ -75,17 +75,24 @@ function isResponsesRequest(requestPath) {
 /**
  * Inject a token-budget warning message into a request body.
  *
- * Handles four JSON body formats:
- *   - Messages   (/v1/messages)          — appends a text block to `system`
+ * Handles four JSON body formats. The notice always goes at the end of the
+ * conversation, after the last tool result, and never changes the top-level
+ * system prompt or instructions, so the provider prompt-cache prefix is kept:
+ *   - Messages   (/v1/messages)          — appends a text block to the final
+ *                                           user message, after any
+ *                                           `tool_result` blocks
  *                                           (Anthropic and Copilot)
- *   - Gemini     (/v1beta/…generateContent) — appends a part to `systemInstruction`
- *   - OpenAI     (/v1/chat/completions)  — inserts a system message after any
- *                                           existing system messages
+ *   - Gemini     (/v1beta/…generateContent) — appends a text part to the final
+ *                                           user turn, after any function
+ *                                           responses
+ *   - OpenAI     (/v1/chat/completions)  — appends a final user message
  *   - Responses  (/v1/responses)         — appends a final developer message to
- *                                           `input`, preserving the cached prefix
+ *                                           `input`
  *
  * Returns a new Buffer containing the modified body, or null when the body
- * cannot be parsed or injection is not applicable.
+ * cannot be parsed or injection is not applicable. For Messages, Chat
+ * Completions and Gemini this includes a conversation that is empty or does
+ * not end in a user/tool turn (e.g. an assistant prefill).
  *
  * @param {Buffer} body       - Raw request body
  * @param {string} provider   - Provider name ('anthropic' | 'gemini' | 'openai' | 'copilot')
@@ -107,29 +114,40 @@ function injectSteeringMessage(body, provider, message, requestPath = '') {
   if (!parsed) return null;
 
   if (provider === 'anthropic' || isMessagesRequest(requestPath)) {
-    if (!Array.isArray(parsed.messages)) return null;
-    if (typeof parsed.system === 'string') {
-      parsed = { ...parsed, system: parsed.system + '\n\n' + message };
-    } else if (Array.isArray(parsed.system)) {
-      parsed = { ...parsed, system: [...parsed.system, { type: 'text', text: message }] };
-    } else if (parsed.system === undefined) {
-      parsed = { ...parsed, system: message };
+    // Append after the tool_result blocks of the final user message so the
+    // system prompt, tools and conversation prefix (and any cache breakpoint
+    // on the last existing block) stay byte-identical.
+    // Known limitation: with extended thinking on models before Opus 4.5
+    // this text starts a new assistant loop, so the notice request misses
+    // the cache once (documented).
+    if (!Array.isArray(parsed.messages) || parsed.messages.length === 0) return null;
+    const last = parsed.messages[parsed.messages.length - 1];
+    if (!last || typeof last !== 'object' || last.role !== 'user') return null;
+    let content;
+    if (typeof last.content === 'string') {
+      content = [{ type: 'text', text: last.content }, { type: 'text', text: message }];
+    } else if (Array.isArray(last.content)) {
+      content = [...last.content, { type: 'text', text: message }];
     } else {
       return null;
     }
+    const messages = [...parsed.messages];
+    messages[messages.length - 1] = { ...last, content };
+    parsed = { ...parsed, messages };
   } else if (provider === 'gemini') {
-    if (!Array.isArray(parsed.contents)) return null;
-    const existing = parsed.systemInstruction;
-    if (existing !== undefined) {
-      if (!existing || typeof existing !== 'object' || Array.isArray(existing)) return null;
-      if (existing.parts !== undefined && !Array.isArray(existing.parts)) return null;
-      const parts = Array.isArray(existing.parts)
-        ? [...existing.parts, { text: message }]
-        : [{ text: message }];
-      parsed = { ...parsed, systemInstruction: { ...existing, parts } };
+    // Append after the function responses of the final user turn, leaving
+    // systemInstruction and earlier contents unchanged.
+    if (!Array.isArray(parsed.contents) || parsed.contents.length === 0) return null;
+    const last = parsed.contents[parsed.contents.length - 1];
+    if (!last || typeof last !== 'object' || last.role === 'model') return null;
+    const contents = [...parsed.contents];
+    if (last.role === undefined || last.role === 'user') {
+      if (!Array.isArray(last.parts)) return null;
+      contents[contents.length - 1] = { ...last, parts: [...last.parts, { text: message }] };
     } else {
-      parsed = { ...parsed, systemInstruction: { parts: [{ text: message }] } };
+      contents.push({ role: 'user', parts: [{ text: message }] });
     }
+    parsed = { ...parsed, contents };
   } else if (
     isResponsesRequest(requestPath) ||
     (parsed.input !== undefined && !Array.isArray(parsed.messages))
@@ -141,16 +159,13 @@ function injectSteeringMessage(body, provider, message, requestPath = '') {
       : parsed.input;
     parsed = { ...parsed, input: [...input, { type: 'message', role: 'developer', content: message }] };
   } else {
-    if (!Array.isArray(parsed.messages)) return null;
-    const systemMsg = { role: 'system', content: message };
-    const lastSystemIdx = parsed.messages.reduce(
-      (last, m, i) => (m && m.role === 'system' ? i : last),
-      -1
-    );
-    const insertAt = lastSystemIdx + 1;
-    const msgs = [...parsed.messages];
-    msgs.splice(insertAt, 0, systemMsg);
-    parsed = { ...parsed, messages: msgs };
+    // Append a final user message after the last tool message. A user message
+    // keeps its position when translated to Responses (system/developer
+    // messages would be moved into the top-level `instructions`).
+    if (!Array.isArray(parsed.messages) || parsed.messages.length === 0) return null;
+    const last = parsed.messages[parsed.messages.length - 1];
+    if (!last || typeof last !== 'object' || last.role === 'assistant') return null;
+    parsed = { ...parsed, messages: [...parsed.messages, { role: 'user', content: message }] };
   }
 
   return Buffer.from(JSON.stringify(parsed));

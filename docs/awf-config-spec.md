@@ -1360,12 +1360,18 @@ guarantee that the agent completes or submits work. If the budget is already
 exhausted, normal terminal rejection remains in effect.
 
 Each threshold is recorded once per run. At most one warning is injected per
-request: the largest crossed percentage is delivered first, then other pending
-warnings are delivered on later eligible requests. For equal percentages, time
-warnings precede AI-credit warnings.
+request, carrying the largest crossed percentage that is pending. For equal
+percentages, time warnings precede AI-credit warnings. Delivering a warning
+drops any older pending warnings of the same kind (time or AI credits), so an
+older warning never follows a newer one.
 Classifier requests, malformed JSON, unsupported body shapes, or any request
-that cannot be modified do not consume pending warnings. A warning is consumed
-only after successful body injection.
+that cannot be modified do not consume pending warnings. A warning injected
+into a request counts as delivered once the upstream response arrives with a
+2xx status (streaming or not, even if the client closes early). Non-2xx
+responses, requests rejected by a guard or by request transformation, and
+clients that disconnect before the upstream response arrives leave the warning
+pending for the next eligible request. While a request carrying a warning is in
+flight, concurrent requests do not repeat it.
 
 The warning formats are:
 
@@ -1379,10 +1385,31 @@ budget and allotted run time.
 
 **Provider-specific injection rules:**
 
-- **OpenAI / Copilot Chat Completions** — the proxy inserts a `{ "role": "system", "content": "<message>" }` entry into the `messages` array immediately after any pre-existing system messages.
-- **OpenAI / Copilot Responses** — the proxy appends one final `developer` message item to `input`, after all existing items (including tool results), leaving `instructions`, tools, existing input items, and streaming fields unchanged to preserve the prompt-cache prefix. A string `input` becomes a single user message followed by the notice. The notice is one-shot and is not added to later requests; when translated to Chat Completions, it remains the final message and the leading system message from `instructions` is unchanged.
-- **Anthropic** — the proxy appends the warning to the `system` field: if `system` is a string it is concatenated (separated by `\n\n`); if `system` is an array of content blocks a `{ "type": "text", "text": "<message>" }` block is appended; if `system` is absent it is created as the warning string.
-- **Gemini** — the proxy appends a `{ "text": "<message>" }` part to `systemInstruction.parts`; if `systemInstruction` is absent it is created.
+Every notice is added at the end of the conversation, after the last tool
+result. The proxy never changes the top-level system prompt, `instructions`,
+`systemInstruction`, tools, or earlier conversation items, so the provider
+prompt-cache prefix (including any cache breakpoint the harness or
+`anthropicAutoCache` placed on the last existing block) is preserved and the
+notice request reads the cache like its neighbours. Once delivered, the notice
+is not added to later requests.
+
+- **OpenAI / Copilot Chat Completions** — the proxy appends a final `{ "role": "user", "content": "<message>" }` message after the last message (typically the last `tool` message). When translated to Responses, it remains the final `input` item; it is not moved into `instructions`.
+- **OpenAI / Copilot Responses** — the proxy appends one final `developer` message item to `input`, after all existing items (including tool results), leaving `instructions`, tools, existing input items, and streaming fields unchanged. A string `input` becomes a single user message followed by the notice. When translated to Chat Completions, it remains the final message and the leading system message from `instructions` is unchanged.
+- **Anthropic / Copilot Messages** — the proxy appends a `{ "type": "text", "text": "<message>" }` block to the final user message, after its `tool_result` blocks (Anthropic requires tool results first and allows text after them). String content becomes a text block followed by the notice. `system` is never changed.
+- **Gemini** — the proxy appends a `{ "text": "<message>" }` part to the final user turn, after its function responses (a final `function`-role turn is followed by a new user turn holding the notice). `systemInstruction` is never changed.
+
+For Messages, Chat Completions and Gemini, a request whose conversation is
+empty or ends in an assistant/model turn (for example an assistant prefill) is
+not modified, and the warning stays pending.
+
+Known limitation: on Anthropic models older than Claude Opus 4.5 (for example
+Sonnet 4.5 and Haiku 4.5) with extended thinking, a text block in the final user
+message starts a new assistant loop, and Anthropic then strips earlier thinking
+blocks. The notice request therefore misses the message-prefix cache once (no
+worse than the previous system-prompt placement); the next request is
+tool-result-only again and reads the cache normally. Claude Opus 4.5 and later
+keep earlier thinking blocks by default and are unaffected. AWF does not apply
+model-specific handling.
 
 ### 10.2 Introspection
 

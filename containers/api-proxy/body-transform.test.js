@@ -1,4 +1,5 @@
 const { injectSteeringMessage, injectStreamOptions } = require('./body-transform');
+const { makeAnthropicTransform } = require('./anthropic-transforms');
 
 describe('injectStreamOptions', () => {
   test('injects include_usage for streaming chat completions requests', () => {
@@ -91,16 +92,116 @@ describe('injectStreamOptions', () => {
     });
   });
 
-  describe('injectSteeringMessage for Gemini requests', () => {
+  describe('injectSteeringMessage at the end of the conversation', () => {
     const warning = '[AWF AI CREDIT WARNING] Use the remaining budget carefully.';
 
-    test.each([null, 'malformed', []])('returns null for malformed systemInstruction %p', (systemInstruction) => {
+    // Each request ends with its conversation array as the last key, so the
+    // byte prefix up to the end of the last tool result is the serialized
+    // baseline minus the closing brackets.
+    test.each([
+      ['Messages', 'anthropic', '/v1/messages', {
+        model: 'claude-sonnet-5',
+        system: [{ type: 'text', text: 'Keep working carefully.', cache_control: { type: 'ephemeral' } }],
+        tools: [{ name: 'read_file', input_schema: { type: 'object' } }],
+        messages: [
+          { role: 'user', content: 'Continue the task.' },
+          { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu-1', name: 'read_file', input: {} }] },
+          { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu-1', content: 'file contents' }] },
+        ],
+      }, '}]}]}', ',{"type":"text","text":'],
+      ['Copilot Messages', 'copilot', '/v1/messages', {
+        model: 'claude-sonnet-5',
+        system: 'Keep working carefully.',
+        messages: [
+          { role: 'user', content: 'Continue the task.' },
+          { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu-1', name: 'read_file', input: {} }] },
+          { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu-1', content: 'file contents' }] },
+        ],
+      }, '}]}]}', ',{"type":"text","text":'],
+      ['Chat Completions', 'copilot', '/v1/chat/completions', {
+        model: 'claude-sonnet-5',
+        tools: [{ type: 'function', function: { name: 'read_file', parameters: { type: 'object' } } }],
+        messages: [
+          { role: 'system', content: 'Keep working carefully.' },
+          { role: 'user', content: 'Continue the task.' },
+          { role: 'assistant', content: null, tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read_file', arguments: '{}' } }] },
+          { role: 'tool', tool_call_id: 'call-1', content: 'file contents' },
+        ],
+      }, '}]}', ',{"role":"user","content":'],
+      ['Gemini', 'gemini', '/v1beta/models/gemini-2.5-pro:generateContent', {
+        systemInstruction: { parts: [{ text: 'Keep working carefully.' }] },
+        tools: [{ functionDeclarations: [{ name: 'read_file' }] }],
+        contents: [
+          { role: 'user', parts: [{ text: 'Continue the task.' }] },
+          { role: 'model', parts: [{ functionCall: { name: 'read_file', args: {} } }] },
+          { role: 'user', parts: [{ functionResponse: { name: 'read_file', response: { output: 'file contents' } } }] },
+        ],
+      }, '}]}]}', ',{"text":'],
+    ])('keeps the %s prefix byte-identical through the last tool result', (_name, provider, path, request, closing, noticeStart) => {
+      const baseline = JSON.stringify(request);
+      expect(baseline.endsWith(closing)).toBe(true);
+      const prefix = baseline.slice(0, baseline.length - closing.length + 1);
+
+      const result = injectSteeringMessage(Buffer.from(baseline), provider, warning, path);
+
+      expect(result).not.toBeNull();
+      const serialized = result.toString('utf8');
+      expect(serialized.startsWith(prefix + noticeStart)).toBe(true);
+      expect(serialized.indexOf(warning)).toBeGreaterThan(serialized.lastIndexOf('file contents'));
+      expect(serialized.endsWith(closing.slice(1))).toBe(true);
+    });
+
+    test.each([null, 'malformed', []])('leaves Gemini systemInstruction %p untouched', (systemInstruction) => {
       const body = Buffer.from(JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: 'Continue the task.' }] }],
         systemInstruction,
       }));
 
-      expect(injectSteeringMessage(body, 'gemini', warning)).toBeNull();
+      const parsed = JSON.parse(injectSteeringMessage(body, 'gemini', warning).toString());
+
+      expect(parsed.systemInstruction).toEqual(systemInstruction);
+      expect(parsed.contents[0].parts).toEqual([{ text: 'Continue the task.' }, { text: warning }]);
+    });
+
+    test.each([
+      ['enabled', true],
+      ['disabled', false],
+    ])('keeps the cache breakpoint just before the Messages notice with anthropicAutoCache %s', (_name, autoCache) => {
+      const request = {
+        model: 'claude-sonnet-5',
+        system: [{ type: 'text', text: 'Keep working carefully.' }],
+        tools: [{ name: 'read_file', input_schema: { type: 'object' } }],
+        messages: [
+          { role: 'user', content: [{ type: 'text', text: 'Continue the task.' }] },
+          { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu-1', name: 'read_file', input: {} }] },
+          {
+            role: 'user',
+            content: [
+              { type: 'tool_result', tool_use_id: 'toolu-1', content: 'first' },
+              // Harness rolling-tail breakpoint (e.g. Claude Code).
+              { type: 'tool_result', tool_use_id: 'toolu-2', content: 'second', cache_control: { type: 'ephemeral' } },
+            ],
+          },
+        ],
+      };
+      let body = Buffer.from(JSON.stringify(request));
+      const transform = makeAnthropicTransform({ autoCache });
+      if (transform) body = transform(body) || body;
+      const beforeNotice = JSON.parse(body.toString());
+
+      const result = injectSteeringMessage(body, 'anthropic', warning, '/v1/messages');
+
+      const parsed = JSON.parse(result.toString());
+      const finalContent = parsed.messages.at(-1).content;
+      expect(finalContent.at(-1)).toEqual({ type: 'text', text: warning });
+      expect(finalContent.at(-2)).toEqual(beforeNotice.messages.at(-1).content.at(-1));
+      expect(finalContent.at(-2).cache_control).toEqual(
+        autoCache ? { type: 'ephemeral', ttl: '5m' } : { type: 'ephemeral' },
+      );
+      expect(parsed.system).toEqual(beforeNotice.system);
+      expect(parsed.tools).toEqual(beforeNotice.tools);
+      finalContent.pop();
+      expect(parsed).toEqual(beforeNotice);
     });
   });
 

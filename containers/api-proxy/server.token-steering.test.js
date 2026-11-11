@@ -152,12 +152,13 @@ describe('budget steering and injectSteeringMessage', () => {
 
     expect(upstreamReq2.write).toHaveBeenCalledTimes(1);
     const writtenBody2 = JSON.parse(upstreamReq2.write.mock.calls[0][0].toString());
-    expect(writtenBody2.messages[0].role).toBe('system');
-    expect(writtenBody2.messages[0].content).toContain('[AWF TIME WARNING]');
-    expect(writtenBody2.messages[0].content).toContain('80%');
+    expect(writtenBody2.messages[0]).toEqual({ role: 'user', content: 'Second request' });
+    expect(writtenBody2.messages[1].role).toBe('user');
+    expect(writtenBody2.messages[1].content).toContain('[AWF TIME WARNING]');
+    expect(writtenBody2.messages[1].content).toContain('80%');
   });
 
-  it('injects Copilot Messages steering into the top-level system field', async () => {
+  it('injects Copilot Messages steering after the final user content, leaving system unchanged', async () => {
     process.env.AWF_AGENT_TIMEOUT_MINUTES = '10';
     const start = 1_700_000_000_000;
     fs.writeFileSync(process.env.AWF_AGENT_RUNTIME_START_FILE, String(start));
@@ -193,9 +194,15 @@ describe('budget steering and injectSteeringMessage', () => {
 
     expect(upstreamReq2.write).toHaveBeenCalledTimes(1);
     const writtenBody = JSON.parse(upstreamReq2.write.mock.calls[0][0].toString());
-    expect(writtenBody.system).toContain('[AWF TIME WARNING]');
-    expect(writtenBody.system).toContain('80%');
-    expect(writtenBody.messages).toEqual([{ role: 'user', content: 'Second request' }]);
+    expect(writtenBody.system).toBe('Be helpful.');
+    expect(writtenBody.messages).toEqual([{
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Second request' },
+        { type: 'text', text: expect.stringContaining('[AWF TIME WARNING]') },
+      ],
+    }]);
+    expect(writtenBody.messages[0].content[1].text).toContain('80%');
   });
 
   it('steers gh-aw default AI-credit-only Copilot Responses requests end to end', async () => {
@@ -640,7 +647,7 @@ describe('budget steering and injectSteeringMessage', () => {
         url: '/v1beta/models/gemini-2.5-pro:streamGenerateContent',
         requestBody: { contents: [{ role: 'user', parts: [{ text: requestId }] }] },
       });
-      const geminiNoticeIn = body => JSON.stringify(body.systemInstruction || {})
+      const geminiNoticeIn = body => JSON.stringify(body.contents.at(-1))
         .includes('[AWF AI CREDIT WARNING]');
       const geminiReply = JSON.stringify([{
         modelVersion: 'gemini-2.5-pro',
@@ -743,42 +750,46 @@ describe('budget steering and injectSteeringMessage', () => {
 
     expect(upstreamReq2.write).toHaveBeenCalledTimes(1);
     const writtenBody2 = JSON.parse(upstreamReq2.write.mock.calls[0][0].toString());
-    const systemMessages = writtenBody2.messages.filter(m => m.role === 'system' && m.content.includes('[AWF AI CREDIT WARNING]'));
-    expect(systemMessages).toHaveLength(0);
+    expect(writtenBody2.messages).toEqual([{ role: 'user', content: 'Hello' }]);
   });
 
   describe('injectSteeringMessage', () => {
     const WARNING = '[AWF AI CREDIT WARNING] Test warning message.';
 
-    it('injects into OpenAI messages array after existing system messages', () => {
-      const body = Buffer.from(JSON.stringify({
-        model: 'gpt-4o',
-        messages: [
-          { role: 'system', content: 'Be helpful.' },
-          { role: 'user', content: 'Hello' },
-        ],
-      }));
+    it('appends a final user message to OpenAI messages after the last tool message', () => {
+      const messages = [
+        { role: 'system', content: 'Be helpful.' },
+        { role: 'user', content: 'Hello' },
+        { role: 'assistant', content: null, tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'f', arguments: '{}' } }] },
+        { role: 'tool', tool_call_id: 'call-1', content: 'result' },
+      ];
+      const body = Buffer.from(JSON.stringify({ model: 'gpt-4o', messages }));
       const result = injectSteeringMessage(body, 'openai', WARNING);
       expect(result).not.toBeNull();
       const parsed = JSON.parse(result.toString());
-      expect(parsed.messages[1].role).toBe('system');
-      expect(parsed.messages[1].content).toBe(WARNING);
-      expect(parsed.messages[2].role).toBe('user');
+      expect(parsed.messages).toEqual([...messages, { role: 'user', content: WARNING }]);
     });
 
-    it('injects system message at position 0 when no existing system message', () => {
+    it('does not add an OpenAI system message', () => {
       const body = Buffer.from(JSON.stringify({
         model: 'gpt-4o',
         messages: [{ role: 'user', content: 'Hello' }],
       }));
-      const result = injectSteeringMessage(body, 'openai', WARNING);
-      expect(result).not.toBeNull();
-      const parsed = JSON.parse(result.toString());
-      expect(parsed.messages[0].role).toBe('system');
-      expect(parsed.messages[0].content).toBe(WARNING);
+      const parsed = JSON.parse(injectSteeringMessage(body, 'openai', WARNING).toString());
+      expect(parsed.messages).toEqual([
+        { role: 'user', content: 'Hello' },
+        { role: 'user', content: WARNING },
+      ]);
     });
 
-    it('injects into Anthropic string system field', () => {
+    it('returns null for OpenAI messages ending in an assistant message or empty', () => {
+      expect(injectSteeringMessage(Buffer.from(JSON.stringify({
+        messages: [{ role: 'user', content: 'Hello' }, { role: 'assistant', content: 'Prefill' }],
+      })), 'openai', WARNING)).toBeNull();
+      expect(injectSteeringMessage(Buffer.from(JSON.stringify({ messages: [] })), 'openai', WARNING)).toBeNull();
+    });
+
+    it('leaves the Anthropic string system field unchanged', () => {
       const body = Buffer.from(JSON.stringify({
         model: 'claude-opus-4-5',
         system: 'You are a helpful assistant.',
@@ -787,58 +798,99 @@ describe('budget steering and injectSteeringMessage', () => {
       const result = injectSteeringMessage(body, 'anthropic', WARNING);
       expect(result).not.toBeNull();
       const parsed = JSON.parse(result.toString());
-      expect(typeof parsed.system).toBe('string');
-      expect(parsed.system).toContain('You are a helpful assistant.');
-      expect(parsed.system).toContain(WARNING);
+      expect(parsed.system).toBe('You are a helpful assistant.');
+      expect(parsed.messages).toEqual([{
+        role: 'user',
+        content: [{ type: 'text', text: 'Hello' }, { type: 'text', text: WARNING }],
+      }]);
     });
 
-    it('appends text block to Anthropic array system field', () => {
-      const body = Buffer.from(JSON.stringify({
-        model: 'claude-opus-4-5',
-        system: [{ type: 'text', text: 'Original system.' }],
-        messages: [{ role: 'user', content: 'Hello' }],
-      }));
+    it('appends a text block after Anthropic tool_result blocks in the final user message', () => {
+      const system = [{ type: 'text', text: 'Original system.', cache_control: { type: 'ephemeral' } }];
+      const messages = [
+        { role: 'user', content: 'Hello' },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu-1', name: 'f', input: {} }] },
+        {
+          role: 'user',
+          content: [
+            { type: 'tool_result', tool_use_id: 'toolu-1', content: 'result', cache_control: { type: 'ephemeral' } },
+          ],
+        },
+      ];
+      const body = Buffer.from(JSON.stringify({ model: 'claude-opus-4-5', system, messages }));
       const result = injectSteeringMessage(body, 'anthropic', WARNING);
       expect(result).not.toBeNull();
       const parsed = JSON.parse(result.toString());
-      expect(Array.isArray(parsed.system)).toBe(true);
-      expect(parsed.system).toHaveLength(2);
-      expect(parsed.system[1]).toEqual({ type: 'text', text: WARNING });
+      expect(parsed.system).toEqual(system);
+      expect(parsed.messages.slice(0, 2)).toEqual(messages.slice(0, 2));
+      expect(parsed.messages[2].content).toEqual([
+        messages[2].content[0],
+        { type: 'text', text: WARNING },
+      ]);
     });
 
-    it('creates system field in Anthropic body when absent', () => {
+    it('does not create an Anthropic system field when absent', () => {
       const body = Buffer.from(JSON.stringify({
         model: 'claude-opus-4-5',
-        messages: [{ role: 'user', content: 'Hello' }],
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
       }));
-      const result = injectSteeringMessage(body, 'anthropic', WARNING);
-      expect(result).not.toBeNull();
-      const parsed = JSON.parse(result.toString());
-      expect(parsed.system).toBe(WARNING);
+      const parsed = JSON.parse(injectSteeringMessage(body, 'anthropic', WARNING).toString());
+      expect(parsed).not.toHaveProperty('system');
+      expect(parsed.messages[0].content.at(-1)).toEqual({ type: 'text', text: WARNING });
     });
 
-    it('injects into Gemini systemInstruction', () => {
+    it('returns null for Anthropic messages ending in an assistant prefill or empty', () => {
+      expect(injectSteeringMessage(Buffer.from(JSON.stringify({
+        messages: [{ role: 'user', content: 'Hello' }, { role: 'assistant', content: 'Prefill' }],
+      })), 'anthropic', WARNING)).toBeNull();
+      expect(injectSteeringMessage(Buffer.from(JSON.stringify({ messages: [] })), 'anthropic', WARNING)).toBeNull();
+      expect(injectSteeringMessage(Buffer.from(JSON.stringify({
+        messages: [{ role: 'user', content: null }],
+      })), 'anthropic', WARNING)).toBeNull();
+    });
+
+    it('appends a text part after Gemini function responses, leaving systemInstruction unchanged', () => {
+      const contents = [
+        { role: 'user', parts: [{ text: 'Hello' }] },
+        { role: 'model', parts: [{ functionCall: { name: 'f', args: {} } }] },
+        { role: 'user', parts: [{ functionResponse: { name: 'f', response: { ok: true } } }] },
+      ];
       const body = Buffer.from(JSON.stringify({
         model: 'gemini-2.0-flash',
         systemInstruction: { parts: [{ text: 'Be helpful.' }] },
-        contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
+        contents,
       }));
       const result = injectSteeringMessage(body, 'gemini', WARNING);
       expect(result).not.toBeNull();
       const parsed = JSON.parse(result.toString());
-      expect(parsed.systemInstruction.parts).toHaveLength(2);
-      expect(parsed.systemInstruction.parts[1]).toEqual({ text: WARNING });
+      expect(parsed.systemInstruction).toEqual({ parts: [{ text: 'Be helpful.' }] });
+      expect(parsed.contents.slice(0, 2)).toEqual(contents.slice(0, 2));
+      expect(parsed.contents[2].parts).toEqual([...contents[2].parts, { text: WARNING }]);
     });
 
-    it('creates systemInstruction in Gemini body when absent', () => {
+    it('does not create Gemini systemInstruction when absent', () => {
       const body = Buffer.from(JSON.stringify({
         model: 'gemini-2.0-flash',
-        contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
+        contents: [{ parts: [{ text: 'Hello' }] }],
       }));
-      const result = injectSteeringMessage(body, 'gemini', WARNING);
-      expect(result).not.toBeNull();
-      const parsed = JSON.parse(result.toString());
-      expect(parsed.systemInstruction).toEqual({ parts: [{ text: WARNING }] });
+      const parsed = JSON.parse(injectSteeringMessage(body, 'gemini', WARNING).toString());
+      expect(parsed).not.toHaveProperty('systemInstruction');
+      expect(parsed.contents).toEqual([{ parts: [{ text: 'Hello' }, { text: WARNING }] }]);
+    });
+
+    it('adds a Gemini user turn after a final function-role turn', () => {
+      const contents = [{ role: 'function', parts: [{ functionResponse: { name: 'f', response: {} } }] }];
+      const parsed = JSON.parse(injectSteeringMessage(
+        Buffer.from(JSON.stringify({ contents })), 'gemini', WARNING,
+      ).toString());
+      expect(parsed.contents).toEqual([...contents, { role: 'user', parts: [{ text: WARNING }] }]);
+    });
+
+    it('returns null for Gemini contents ending in a model turn or empty', () => {
+      expect(injectSteeringMessage(Buffer.from(JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: 'Hello' }] }, { role: 'model', parts: [{ text: 'Hi' }] }],
+      })), 'gemini', WARNING)).toBeNull();
+      expect(injectSteeringMessage(Buffer.from(JSON.stringify({ contents: [] })), 'gemini', WARNING)).toBeNull();
     });
 
     it('returns null for non-JSON body', () => {
