@@ -324,6 +324,7 @@ describe('applyGeneralWorkflowPatches published AWF maintenance workflows', () =
     'doc-maintainer.lock.yml',
     'model-api-mapping-updater.lock.yml',
     'pr-sous-chef.lock.yml',
+    'refactoring-scanner.lock.yml',
     'mount-docs-maintainer.lock.yml',
     'schema-sync.lock.yml',
     'self-hosted-runner-doctor-updater.lock.yml',
