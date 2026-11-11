@@ -1,4 +1,5 @@
 const { injectSteeringMessage, injectStreamOptions, describeSteeringConversation } = require('./body-transform');
+const { STORED_RESPONSE_CONVERSATION } = require('./guards/steering-thresholds');
 const { makeAnthropicTransform } = require('./anthropic-transforms');
 
 describe('injectStreamOptions', () => {
@@ -415,7 +416,7 @@ describe('describeSteeringConversation', () => {
     expect(omitted.conversation).toEqual(expect.stringMatching(/^[0-9a-f]{64}$/));
     expect(nulled).toEqual(omitted);
     expect(describe_({ instructions: 'Agent.', conversation: 'conv_1', input }, 'openai', '/v1/responses'))
-      .toEqual({ endsWithToolResult: true, conversation: null });
+      .toEqual({ endsWithToolResult: true, conversation: STORED_RESPONSE_CONVERSATION });
   });
 
   describe.each(['rawPredict', 'streamRawPredict'])('Claude on Vertex %s', (method) => {
@@ -451,6 +452,53 @@ describe('describeSteeringConversation', () => {
     });
   });
 
+  describe.each([
+    ['openai', 'invoke'],
+    ['openai', 'invoke-with-response-stream'],
+    ['copilot', 'invoke'],
+    ['copilot', 'invoke-with-response-stream'],
+  ])('Claude on Bedrock through the %s adapter on /model/<id>/%s', (provider, method) => {
+    const body = (system, task) => ({
+      anthropic_version: 'bedrock-2023-05-31',
+      max_tokens: 1024,
+      system,
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: task }] },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'read', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'x' }] },
+      ],
+    });
+    const urls = [
+      `/model/us.anthropic.claude-sonnet-4-5-20250929-v1:0/${method}`,
+      // An application inference profile ARN does not name the model, so the
+      // body's anthropic_version identifies the Messages schema.
+      `/model/${encodeURIComponent('arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc')}/${method}`,
+    ];
+
+    test.each(urls)('is a Messages request whose hash includes the system prompt (%s)', (url) => {
+      const main = describe_(body('Main agent.', 'Task.'), provider, url);
+      const sub = describe_(body('Sub-agent.', 'Task.'), provider, url);
+      expect(main).toEqual({ endsWithToolResult: true, conversation: expect.stringMatching(/^[0-9a-f]{64}$/) });
+      expect(sub.conversation).not.toBe(main.conversation);
+    });
+
+    test.each(urls)('carries the notice after the tool results of the final user message (%s)', (url) => {
+      const steered = JSON.parse(injectSteeringMessage(
+        Buffer.from(JSON.stringify(body('Main agent.', 'Task.'))), provider, 'NOTICE', url).toString('utf8'));
+      expect(steered.system).toBe('Main agent.');
+      expect(steered.messages).toHaveLength(3);
+      expect(steered.messages[2].content).toEqual([
+        { type: 'tool_result', tool_use_id: 't1', content: 'x' },
+        { type: 'text', text: 'NOTICE' },
+      ]);
+    });
+
+    test('recognises a Claude model id by path without anthropic_version', () => {
+      const { anthropic_version: _version, ...withoutVersion } = body('Main agent.', 'Task.');
+      expect(describe_(withoutVersion, provider, urls[0]).endsWithToolResult).toBe(true);
+    });
+  });
+
   test.each([
     ['anthropic', '/v1/messages/count_tokens'],
     ['copilot', '/v1/messages/count_tokens'],
@@ -479,11 +527,16 @@ describe('describeSteeringConversation', () => {
     expect(injectSteeringMessage(Buffer.from(JSON.stringify(body)), provider, 'NOTICE', url)).toBeNull();
   });
 
-  test('has no conversation for Responses requests continuing a stored response', () => {
+  test('gives all Responses requests continuing a stored response one shared conversation', () => {
     expect(describe_({
       previous_response_id: 'resp_1',
       input: [{ type: 'function_call_output', call_id: 'c1', output: 'x' }],
-    }, 'openai', '/v1/responses')).toEqual({ endsWithToolResult: true, conversation: null });
+    }, 'openai', '/v1/responses')).toEqual({ endsWithToolResult: true, conversation: STORED_RESPONSE_CONVERSATION });
+    expect(describe_({
+      instructions: 'Agent.',
+      previous_response_id: 'resp_2',
+      input: [{ role: 'user', content: 'Task.' }],
+    }, 'openai', '/v1/responses')).toEqual({ endsWithToolResult: false, conversation: STORED_RESPONSE_CONVERSATION });
   });
 
   test.each([

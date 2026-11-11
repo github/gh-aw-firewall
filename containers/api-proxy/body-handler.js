@@ -36,6 +36,7 @@ const {
   getPendingAiCreditSteeringWarning,
   claimAiCreditSteeringWarning,
 } = require('./guards/ai-credits-guard');
+const { STORED_RESPONSE_CONVERSATION } = require('./guards/steering-thresholds');
 const { translateCodexCustomToolsForCopilot } = require('./codex-compat');
 const { endpointForPath, translateCopilotWireApi } = require('./wire-api-compat');
 const { stripRedundantModelPrefixInBody } = require('./model-body-rewriter');
@@ -298,7 +299,11 @@ function createBodyHandler({ handleRequestError, otel }) {
         const steered = injectSteeringMessage(body, provider, nextWarning.warning.message, req.url);
         if (steered) {
           body = steered;
-          const shortConversation = conversation ? conversation.slice(0, 12) : null;
+          // Records carry a 12-hex-character hash prefix, or null for a
+          // request continuing a stored response, which has no hash.
+          const shortConversation = conversation && conversation !== STORED_RESPONSE_CONVERSATION
+            ? conversation.slice(0, 12)
+            : null;
           // `first` is set when this turns out to be the run's first delivery
           // of the threshold; only that record carries the `steering` field.
           steering = {

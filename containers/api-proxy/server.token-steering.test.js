@@ -360,44 +360,88 @@ describe('budget steering and injectSteeringMessage', () => {
     });
     expect(getAiCreditsReflectState().thresholds_pending).toEqual([80]);
 
-    const invalidBody = Buffer.from(JSON.stringify({
-      model: 'routed-model',
-      reasoning_effort: 'short',
-      messages: [{ role: 'user', content: 'Second request' }],
-    }));
-    const req = new EventEmitter();
-    req.url = '/v1/chat/completions';
-    req.method = 'POST';
-    req.headers = { 'content-type': 'application/json', 'content-length': String(invalidBody.length) };
-    const res = Object.assign(new EventEmitter(), {
-      headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn(),
-    });
-    const routeToMini = body => {
-      const parsed = JSON.parse(body.toString('utf8'));
-      parsed.model = 'gpt-5-mini';
-      return Buffer.from(JSON.stringify(parsed));
+    const sendRouted = (reasoningEffort) => {
+      const body = Buffer.from(JSON.stringify({
+        model: 'routed-model',
+        reasoning_effort: reasoningEffort,
+        ...chatToolResult('Rejected task.'),
+      }));
+      const req = new EventEmitter();
+      req.url = '/v1/chat/completions';
+      req.method = 'POST';
+      req.headers = { 'content-type': 'application/json', 'content-length': String(body.length) };
+      // Capture the delivery handle the proxy claims for the notice.
+      const delivery = { claimed: null, acknowledge: jest.fn(), release: jest.fn() };
+      Object.defineProperty(req, 'awfSteeringDelivery', {
+        configurable: true,
+        get: () => delivery.claimed && delivery,
+        set: (claimed) => {
+          delivery.claimed = claimed;
+          delivery.acknowledge.mockImplementation(claimed.acknowledge);
+          delivery.release.mockImplementation(claimed.release);
+        },
+      });
+      const res = Object.assign(new EventEmitter(), {
+        headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn(),
+      });
+      const routeToMini = routedBody => {
+        const parsed = JSON.parse(routedBody.toString('utf8'));
+        parsed.model = 'gpt-5-mini';
+        return Buffer.from(JSON.stringify(parsed));
+      };
+      proxyRequest(req, res, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot', '', routeToMini);
+      req.emit('data', body);
+      req.emit('end');
+      return { req, res, delivery };
     };
 
-    proxyRequest(req, res, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot', '', routeToMini);
-    req.emit('data', invalidBody);
-    req.emit('end');
+    const rejected = sendRouted('short');
     await flushPromises();
 
     expect(https.request).toHaveBeenCalledTimes(1);
-    expect(res.writeHead).toHaveBeenCalledWith(400, expect.objectContaining({
+    expect(rejected.res.writeHead).toHaveBeenCalledWith(400, expect.objectContaining({
       'Content-Type': 'application/json',
     }));
-    expect(JSON.parse(res.end.mock.calls[0][0])).toMatchObject({
+    expect(JSON.parse(rejected.res.end.mock.calls[0][0])).toMatchObject({
       error: {
         type: 'invalid_request_error',
         code: 'unsupported_reasoning_effort',
         message: 'reasoning_effort "short" is not supported by model gpt-5-mini; supported values: [low medium high]',
       },
     });
-    res.emit('close');
-    // The rejected request never reached the provider, so its notice stays pending.
+    rejected.res.emit('close');
+    // The notice was claimed for the rejected request, then released because
+    // the request never reached the provider, so it stays pending.
+    expect(rejected.req.awfSteering).toEqual({
+      type: 'ai_credit', threshold: 80, conversation: expect.stringMatching(/^[0-9a-f]{12}$/), first: false,
+    });
+    expect(rejected.delivery.claimed).not.toBeNull();
+    expect(rejected.delivery.release).toHaveBeenCalled();
+    expect(rejected.delivery.acknowledge).not.toHaveBeenCalled();
     expect(getAiCreditsReflectState().thresholds_pending).toEqual([80]);
-    expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
+
+    // A corrected request with the same opening receives the notice.
+    let correctedHandler;
+    const correctedUpstream = makeProxyReq();
+    https.request.mockImplementationOnce((_opts, cb) => {
+      correctedHandler = cb;
+      return correctedUpstream;
+    });
+    const corrected = sendRouted('low');
+    await flushPromises();
+    expect(https.request).toHaveBeenCalledTimes(2);
+    const correctedBody = JSON.parse(correctedUpstream.write.mock.calls[0][0].toString());
+    expect(correctedBody.messages.at(-1)).toEqual({
+      role: 'user', content: expect.stringContaining('[AWF AI CREDIT WARNING]'),
+    });
+    expect(corrected.req.awfSteering.conversation).toBe(rejected.req.awfSteering.conversation);
+    completeUpstreamResponse(correctedHandler, {
+      statusCode: 200,
+      body: { model: 'gpt-5-mini', usage: { prompt_tokens: 1, completion_tokens: 0 } },
+    });
+    await flushPromises();
+    expect(corrected.delivery.acknowledge).toHaveBeenCalled();
+    expect(getAiCreditsReflectState().thresholds_pending).toEqual([]);
   });
 
   it('redelivers a notice after a failed request and never follows it with a superseded one', async () => {

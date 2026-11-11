@@ -1371,15 +1371,19 @@ on that conversation's own next eligible request:
   Code's per-request `x-anthropic-billing-header` system block are ignored.
 - An **eligible request** ends with a tool result: a `tool` message (Chat
   Completions), a final user message with `tool_result` blocks (Messages,
-  including Claude on Vertex `:rawPredict`/`:streamRawPredict`), a tool output
+  including Claude on Vertex `:rawPredict`/`:streamRawPredict` and Claude on
+  Bedrock `/model/<id>/invoke`/`/model/<id>/invoke-with-response-stream`; a
+  body with an `anthropic_version` field is read as Messages), a tool output
   item such as `function_call_output` (Responses; an input message without a
   `role` counts as a user message), or function responses (Gemini). Other
   requests, such as a harness request to summarize the conversation, are left
   unchanged. Token-counting requests (such as `/v1/messages/count_tokens`) are
   not model calls and never carry or acknowledge a warning.
 - A Responses request continuing a stored response with `previous_response_id`
-  (or a non-null `conversation`) has no history to hash; each warning goes to one such
-  request per run.
+  (or a non-null `conversation`) has no history to hash. All such requests
+  together count as one conversation, recorded alongside the hashed ones: each
+  warning goes to one of them per run, independently of hashed conversations,
+  under the same pending, acknowledgement and in-flight rules.
 - The proxy records, per warning kind, the latest warning each conversation has
   received, only once the request carrying it is acknowledged. The record is
   bounded to 1,024 conversations, dropping the one notified least recently. A

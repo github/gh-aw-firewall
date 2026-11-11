@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { parseBodyAsObject } = require('./body-utils');
+const { STORED_RESPONSE_CONVERSATION } = require('./guards/steering-thresholds');
 
 /**
  * Sanitize OpenAI-compatible request history where tool_calls[].type is null.
@@ -96,6 +97,12 @@ function isVertexAnthropicRequest(path) {
   return /\/publishers\/anthropic\/models\/[^/:]+:(?:rawPredict|streamRawPredict)$/.test(path);
 }
 
+// Claude on Bedrock uses the Messages schema on InvokeModel and
+// InvokeModelWithResponseStream.
+function isBedrockAnthropicRequest(path) {
+  return /\/model\/[^/]*anthropic\.[^/]*\/invoke(?:-with-response-stream)?$/.test(path);
+}
+
 // Token-counting routes are not model calls: /v1/messages/count_tokens,
 // /v1/responses/input_tokens, Gemini :countTokens, Bedrock .../count-tokens
 // and Claude-on-Vertex .../models/count-tokens:rawPredict.
@@ -108,8 +115,12 @@ function isTokenCountingRequest(path) {
  * @returns {'messages'|'gemini'|'responses'|'chat'}
  */
 function steeringProtocol(parsed, provider, requestPath) {
+  const path = steeringPathname(requestPath) ?? '';
+  // Claude on Vertex and Bedrock carries `anthropic_version` in the body, which
+  // also covers Bedrock model ARNs and inference profiles without "anthropic".
   if (provider === 'anthropic' || isMessagesRequest(requestPath) ||
-      isVertexAnthropicRequest(steeringPathname(requestPath) ?? '')) return 'messages';
+      typeof parsed.anthropic_version === 'string' ||
+      isVertexAnthropicRequest(path) || isBedrockAnthropicRequest(path)) return 'messages';
   if (provider === 'gemini') return 'gemini';
   if (isResponsesRequest(requestPath) || (parsed.input !== undefined && !Array.isArray(parsed.messages))) {
     return 'responses';
@@ -123,7 +134,8 @@ function steeringProtocol(parsed, provider, requestPath) {
  * Handles four JSON body formats. The notice always goes at the end of the
  * conversation, after the last tool result, and never changes the top-level
  * system prompt or instructions, so the provider prompt-cache prefix is kept:
- *   - Messages   (/v1/messages)          — appends a text block to the final
+ *   - Messages   (/v1/messages, Claude on
+ *                 Vertex and Bedrock)    — appends a text block to the final
  *                                           user message, after any
  *                                           `tool_result` blocks
  *                                           (Anthropic and Copilot)
@@ -253,8 +265,8 @@ function hasGeminiFunctionResponse(content) {
  * keep this fixed for the length of a conversation to keep their prompt cache,
  * and each sub-agent starts with its own opening. A Responses request that
  * continues a stored response (`previous_response_id` or a non-null
- * `conversation`)
- * carries no history, so it has no conversation hash.
+ * `conversation`) carries no history to hash; all such requests share the
+ * conversation key STORED_RESPONSE_CONVERSATION.
  *
  * `endsWithToolResult` is true when the request's last item is a tool result:
  * a `tool` message for Chat Completions, a final user message with
@@ -266,7 +278,8 @@ function hasGeminiFunctionResponse(content) {
  * @param {string} [requestPath]
  * @returns {{ endsWithToolResult: boolean, conversation: string|null }|null}
  *   null when the body cannot be parsed or the request never carries a notice
- *   (for example a token-counting request).
+ *   (for example a token-counting request). `conversation` is the opening
+ *   hash, STORED_RESPONSE_CONVERSATION, or null when there is no opening.
  */
 function describeSteeringConversation(body, provider, requestPath = '') {
   if (isSteeringExcluded(requestPath)) return null;
@@ -312,7 +325,9 @@ function describeSteeringConversation(body, provider, requestPath = '') {
   }
 
   let conversation = null;
-  if (stateless && opening.length > 0) {
+  if (!stateless) {
+    conversation = STORED_RESPONSE_CONVERSATION;
+  } else if (opening.length > 0) {
     conversation = crypto.createHash('sha256')
       .update(JSON.stringify(canonicalOpeningValue({ protocol, system: system ?? null, opening })))
       .digest('hex');

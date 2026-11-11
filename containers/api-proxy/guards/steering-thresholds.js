@@ -10,15 +10,24 @@ const BUDGET_WARNING_THRESHOLDS = [80, 90, 95, 99];
 const MAX_STEERING_CONVERSATIONS = 1024;
 
 /**
+ * Conversation key shared by all Responses requests that continue a stored
+ * response (`previous_response_id` or a non-null `conversation`). They carry
+ * no history to hash, so together they are one entry in the per-conversation
+ * table: each notice goes to one of them per run, independently of hashed
+ * conversations. Opening hashes are hex, so this key never collides with one.
+ */
+const STORED_RESPONSE_CONVERSATION = 'stored-response';
+
+/**
  * Delivery state for one notice kind (time or AI credits).
  *
- * - `pending` / `inFlight`: run-level state for requests that cannot be tied to
- *   a conversation (for example Responses requests continuing a stored
- *   response with `previous_response_id`). Each notice goes to one such
- *   request per run.
- * - `conversations`: conversation hash -> latest threshold delivered to it,
+ * - `pending` / `inFlight`: run-level state for requests that have no
+ *   conversation key (a history with no opening to hash). Each notice goes to
+ *   one such request per run.
+ * - `conversations`: conversation key (an opening hash or
+ *   STORED_RESPONSE_CONVERSATION) -> latest threshold delivered to it,
  *   in least-recently-delivered order and capped at MAX_STEERING_CONVERSATIONS.
- * - `conversationInFlight`: conversation hash -> threshold -> in-flight count.
+ * - `conversationInFlight`: conversation key -> threshold -> in-flight count.
  * - `recorded`: thresholds already delivered somewhere in the run, so the
  *   run-level `steering` record field is written once per threshold.
  */
@@ -61,7 +70,7 @@ function selectPendingSteeringThreshold(pending, inFlight) {
  *
  * @param {ReturnType<typeof createSteeringDeliveryState>} delivery
  * @param {Set<number>} crossed - Thresholds crossed so far in the run
- * @param {string|null} [conversation] - Conversation hash
+ * @param {string|null} [conversation] - Conversation key
  * @returns {number|null}
  */
 function selectSteeringThreshold(delivery, crossed, conversation = null) {
@@ -102,7 +111,7 @@ function recordConversationDelivery(conversations, conversation, threshold) {
  *
  * @param {ReturnType<typeof createSteeringDeliveryState>} delivery
  * @param {number} threshold
- * @param {string|null} [conversation] - Conversation hash
+ * @param {string|null} [conversation] - Conversation key
  * @returns {{ acknowledge: () => boolean, release: () => void }}
  */
 function claimSteeringThreshold(delivery, threshold, conversation = null) {
@@ -142,6 +151,7 @@ function claimSteeringThreshold(delivery, threshold, conversation = null) {
 module.exports = {
   BUDGET_WARNING_THRESHOLDS,
   MAX_STEERING_CONVERSATIONS,
+  STORED_RESPONSE_CONVERSATION,
   createSteeringDeliveryState,
   selectPendingSteeringThreshold,
   selectSteeringThreshold,

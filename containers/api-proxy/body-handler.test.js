@@ -818,15 +818,50 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
         const result = await transformRequestBody(continuation, 'openai', req, requestId, null);
         return { req, result };
       };
+      const sendHashed = async requestId => {
+        const req = { method: 'POST', url: '/v1/chat/completions' };
+        const result = await transformRequestBody(toolResultChat(), 'openai', req, requestId, null);
+        return { req, result };
+      };
 
+      // A hashed conversation acknowledges the notice first.
+      const hashed = await sendHashed('history');
+      expect(hashed.result.steering).toEqual(delivered('ai_credit', 80));
+      hashed.req.awfSteeringDelivery.acknowledge();
+      expect(hashed.result.steering.first).toBe(true);
+
+      // Stored-response requests still hear it once, as their own conversation.
       const first = await send('stored-1');
       expect(first.result.steering).toEqual({ type: 'ai_credit', threshold: 80, conversation: null, first: false });
       expect((await send('stored-concurrent')).result.steering).toBeNull();
       first.req.awfSteeringDelivery.acknowledge();
-      expect(first.result.steering.first).toBe(true);
+      expect(first.result.steering.first).toBe(false);
       expect((await send('stored-2')).result.steering).toBeNull();
+      expect((await sendHashed('history-again')).result.steering).toBeNull();
+    });
 
-      // A conversation with history still hears the notice.
+    test('redelivers to stored-response requests after a release', async () => {
+      createCreditWarning();
+      const continuation = Buffer.from(JSON.stringify({
+        conversation: 'conv_1',
+        input: [{ type: 'function_call_output', call_id: 'call-1', output: 'contents' }],
+      }));
+      const send = async requestId => {
+        const req = { method: 'POST', url: '/v1/responses' };
+        const result = await transformRequestBody(continuation, 'openai', req, requestId, null);
+        return { req, result };
+      };
+
+      const failed = await send('stored-failed');
+      expect(failed.result.steering).toEqual({ type: 'ai_credit', threshold: 80, conversation: null, first: false });
+      failed.req.awfSteeringDelivery.release();
+      const retried = await send('stored-retry');
+      expect(retried.result.steering).toEqual({ type: 'ai_credit', threshold: 80, conversation: null, first: false });
+      retried.req.awfSteeringDelivery.acknowledge();
+      expect(retried.result.steering.first).toBe(true);
+      expect((await send('stored-after')).result.steering).toBeNull();
+
+      // A hashed conversation still hears the notice.
       const withHistory = await transformRequestBody(
         toolResultChat(), 'openai', { method: 'POST', url: '/v1/chat/completions' }, 'history', null);
       expect(withHistory.steering).toEqual(delivered('ai_credit', 80));

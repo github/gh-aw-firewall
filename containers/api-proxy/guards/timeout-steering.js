@@ -79,7 +79,7 @@ function updateTimeoutSteeringThresholds(state, timeoutMinutes) {
 }
 
 /**
- * @param {string|null} [conversation] - Conversation hash; omit for the
+ * @param {string|null} [conversation] - Conversation key; omit for the
  *   run-level notice (each notice once per run).
  */
 function getPendingTimeoutSteeringWarning(conversation = null) {
