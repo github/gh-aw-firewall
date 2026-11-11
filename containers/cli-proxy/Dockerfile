@@ -36,7 +36,7 @@ RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz"
 # Pin to a specific alpine version so the curl constraint below is stable.
 FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a
 
-ENV NPM_CONFIG_REGISTRY=https://packagefeedproxy.microsoft.io/npm/
+ARG NPM_CONFIG_REGISTRY=https://packagefeedproxy.microsoft.io/npm/
 
 # Install system packages.
 # Alpine 3.24's stable repository still ships curl 8.22.0-r0, affected by

@@ -64,7 +64,8 @@ describe('reproducible npm CLI installs', () => {
       const dockerfile = fs.readFileSync(
         path.join(repositoryRoot, `containers/${image}/Dockerfile`), 'utf8',
       );
-      expect(dockerfile).toMatch(/(?:ENV|ARG) NPM_CONFIG_REGISTRY=https:\/\/packagefeedproxy\.microsoft\.io\/npm\//);
+      expect(dockerfile).toMatch(/ARG NPM_CONFIG_REGISTRY=https:\/\/packagefeedproxy\.microsoft\.io\/npm\//);
+      expect(dockerfile).not.toMatch(/ENV NPM_CONFIG_REGISTRY=/);
       expect(dockerfile).not.toContain('https://registry.npmjs.org/');
     },
   );

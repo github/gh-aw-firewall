@@ -81,7 +81,7 @@ RUN set -eux; \
 
 FROM ${BASE_IMAGE}
 
-ENV NPM_CONFIG_REGISTRY=https://packagefeedproxy.microsoft.io/npm/
+ARG NPM_CONFIG_REGISTRY=https://packagefeedproxy.microsoft.io/npm/
 
 COPY --from=browser-libs /usr/local/share/awf/ /usr/local/share/awf/
 

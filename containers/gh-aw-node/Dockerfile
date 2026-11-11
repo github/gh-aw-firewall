@@ -22,7 +22,7 @@
 #     from edge.
 FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a
 
-ENV NPM_CONFIG_REGISTRY=https://packagefeedproxy.microsoft.io/npm/
+ARG NPM_CONFIG_REGISTRY=https://packagefeedproxy.microsoft.io/npm/
 
 # Install curl for healthchecks and the npm tarball download below.
 # Also run apk upgrade to pull in latest libcrypto3 >= 3.5.7 and libssl3 patches.
