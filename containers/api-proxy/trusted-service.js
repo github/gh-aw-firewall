@@ -2,6 +2,7 @@
 
 const { validateHeaderValue } = require('http');
 const { isIP } = require('net');
+const { markCredentialHeaders, getHeaderCredentials } = require('./credential-protection');
 const TRUSTED_SERVICE = Symbol.for('awf.trustedService');
 const TRUSTED_SERVICE_HEADERS = Symbol.for('awf.trustedServiceHeaders');
 const secretValues = new Set();
@@ -63,10 +64,10 @@ function readTrustedService(env, provider) {
           if (token) secretValues.add(token);
         }
       }
-      return {
+      return markCredentialHeaders({
         ...auth, ...headers, [TRUSTED_SERVICE]: true,
         [TRUSTED_SERVICE_HEADERS]: new Set([...Object.keys(auth), ...Object.keys(headers)].map(name => name.toLowerCase())),
-      };
+      }, [...getHeaderCredentials(auth), ...Object.values(headers)]);
     },
   };
 }

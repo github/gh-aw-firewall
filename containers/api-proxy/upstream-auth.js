@@ -1,6 +1,7 @@
 'use strict';
 
 const { mergeInjectedHeaders } = require('./request-headers');
+const { rememberInjectedCredentials } = require('./credential-protection');
 
 function createFailBrokerAuth({ metrics, otel }) {
   return ({ res, req, provider, span }) => {
@@ -21,6 +22,7 @@ function createSendAuthenticatedRequest({ getProviderAdapter, dispatchUpstreamRe
     if (!adapter?.renewableAuth) return dispatchUpstreamRequest(requestHeaders, ctx);
     return adapter.getAuthHeaders({ method: ctx.req.method, url: ctx.upstreamPath, headers: ctx.req.headers })
       .then(authHeaders => {
+        rememberInjectedCredentials(ctx.req, authHeaders);
         const headers = Object.fromEntries(Object.entries(requestHeaders)
           .filter(([key]) => key.toLowerCase() !== 'authorization'));
         mergeInjectedHeaders(headers, authHeaders, ctx.targetHost);
