@@ -9,6 +9,7 @@
  * modules that own them, eliminating the previous duplication.
  */
 
+import * as path from 'path';
 import {
   installStepRegex,
   duplicateSetupNodeRegex,
@@ -35,7 +36,28 @@ import {
 } from './workflow-patch-patterns';
 import { buildCopilotCliDaemonCopyStep } from './workflow-step-builders';
 import { applyCodexWorkflowPatches } from './apply-codex-workflow-patches';
+import { applyGeneralWorkflowPatches } from './apply-general-workflow-patches';
 
+describe('runner doctor recovery roots', () => {
+  it('removes broad generated roots while preserving specific recovery files', () => {
+    const input =
+      "          GH_AW_RECOVERY_ADDITIONAL_ROOTS: " +
+      "'[\"/tmp/gh-aw/agent_output.json\",\"/tmp/gh-aw/proxy-logs/\",\"/tmp/gh-aw\"," +
+      "\"/tmp/gh-aw/awf-config.json\"]'\n";
+    const workflowPath = path.join(
+      '.github/workflows',
+      'self-hosted-runner-doctor-updater.lock.yml',
+    );
+
+    const output = applyGeneralWorkflowPatches(input, workflowPath).content;
+
+    expect(output).toContain('/tmp/gh-aw/agent_output.json');
+    expect(output).toContain('/tmp/gh-aw/awf-config.json');
+    expect(output).not.toContain('"/tmp/gh-aw/proxy-logs/"');
+    expect(output).not.toContain('"/tmp/gh-aw"');
+    expect(applyGeneralWorkflowPatches(output, workflowPath).content).toBe(output);
+  });
+});
 
 describe('assertCloudHypervisorSmokePrimaryRuntime', () => {
   it('preserves the explicit Cloud Hypervisor primary runtime', () => {

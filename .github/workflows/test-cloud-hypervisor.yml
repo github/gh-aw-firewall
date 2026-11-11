@@ -62,6 +62,9 @@ concurrency:
   group: cloud-hypervisor-preview-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
+
 jobs:
   build-test-artifacts:
     name: Build deterministic test guest

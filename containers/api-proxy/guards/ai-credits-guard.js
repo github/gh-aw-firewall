@@ -11,7 +11,12 @@ const { getProviderPricingFact } = require('../provider-pricing-overlays');
 const { getConfiguredPricingFact } = require('../model-pricing-catalog');
 const { parsePositiveNumber } = require('./guard-utils');
 const { PROVIDER_ANTHROPIC, PROVIDER_COPILOT } = require('../provider-names');
-const { BUDGET_WARNING_THRESHOLDS } = require('./steering-thresholds');
+const {
+  BUDGET_WARNING_THRESHOLDS,
+  selectPendingSteeringThreshold,
+  acknowledgeSteeringThreshold,
+  claimSteeringThreshold,
+} = require('./steering-thresholds');
 const { resolvePricing } = require('../catalogue-contract/pricing-resolution');
 const { resolveModelIdentity } = require('../model-identity');
 const exact = require('../catalogue-contract/exact-pricing');
@@ -101,8 +106,9 @@ function updateAiCreditSteeringThresholds() {
   const configKey = `${ceiling.n}/${ceiling.d}`;
   if (aiCreditsState.steeringConfigKey !== configKey) {
     aiCreditsState.steeringConfigKey = configKey;
-    aiCreditsState.emittedThresholds.clear();
-    aiCreditsState.uninjectedThresholds.clear();
+    aiCreditsState.emittedThresholds = new Set();
+    aiCreditsState.uninjectedThresholds = new Set();
+    aiCreditsState.inFlightThresholds = new Map();
   }
 
   for (const threshold of BUDGET_WARNING_THRESHOLDS) {
@@ -124,6 +130,7 @@ function createAiCreditsState() {
     steeringConfigKey: null,
     emittedThresholds: new Set(),
     uninjectedThresholds: new Set(),
+    inFlightThresholds: new Map(),
   };
 }
 
@@ -591,15 +598,21 @@ function getPendingAiCreditSteeringWarning() {
   } catch (error) {
     throwAccountingFailure(error);
   }
-  if (aiCreditsState.uninjectedThresholds.size === 0) return null;
-  const threshold = Math.max(...aiCreditsState.uninjectedThresholds);
+  const threshold = selectPendingSteeringThreshold(
+    aiCreditsState.uninjectedThresholds, aiCreditsState.inFlightThresholds);
+  if (threshold === null) return null;
   const text = AI_CREDIT_STEERING_MESSAGES[threshold] ||
     `You have used ${threshold}% of your AI-credit budget.`;
   return { threshold, message: `[AWF AI CREDIT WARNING] ${text}` };
 }
 
 function acknowledgeAiCreditSteeringWarning(threshold) {
-  aiCreditsState.uninjectedThresholds.delete(threshold);
+  acknowledgeSteeringThreshold(aiCreditsState.uninjectedThresholds, threshold);
+}
+
+function claimAiCreditSteeringWarning(threshold) {
+  return claimSteeringThreshold(
+    aiCreditsState.uninjectedThresholds, aiCreditsState.inFlightThresholds, threshold);
 }
 
 function getAiCreditsBlockState() {
@@ -665,6 +678,7 @@ module.exports = {
   buildAiCreditsLimitError,
   getPendingAiCreditSteeringWarning,
   acknowledgeAiCreditSteeringWarning,
+  claimAiCreditSteeringWarning,
   checkModelPricing,
   isRecognizedDynamicSelector,
   isModelPriceable,

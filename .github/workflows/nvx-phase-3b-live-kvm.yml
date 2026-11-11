@@ -29,6 +29,9 @@ concurrency:
   group: nvx-phase-3f-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
+
 jobs:
   build-attested-artifacts:
     name: Build workflow-attested NVX artifacts

@@ -75,6 +75,9 @@ concurrency:
   group: cloud-hypervisor-enclaves-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
+
 jobs:
   deterministic:
     name: Deterministic enclave contract (no KVM)

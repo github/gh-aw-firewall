@@ -34,6 +34,56 @@ function lockFileWithEngine(engineId: string): string {
   );
 }
 
+describe('approved npm feed workflow patches', () => {
+  const input = [
+    'env:',
+    '  EXISTING: value',
+    'jobs:',
+    '  agent:',
+    '    steps:',
+    '      - run: |',
+    '          echo "{\\"network\\":{\\"allowDomains\\":[\\"registry.npmjs.org\\",\\"github.com\\"]}}"',
+    '',
+  ].join('\n');
+
+  it('configures every job and permits the feed in npm-enabled sandboxes idempotently', () => {
+    const { content } = applyGeneralWorkflowPatches(input, '/tmp/example.lock.yml');
+    expect(content).toContain('env:\n  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/\n  EXISTING: value');
+    expect(content).toContain('\\"allowDomains\\":[\\"packagefeedproxy.microsoft.io\\",\\"registry.npmjs.org\\",\\"github.com\\"]');
+    expect(applyGeneralWorkflowPatches(content, '/tmp/example.lock.yml').content).toBe(content);
+  });
+
+  it('does not widen the network of sandboxes without npm access', () => {
+    const restricted = input.replace('\\"registry.npmjs.org\\",', '');
+    const { content } = applyGeneralWorkflowPatches(restricted, '/tmp/example.lock.yml');
+    expect(content).toContain('\\"allowDomains\\":[\\"github.com\\"]');
+  });
+
+  it('matches exact registry hosts instead of lookalike domains', () => {
+    const lookalikes = input.replace(
+      '\\"registry.npmjs.org\\",\\"github.com\\"',
+      '\\"registry.npmjs.org.attacker.example\\",\\"packagefeedproxy.microsoft.io.attacker.example\\"',
+    );
+    const { content: lookalikeContent } = applyGeneralWorkflowPatches(
+      lookalikes, '/tmp/example.lock.yml',
+    );
+    expect(lookalikeContent).toContain(
+      '\\"allowDomains\\":[\\"registry.npmjs.org.attacker.example\\",\\"packagefeedproxy.microsoft.io.attacker.example\\"]',
+    );
+
+    const falseApprovedFeed = input.replace(
+      '\\"registry.npmjs.org\\",\\"github.com\\"',
+      '\\"registry.npmjs.org\\",\\"packagefeedproxy.microsoft.io.attacker.example\\"',
+    );
+    const { content: feedContent } = applyGeneralWorkflowPatches(
+      falseApprovedFeed, '/tmp/example.lock.yml',
+    );
+    expect(feedContent).toContain(
+      '\\"allowDomains\\":[\\"packagefeedproxy.microsoft.io\\",\\"registry.npmjs.org\\",\\"packagefeedproxy.microsoft.io.attacker.example\\"]',
+    );
+  });
+});
+
 describe('Copilot session-state collection', () => {
   it('preserves the compiler-pinned copy helper', () => {
     expect(applyGeneralWorkflowPatches(
@@ -324,6 +374,7 @@ describe('applyGeneralWorkflowPatches published AWF maintenance workflows', () =
     'doc-maintainer.lock.yml',
     'model-api-mapping-updater.lock.yml',
     'pr-sous-chef.lock.yml',
+    'refactoring-scanner.lock.yml',
     'mount-docs-maintainer.lock.yml',
     'schema-sync.lock.yml',
     'self-hosted-runner-doctor-updater.lock.yml',

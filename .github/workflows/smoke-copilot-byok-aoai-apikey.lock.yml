@@ -84,6 +84,7 @@ concurrency:
 run-name: "Smoke Copilot BYOK AOAI (api-key)"
 
 env:
+  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
   COPILOT_MODEL: o4-mini-aw
   COPILOT_PROVIDER_WIRE_API: responses
   OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.GH_AW_DEFAULT_OTLP_ENDPOINT || vars.GH_AW_DEFAULT_OTLP_ENDPOINT }}

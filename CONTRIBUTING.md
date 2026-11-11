@@ -42,6 +42,25 @@ Thank you for your interest in contributing! We welcome contributions from the c
 - `npm run lint:md` - Lint Markdown with `markdownlint-cli`, including hidden workflow files, using `.markdownlint.json`; excludes dependency directories, `.specify`, and `.claude`
 - `npm run clean` - Clean build artifacts
 
+### npm Package Feed
+
+All repository packages use the Microsoft-approved npm feed,
+`https://packagefeedproxy.microsoft.io/npm/`. Each package root has a `.npmrc`
+because npm does not inherit the repository root configuration when installing
+from an independent nested package. Lockfiles use the same feed without changing
+package versions or integrity hashes.
+
+CI and npm-capable container images also set `NPM_CONFIG_REGISTRY` so global
+installs and scratch-directory installs use the approved feed. Agentic workflow
+post-processing preserves this environment setting and permits the feed in
+sandboxes that already allow npm package downloads. After recompiling workflows,
+run `npx tsx scripts/ci/postprocess-smoke-workflows.ts` as usual.
+
+Keep package installs and `npm outdated` on this feed. The dependency audit may
+query `registry.npmjs.org` for advisory data only; it is not an install fallback.
+Do not override the registry to bypass feed failures. Report the failing package
+and feed response instead.
+
 ## 📝 How to Contribute
 
 ### Reporting Issues

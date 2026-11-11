@@ -60,6 +60,7 @@ const publishedAwfWorkflowLockFiles = new Set([
   'doc-maintainer.lock.yml',
   'model-api-mapping-updater.lock.yml',
   'pr-sous-chef.lock.yml',
+  'refactoring-scanner.lock.yml',
   'mount-docs-maintainer.lock.yml',
   'schema-sync.lock.yml',
   'self-hosted-runner-doctor-updater.lock.yml',
@@ -92,6 +93,20 @@ export function applyGeneralWorkflowPatches(
   workflowPath: string
 ): PatchResult {
   const log: string[] = [];
+  const npmRegistry = 'https://packagefeedproxy.microsoft.io/npm/';
+  if (/^env:\s*$/m.test(content) && !/^ {2}NPM_CONFIG_REGISTRY:/m.test(content)) {
+    content = content.replace(/^env:\s*$/m, `env:\n  NPM_CONFIG_REGISTRY: ${npmRegistry}`);
+    log.push('  Configured the Microsoft-approved npm feed for all jobs');
+  }
+  // The compiler expands the node ecosystem into an escaped AWF config.
+  // Permit the approved feed only where npm downloads were already allowed.
+  content = content.replace(/(\\"allowDomains\\":\[)([^\]]*)(\])/g, (match, start: string, domains: string, end: string) => {
+    const allowedDomains = JSON.parse(`[${domains.replace(/\\"/g, '"')}]`) as string[];
+    const hasNpmRegistry = allowedDomains.some(domain => domain === 'registry.npmjs.org');
+    const hasApprovedProxy = allowedDomains.some(domain => domain === 'packagefeedproxy.microsoft.io');
+    if (!hasNpmRegistry || hasApprovedProxy) return match;
+    return `${start}\\"packagefeedproxy.microsoft.io\\",${domains}${end}`;
+  });
   if (workflowPath.endsWith('workflow-runtime-auditor.lock.yml')) {
     const exclusions = [
       'GH_AW_DEFAULT_OTLP_HEADERS',
@@ -285,6 +300,23 @@ export function applyGeneralWorkflowPatches(
     if (rewritten !== content) {
       content = rewritten;
       log.push('  Kept persistent cache-memory out of the diagnosis updater agent context');
+    }
+  }
+
+  if (workflowFile === 'self-hosted-runner-doctor-updater.lock.yml') {
+    const before = content;
+    content = content.replace(
+      /^(\s*GH_AW_RECOVERY_ADDITIONAL_ROOTS: )'(\[[^\n]*\])'$/gm,
+      (_match, prefix: string, encodedRoots: string) => {
+        const roots = JSON.parse(encodedRoots) as string[];
+        const filteredRoots = roots.filter(
+          root => root !== '/tmp/gh-aw' && root !== '/tmp/gh-aw/proxy-logs/',
+        );
+        return `${prefix}'${JSON.stringify(filteredRoots)}'`;
+      },
+    );
+    if (content !== before) {
+      log.push('  Removed broad recovery roots from the runner doctor updater');
     }
   }
 

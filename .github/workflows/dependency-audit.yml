@@ -17,6 +17,9 @@ permissions:
   contents: read
   security-events: write
 
+env:
+  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
+
 jobs:
   audit-main:
     name: Audit Main Package

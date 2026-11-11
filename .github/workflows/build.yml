@@ -12,6 +12,9 @@ on:
 permissions:
   contents: read
 
+env:
+  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
+
 jobs:
   build:
     name: Build and Lint (Node ${{ matrix.node-version }})

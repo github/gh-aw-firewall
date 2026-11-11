@@ -132,6 +132,20 @@ function shouldCaptureErrorBodyChunk(currentBytes, chunkLength, maxCaptureBytes)
   return currentBytes < maxCaptureBytes && chunkLength > 0;
 }
 
+/**
+ * Acknowledge a budget notice carried by this request as soon as the upstream
+ * response arrives with a 2xx status, whether or not it streams. Every reply
+ * follows this one rule: the model has accepted the request, so a client that
+ * closes early (Codex closes right after response.completed) or a usage record
+ * written before the downstream finishes does not cause the notice to be
+ * repeated. Any other outcome leaves the notice to be released when the client
+ * response closes (see proxy-request.js).
+ */
+function acknowledgeSteeringDelivery(req, proxyRes) {
+  if (proxyRes.statusCode < 200 || proxyRes.statusCode >= 300) return;
+  req.awfSteeringDelivery?.acknowledge();
+}
+
 function createUpstreamResponseHandlers({
   metrics,
   logRequest,
@@ -352,6 +366,7 @@ function createUpstreamResponseHandlers({
 
     const isStreaming = (proxyRes.headers['content-type'] || '').includes('text/event-stream');
     const isJson = (proxyRes.headers['content-type'] || '').includes('application/json');
+    acknowledgeSteeringDelivery(req, proxyRes);
     // A cross-provider fallback attempt is translated back into the protocol
     // of the listener that received the request; Codex compatibility follows
     // that originating provider rather than the serving one.

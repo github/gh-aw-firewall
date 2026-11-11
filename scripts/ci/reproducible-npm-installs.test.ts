@@ -1,5 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawnSync } from 'child_process';
+import * as yaml from 'js-yaml';
 
 const repositoryRoot = path.resolve(__dirname, '../..');
 
@@ -23,20 +25,71 @@ function expectExactLockEntry(
 }
 
 describe('reproducible npm CLI installs', () => {
-  it.each(['api-proxy', 'cli-proxy'])(
-    'uses registry tarballs compatible with npm remote-fetch restrictions in %s',
-    (sidecar) => {
-      const lock = readJson(`containers/${sidecar}/package-lock.json`);
+  const packageRoots = [
+    '.', 'docs-site', 'containers/api-proxy', 'containers/cli-proxy',
+    'containers/enclave', 'scripts/ci/copilot-cli',
+  ];
+
+  it.each(packageRoots)(
+    'uses only approved feed tarballs in %s',
+    (packageRoot) => {
+      const lock = readJson(`${packageRoot}/package-lock.json`);
       const packages = lock.packages as Record<string, { resolved?: string }>;
       for (const [packagePath, entry] of Object.entries(packages)) {
         if (packagePath === '') continue;
         expect({ packagePath, resolved: entry.resolved }).toEqual({
           packagePath,
-          resolved: expect.stringMatching(/^https:\/\/registry\.npmjs\.org\//),
+          resolved: expect.stringMatching(/^https:\/\/packagefeedproxy\.microsoft\.io\/npm\//),
         });
       }
     },
   );
+
+  it.each(packageRoots)('configures independent npm installs in %s', packageRoot => {
+    const result = spawnSync('npm', [
+      'config', 'get', 'registry', '--userconfig=/dev/null', '--globalconfig=/dev/null',
+    ], {
+      cwd: path.join(repositoryRoot, packageRoot),
+      env: { ...process.env, NPM_CONFIG_REGISTRY: undefined, npm_config_registry: undefined },
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe('https://packagefeedproxy.microsoft.io/npm/');
+  });
+
+  it.each(['agent', 'api-proxy', 'cli-proxy', 'gh-aw-node', 'enclave'])(
+    'configures container installs and direct npm downloads in %s', image => {
+      const dockerfile = fs.readFileSync(
+        path.join(repositoryRoot, `containers/${image}/Dockerfile`), 'utf8',
+      );
+      expect(dockerfile).toMatch(/ARG NPM_CONFIG_REGISTRY=https:\/\/packagefeedproxy\.microsoft\.io\/npm\//);
+      expect(dockerfile).not.toMatch(/ENV NPM_CONFIG_REGISTRY=/);
+      expect(dockerfile).not.toContain('https://registry.npmjs.org/');
+    },
+  );
+
+  it('configures global and scratch-directory npm installs in CI', () => {
+    const workflows = path.join(repositoryRoot, '.github/workflows');
+    for (const file of fs.readdirSync(workflows).filter(file => file.endsWith('.yml'))) {
+      const source = fs.readFileSync(path.join(workflows, file), 'utf8');
+      if (!/\bnpm\b|\bnpx\b/.test(source)) continue;
+      const workflow = yaml.load(source) as { env?: { NPM_CONFIG_REGISTRY?: string } };
+      expect({ file, registry: workflow.env?.NPM_CONFIG_REGISTRY }).toEqual({
+        file, registry: 'https://packagefeedproxy.microsoft.io/npm/',
+      });
+      expect(source).not.toMatch(/npm (?:ci|install|outdated)[^\n]*--registry[= ]https:\/\/registry\.npmjs\.org/);
+      for (const match of source.matchAll(/\\"allowDomains\\":\[([^\]]*)\]/g)) {
+        const domains = JSON.parse(`[${match[1].replace(/\\"/g, '"')}]`) as string[];
+        if (domains.some(domain => domain === 'registry.npmjs.org')) {
+          expect({ file, domains }).toEqual({
+            file, domains: expect.arrayContaining(['packagefeedproxy.microsoft.io']),
+          });
+        }
+      }
+    }
+  });
 
   it('uses a lockfile-pinned local pkg executable for release binaries', () => {
     const packageJson = readJson('package.json');
