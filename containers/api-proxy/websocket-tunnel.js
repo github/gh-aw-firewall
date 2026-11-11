@@ -5,6 +5,8 @@ const tls = require('tls');
 const { URL } = require('url');
 const { computeTokenBudgetUsage } = require('./token-budget-log');
 const { applyCopilotHostHeaders, mergeInjectedHeaders } = require('./request-headers');
+const { rememberInjectedCredentials, redactCredentialText } = require('./credential-protection');
+const { createWebSocketCredentialTransform } = require('./credential-websocket');
 
 function extractRequestModelFromUrl(url) {
   if (typeof url !== 'string' || !url.startsWith('/')) return null;
@@ -37,7 +39,7 @@ function createProxyErrorResponder({
       metrics.increment('requests_errors_total', { provider });
       logRequest('error', 'websocket_upgrade_failed', {
         request_id: requestId, provider, path: sanitizeForLog(req.url),
-        duration_ms: duration, error: sanitizeForLog(String(description || 'unknown error')),
+        duration_ms: duration, error: sanitizeForLog(redactCredentialText(req, String(description || 'unknown error'))),
       });
     } else {
       metrics.increment('requests_total', { provider, method: 'GET', status_class: '1xx' });
@@ -84,6 +86,7 @@ function createWebSocketTunnel({
     requestModel,
     onSocketsReady,
   }) {
+    rememberInjectedCredentials(req, injectHeaders);
     const { finalize, abort } = createProxyErrorResponder({
       metrics,
       logRequest,
@@ -134,7 +137,8 @@ function createWebSocketTunnel({
       const sendUpgrade = (upstreamSocket) => {
         const forwardHeaders = {};
         for (const [name, value] of Object.entries(req.headers)) {
-          if (!shouldStripHeader(name)) forwardHeaders[name] = value;
+          // Compression is optional in WebSockets; keep payloads inspectable.
+          if (!shouldStripHeader(name) && name.toLowerCase() !== 'sec-websocket-extensions') forwardHeaders[name] = value;
         }
         mergeInjectedHeaders(forwardHeaders, injectHeaders, targetHost);
         applyCopilotHostHeaders(forwardHeaders, targetHost);
@@ -153,10 +157,23 @@ function createWebSocketTunnel({
           onSocketsReady(socket, upstreamSocket);
         }
 
-        upstreamSocket.pipe(socket);
+        const protectedStream = createWebSocketCredentialTransform(req);
+        let rejectedUpgrade = false;
+        protectedStream.once('upgradeRejected', () => {
+          rejectedUpgrade = true;
+          upstreamSocket.unpipe(protectedStream);
+          protectedStream.end();
+          upstreamSocket.destroy();
+        });
+        protectedStream.on('error', (error) => {
+          finalize(true, error.message);
+          upstreamSocket.destroy();
+          socket.destroy();
+        });
+        upstreamSocket.pipe(protectedStream).pipe(socket);
         socket.pipe(upstreamSocket);
 
-        trackWebSocketTokenUsage(upstreamSocket, {
+        trackWebSocketTokenUsage(protectedStream, {
           requestId,
           provider,
           path: sanitizeForLog(req.url),
@@ -174,10 +191,14 @@ function createWebSocketTunnel({
         socket.once('close', () => {
           finalize(false);
           upstreamSocket.destroy();
+          protectedStream.destroy();
         });
         upstreamSocket.once('close', () => {
           finalize(false);
-          socket.destroy();
+          if (!upstreamSocket.readableEnded && !rejectedUpgrade) {
+            protectedStream.destroy();
+            socket.destroy();
+          }
         });
         socket.on('error', () => socket.destroy());
         upstreamSocket.on('error', () => upstreamSocket.destroy());

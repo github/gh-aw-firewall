@@ -9,6 +9,7 @@
 
 const metrics = require('./metrics');
 const { sanitizeForLog, logRequest } = require('./logging');
+const { redactCredentialText } = require('./credential-protection');
 
 /**
  * Handle an upstream/proxy request error: log, decrement gauges, and send
@@ -39,6 +40,7 @@ function handleRequestError(err, {
   extraMetrics,
   onHeadersSent,
 }) {
+  const message = redactCredentialText(req, err.message);
   const duration = Date.now() - startTime;
   metrics.gaugeDec('active_requests', { provider });
   metrics.increment('requests_errors_total', { provider });
@@ -46,14 +48,14 @@ function handleRequestError(err, {
   logRequest('error', 'request_error', {
     request_id: requestId, provider, method: req.method,
     path: sanitizeForLog(req.url), duration_ms: duration,
-    error: sanitizeForLog(err.message), upstream_host: targetHost,
+    error: sanitizeForLog(message), upstream_host: targetHost,
   });
   if (res.headersSent) {
     if (onHeadersSent) onHeadersSent(err);
     return;
   }
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ error: clientMessage, message: err.message }));
+  res.end(JSON.stringify({ error: clientMessage, message }));
 }
 
 module.exports = { handleRequestError };

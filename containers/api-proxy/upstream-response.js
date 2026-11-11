@@ -1,4 +1,5 @@
 'use strict';
+const { redactCredentialError } = require('./credential-protection');
 
 const {
   createLogRequestCompletion,
@@ -264,6 +265,10 @@ function createUpstreamResponseHandlers({
     }
 
     proxyRes.on('error', (err) => {
+      const cancellation = req.awfUpstreamCancellation;
+      if (cancellation?.cancelled) return;
+      if (cancellation) cancellation.finalized = true;
+      err = redactCredentialError(req, err);
       req.awfEnclaveModelBudgetAttempt?.settleMissing();
       otel.endSpanError(span, err, 502);
       handleRequestError(err, {

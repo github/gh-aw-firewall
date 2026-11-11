@@ -1,4 +1,5 @@
 'use strict';
+const { markCredentialHeaders, getHeaderCredentials } = require('../credential-protection');
 
 /**
  * Shared auth-header construction helpers for provider adapters.
@@ -23,7 +24,7 @@
  * @returns {Record<string, string>}
  */
 function tokenAuthHeaders(prefix, token, extraHeaders) {
-  return { ...extraHeaders, 'Authorization': prefix + ' ' + token };
+  return markCredentialHeaders({ ...extraHeaders, 'Authorization': prefix + ' ' + token }, [token]);
 }
 
 /**
@@ -47,7 +48,7 @@ function bearerAuthHeaders(token, extraHeaders) {
  * @returns {Record<string, string>}
  */
 function providerKeyHeaders(headerName, token, extraHeaders) {
-  return { ...extraHeaders, [headerName]: token };
+  return markCredentialHeaders({ ...extraHeaders, [headerName]: token }, [token]);
 }
 
 /**
@@ -79,7 +80,7 @@ function buildAuthHeaderFn({ headerName, prefix = 'Bearer' } = {}) {
  * @returns {Record<string, string>}
  */
 function withCopilotIntegration(headers, integrationId) {
-  return { ...headers, 'Copilot-Integration-Id': integrationId };
+  return markCredentialHeaders({ ...headers, 'Copilot-Integration-Id': integrationId }, getHeaderCredentials(headers));
 }
 
 module.exports = { tokenAuthHeaders, bearerAuthHeaders, providerKeyHeaders, withCopilotIntegration, buildAuthHeaderFn };
