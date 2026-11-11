@@ -2093,7 +2093,7 @@ Injection is protocol-aware and preserves caller content and tool exchanges. The
 | Anthropic / Copilot Messages | Appends a text block to the final user message, after its `tool_result` blocks; `system` is unchanged |
 | Gemini | Appends a text part to the final user turn, after its function responses; `systemInstruction` is unchanged |
 
-Requests whose conversation is empty or ends in an assistant/model turn (such as an assistant prefill) are left unchanged and the warning stays pending.
+For Messages, Chat Completions and Gemini, requests whose conversation is empty or ends in an assistant/model turn (such as an assistant prefill) are left unchanged and the warning stays pending.
 
 Known limitation: on Anthropic models older than Claude Opus 4.5 (for example Sonnet 4.5 and Haiku 4.5) with extended thinking, a text block in the final user message starts a new assistant loop and Anthropic strips earlier thinking blocks, so the notice request misses the message-prefix cache once (no worse than the previous system-prompt placement). The next request is tool-result-only again and reads the cache normally. Claude Opus 4.5 and later keep earlier thinking blocks by default and are unaffected; AWF does not apply model-specific handling.
 

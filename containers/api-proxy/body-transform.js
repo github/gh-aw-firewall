@@ -90,8 +90,9 @@ function isResponsesRequest(requestPath) {
  *                                           `input`
  *
  * Returns a new Buffer containing the modified body, or null when the body
- * cannot be parsed or injection is not applicable (including a conversation
- * that does not end in a user/tool turn, e.g. an assistant prefill).
+ * cannot be parsed or injection is not applicable. For Messages, Chat
+ * Completions and Gemini this includes a conversation that is empty or does
+ * not end in a user/tool turn (e.g. an assistant prefill).
  *
  * @param {Buffer} body       - Raw request body
  * @param {string} provider   - Provider name ('anthropic' | 'gemini' | 'openai' | 'copilot')
@@ -116,7 +117,9 @@ function injectSteeringMessage(body, provider, message, requestPath = '') {
     // Append after the tool_result blocks of the final user message so the
     // system prompt, tools and conversation prefix (and any cache breakpoint
     // on the last existing block) stay byte-identical.
-    // Known limitation: with extended thinking on models before Opus 4.5 this text starts a new assistant loop, so the notice request misses the cache once (documented).
+    // Known limitation: with extended thinking on models before Opus 4.5
+    // this text starts a new assistant loop, so the notice request misses
+    // the cache once (documented).
     if (!Array.isArray(parsed.messages) || parsed.messages.length === 0) return null;
     const last = parsed.messages[parsed.messages.length - 1];
     if (!last || typeof last !== 'object' || last.role !== 'user') return null;

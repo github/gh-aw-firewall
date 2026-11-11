@@ -1371,8 +1371,9 @@ is not added to later requests.
 - **Anthropic / Copilot Messages** — the proxy appends a `{ "type": "text", "text": "<message>" }` block to the final user message, after its `tool_result` blocks (Anthropic requires tool results first and allows text after them). String content becomes a text block followed by the notice. `system` is never changed.
 - **Gemini** — the proxy appends a `{ "text": "<message>" }` part to the final user turn, after its function responses (a final `function`-role turn is followed by a new user turn holding the notice). `systemInstruction` is never changed.
 
-A request whose conversation is empty or ends in an assistant/model turn (for
-example an assistant prefill) is not modified, and the warning stays pending.
+For Messages, Chat Completions and Gemini, a request whose conversation is
+empty or ends in an assistant/model turn (for example an assistant prefill) is
+not modified, and the warning stays pending.
 
 Known limitation: on Anthropic models older than Claude Opus 4.5 (for example
 Sonnet 4.5 and Haiku 4.5) with extended thinking, a text block in the final user
