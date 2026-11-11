@@ -81,6 +81,8 @@ RUN set -eux; \
 
 FROM ${BASE_IMAGE}
 
+ENV NPM_CONFIG_REGISTRY=https://packagefeedproxy.microsoft.io/npm/
+
 COPY --from=browser-libs /usr/local/share/awf/ /usr/local/share/awf/
 
 # Install required and runner-parity packages, apply security upgrades, then install
@@ -210,7 +212,7 @@ RUN set -eux; \
     fi && \
     # Replace Node's bundled npm 10.x with npm 12.2.1
     # Download the tarball and verify its SHA-256 before installing
-    NPM_TGZ_URL="https://registry.npmjs.org/npm/-/npm-12.2.1.tgz" && \
+    NPM_TGZ_URL="https://packagefeedproxy.microsoft.io/npm/npm/-/npm-12.2.1.tgz" && \
     NPM_TGZ_SHA256="228bd64aaef23270dbdbd2cf3d5ef5c467602ef38c4066246cef1984adab9a67" && \
     curl -fsSL --retry 3 --retry-all-errors --retry-max-time 120 --connect-timeout 15 --max-time 60 \
         "$NPM_TGZ_URL" -o /tmp/npm-12.2.1.tgz && \
@@ -232,13 +234,13 @@ RUN set -eux; \
     rm -f /tmp/npm-12.2.1.tgz && \
     npm_dir=/usr/local/lib/node_modules/npm/node_modules && \
     curl -fsSL --retry 3 --retry-all-errors --retry-max-time 120 --connect-timeout 15 --max-time 60 \
-        https://registry.npmjs.org/undici/-/undici-6.29.1.tgz -o /tmp/undici-6.29.1.tgz && \
+        https://packagefeedproxy.microsoft.io/npm/undici/-/undici-6.29.1.tgz -o /tmp/undici-6.29.1.tgz && \
     echo "29c4b8e0b2d86cb8795571c1959012ce057a14ecfd34858335f47c31e770a04f  /tmp/undici-6.29.1.tgz" | sha256sum -c - && \
     curl -fsSL --retry 3 --retry-all-errors --retry-max-time 120 --connect-timeout 15 --max-time 60 \
-        https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.12.tgz -o /tmp/brace-expansion-5.0.12.tgz && \
+        https://packagefeedproxy.microsoft.io/npm/brace-expansion/-/brace-expansion-5.0.12.tgz -o /tmp/brace-expansion-5.0.12.tgz && \
     echo "ef8448ec78f20b692f04fa6d01f39b5ab34c66404bea3429f5a39c6c9e0be8b4  /tmp/brace-expansion-5.0.12.tgz" | sha256sum -c - && \
     curl -fsSL --retry 3 --retry-all-errors --retry-max-time 120 --connect-timeout 15 --max-time 60 \
-        https://registry.npmjs.org/ip-address/-/ip-address-10.7.1.tgz -o /tmp/ip-address-10.7.1.tgz && \
+        https://packagefeedproxy.microsoft.io/npm/ip-address/-/ip-address-10.7.1.tgz -o /tmp/ip-address-10.7.1.tgz && \
     echo "7f99ac7abda701afe1fd1e36de462236fb4d1eb8c595d7ae0267bba7d8ee55f8  /tmp/ip-address-10.7.1.tgz" | sha256sum -c - && \
     rm -rf "$npm_dir/undici" "$npm_dir/brace-expansion" "$npm_dir/ip-address" && \
     mkdir -p "$npm_dir/undici" "$npm_dir/brace-expansion" "$npm_dir/ip-address" && \

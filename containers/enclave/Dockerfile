@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
     && rm -rf /var/lib/apt/lists/*
 ENV NODE_OPTIONS="--require=/opt/awf/trust/node-trust.cjs"
 
-ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
+ARG NPM_CONFIG_REGISTRY=https://packagefeedproxy.microsoft.io/npm/
 ARG CODEX_VERSION=0.159.3
 ARG CLAUDE_VERSION=2.1.280
 RUN npm_config_ignore_scripts=false npm install --global --include=optional --install-strategy=nested \

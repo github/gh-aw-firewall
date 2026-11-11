@@ -2,6 +2,8 @@
 # Routes through Squid to respect domain whitelisting
 FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a
 
+ENV NPM_CONFIG_REGISTRY=https://packagefeedproxy.microsoft.io/npm/
+
 # Install current Alpine security updates and curl for healthchecks. Alpine 3.24's
 # stable repository still ships curl 8.22.0-r0, affected by CVE-2026-92392.
 RUN apk upgrade --no-cache \
@@ -17,7 +19,7 @@ RUN sh /opt/awf/trust/install-system-trust.sh \
 # Install pinned npm and its patched bundled dependencies in one layer so the
 # vulnerable upstream copies are not retained in an earlier image layer.
 RUN set -eux; \
-    NPM_TGZ_URL="https://registry.npmjs.org/npm/-/npm-12.2.1.tgz"; \
+    NPM_TGZ_URL="https://packagefeedproxy.microsoft.io/npm/npm/-/npm-12.2.1.tgz"; \
     NPM_TGZ_SHA256="228bd64aaef23270dbdbd2cf3d5ef5c467602ef38c4066246cef1984adab9a67"; \
     curl -fsSL --retry 3 --retry-all-errors --retry-max-time 120 --connect-timeout 15 --max-time 60 "$NPM_TGZ_URL" -o /tmp/npm-12.2.1.tgz; \
     echo "${NPM_TGZ_SHA256}  /tmp/npm-12.2.1.tgz" | sha256sum -c -; \
@@ -31,13 +33,13 @@ RUN set -eux; \
     node --version | grep -qE '^v26\.11\.1' || (echo "ERROR: expected Node.js v26.11.1" && exit 1); \
     npm --version | grep -qE '^12\.2\.1' || (echo "ERROR: expected npm 12.2.1" && exit 1); \
     npm_dir=/usr/local/lib/node_modules/npm/node_modules; \
-    curl -fsSL --retry 3 --retry-all-errors --retry-max-time 120 --connect-timeout 15 --max-time 60 https://registry.npmjs.org/undici/-/undici-6.29.1.tgz -o /tmp/undici-6.29.1.tgz; \
+    curl -fsSL --retry 3 --retry-all-errors --retry-max-time 120 --connect-timeout 15 --max-time 60 https://packagefeedproxy.microsoft.io/npm/undici/-/undici-6.29.1.tgz -o /tmp/undici-6.29.1.tgz; \
     echo "29c4b8e0b2d86cb8795571c1959012ce057a14ecfd34858335f47c31e770a04f  /tmp/undici-6.29.1.tgz" | sha256sum -c -; \
-    curl -fsSL --retry 3 --retry-all-errors --retry-max-time 120 --connect-timeout 15 --max-time 60 https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.12.tgz -o /tmp/brace-expansion-5.0.12.tgz; \
+    curl -fsSL --retry 3 --retry-all-errors --retry-max-time 120 --connect-timeout 15 --max-time 60 https://packagefeedproxy.microsoft.io/npm/brace-expansion/-/brace-expansion-5.0.12.tgz -o /tmp/brace-expansion-5.0.12.tgz; \
     echo "ef8448ec78f20b692f04fa6d01f39b5ab34c66404bea3429f5a39c6c9e0be8b4  /tmp/brace-expansion-5.0.12.tgz" | sha256sum -c -; \
-    curl -fsSL --retry 3 --retry-all-errors --retry-max-time 120 --connect-timeout 15 --max-time 60 https://registry.npmjs.org/ip-address/-/ip-address-10.7.4.tgz -o /tmp/ip-address-10.7.4.tgz; \
+    curl -fsSL --retry 3 --retry-all-errors --retry-max-time 120 --connect-timeout 15 --max-time 60 https://packagefeedproxy.microsoft.io/npm/ip-address/-/ip-address-10.7.4.tgz -o /tmp/ip-address-10.7.4.tgz; \
     echo "f9e1d0dd369c002f43770c6ee35942c8078e76d080a1e18e89113eef865f26ff  /tmp/ip-address-10.7.4.tgz" | sha256sum -c -; \
-    curl -fsSL --retry 3 --retry-all-errors --retry-max-time 120 --connect-timeout 15 --max-time 60 https://registry.npmjs.org/postcss-selector-parser/-/postcss-selector-parser-7.1.6.tgz -o /tmp/postcss-selector-parser-7.1.6.tgz; \
+    curl -fsSL --retry 3 --retry-all-errors --retry-max-time 120 --connect-timeout 15 --max-time 60 https://packagefeedproxy.microsoft.io/npm/postcss-selector-parser/-/postcss-selector-parser-7.1.6.tgz -o /tmp/postcss-selector-parser-7.1.6.tgz; \
     echo "48c903f98c5591d8d26f16f389d5cb3435459474c645209a79f6241bf4b657b6  /tmp/postcss-selector-parser-7.1.6.tgz" | sha256sum -c -; \
     rm -rf "$npm_dir/undici" "$npm_dir/brace-expansion" "$npm_dir/ip-address" "$npm_dir/postcss-selector-parser"; \
     mkdir -p "$npm_dir/undici" "$npm_dir/brace-expansion" "$npm_dir/ip-address" "$npm_dir/postcss-selector-parser"; \

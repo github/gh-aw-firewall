@@ -34,6 +34,32 @@ function lockFileWithEngine(engineId: string): string {
   );
 }
 
+describe('approved npm feed workflow patches', () => {
+  const input = [
+    'env:',
+    '  EXISTING: value',
+    'jobs:',
+    '  agent:',
+    '    steps:',
+    '      - run: |',
+    '          echo "{\\"network\\":{\\"allowDomains\\":[\\"registry.npmjs.org\\",\\"github.com\\"]}}"',
+    '',
+  ].join('\n');
+
+  it('configures every job and permits the feed in npm-enabled sandboxes idempotently', () => {
+    const { content } = applyGeneralWorkflowPatches(input, '/tmp/example.lock.yml');
+    expect(content).toContain('env:\n  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/\n  EXISTING: value');
+    expect(content).toContain('\\"allowDomains\\":[\\"packagefeedproxy.microsoft.io\\",\\"registry.npmjs.org\\",\\"github.com\\"]');
+    expect(applyGeneralWorkflowPatches(content, '/tmp/example.lock.yml').content).toBe(content);
+  });
+
+  it('does not widen the network of sandboxes without npm access', () => {
+    const restricted = input.replace('\\"registry.npmjs.org\\",', '');
+    const { content } = applyGeneralWorkflowPatches(restricted, '/tmp/example.lock.yml');
+    expect(content).toContain('\\"allowDomains\\":[\\"github.com\\"]');
+  });
+});
+
 describe('Copilot session-state collection', () => {
   it('preserves the compiler-pinned copy helper', () => {
     expect(applyGeneralWorkflowPatches(
