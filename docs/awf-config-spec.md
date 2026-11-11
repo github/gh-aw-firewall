@@ -1364,9 +1364,13 @@ notice lasts one turn. The proxy therefore delivers the current time warning and
 the current AI-credit warning to **every conversation in the run, once each**,
 on that conversation's own next eligible request:
 
-- A **conversation** is identified by a SHA-256 hash of its opening: the system
-  prompt or instructions plus the opening user turn (every message before the
-  model's first reply, which for most harnesses is the first user message).
+- A **conversation** is identified by an opaque key derived from its opening:
+  the system prompt or instructions plus the opening user turn (every message
+  before the model's first reply, which for most harnesses is the first user
+  message). The key is an HMAC-SHA-256 under a random secret generated when
+  the api-proxy starts and kept in memory only, so it is comparable only
+  within one proxy process and does not reveal prompt content; a restart
+  changes every key.
   Prompt-cache markers (`cache_control`, `copilot_cache_control`) and Claude
   Code's per-request `x-anthropic-billing-header` system block are ignored.
 - An **eligible request** ends with a tool result: a `tool` message (Chat
@@ -1411,8 +1415,9 @@ The `token-usage.jsonl` record of a request carrying a warning includes
 `steering: {type, threshold}` only on the run's first delivery of that
 threshold (at most once per threshold per run), and `steering_delivery:
 {type, threshold, conversation, first}` on every delivery, where
-`conversation` is a 12-hex-character prefix of the conversation hash (`null`
-for a request continuing a stored response).
+`conversation` is a 12-hex-character prefix of the conversation key, an
+opaque per-run identifier comparable only within one run that does not reveal
+prompt content (`null` for a request continuing a stored response).
 
 The warning formats are:
 

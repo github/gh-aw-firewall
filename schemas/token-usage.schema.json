@@ -203,7 +203,7 @@
             "null"
           ],
           "pattern": "^[0-9a-f]{12}$",
-          "description": "Short hash (first 12 hex characters of SHA-256) of the conversation opening: the system prompt or instructions plus the opening user turn. Null for requests that continue a stored response (previous_response_id), which have no history to hash."
+          "description": "Opaque per-run conversation identifier: the first 12 hex characters of an HMAC-SHA-256 of the conversation opening (the system prompt or instructions plus the opening user turn) under a random secret that the api-proxy generates at startup and keeps in memory only. Comparable only between records of the same run (one proxy process); it does not reveal prompt content. Null for requests that continue a stored response (previous_response_id or a non-null conversation), which have no history to key."
         },
         "first": {
           "type": "boolean",

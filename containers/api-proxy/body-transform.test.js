@@ -1,5 +1,11 @@
 const { injectSteeringMessage, injectStreamOptions, describeSteeringConversation } = require('./body-transform');
-const { STORED_RESPONSE_CONVERSATION } = require('./guards/steering-thresholds');
+const crypto = require('crypto');
+const {
+  STORED_RESPONSE_CONVERSATION,
+  resetSteeringConversationSecretForTests,
+} = require('./guards/steering-thresholds');
+const { resetTimeoutSteeringForTests } = require('./guards/timeout-steering');
+const { resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard');
 const { makeAnthropicTransform } = require('./anthropic-transforms');
 
 describe('injectStreamOptions', () => {
@@ -575,5 +581,61 @@ describe('describeSteeringConversation', () => {
 
   test('returns null for a body that is not JSON', () => {
     expect(describeSteeringConversation(Buffer.from('not json'), 'openai', '/v1/chat/completions')).toBeNull();
+  });
+
+  describe('conversation key', () => {
+    const opening = {
+      instructions: 'Confidential instructions.',
+      input: [
+        { role: 'user', content: 'Confidential task.' },
+        { type: 'function_call', call_id: 'c1', name: 'read', arguments: '{}' },
+        { type: 'function_call_output', call_id: 'c1', output: 'x' },
+      ],
+    };
+    const keyOf = () => describe_(opening, 'openai', '/v1/responses').conversation;
+    const canonicalOpening = JSON.stringify({
+      opening: [{ content: 'Confidential task.', role: 'user' }],
+      protocol: 'responses',
+      system: 'Confidential instructions.',
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+      resetSteeringConversationSecretForTests();
+    });
+
+    test('is the same for the same opening within one process', () => {
+      expect(keyOf()).toMatch(/^[0-9a-f]{64}$/);
+      expect(keyOf()).toBe(keyOf());
+    });
+
+    test('is an HMAC-SHA-256 under the per-process secret, not a plain hash of the opening', () => {
+      const secret = Buffer.alloc(32, 7);
+      jest.spyOn(crypto, 'randomBytes').mockReturnValueOnce(secret);
+      resetSteeringConversationSecretForTests();
+      expect(keyOf()).toBe(crypto.createHmac('sha256', secret).update(canonicalOpening).digest('hex'));
+      expect(keyOf()).not.toBe(crypto.createHash('sha256').update(canonicalOpening).digest('hex'));
+    });
+
+    test.each([
+      ['resetSteeringConversationSecretForTests', resetSteeringConversationSecretForTests],
+      ['resetTimeoutSteeringForTests', resetTimeoutSteeringForTests],
+      ['resetAiCreditsGuardForTests', resetAiCreditsGuardForTests],
+    ])('differs under a new secret set by %s, as after a proxy restart', (_name, reset) => {
+      const before = keyOf();
+      reset();
+      const after = keyOf();
+      expect(after).toMatch(/^[0-9a-f]{64}$/);
+      expect(after).not.toBe(before);
+      expect(keyOf()).toBe(after);
+    });
+
+    test('keeps the shared stored-response key', () => {
+      const before = describe_({ previous_response_id: 'resp_1', input: [] }, 'openai', '/v1/responses').conversation;
+      resetSteeringConversationSecretForTests();
+      expect(before).toBe(STORED_RESPONSE_CONVERSATION);
+      expect(describe_({ previous_response_id: 'resp_1', input: [] }, 'openai', '/v1/responses').conversation)
+        .toBe(STORED_RESPONSE_CONVERSATION);
+    });
   });
 });

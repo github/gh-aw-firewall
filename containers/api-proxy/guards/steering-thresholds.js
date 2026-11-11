@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('crypto');
+
 const BUDGET_WARNING_THRESHOLDS = [80, 90, 95, 99];
 
 /**
@@ -14,9 +16,34 @@ const MAX_STEERING_CONVERSATIONS = 1024;
  * response (`previous_response_id` or a non-null `conversation`). They carry
  * no history to hash, so together they are one entry in the per-conversation
  * table: each notice goes to one of them per run, independently of hashed
- * conversations. Opening hashes are hex, so this key never collides with one.
+ * conversations. Conversation keys are hex, so this key never collides with one.
  */
 const STORED_RESPONSE_CONVERSATION = 'stored-response';
+
+/**
+ * Secret for conversation keys, generated when the proxy starts. It is kept in
+ * memory only (never logged, written or reflected), so a conversation key is
+ * an opaque identifier that is comparable only within one proxy process and
+ * does not reveal the prompt content it was derived from. A restart changes
+ * every key, so each conversation hears the current notice once more.
+ */
+let conversationKeySecret = crypto.randomBytes(32);
+
+/**
+ * Opaque conversation key (hex HMAC-SHA-256 under the per-process secret) for
+ * a canonical serialisation of a conversation's opening.
+ *
+ * @param {string} opening
+ * @returns {string}
+ */
+function steeringConversationKey(opening) {
+  return crypto.createHmac('sha256', conversationKeySecret).update(opening).digest('hex');
+}
+
+/** Replace the conversation-key secret, as a proxy restart would. */
+function resetSteeringConversationSecretForTests() {
+  conversationKeySecret = crypto.randomBytes(32);
+}
 
 /**
  * Delivery state for one notice kind (time or AI credits).
@@ -24,7 +51,7 @@ const STORED_RESPONSE_CONVERSATION = 'stored-response';
  * - `pending` / `inFlight`: run-level state for requests that have no
  *   conversation key (a history with no opening to hash). Each notice goes to
  *   one such request per run.
- * - `conversations`: conversation key (an opening hash or
+ * - `conversations`: conversation key (steeringConversationKey() or
  *   STORED_RESPONSE_CONVERSATION) -> latest threshold delivered to it,
  *   in least-recently-delivered order and capped at MAX_STEERING_CONVERSATIONS.
  * - `conversationInFlight`: conversation key -> threshold -> in-flight count.
@@ -152,6 +179,8 @@ module.exports = {
   BUDGET_WARNING_THRESHOLDS,
   MAX_STEERING_CONVERSATIONS,
   STORED_RESPONSE_CONVERSATION,
+  steeringConversationKey,
+  resetSteeringConversationSecretForTests,
   createSteeringDeliveryState,
   selectPendingSteeringThreshold,
   selectSteeringThreshold,

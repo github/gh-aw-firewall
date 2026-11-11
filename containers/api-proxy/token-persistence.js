@@ -271,8 +271,9 @@ function pseudonymizeSteeringConversation(conversation) {
  * `steering: { type, threshold }` is written once per threshold per run, on
  * the request that first delivered it (gh-aw reads it and expects at most one
  * per threshold). `steering_delivery` is written for every delivery and adds
- * the short conversation hash (null for requests that continue a stored
- * response) and whether this was that first delivery.
+ * a short conversation key (an opaque per-run identifier that does not reveal
+ * prompt content; null for requests that continue a stored response) and
+ * whether this was that first delivery.
  */
 function steeringRecordFields(steering) {
   if (!steering) return {};

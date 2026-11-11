@@ -17,6 +17,7 @@ const {
   selectSteeringThreshold,
   acknowledgeSteeringThreshold,
   claimSteeringThreshold,
+  resetSteeringConversationSecretForTests,
 } = require('./steering-thresholds');
 const { resolvePricing } = require('../catalogue-contract/pricing-resolution');
 const { resolveModelIdentity } = require('../model-identity');
@@ -677,6 +678,7 @@ function buildAiCreditsLimitError(aiCreditsBlockState) {
 }
 
 function resetAiCreditsGuardForTests() {
+  resetSteeringConversationSecretForTests();
   aiCreditsState = createAiCreditsState();
   aiCreditsConfigCache.initialized = false;
   aiCreditsConfigCache.rawMax = undefined;

@@ -6,6 +6,7 @@ const {
   selectSteeringThreshold,
   acknowledgeSteeringThreshold,
   claimSteeringThreshold,
+  resetSteeringConversationSecretForTests,
 } = require('./steering-thresholds');
 const { parsePositiveInteger } = require('./guard-utils');
 const fs = require('fs');
@@ -151,6 +152,7 @@ function getTimeoutSteeringReflectState() {
 }
 
 function resetTimeoutSteeringForTests() {
+  resetSteeringConversationSecretForTests();
   timeoutSteeringState = createTimeoutSteeringState();
   timeoutSteeringConfigCache.rawMinutes = undefined;
   timeoutSteeringConfigCache.parsedMinutes = null;

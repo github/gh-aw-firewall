@@ -1,8 +1,7 @@
 'use strict';
 
-const crypto = require('crypto');
 const { parseBodyAsObject } = require('./body-utils');
-const { STORED_RESPONSE_CONVERSATION } = require('./guards/steering-thresholds');
+const { STORED_RESPONSE_CONVERSATION, steeringConversationKey } = require('./guards/steering-thresholds');
 
 /**
  * Sanitize OpenAI-compatible request history where tool_calls[].type is null.
@@ -260,9 +259,12 @@ function hasGeminiFunctionResponse(content) {
 /**
  * Describe which conversation a request belongs to, for budget notices.
  *
- * A conversation is recognised by a hash of its opening: the system prompt or
- * instructions plus the opening user turn (every message before the model's
- * first reply, which for most harnesses is the first user message). Harnesses
+ * A conversation is recognised by an opaque key derived from its opening:
+ * the system prompt or instructions plus the opening user turn (every message
+ * before the model's first reply, which for most harnesses is the first user
+ * message). The key is an HMAC-SHA-256 under a per-process secret (see
+ * steeringConversationKey()), so it is comparable only within one proxy
+ * process and does not reveal the prompt content. Harnesses
  * keep this fixed for the length of a conversation to keep their prompt cache,
  * and each sub-agent starts with its own opening. A Responses request that
  * continues a stored response (`previous_response_id` or a non-null
@@ -279,8 +281,8 @@ function hasGeminiFunctionResponse(content) {
  * @param {string} [requestPath]
  * @returns {{ endsWithToolResult: boolean, conversation: string|null }|null}
  *   null when the body cannot be parsed or the request never carries a notice
- *   (for example a token-counting request). `conversation` is the opening
- *   hash, STORED_RESPONSE_CONVERSATION, or null when there is no opening.
+ *   (for example a token-counting request). `conversation` is the opaque
+ *   opening key, STORED_RESPONSE_CONVERSATION, or null when there is no opening.
  */
 function describeSteeringConversation(body, provider, requestPath = '') {
   if (isSteeringExcluded(requestPath)) return null;
@@ -329,9 +331,8 @@ function describeSteeringConversation(body, provider, requestPath = '') {
   if (!stateless) {
     conversation = STORED_RESPONSE_CONVERSATION;
   } else if (opening.length > 0) {
-    conversation = crypto.createHash('sha256')
-      .update(JSON.stringify(canonicalOpeningValue({ protocol, system: system ?? null, opening })))
-      .digest('hex');
+    conversation = steeringConversationKey(
+      JSON.stringify(canonicalOpeningValue({ protocol, system: system ?? null, opening })));
   }
   return { endsWithToolResult, conversation };
 }

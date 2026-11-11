@@ -304,8 +304,9 @@ function createBodyHandler({ handleRequestError, otel }) {
         const steered = injectSteeringMessage(body, provider, nextWarning.warning.message, req.url);
         if (steered) {
           body = steered;
-          // Records carry a 12-hex-character hash prefix, or null for a
-          // request continuing a stored response, which has no hash.
+          // Records carry a 12-hex-character prefix of the opaque per-run
+          // conversation key, or null for a request continuing a stored
+          // response, which has no opening to key.
           const shortConversation = conversation && conversation !== STORED_RESPONSE_CONVERSATION
             ? conversation.slice(0, 12)
             : null;
