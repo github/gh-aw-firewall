@@ -131,7 +131,18 @@
         },
         "enableTokenSteering": {
           "type": "boolean",
-          "description": "Enable advisory runtime and AI-credit steering. When true, the proxy injects warnings at 80%, 90%, 95%, and 99% of configured budgets/deadlines into the next eligible agent request. Warnings do not interrupt running work or guarantee completion. Set to false (or omit) to opt out. Default: false."
+          "description": "Alias for apiProxy.steering.budget. Enables advisory AI-credit and time budget notices. Setting both fields to different values is a configuration error. Default: false."
+        },
+        "steering": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Steering notices the API proxy injects into agent requests. Each kind of steering has its own key.",
+          "properties": {
+            "budget": {
+              "type": "boolean",
+              "description": "Enable advisory AI-credit and time budget notices. Credit notices use apiProxy.maxAiCredits (or the AI-credit hard cap when unset); time notices use container.agentTimeout. Notices are queued at 80%, 90%, 95%, and 99% of the limit and injected into the next eligible agent request; they do not interrupt running work or guarantee completion. Thresholds, triggers, wording, and placement are fixed. Alias: apiProxy.enableTokenSteering (CLI: --steering-budget / --no-steering-budget, alias --enable-token-steering). Default: false."
+            }
+          }
         },
         "anthropicAutoCache": {
           "type": "boolean",
@@ -264,7 +275,7 @@
               "exclusiveMinimum": 0
             }
           ],
-          "description": "Maximum cumulative accounted AI credits allowed for a run. Set to -1 or 0 to disable the configured budget (the hard cap still applies). When reached, the API proxy rejects subsequent requests with HTTP 403 and error type 'ai_credits_limit_exceeded'. With apiProxy.enableTokenSteering, advisory notices are queued at 80%, 90%, 95%, and 99% of the effective limit. AWF always enforces an operator-controlled hard cap, defaulting to 10,000 accounted AI credits. Set AWF_AI_CREDITS_HARD_CAP in the host environment or api-proxy container to a positive finite number to lower or raise it; unset, empty, invalid, nonpositive, or non-finite values retain the default. Values above the hard cap are effectively clamped, and the agent cannot raise or disable it. Models without resolvable pricing are allowed with a warning and unpriced usage is excluded from totals, so actual spending may exceed these limits."
+          "description": "Maximum cumulative accounted AI credits allowed for a run. Set to -1 or 0 to disable the configured budget (the hard cap still applies). When reached, the API proxy rejects subsequent requests with HTTP 403 and error type 'ai_credits_limit_exceeded'. With apiProxy.steering.budget, advisory notices are queued at 80%, 90%, 95%, and 99% of the effective limit. AWF always enforces an operator-controlled hard cap, defaulting to 10,000 accounted AI credits. Set AWF_AI_CREDITS_HARD_CAP in the host environment or api-proxy container to a positive finite number to lower or raise it; unset, empty, invalid, nonpositive, or non-finite values retain the default. Values above the hard cap are effectively clamped, and the agent cannot raise or disable it. Models without resolvable pricing are allowed with a warning and unpriced usage is excluded from totals, so actual spending may exceed these limits."
         },
         "defaultAiCreditsPricing": {
           "type": "object",
@@ -1008,7 +1019,7 @@
         "agentTimeout": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum time (in minutes) the agent command is allowed to run. With apiProxy.enableTokenSteering, advisory notices are queued at 80%, 90%, 95%, and 99% of the runtime deadline."
+          "description": "Maximum time (in minutes) the agent command is allowed to run. With apiProxy.steering.budget, advisory notices are queued at 80%, 90%, 95%, and 99% of the runtime deadline."
         },
         "enableDind": {
           "type": "boolean",

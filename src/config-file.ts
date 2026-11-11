@@ -39,6 +39,9 @@ export interface AwfFileConfig {
     enabled?: boolean;
     caCert?: string;
     enableTokenSteering?: boolean;
+    steering?: {
+      budget?: boolean;
+    };
     anthropicAutoCache?: boolean;
     anthropicCacheTailTtl?: string;
     hostedWeb?: {
@@ -289,7 +292,18 @@ export interface AwfFileConfig {
 export function validateAwfFileConfig(config: unknown): string[] {
   const errors = validateWithSchema(config);
   if (errors.length) return errors;
-  const targets = (config as AwfFileConfig).apiProxy?.targets;
+  const apiProxy = (config as AwfFileConfig).apiProxy;
+  const steeringBudget = apiProxy?.steering?.budget;
+  if (
+    apiProxy?.enableTokenSteering !== undefined &&
+    steeringBudget !== undefined &&
+    apiProxy.enableTokenSteering !== steeringBudget
+  ) {
+    errors.push(
+      'config.apiProxy.enableTokenSteering is an alias for config.apiProxy.steering.budget and must not be set to a different value',
+    );
+  }
+  const targets = apiProxy?.targets;
   for (const target of [targets?.openai, targets?.anthropic]) {
     if (target?.trustedService) {
       try { validateTrustedService(target.trustedService, target.authHeader); } catch (error) {
