@@ -475,13 +475,15 @@ describe('budget steering and injectSteeringMessage', () => {
   describe('notice delivery completion', () => {
     let cycles;
 
-    const makeRequest = async requestId => {
-      const body = Buffer.from(JSON.stringify({
-        model: 'gpt-5-mini',
-        input: [{ role: 'user', content: requestId }],
-      }));
+    const makeRequest = async (requestId, {
+      provider = 'openai',
+      targetHost = 'api.openai.com',
+      url = '/v1/responses',
+      requestBody = { model: 'gpt-5-mini', input: [{ role: 'user', content: requestId }] },
+    } = {}) => {
+      const body = Buffer.from(JSON.stringify(requestBody));
       const req = new EventEmitter();
-      req.url = '/v1/responses';
+      req.url = url;
       req.method = 'POST';
       req.headers = {
         'content-type': 'application/json',
@@ -502,7 +504,7 @@ describe('budget steering and injectSteeringMessage', () => {
           this.emit('finish');
         }),
       });
-      proxyRequest(req, res, 'api.openai.com', { Authorization: '******' }, 'openai');
+      proxyRequest(req, res, targetHost, { Authorization: '******' }, provider);
       req.emit('data', body);
       req.emit('end');
       await flushPromises();
@@ -528,6 +530,15 @@ describe('budget steering and injectSteeringMessage', () => {
 
     const noticeIn = body => body.input.some(item =>
       item.role === 'developer' && item.content.includes('[AWF AI CREDIT WARNING]'));
+
+    const steeringRecordsFor = async requestIds => {
+      await closeTokenUsageLog();
+      return fs.readFileSync(path.join(tokenLogDir, 'token-usage.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map(line => JSON.parse(line))
+        .filter(record => requestIds.includes(record.request_id) && record.steering);
+    };
 
     beforeEach(() => {
       process.env.AWF_MAX_AI_CREDITS = '1';
@@ -575,7 +586,7 @@ describe('budget steering and injectSteeringMessage', () => {
       expect(noticeIn(next.body)).toBe(false);
     });
 
-    it('redelivers a non-streaming notice when the client closes before finish', async () => {
+    it('does not repeat a non-streaming notice when the client closes before finish', async () => {
       await seedPendingNotice();
       const interrupted = await makeRequest('interrupted-response');
       expect(noticeIn(interrupted.body)).toBe(true);
@@ -590,7 +601,81 @@ describe('budget steering and injectSteeringMessage', () => {
       interrupted.res.emit('close');
 
       const retry = await makeRequest('retry-interrupted-response');
-      expect(noticeIn(retry.body)).toBe(true);
+      expect(noticeIn(retry.body)).toBe(false);
+    });
+
+    it('records a usage-bearing non-streaming notice once when the client closes before finish', async () => {
+      await seedPendingNotice();
+      const interrupted = await makeRequest('interrupted-usage-response');
+      expect(noticeIn(interrupted.body)).toBe(true);
+
+      const proxyRes = new EventEmitter();
+      proxyRes.statusCode = 200;
+      proxyRes.headers = { 'content-type': 'application/json' };
+      proxyRes.pipe = jest.fn();
+      interrupted.cycle.responseHandler(proxyRes);
+      proxyRes.emit('data', Buffer.from(JSON.stringify({
+        model: 'gpt-5-mini',
+        usage: { input_tokens: 1, output_tokens: 0 },
+      })));
+      proxyRes.emit('end');
+      interrupted.res.emit('close');
+
+      const retry = await makeRequest('retry-interrupted-usage-response');
+      expect(noticeIn(retry.body)).toBe(false);
+      completeUpstreamResponse(retry.cycle.responseHandler, {
+        body: { model: 'gpt-5-mini', usage: { input_tokens: 1, output_tokens: 0 } },
+      });
+      await flushPromises();
+
+      const records = await steeringRecordsFor(['interrupted-usage-response', 'retry-interrupted-usage-response']);
+      expect(records.map(record => record.request_id)).toEqual(['interrupted-usage-response']);
+    });
+
+    it('does not repeat a notice when a Gemini JSON stream closes before upstream EOF', async () => {
+      await seedPendingNotice();
+      const gemini = requestId => makeRequest(requestId, {
+        provider: 'gemini',
+        targetHost: 'generativelanguage.googleapis.com',
+        url: '/v1beta/models/gemini-2.5-pro:streamGenerateContent',
+        requestBody: { contents: [{ role: 'user', parts: [{ text: requestId }] }] },
+      });
+      const geminiNoticeIn = body => JSON.stringify(body.systemInstruction || {})
+        .includes('[AWF AI CREDIT WARNING]');
+      const geminiReply = JSON.stringify([{
+        modelVersion: 'gemini-2.5-pro',
+        candidates: [{ content: { parts: [{ text: 'ok' }] } }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
+      }]);
+
+      const interrupted = await gemini('interrupted-gemini-stream');
+      expect(geminiNoticeIn(interrupted.body)).toBe(true);
+
+      const proxyRes = new EventEmitter();
+      proxyRes.statusCode = 200;
+      proxyRes.headers = { 'content-type': 'application/json' };
+      proxyRes.pipe = jest.fn();
+      interrupted.cycle.responseHandler(proxyRes);
+      proxyRes.emit('data', Buffer.from(geminiReply.slice(0, 20)));
+      interrupted.res.emit('close');
+
+      const retry = await gemini('retry-interrupted-gemini-stream');
+      expect(geminiNoticeIn(retry.body)).toBe(false);
+
+      proxyRes.emit('data', Buffer.from(geminiReply.slice(20)));
+      proxyRes.emit('end');
+      const retryRes = new EventEmitter();
+      retryRes.statusCode = 200;
+      retryRes.headers = { 'content-type': 'application/json' };
+      retryRes.pipe = jest.fn();
+      retry.cycle.responseHandler(retryRes);
+      retryRes.emit('data', Buffer.from(geminiReply));
+      retryRes.emit('end');
+      await flushPromises();
+
+      const records = await steeringRecordsFor(['interrupted-gemini-stream', 'retry-interrupted-gemini-stream']);
+      expect(records.length).toBeLessThanOrEqual(1);
+      expect(records.map(record => record.request_id)).not.toContain('retry-interrupted-gemini-stream');
     });
 
     it('redelivers a notice when the client disconnects before the upstream response arrives', async () => {
