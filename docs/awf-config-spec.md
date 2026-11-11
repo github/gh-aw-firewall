@@ -1370,12 +1370,15 @@ on that conversation's own next eligible request:
   Prompt-cache markers (`cache_control`, `copilot_cache_control`) and Claude
   Code's per-request `x-anthropic-billing-header` system block are ignored.
 - An **eligible request** ends with a tool result: a `tool` message (Chat
-  Completions), a final user message with `tool_result` blocks (Messages), a
-  tool output item such as `function_call_output` (Responses), or function
-  responses (Gemini). Other requests, such as a harness request to summarize
-  the conversation, are left unchanged.
+  Completions), a final user message with `tool_result` blocks (Messages,
+  including Claude on Vertex `:rawPredict`/`:streamRawPredict`), a tool output
+  item such as `function_call_output` (Responses; an input message without a
+  `role` counts as a user message), or function responses (Gemini). Other
+  requests, such as a harness request to summarize the conversation, are left
+  unchanged. Token-counting requests (such as `/v1/messages/count_tokens`) are
+  not model calls and never carry or acknowledge a warning.
 - A Responses request continuing a stored response with `previous_response_id`
-  (or `conversation`) has no history to hash; each warning goes to one such
+  (or a non-null `conversation`) has no history to hash; each warning goes to one such
   request per run.
 - The proxy records, per warning kind, the latest warning each conversation has
   received, only once the request carrying it is acknowledged. The record is

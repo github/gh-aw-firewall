@@ -785,6 +785,28 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
       expect(working.steering).toEqual(delivered('ai_credit', 80));
     });
 
+    test('never claims a notice on a token-counting request', async () => {
+      createCreditWarning();
+      const messagesBody = Buffer.from(JSON.stringify({
+        messages: [
+          { role: 'user', content: [{ type: 'text', text: 'Task.' }] },
+          { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'read', input: {} }] },
+          { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'x' }] },
+        ],
+      }));
+      const req = { method: 'POST', url: '/v1/messages/count_tokens' };
+      const counted = await transformRequestBody(messagesBody, 'anthropic', req, 'count-tokens', null);
+      expect(counted.body).toEqual(messagesBody);
+      expect(counted.steering).toBeNull();
+      expect(req.awfSteeringDelivery).toBeUndefined();
+      expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
+
+      // The same conversation still hears the notice on its next model call.
+      const working = await transformRequestBody(
+        messagesBody, 'anthropic', { method: 'POST', url: '/v1/messages' }, 'working', null);
+      expect(working.steering).toEqual(delivered('ai_credit', 80));
+    });
+
     test('gives requests continuing a stored response each notice once per run', async () => {
       createCreditWarning();
       const continuation = Buffer.from(JSON.stringify({

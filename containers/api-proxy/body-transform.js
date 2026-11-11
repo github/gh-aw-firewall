@@ -73,12 +73,43 @@ function isResponsesRequest(requestPath) {
   return path === '/responses' || path.endsWith('/responses');
 }
 
+// The request path without query or trailing slash, or null when unparseable.
+function steeringPathname(requestPath) {
+  if (typeof requestPath !== 'string') return '';
+  try {
+    return new URL(requestPath, 'https://localhost').pathname.replace(/\/+$/, '');
+  } catch {
+    return null;
+  }
+}
+
+// Requests that never carry a budget notice: evaluation evidence, which must
+// not be changed by conversational warnings, and token-counting requests,
+// which are not model calls.
+function isSteeringExcluded(requestPath) {
+  const path = steeringPathname(requestPath);
+  return path === null || path.endsWith('/decisions') || isTokenCountingRequest(path);
+}
+
+// Anthropic models on Vertex use the Messages schema.
+function isVertexAnthropicRequest(path) {
+  return /\/publishers\/anthropic\/models\/[^/:]+:(?:rawPredict|streamRawPredict)$/.test(path);
+}
+
+// Token-counting routes are not model calls: /v1/messages/count_tokens,
+// /v1/responses/input_tokens, Gemini :countTokens, Bedrock .../count-tokens
+// and Claude-on-Vertex .../models/count-tokens:rawPredict.
+function isTokenCountingRequest(path) {
+  return /(?:\/(?:count[_-]tokens|input_tokens)|:countTokens)(?::(?:rawPredict|streamRawPredict))?$/i.test(path);
+}
+
 /**
  * Which request body format a budget notice is placed into.
  * @returns {'messages'|'gemini'|'responses'|'chat'}
  */
 function steeringProtocol(parsed, provider, requestPath) {
-  if (provider === 'anthropic' || isMessagesRequest(requestPath)) return 'messages';
+  if (provider === 'anthropic' || isMessagesRequest(requestPath) ||
+      isVertexAnthropicRequest(steeringPathname(requestPath) ?? '')) return 'messages';
   if (provider === 'gemini') return 'gemini';
   if (isResponsesRequest(requestPath) || (parsed.input !== undefined && !Array.isArray(parsed.messages))) {
     return 'responses';
@@ -115,15 +146,7 @@ function steeringProtocol(parsed, provider, requestPath) {
  * @returns {Buffer|null}
  */
 function injectSteeringMessage(body, provider, message, requestPath = '') {
-  // Evaluation evidence must not be changed by conversational budget warnings.
-  if (typeof requestPath === 'string') {
-    try {
-      const path = new URL(requestPath, 'https://localhost').pathname.replace(/\/+$/, '');
-      if (path.endsWith('/decisions')) return null;
-    } catch {
-      return null;
-    }
-  }
+  if (isSteeringExcluded(requestPath)) return null;
   let parsed = parseBodyAsObject(body);
   if (!parsed) return null;
   const protocol = steeringProtocol(parsed, provider, requestPath);
@@ -205,11 +228,13 @@ function withoutBillingHeaderBlocks(system) {
     block.text.startsWith('x-anthropic-billing-header:')));
 }
 
-function leadingItems(items, isOpening) {
+function leadingItems(items, isOpening, defaultRole) {
   const opening = [];
   for (const item of items) {
-    if (!item || typeof item !== 'object' || !isOpening(item)) break;
-    opening.push({ role: item.role, content: item.content ?? item.parts });
+    if (!item || typeof item !== 'object') break;
+    const role = defaultRole && !item.role ? defaultRole : item.role;
+    if (!isOpening(item, role)) break;
+    opening.push({ role, content: item.content ?? item.parts });
   }
   return opening;
 }
@@ -227,7 +252,8 @@ function hasGeminiFunctionResponse(content) {
  * first reply, which for most harnesses is the first user message). Harnesses
  * keep this fixed for the length of a conversation to keep their prompt cache,
  * and each sub-agent starts with its own opening. A Responses request that
- * continues a stored response (`previous_response_id` or `conversation`)
+ * continues a stored response (`previous_response_id` or a non-null
+ * `conversation`)
  * carries no history, so it has no conversation hash.
  *
  * `endsWithToolResult` is true when the request's last item is a tool result:
@@ -239,9 +265,11 @@ function hasGeminiFunctionResponse(content) {
  * @param {string} provider
  * @param {string} [requestPath]
  * @returns {{ endsWithToolResult: boolean, conversation: string|null }|null}
- *   null when the body cannot be parsed.
+ *   null when the body cannot be parsed or the request never carries a notice
+ *   (for example a token-counting request).
  */
 function describeSteeringConversation(body, provider, requestPath = '') {
+  if (isSteeringExcluded(requestPath)) return null;
   const parsed = parseBodyAsObject(body);
   if (!parsed) return null;
   const protocol = steeringProtocol(parsed, provider, requestPath);
@@ -275,10 +303,12 @@ function describeSteeringConversation(body, provider, requestPath = '') {
     const last = input[input.length - 1];
     endsWithToolResult = typeof last?.type === 'string' && last.type.endsWith('_call_output');
     system = parsed.instructions;
-    stateless = !parsed.previous_response_id && parsed.conversation === undefined;
-    opening = leadingItems(input, item =>
+    stateless = !parsed.previous_response_id && parsed.conversation == null;
+    // A message item without a role is a user message, as in
+    // responseInputToMessages().
+    opening = leadingItems(input, (item, role) =>
       (item.type === undefined || item.type === 'message') &&
-      (item.role === 'system' || item.role === 'developer' || item.role === 'user'));
+      (role === 'system' || role === 'developer' || role === 'user'), 'user');
   }
 
   let conversation = null;

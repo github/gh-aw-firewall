@@ -387,6 +387,98 @@ describe('describeSteeringConversation', () => {
     expect(a.conversation).not.toBe(b.conversation);
   });
 
+  test('treats Responses input messages without a role as user messages', () => {
+    const tail = [
+      { type: 'function_call', call_id: 'c1', name: 'shell', arguments: '{}' },
+      { type: 'function_call_output', call_id: 'c1', output: 'x' },
+    ];
+    const a = describe_({ instructions: 'Codex.', input: [{ content: 'Task A.' }, ...tail] },
+      'openai', '/v1/responses');
+    const b = describe_({ instructions: 'Codex.', input: [{ type: 'message', content: 'Task B.' }, ...tail] },
+      'openai', '/v1/responses');
+    const explicit = describe_({ instructions: 'Codex.', input: [{ role: 'user', content: 'Task A.' }, ...tail] },
+      'openai', '/v1/responses');
+    expect(a).toEqual({ endsWithToolResult: true, conversation: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(b.conversation).toEqual(expect.stringMatching(/^[0-9a-f]{64}$/));
+    expect(a.conversation).not.toBe(b.conversation);
+    expect(a.conversation).toBe(explicit.conversation);
+  });
+
+  test('treats a null Responses conversation like an omitted one', () => {
+    const input = [
+      { role: 'user', content: 'Task.' },
+      { type: 'function_call', call_id: 'c1', name: 'read', arguments: '{}' },
+      { type: 'function_call_output', call_id: 'c1', output: 'x' },
+    ];
+    const omitted = describe_({ instructions: 'Agent.', input }, 'openai', '/v1/responses');
+    const nulled = describe_({ instructions: 'Agent.', conversation: null, input }, 'openai', '/v1/responses');
+    expect(omitted.conversation).toEqual(expect.stringMatching(/^[0-9a-f]{64}$/));
+    expect(nulled).toEqual(omitted);
+    expect(describe_({ instructions: 'Agent.', conversation: 'conv_1', input }, 'openai', '/v1/responses'))
+      .toEqual({ endsWithToolResult: true, conversation: null });
+  });
+
+  describe.each(['rawPredict', 'streamRawPredict'])('Claude on Vertex %s', (method) => {
+    const url = `/v1/projects/p/locations/us-east5/publishers/anthropic/models/claude-sonnet-4-5:${method}`;
+    const body = (system, task) => ({
+      anthropic_version: 'vertex-2023-10-16',
+      system,
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: task }] },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'read', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'x' }] },
+      ],
+    });
+
+    test('is a Messages request whose hash includes the system prompt', () => {
+      const main = describe_(body('Main agent.', 'Task.'), 'vertex', url);
+      const sub = describe_(body('Sub-agent.', 'Task.'), 'vertex', url);
+      expect(main).toEqual({ endsWithToolResult: true, conversation: expect.stringMatching(/^[0-9a-f]{64}$/) });
+      expect(describe_(body('Main agent.', 'Task.'), 'vertex', `${url}?alt=sse`)).toEqual(main);
+      expect(sub.conversation).not.toBe(main.conversation);
+    });
+
+    test('carries the notice after the tool results of the final user message', () => {
+      const original = body('Main agent.', 'Task.');
+      const steered = JSON.parse(injectSteeringMessage(
+        Buffer.from(JSON.stringify(original)), 'vertex', 'NOTICE', url).toString('utf8'));
+      expect(steered.system).toBe('Main agent.');
+      expect(steered.messages).toHaveLength(3);
+      expect(steered.messages[2].content).toEqual([
+        { type: 'tool_result', tool_use_id: 't1', content: 'x' },
+        { type: 'text', text: 'NOTICE' },
+      ]);
+    });
+  });
+
+  test.each([
+    ['anthropic', '/v1/messages/count_tokens'],
+    ['copilot', '/v1/messages/count_tokens'],
+    ['openai', '/v1/responses/input_tokens'],
+    ['gemini', '/v1beta/models/gemini-2.5-pro:countTokens'],
+    ['vertex', '/v1/projects/p/locations/us-east5/publishers/anthropic/models/count-tokens:rawPredict'],
+  ])('never steers %s token-counting request %s', (provider, url) => {
+    const body = {
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'Task.' }] },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'read', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'x' }] },
+      ],
+      input: [
+        { role: 'user', content: 'Task.' },
+        { type: 'function_call', call_id: 'c1', name: 'read', arguments: '{}' },
+        { type: 'function_call_output', call_id: 'c1', output: 'x' },
+      ],
+      contents: [
+        { role: 'user', parts: [{ text: 'Task.' }] },
+        { role: 'model', parts: [{ functionCall: { name: 'read', args: {} } }] },
+        { role: 'user', parts: [{ functionResponse: { name: 'read', response: {} } }] },
+      ],
+    };
+    expect(describe_(body, provider, url)).toBeNull();
+    expect(injectSteeringMessage(Buffer.from(JSON.stringify(body)), provider, 'NOTICE', url)).toBeNull();
+  });
+
   test('has no conversation for Responses requests continuing a stored response', () => {
     expect(describe_({
       previous_response_id: 'resp_1',
