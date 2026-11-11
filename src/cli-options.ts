@@ -528,10 +528,19 @@ program
     '                                       Must be a positive integer.',
   )
   .option(
+    '--steering-budget',
+    'Enable AI-credit and time budget notices in the API proxy (default: off).\n' +
+    '                                       Credit notices use --max-ai-credits (or the hard cap); time notices use --agent-timeout.\n' +
+    '                                       Injects advisory notices at 80%, 90%, 95%, and 99% of each limit into the next\n' +
+    '                                       eligible request; it does not interrupt work or guarantee completion.',
+  )
+  .option(
+    '--no-steering-budget',
+    'Explicitly disable AI-credit and time budget notices.',
+  )
+  .option(
     '--enable-token-steering',
-    'Enable runtime and AI-credit steering in the API proxy (requires --enable-api-proxy).\n' +
-    '                                       Injects advisory warnings at 80%, 90%, 95%, and 99% of configured budgets/deadlines\n' +
-    '                                       into the next eligible request; it does not interrupt work or guarantee completion.',
+    'Alias for --steering-budget (config: apiProxy.enableTokenSteering).',
     false
   )
 

@@ -1,4 +1,4 @@
-import { buildRateLimitConfig, validateRateLimitFlags, validateEnableTokenSteeringFlag } from './rate-limit-parsers';
+import { buildRateLimitConfig, validateRateLimitFlags, validateEnableTokenSteeringFlag, resolveSteeringBudget } from './rate-limit-parsers';
 
 describe('buildRateLimitConfig', () => {
   it('returns disabled config when rateLimit is explicitly false', () => {
@@ -133,5 +133,29 @@ describe('validateEnableTokenSteeringFlag', () => {
   it('returns valid when api proxy is enabled but token steering is disabled', () => {
     const result = validateEnableTokenSteeringFlag(true, false);
     expect(result).toEqual({ valid: true });
+  });
+});
+
+describe('resolveSteeringBudget', () => {
+  it('defaults to off', () => {
+    expect(resolveSteeringBudget({})).toEqual({ valid: true, value: false });
+    expect(resolveSteeringBudget({ enableTokenSteering: false })).toEqual({ valid: true, value: false });
+  });
+
+  it('enables via --steering-budget or the --enable-token-steering alias', () => {
+    expect(resolveSteeringBudget({ steeringBudget: true })).toEqual({ valid: true, value: true });
+    expect(resolveSteeringBudget({ enableTokenSteering: true })).toEqual({ valid: true, value: true });
+    expect(resolveSteeringBudget({ enableTokenSteering: true, steeringBudget: true })).toEqual({ valid: true, value: true });
+  });
+
+  it('disables explicitly via --no-steering-budget', () => {
+    expect(resolveSteeringBudget({ enableTokenSteering: false, steeringBudget: false })).toEqual({ valid: true, value: false });
+  });
+
+  it('rejects --enable-token-steering combined with --no-steering-budget', () => {
+    expect(resolveSteeringBudget({ enableTokenSteering: true, steeringBudget: false })).toEqual({
+      valid: false,
+      error: '--enable-token-steering is an alias for --steering-budget and cannot be combined with --no-steering-budget',
+    });
   });
 });

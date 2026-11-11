@@ -151,6 +151,34 @@ describe('validateAwfFileConfig', () => {
     expect(errors).toContain('config.apiProxy.enableTokenSteering must be a boolean');
   });
 
+  it('accepts boolean apiProxy.steering.budget', () => {
+    expect(validateAwfFileConfig({ apiProxy: { steering: { budget: true } } })).toEqual([]);
+    expect(validateAwfFileConfig({ apiProxy: { steering: { budget: false } } })).toEqual([]);
+    expect(validateAwfFileConfig({ apiProxy: { steering: {} } })).toEqual([]);
+  });
+
+  it('rejects non-boolean apiProxy.steering.budget', () => {
+    expect(validateAwfFileConfig({ apiProxy: { steering: { budget: 'yes' } } })).not.toEqual([]);
+  });
+
+  it('rejects unknown keys under apiProxy.steering', () => {
+    expect(validateAwfFileConfig({ apiProxy: { steering: { budget: true, tokens: true } } })).not.toEqual([]);
+  });
+
+  it('accepts matching apiProxy.enableTokenSteering and apiProxy.steering.budget', () => {
+    expect(validateAwfFileConfig({ apiProxy: { enableTokenSteering: true, steering: { budget: true } } })).toEqual([]);
+    expect(validateAwfFileConfig({ apiProxy: { enableTokenSteering: false, steering: { budget: false } } })).toEqual([]);
+  });
+
+  it('rejects conflicting apiProxy.enableTokenSteering and apiProxy.steering.budget', () => {
+    const expected =
+      'config.apiProxy.enableTokenSteering is an alias for config.apiProxy.steering.budget and must not be set to a different value';
+    expect(validateAwfFileConfig({ apiProxy: { enableTokenSteering: true, steering: { budget: false } } }))
+      .toContain(expected);
+    expect(validateAwfFileConfig({ apiProxy: { enableTokenSteering: false, steering: { budget: true } } }))
+      .toContain(expected);
+  });
+
   it('accepts boolean apiProxy.anthropicAutoCache', () => {
     expect(validateAwfFileConfig({ apiProxy: { anthropicAutoCache: true } })).toEqual([]);
     expect(validateAwfFileConfig({ apiProxy: { anthropicAutoCache: false } })).toEqual([]);

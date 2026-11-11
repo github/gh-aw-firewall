@@ -53,6 +53,32 @@ describe('buildConfig', () => {
     expect(config.enclaves?.executors.script.runtime).toBe('cloud-hypervisor');
   });
 
+  it.each([
+    [{}, false],
+    [{ steeringBudget: true }, true],
+    [{ steeringBudget: false }, false],
+    [{ enableTokenSteering: true }, true],
+    [{ enableTokenSteering: true, steeringBudget: true }, true],
+  ])('resolves budget steering from %j', (steeringOptions, expected) => {
+    const config = buildConfig(makeInputs({
+      options: { ...makeInputs().options, ...steeringOptions },
+    }));
+    expect(config.enableTokenSteering).toBe(expected);
+  });
+
+  it('exits when --enable-token-steering conflicts with --no-steering-budget', () => {
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+    try {
+      expect(() => buildConfig(makeInputs({
+        options: { ...makeInputs().options, enableTokenSteering: true, steeringBudget: false },
+      }))).toThrow('process.exit called');
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+
   it('rejects a mixed-backend configuration during assembly', () => {
     expect(() => buildConfig(makeInputs({
       options: {

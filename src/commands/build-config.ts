@@ -2,6 +2,7 @@ import { WrapperConfig, LogLevel, UpstreamProxyConfig } from '../types';
 import type { AwfFileConfig } from '../config-file';
 import { resolveApiCredentials } from './resolve-credentials';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
+import { resolveSteeringBudget } from '../parsers/rate-limit-parsers';
 import { logger } from '../logger';
 import {
   CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS,
@@ -49,6 +50,19 @@ function resolveLegacySecurity(options: Record<string, unknown>): boolean | unde
   }
 
   return undefined;
+}
+
+/**
+ * Resolves `--steering-budget` and its `--enable-token-steering` alias.
+ * Calls `process.exit(1)` when the two are set to different values.
+ */
+function resolveSteeringBudgetOrExit(options: Record<string, unknown>): boolean {
+  const result = resolveSteeringBudget(options);
+  if (!result.valid) {
+    logger.error(`❌ ${result.error}`);
+    process.exit(1);
+  }
+  return result.value;
 }
 
 /**
@@ -219,7 +233,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     maxRuns,
     maxPermissionDenied,
     maxCacheMisses,
-    enableTokenSteering: options.enableTokenSteering as boolean,
+    enableTokenSteering: resolveSteeringBudgetOrExit(options),
     debugTokens:
       (options.debugTokens as boolean | undefined) ??
       (process.env.AWF_DEBUG_TOKENS === '1' ? true : undefined),

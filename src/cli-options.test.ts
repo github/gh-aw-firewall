@@ -21,6 +21,22 @@ describe('cli-options program', () => {
     program.setOptionValueWithSource('cloudHypervisorMountPolicy', undefined, 'default');
     program.setOptionValueWithSource('cloudHypervisorScratchMib', undefined, 'default');
     program.setOptionValueWithSource('cloudHypervisorEnclaveDebugPublic', undefined, 'default');
+    program.setOptionValueWithSource('steeringBudget', undefined, 'default');
+    program.setOptionValueWithSource('enableTokenSteering', false, 'default');
+  });
+
+  it('parses budget steering flags and the --enable-token-steering alias', () => {
+    program.parse(['node', 'awf', '--', 'true'], { from: 'node' });
+    expect(program.opts().steeringBudget).toBeUndefined();
+    expect(program.opts().enableTokenSteering).toBe(false);
+    program.parse(['node', 'awf', '--steering-budget', '--', 'true'], { from: 'node' });
+    expect(program.opts().steeringBudget).toBe(true);
+    program.parse(['node', 'awf', '--no-steering-budget', '--', 'true'], { from: 'node' });
+    expect(program.opts().steeringBudget).toBe(false);
+    program.setOptionValueWithSource('steeringBudget', undefined, 'default');
+    program.parse(['node', 'awf', '--enable-token-steering', '--', 'true'], { from: 'node' });
+    expect(program.opts().enableTokenSteering).toBe(true);
+    expect(program.opts().steeringBudget).toBeUndefined();
   });
 
   it('exposes the expected metadata', () => {

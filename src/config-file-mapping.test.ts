@@ -280,7 +280,13 @@ describe('mapAwfFileConfigToCliOptions', () => {
       'claude-sonnet-4': 1.5,
     });
     expect(result.defaultModelMultiplier).toBe(27);
-    expect(result.enableTokenSteering).toBe(true);
+    expect(result.steeringBudget).toBe(true);
+  });
+
+  it('maps apiProxy.steering.budget to steeringBudget', () => {
+    expect(mapAwfFileConfigToCliOptions({ apiProxy: { steering: { budget: true } } }).steeringBudget).toBe(true);
+    expect(mapAwfFileConfigToCliOptions({ apiProxy: { steering: { budget: false } } }).steeringBudget).toBe(false);
+    expect(mapAwfFileConfigToCliOptions({ apiProxy: {} }).steeringBudget).toBeUndefined();
   });
 
   it('maps maxTurns field', () => {
