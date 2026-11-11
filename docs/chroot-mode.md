@@ -207,6 +207,13 @@ Compose mode. Sysroot-stage mode provides its own `/etc` contents.
 The generated hosts file is mounted by the volume builder for non-sysroot
 Compose runs; sysroot-stage mode uses the sysroot's `/etc/hosts`.
 
+When the runner tool cache resolves to an existing directory (from
+`config.runnerToolCachePath`, `RUNNER_TOOL_CACHE`, or `~/work/_tool`, in that
+order), it is also bound read-only at its host path under `/host`
+(`/host<toolcache>:ro`); see
+[`runner-tool-cache.ts`](../src/runner-tool-cache.ts) and
+[`home-strategy.ts`](../src/services/agent-volumes/home-strategy.ts).
+
 When `chroot.binariesSourcePath` is set in stdin config, AWF also mounts:
 
 | Host Path | Container Path | Purpose |

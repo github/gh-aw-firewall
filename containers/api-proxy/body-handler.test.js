@@ -625,25 +625,63 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
       createCreditWarning();
 
       const runRequest = async requestId => {
+        const req = { method: 'POST', url: '/v1/chat/completions' };
         const result = await transformRequestBody(
           Buffer.from(JSON.stringify({ messages: [{ role: 'user', content: 'Continue.' }] })),
           'openai',
-          { method: 'POST', url: '/v1/chat/completions' },
+          req,
           requestId,
           null,
         );
+        req.awfSteeringDelivery?.acknowledge();
         return json(result.body).messages.at(-1).content;
       };
 
       try {
-        expect(await runRequest('time-credit-1')).toContain('[AWF TIME WARNING]');
+        const timeNotice = await runRequest('time-credit-1');
+        expect(timeNotice).toContain('[AWF TIME WARNING]');
+        expect(timeNotice).toContain('90%');
         expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
-        expect(await runRequest('time-credit-2')).toContain('[AWF TIME WARNING]');
-        expect(await runRequest('time-credit-3')).toContain('[AWF AI CREDIT WARNING]');
+        // The superseded 80% time notice is dropped once the 90% one is delivered.
+        expect(await runRequest('time-credit-2')).toContain('[AWF AI CREDIT WARNING]');
         expect(getPendingAiCreditSteeringWarning()).toBeNull();
+        expect(json((await transformRequestBody(
+          Buffer.from(JSON.stringify({ messages: [{ role: 'user', content: 'Continue.' }] })),
+          'openai',
+          { method: 'POST', url: '/v1/chat/completions' },
+          'time-credit-3',
+          null,
+        )).body).messages).toEqual([{ role: 'user', content: 'Continue.' }]);
       } finally {
         fs.rmSync(runtimeDir, { recursive: true, force: true });
       }
+    });
+
+    test('leaves a notice pending when its request is released and drops it once acknowledged', async () => {
+      createCreditWarning();
+      const send = async requestId => {
+        const req = { method: 'POST', url: '/v1/chat/completions' };
+        const result = await transformRequestBody(
+          Buffer.from(JSON.stringify({ messages: [{ role: 'user', content: 'Continue.' }] })),
+          'openai',
+          req,
+          requestId,
+          null,
+        );
+        return { req, result };
+      };
+
+      const failed = await send('notice-failed');
+      expect(failed.result.steering).toEqual({ type: 'ai_credit', threshold: 80 });
+      const concurrent = await send('notice-concurrent');
+      expect(concurrent.result.steering).toBeNull();
+      failed.req.awfSteeringDelivery.release();
+
+      const retried = await send('notice-retried');
+      expect(retried.result.steering).toEqual({ type: 'ai_credit', threshold: 80 });
+      retried.req.awfSteeringDelivery.acknowledge();
+      expect(getPendingAiCreditSteeringWarning()).toBeNull();
+      expect((await send('notice-after')).result.steering).toBeNull();
     });
   });
 

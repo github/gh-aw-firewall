@@ -1,6 +1,11 @@
 'use strict';
 
-const { BUDGET_WARNING_THRESHOLDS } = require('./steering-thresholds');
+const {
+  BUDGET_WARNING_THRESHOLDS,
+  selectPendingSteeringThreshold,
+  acknowledgeSteeringThreshold,
+  claimSteeringThreshold,
+} = require('./steering-thresholds');
 const { parsePositiveInteger } = require('./guard-utils');
 const fs = require('fs');
 
@@ -17,6 +22,7 @@ function createTimeoutSteeringState(configKey = null, startTimeMs = null) {
     startTimeMs,
     emittedThresholds: new Set(),
     uninjectedThresholds: new Set(),
+    inFlightThresholds: new Map(),
   };
 }
 
@@ -78,16 +84,21 @@ function getPendingTimeoutSteeringWarning() {
   if (!state) return null;
 
   updateTimeoutSteeringThresholds(state, timeoutMinutes);
-  if (state.uninjectedThresholds.size === 0) return null;
+  const threshold = selectPendingSteeringThreshold(state.uninjectedThresholds, state.inFlightThresholds);
+  if (threshold === null) return null;
 
-  const threshold = Math.max(...state.uninjectedThresholds);
   const text = TIMEOUT_STEERING_MESSAGES[threshold] ||
     `You have used ${threshold}% of your allotted run time.`;
   return { threshold, message: `[AWF TIME WARNING] ${text}` };
 }
 
 function acknowledgeTimeoutSteeringWarning(threshold) {
-  timeoutSteeringState.uninjectedThresholds.delete(threshold);
+  acknowledgeSteeringThreshold(timeoutSteeringState.uninjectedThresholds, threshold);
+}
+
+function claimTimeoutSteeringWarning(threshold) {
+  return claimSteeringThreshold(
+    timeoutSteeringState.uninjectedThresholds, timeoutSteeringState.inFlightThresholds, threshold);
 }
 
 function getAndClearPendingTimeoutSteeringMessage() {
@@ -133,6 +144,7 @@ module.exports = {
   getAndClearPendingTimeoutSteeringMessage,
   getPendingTimeoutSteeringWarning,
   acknowledgeTimeoutSteeringWarning,
+  claimTimeoutSteeringWarning,
   getTimeoutSteeringReflectState,
   resetTimeoutSteeringForTests,
 };

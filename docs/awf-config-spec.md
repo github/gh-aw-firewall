@@ -1339,12 +1339,18 @@ guarantee that the agent completes or submits work. If the budget is already
 exhausted, normal terminal rejection remains in effect.
 
 Each threshold is recorded once per run. At most one warning is injected per
-request: the largest crossed percentage is delivered first, then other pending
-warnings are delivered on later eligible requests. For equal percentages, time
-warnings precede AI-credit warnings.
+request, carrying the largest crossed percentage that is pending. For equal
+percentages, time warnings precede AI-credit warnings. Delivering a warning
+drops any older pending warnings of the same kind (time or AI credits), so an
+older warning never follows a newer one.
 Classifier requests, malformed JSON, unsupported body shapes, or any request
-that cannot be modified do not consume pending warnings. A warning is consumed
-only after successful body injection.
+that cannot be modified do not consume pending warnings. A warning injected
+into a request counts as delivered once the upstream response arrives with a
+2xx status (streaming or not, even if the client closes early). Non-2xx
+responses, requests rejected by a guard or by request transformation, and
+clients that disconnect before the upstream response arrives leave the warning
+pending for the next eligible request. While a request carrying a warning is in
+flight, concurrent requests do not repeat it.
 
 The warning formats are:
 
@@ -1363,7 +1369,7 @@ result. The proxy never changes the top-level system prompt, `instructions`,
 `systemInstruction`, tools, or earlier conversation items, so the provider
 prompt-cache prefix (including any cache breakpoint the harness or
 `anthropicAutoCache` placed on the last existing block) is preserved and the
-notice request reads the cache like its neighbours. The notice is one-shot and
+notice request reads the cache like its neighbours. Once delivered, the notice
 is not added to later requests.
 
 - **OpenAI / Copilot Chat Completions** — the proxy appends a final `{ "role": "user", "content": "<message>" }` message after the last message (typically the last `tool` message). When translated to Responses, it remains the final `input` item; it is not moved into `instructions`.
