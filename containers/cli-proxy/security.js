@@ -87,7 +87,7 @@ function findCommandIndex(args, booleanFlags) {
     if (
       arg.startsWith('-')
       && !arg.includes('=')
-      && (arg.startsWith('--') || arg.length === 2)
+      && (arg.startsWith('--') || Buffer.byteLength(arg, 'utf8') === 2)
       && !booleanFlags.has(arg)
     ) {
       index += 1;

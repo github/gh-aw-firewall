@@ -25,6 +25,9 @@ const {
 } = require('./security');
 const { runGhCommand } = require('./gh-runner');
 const { requestHandler } = require('./server');
+const ghExecutable = process.env.AWF_TEST_GH_CLI || 'gh';
+const pinnedGhVersion = fs.readFileSync(path.join(__dirname, 'Dockerfile'), 'utf8')
+  .match(/^ARG GH_VERSION=(\S+)$/m)?.[1];
 
 const deniedCommandSpellings = [
   ['pr', 'checkout'],
@@ -62,6 +65,8 @@ const deniedInvocations = deniedCommandSpellings.flatMap((command) => [
   ]),
 ]);
 deniedInvocations.push(
+  ['pr', '-é', 'checkout', '42'],
+  ['repo', '-é', 'clone', 'owner/repo'],
   ['pr', '--help=false', '-R', 'checkout', 'co', '42'],
   ['--repo', 'co', 'pr', 'checkout', '42'],
   ['pr', 'checkout', '--', 'co'],
@@ -220,6 +225,16 @@ describe('gh command-discovery contract (isolated help only)', () => {
 
   afterAll(() => fs.rmSync(directory, { recursive: true, force: true }));
 
+  it('uses the gh version pinned by the sidecar Dockerfile', () => {
+    expect(pinnedGhVersion).toBeDefined();
+    const result = spawnSync(ghExecutable, ['--version'], {
+      cwd: directory, env, encoding: 'utf8', timeout: 5000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stdout.split(/\r?\n/, 1)[0]).toContain(`gh version ${pinnedGhVersion} `);
+  });
+
   it.each([
     [['co'], 'pr checkout'],
     [['pr', 'co'], 'pr checkout'],
@@ -236,7 +251,7 @@ describe('gh command-discovery contract (isolated help only)', () => {
     [['repo', '--force=false', 'sync'], 'repo sync'],
     [['pr', '--detach=false', 'checkout'], 'pr checkout'],
   ])('resolves %j to %s without executing the operation', (args, command) => {
-    const result = spawnSync('gh', [...args, '--help'], {
+    const result = spawnSync(ghExecutable, [...args, '--help'], {
       cwd: directory, env, encoding: 'utf8', timeout: 5000,
     });
     expect(result.error).toBeUndefined();
@@ -245,13 +260,22 @@ describe('gh command-discovery contract (isolated help only)', () => {
     expect(result.stdout).toContain(`USAGE\n  gh ${command} `);
   });
 
+  it('discovers a denied command after a multibyte short-looking token', () => {
+    const result = spawnSync(ghExecutable, ['pr', '-é', 'checkout', '--help'], {
+      cwd: directory, env, encoding: 'utf8', timeout: 5000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Usage:  gh pr checkout ');
+  });
+
   it.each([
     ['--', 'pr', 'checkout'],
     ['pr', '--', 'checkout'],
     ['pr', '-f', 'checkout'],
     ['repo', '--clone', 'fork'],
   ])('does not select a leaf from %j', (...args) => {
-    const result = spawnSync('gh', [...args, '--help'], {
+    const result = spawnSync(ghExecutable, [...args, '--help'], {
       cwd: directory, env, encoding: 'utf8', timeout: 5000,
     });
     expect(result.error).toBeUndefined();
