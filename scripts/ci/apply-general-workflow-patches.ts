@@ -288,6 +288,23 @@ export function applyGeneralWorkflowPatches(
     }
   }
 
+  if (workflowFile === 'self-hosted-runner-doctor-updater.lock.yml') {
+    const before = content;
+    content = content.replace(
+      /^(\s*GH_AW_RECOVERY_ADDITIONAL_ROOTS: )'(\[[^\n]*\])'$/gm,
+      (_match, prefix: string, encodedRoots: string) => {
+        const roots = JSON.parse(encodedRoots) as string[];
+        const filteredRoots = roots.filter(
+          root => root !== '/tmp/gh-aw' && root !== '/tmp/gh-aw/proxy-logs/',
+        );
+        return `${prefix}'${JSON.stringify(filteredRoots)}'`;
+      },
+    );
+    if (content !== before) {
+      log.push('  Removed broad recovery roots from the runner doctor updater');
+    }
+  }
+
   if (
     workflowFile === 'copilot-token-optimizer.lock.yml' ||
     workflowFile === 'dependency-security-monitor.lock.yml'
