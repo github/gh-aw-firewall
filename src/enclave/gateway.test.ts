@@ -1,5 +1,7 @@
 import * as http from 'http';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 import execa from 'execa';
 import { EventEmitter } from 'events';
 import {
@@ -413,14 +415,60 @@ describe('enclave mcpg handoff', () => {
         'awmg-mcpg',
         '/bin/sh',
         '-c',
-        'sed -i "/[[:space:]]$2\\([[:space:]]\\|$\\)/d" /etc/hosts '
-          + '&& printf "%s %s\\n" "$1" "$2" >> /etc/hosts',
+        'hosts=$(sed -e "/[[:space:]]$2[[:space:]]/d" -e "/[[:space:]]$2$/d" /etc/hosts) '
+          + '&& printf "%s\\n%s %s\\n" "$hosts" "$1" "$2" > /etc/hosts',
         'awf-enclave-hosts',
         '172.30.0.2',
         'awf-enclave-mcp',
       ],
       expect.objectContaining({ reject: false }),
     );
+  });
+
+  it.each([
+    ['copilot', 'docker'], ['codex', 'docker'], ['claude', 'docker'],
+    ['copilot', 'cloud-hypervisor'], ['codex', 'cloud-hypervisor'], ['claude', 'cloud-hypervisor'],
+  ] as const)('updates gateway hosts without replacing its inode for %s / %s', async (engine, runtime) => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-gateway-hosts-'));
+    const hostsPath = path.join(directory, 'hosts');
+    const mountedPath = path.join(directory, 'mounted-hosts');
+    const original = '127.0.0.1 localhost\n172.30.0.4 unrelated awf-enclave-mcp-other\n';
+    fs.writeFileSync(hostsPath, `${original}172.30.0.99 awf-enclave-mcp\n`
+      + '172.30.0.98 awf-enclave-mcp old-alias\n'
+      + '172.30.0.97\tawf-enclave-mcp\told-alias\n');
+    fs.linkSync(hostsPath, mountedPath);
+    const inode = fs.statSync(hostsPath).ino;
+    const realExeca = jest.requireActual<typeof execa>('execa');
+    const wrapper = {
+      ...config(),
+      enclaves: normalizeEnclavesConfig([
+        { agent: { engine, model: 'test-model' }, runtime, repos: [repository] },
+      ]),
+    };
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        mockExeca
+          .mockResolvedValueOnce({
+            exitCode: 0,
+            stdout: JSON.stringify({
+              Name: '/awmg-mcpg',
+              State: { Running: true },
+              HostConfig: { NetworkMode: 'bridge' },
+              Config: { Labels: { [ENCLAVE_MCP_GATEWAY_RUN_LABEL]: 'test-run-identity' } },
+            }),
+          })
+          .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+          .mockResolvedValueOnce({ exitCode: 0, stdout: controlNetworkContainers(), stderr: '' })
+          .mockImplementationOnce((_file, args: string[]) => realExeca('/bin/sh', [
+            '-c', args[6].split('/etc/hosts').join('"$3"'), ...args.slice(7), hostsPath,
+          ], { env: { PATH: process.env.PATH }, extendEnv: false, reject: false, timeout: 1000 }));
+        await connectEnclaveGateway(wrapper, env());
+        expect(fs.statSync(hostsPath).ino).toBe(inode);
+        expect(fs.readFileSync(mountedPath, 'utf8')).toBe(`${original}172.30.0.2 awf-enclave-mcp\n`);
+      }
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('fails closed on gateway identity mismatch', async () => {
