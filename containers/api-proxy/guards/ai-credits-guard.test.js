@@ -6,6 +6,7 @@ const {
   buildAiCreditsLimitError,
   getPendingAiCreditSteeringWarning,
   acknowledgeAiCreditSteeringWarning,
+  claimAiCreditSteeringWarning,
   checkModelPricing,
   isRecognizedDynamicSelector,
   isModelPriceable,
@@ -305,7 +306,7 @@ describe('ai-credits-guard', () => {
     });
   });
 
-  it('queues crossed credit thresholds in descending order without weakening terminal enforcement', () => {
+  it('drops superseded credit thresholds once the newest one is delivered without weakening terminal enforcement', () => {
     process.env.AWF_MAX_AI_CREDITS = '0.001';
     applyAiCreditsUsage({ input_tokens_include_cache: true, input_tokens: 32 }, 'gpt-5-mini', 'copilot');
     acknowledgeAiCreditSteeringWarning(80);
@@ -315,11 +316,45 @@ describe('ai-credits-guard', () => {
 
     expect(getPendingAiCreditSteeringWarning().threshold).toBe(99);
     acknowledgeAiCreditSteeringWarning(99);
-    expect(getPendingAiCreditSteeringWarning().threshold).toBe(95);
+    expect(getPendingAiCreditSteeringWarning()).toBeNull();
+    expect(getAiCreditsReflectState().thresholds_pending).toEqual([]);
     expect(getAiCreditsBlockState()).toMatchObject({
       maxAiCredits: 0.001,
       maxExceeded: true,
     });
+  });
+
+  it('keeps a claimed credit notice pending until its request succeeds', () => {
+    process.env.AWF_MAX_AI_CREDITS = '1';
+    applyAiCreditsUsage({ input_tokens: 32_000 }, 'gpt-5-mini', 'copilot');
+    applyAiCreditsUsage({ input_tokens: 4_000 }, 'gpt-5-mini', 'copilot');
+    expect(getAiCreditsReflectState().thresholds_pending).toEqual([80, 90]);
+
+    const failed = claimAiCreditSteeringWarning(getPendingAiCreditSteeringWarning().threshold);
+    // While the 90% notice is in flight, neither it nor the older 80% notice is offered again.
+    expect(getPendingAiCreditSteeringWarning()).toBeNull();
+    failed.release();
+    expect(getPendingAiCreditSteeringWarning().threshold).toBe(90);
+    expect(getAiCreditsReflectState().thresholds_pending).toEqual([80, 90]);
+
+    const delivered = claimAiCreditSteeringWarning(90);
+    delivered.acknowledge();
+    delivered.release();
+    expect(getPendingAiCreditSteeringWarning()).toBeNull();
+    expect(getAiCreditsReflectState().thresholds_pending).toEqual([]);
+  });
+
+  it('offers a newer credit notice while an older one is in flight', () => {
+    process.env.AWF_MAX_AI_CREDITS = '1';
+    applyAiCreditsUsage({ input_tokens: 32_000 }, 'gpt-5-mini', 'copilot');
+    const older = claimAiCreditSteeringWarning(getPendingAiCreditSteeringWarning().threshold);
+    applyAiCreditsUsage({ input_tokens: 4_000 }, 'gpt-5-mini', 'copilot');
+
+    expect(getPendingAiCreditSteeringWarning().threshold).toBe(90);
+    claimAiCreditSteeringWarning(90).acknowledge();
+    older.release();
+    expect(getPendingAiCreditSteeringWarning()).toBeNull();
+    expect(getAiCreditsReflectState().thresholds_pending).toEqual([]);
   });
 
   it('matches pricing table entries by model prefix', () => {
