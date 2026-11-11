@@ -80,7 +80,10 @@ describe('reproducible npm CLI installs', () => {
       });
       expect(source).not.toMatch(/npm (?:ci|install|outdated)[^\n]*--registry[= ]https:\/\/registry\.npmjs\.org/);
       for (const match of source.matchAll(/\\"allowDomains\\":\[([^\]]*)\]/g)) {
-        if (match[1].includes('registry.npmjs.org')) {
+        const domains = match[1]
+          .split(',')
+          .map(domain => domain.trim().replace(/^"(.*)"$/, '$1'));
+        if (domains.includes('registry.npmjs.org')) {
           expect({ file, domains: match[1] }).toEqual({
             file, domains: expect.stringContaining('packagefeedproxy.microsoft.io'),
           });
