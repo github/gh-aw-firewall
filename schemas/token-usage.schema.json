@@ -203,7 +203,7 @@
             "null"
           ],
           "pattern": "^[0-9a-f]{12}$",
-          "description": "Opaque per-run conversation identifier: the first 12 hex characters of an HMAC-SHA-256 of the conversation opening (the system prompt or instructions plus the opening user turn) under a random secret that the api-proxy generates at startup and keeps in memory only. Comparable only between records of the same run (one proxy process); it does not reveal prompt content. Null for requests that continue a stored response (previous_response_id or a non-null conversation), which have no history to key."
+          "description": "Opaque per-run conversation identifier: the first 12 hex characters of an HMAC-SHA-256 of the conversation opening (the system prompt or instructions plus the opening user turn) under a random secret that the api-proxy generates at startup and keeps in memory only. Comparable only between records of the same run (one proxy process); it does not reveal prompt content. Null in two cases: (a) a Responses request that continues a stored response (previous_response_id or a non-null conversation), which has no history to key; all such requests share one entry and receive each notice once per run; (b) an eligible request whose opening cannot be keyed (for example, Responses input that starts with a reasoning item), which uses run-level state."
         },
         "first": {
           "type": "boolean",

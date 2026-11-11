@@ -2088,7 +2088,7 @@ At most one warning is injected per eligible request, carrying the largest cross
 When a usage record is available for a request carrying a notice, its `token-usage.jsonl` record includes:
 
 - `steering: { "type": "ai_credit", "threshold": 90 }` (with `type` set to `timeout` or `ai_credit`, and `threshold` to 80, 90, 95, or 99) only on the run's **first** delivery of that threshold, so it appears at most once per threshold per run.
-- `steering_delivery: { "type": "ai_credit", "threshold": 90, "conversation": "3f9a0c1b2d4e", "first": false }` on **every** delivery. `conversation` is the first 12 hex characters of the conversation key: an opaque per-run identifier, comparable only between records of the same run, that does not reveal prompt content (`null` for a request continuing a stored response), and `first` is `true` on the record that also carries `steering`.
+- `steering_delivery: { "type": "ai_credit", "threshold": 90, "conversation": "3f9a0c1b2d4e", "first": false }` on **every** delivery. `conversation` is the first 12 hex characters of the conversation key: an opaque per-run identifier, comparable only between records of the same run, that does not reveal prompt content (`null` in two cases: (a) a Responses request that continues a stored response, which shares one entry and receives each notice once per run; (b) an eligible request whose opening cannot be keyed, such as Responses input that starts with a `reasoning` item, which uses run-level state), and `first` is `true` on the record that also carries `steering`.
 
 These let consumers audit which conversations heard which notice by request ID without recording prompt content.
 

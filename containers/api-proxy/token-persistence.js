@@ -251,8 +251,10 @@ function validateTokenUsageRecord(record) {
  * the request that first delivered it (gh-aw reads it and expects at most one
  * per threshold). `steering_delivery` is written for every delivery and adds
  * a short conversation key (an opaque per-run identifier that does not reveal
- * prompt content; null for requests that continue a stored response) and
- * whether this was that first delivery.
+ * prompt content; null either for a Responses request that continues a
+ * stored response, which shares one entry and receives each notice once per
+ * run, or for an eligible request whose opening cannot be keyed, which uses
+ * run-level state) and whether this was that first delivery.
  */
 function steeringRecordFields(steering) {
   if (!steering) return {};

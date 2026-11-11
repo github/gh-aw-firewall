@@ -1417,7 +1417,11 @@ threshold (at most once per threshold per run), and `steering_delivery:
 {type, threshold, conversation, first}` on every delivery, where
 `conversation` is a 12-hex-character prefix of the conversation key, an
 opaque per-run identifier comparable only within one run that does not reveal
-prompt content (`null` for a request continuing a stored response).
+prompt content. It is `null` in two cases: (a) a Responses request that
+continues a stored response, which shares one entry and receives each notice
+once per run; (b) an eligible request whose opening cannot be keyed, such as
+Responses input that starts with a `reasoning` item, which uses run-level
+state.
 
 The warning formats are:
 

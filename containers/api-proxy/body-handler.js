@@ -306,8 +306,10 @@ function createBodyHandler({ handleRequestError, otel }) {
         if (steered) {
           body = steered;
           // Records carry a 12-hex-character prefix of the opaque per-run
-          // conversation key, or null for a request continuing a stored
-          // response, which has no opening to key.
+          // conversation key, or null in two cases: (a) a Responses request
+          // that continues a stored response, which shares one entry and
+          // receives each notice once per run; (b) an eligible request whose
+          // opening cannot be keyed, which uses run-level state.
           const shortConversation = conversation && conversation !== STORED_RESPONSE_CONVERSATION
             ? conversation.slice(0, 12)
             : null;
