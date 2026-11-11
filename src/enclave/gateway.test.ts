@@ -415,7 +415,7 @@ describe('enclave mcpg handoff', () => {
         'awmg-mcpg',
         '/bin/sh',
         '-c',
-        'hosts=$(sed "/[[:space:]]$2\\([[:space:]]\\|$\\)/d" /etc/hosts) '
+        'hosts=$(sed -e "/[[:space:]]$2[[:space:]]/d" -e "/[[:space:]]$2$/d" /etc/hosts) '
           + '&& printf "%s\\n%s %s\\n" "$hosts" "$1" "$2" > /etc/hosts',
         'awf-enclave-hosts',
         '172.30.0.2',
@@ -433,7 +433,9 @@ describe('enclave mcpg handoff', () => {
     const hostsPath = path.join(directory, 'hosts');
     const mountedPath = path.join(directory, 'mounted-hosts');
     const original = '127.0.0.1 localhost\n172.30.0.4 unrelated awf-enclave-mcp-other\n';
-    fs.writeFileSync(hostsPath, `${original}172.30.0.99 awf-enclave-mcp\n`);
+    fs.writeFileSync(hostsPath, `${original}172.30.0.99 awf-enclave-mcp\n`
+      + '172.30.0.98 awf-enclave-mcp old-alias\n'
+      + '172.30.0.97\tawf-enclave-mcp\told-alias\n');
     fs.linkSync(hostsPath, mountedPath);
     const inode = fs.statSync(hostsPath).ino;
     const realExeca = jest.requireActual<typeof execa>('execa');

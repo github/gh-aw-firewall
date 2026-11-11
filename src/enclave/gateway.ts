@@ -335,7 +335,7 @@ async function configureGatewayHostResolution(
       '/bin/sh',
       '-c',
       // Docker bind-mounts /etc/hosts, so rewrite its contents without renaming it.
-      `hosts=$(sed "/[[:space:]]$2\\([[:space:]]\\|$\\)/d" /etc/hosts) && printf "%s\\n%s %s\\n" "$hosts" "$1" "$2" > /etc/hosts`,
+      `hosts=$(sed -e "/[[:space:]]$2[[:space:]]/d" -e "/[[:space:]]$2$/d" /etc/hosts) && printf "%s\\n%s %s\\n" "$hosts" "$1" "$2" > /etc/hosts`,
       'awf-enclave-hosts',
       serverIp,
       ENCLAVE_MCP_CONTROL_ALIAS,
