@@ -137,8 +137,11 @@ describe('validateEnableTokenSteeringFlag', () => {
 });
 
 describe('resolveSteeringBudget', () => {
-  it('defaults to off', () => {
-    expect(resolveSteeringBudget({})).toEqual({ valid: true, value: false });
+  it('defaults to on when neither the CLI nor the config sets it', () => {
+    expect(resolveSteeringBudget({})).toEqual({ valid: true, value: true });
+  });
+
+  it('disables via the enableTokenSteering: false alias', () => {
     expect(resolveSteeringBudget({ enableTokenSteering: false })).toEqual({ valid: true, value: false });
   });
 

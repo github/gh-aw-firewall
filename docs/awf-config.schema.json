@@ -131,7 +131,7 @@
         },
         "enableTokenSteering": {
           "type": "boolean",
-          "description": "Alias for apiProxy.steering.budget. Enables advisory AI-credit and time budget notices. Setting both fields to different values is a configuration error. Default: false."
+          "description": "Alias for apiProxy.steering.budget. Enables advisory AI-credit and time budget notices. Setting both fields to different values is a configuration error. Default: true; set to false to turn budget notices off."
         },
         "steering": {
           "type": "object",
@@ -140,7 +140,7 @@
           "properties": {
             "budget": {
               "type": "boolean",
-              "description": "Enable advisory AI-credit and time budget notices. Credit notices use apiProxy.maxAiCredits (or the AI-credit hard cap when unset); time notices use container.agentTimeout. Notices are queued at 80%, 90%, 95%, and 99% of the limit and injected into the next eligible agent request; they do not interrupt running work or guarantee completion. Thresholds, triggers, wording, and placement are fixed. Alias: apiProxy.enableTokenSteering (CLI: --steering-budget / --no-steering-budget, alias --enable-token-steering). Default: false."
+              "description": "Enable advisory AI-credit and time budget notices. Credit notices use apiProxy.maxAiCredits (or the AI-credit hard cap when unset); time notices use container.agentTimeout. Notices are queued at 80%, 90%, 95%, and 99% of the limit and injected into the next eligible agent request; they do not interrupt running work or guarantee completion. Thresholds, triggers, wording, and placement are fixed. Alias: apiProxy.enableTokenSteering (CLI: --steering-budget / --no-steering-budget, alias --enable-token-steering). Default: true; set to false (CLI: --no-steering-budget) to turn budget notices off."
             }
           }
         },

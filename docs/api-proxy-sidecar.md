@@ -2059,18 +2059,16 @@ accounted limit.
 
 ## Runtime and AI-credit steering
 
-Budget steering is **opt-in**. Pass `--steering-budget` on the CLI or set `apiProxy.steering.budget: true` in the config file:
+Budget steering is **on by default**. It is active unless the config file sets `apiProxy.steering.budget: false` (or its alias `apiProxy.enableTokenSteering: false`) or the CLI passes `--no-steering-budget`. Set `maxAiCredits` to make credit notices track your own budget rather than the hard cap:
 
 ```yaml
 apiProxy:
   maxAiCredits: 25
-  steering:
-    budget: true
 ```
 
 This one switch enables advisory warnings for AI-credit and runtime thresholds at 80%, 90%, 95%, and 99%. Credit thresholds use the lower of `maxAiCredits` and the operator-controlled hard cap (10,000 credits by default), or the hard cap alone when no credit budget is configured. Runtime steering uses the actual agent start marker, not the first model request. Host timeout enforcement uses a separate host-controlled deadline and does not trust the agent-writable marker.
 
-To opt a workflow out explicitly, set `apiProxy.steering.budget: false` (CLI: `--no-steering-budget`), or omit the field. `apiProxy.enableTokenSteering` (CLI: `--enable-token-steering`) remains an alias for `apiProxy.steering.budget`; setting the two to different values is a configuration error. The CLI/config value is the only source of the sidecar's `AWF_ENABLE_TOKEN_STEERING` env var, which is emitted only when steering is enabled.
+To turn notices off, set `apiProxy.steering.budget: false` (CLI: `--no-steering-budget`). Omitting the field leaves them on; `apiProxy.steering.budget: true` (CLI: `--steering-budget`) states the default explicitly. `apiProxy.enableTokenSteering` (CLI: `--enable-token-steering`) remains an alias for `apiProxy.steering.budget`; setting the two to different values is a configuration error. The CLI/config value is the only source of the sidecar's `AWF_ENABLE_TOKEN_STEERING` env var, which is emitted only when steering is enabled.
 
 Steering is advisory and delivered only in the body of a later eligible outbound model request. It cannot interrupt a running model request or tool, extend the timeout, raise a budget, guarantee a subsequent request, or guarantee completion/submission. Terminal budget exhaustion still rejects requests normally.
 
