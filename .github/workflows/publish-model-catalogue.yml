@@ -28,6 +28,9 @@ concurrency:
   queue: max
   cancel-in-progress: false
 
+env:
+  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
+
 jobs:
   build:
     if: github.repository == 'github/gh-aw-firewall' && github.ref == 'refs/heads/main' && github.event_name == 'push'

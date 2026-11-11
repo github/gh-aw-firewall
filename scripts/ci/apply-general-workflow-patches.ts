@@ -93,6 +93,20 @@ export function applyGeneralWorkflowPatches(
   workflowPath: string
 ): PatchResult {
   const log: string[] = [];
+  const npmRegistry = 'https://packagefeedproxy.microsoft.io/npm/';
+  if (/^env:\s*$/m.test(content) && !/^ {2}NPM_CONFIG_REGISTRY:/m.test(content)) {
+    content = content.replace(/^env:\s*$/m, `env:\n  NPM_CONFIG_REGISTRY: ${npmRegistry}`);
+    log.push('  Configured the Microsoft-approved npm feed for all jobs');
+  }
+  // The compiler expands the node ecosystem into an escaped AWF config.
+  // Permit the approved feed only where npm downloads were already allowed.
+  content = content.replace(/(\\"allowDomains\\":\[)([^\]]*)(\])/g, (match, start: string, domains: string, end: string) => {
+    const allowedDomains = JSON.parse(`[${domains.replace(/\\"/g, '"')}]`) as string[];
+    const hasNpmRegistry = allowedDomains.some(domain => domain === 'registry.npmjs.org');
+    const hasApprovedProxy = allowedDomains.some(domain => domain === 'packagefeedproxy.microsoft.io');
+    if (!hasNpmRegistry || hasApprovedProxy) return match;
+    return `${start}\\"packagefeedproxy.microsoft.io\\",${domains}${end}`;
+  });
   if (workflowPath.endsWith('workflow-runtime-auditor.lock.yml')) {
     const exclusions = [
       'GH_AW_DEFAULT_OTLP_HEADERS',

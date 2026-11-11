@@ -17,6 +17,9 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
+env:
+  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
+
 jobs:
   build:
     runs-on: ubuntu-latest

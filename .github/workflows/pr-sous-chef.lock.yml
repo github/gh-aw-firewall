@@ -82,6 +82,7 @@ concurrency:
 run-name: "PR Sous Chef"
 
 env:
+  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
   PR_SOUS_CHEF_MODE: ${{ vars.PR_SOUS_CHEF_MODE || 'dry-run' }}
   PR_SOUS_CHEF_REPOSITORY: ${{ github.repository }}
   PR_SOUS_CHEF_WRITER_CONFIGURED: "true"
