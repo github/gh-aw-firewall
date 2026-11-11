@@ -219,6 +219,8 @@ remain `unknown` unless independently established.
 | CI-002 | Merged [#9488](https://github.com/github/gh-aw-firewall/pull/9488), gateway and GitHub-gateway tests plus integration contract: bounded retryable backend unavailability is not arbitrary protocol/auth failure. |
 | CI-003 | Merged [#11223](https://github.com/github/gh-aw-firewall/pull/11223), ordinary-workflow admission and runtime-validation regressions: regional OIDC endpoints and finite rejection reasons, without token probes. |
 | CI-004 | Merged [#11194](https://github.com/github/gh-aw-firewall/pull/11194), regression finalization gates and collector projection tests: validated invocation results are separate from post-success audit/cleanup failures, with audit retained outside the AWF work directory. |
+| CI-005 | Merged [#11158](https://github.com/github/gh-aw-firewall/pull/11158) / [#11191](https://github.com/github/gh-aw-firewall/pull/11191), regression evidence collector and host/guest harness tests: standalone completion-marker evidence and persisted Codex routing audit are independently classified. |
+| CI-006 | Merged [#11222](https://github.com/github/gh-aw-firewall/pull/11222), Claude unattended policy and enclave session-diagnostics tests: invalid startup options retain a finite classification in protected diagnostics without raw stderr. |
 | A4, RT-001, NET-002 | Corrected misleading probes: an Alpine probe container does not identify daemon libc; daemon default does not establish explicit runtime selection; chroot DNS and transient Squid failures need distinct checks. Current `config-sections.ts` uses a 10-second DNS timeout, not the 5 seconds in historical [#8171](https://github.com/github/gh-aw-firewall/pull/8171). |
 
 ## Agent entry point
@@ -267,6 +269,8 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | CI-002 | ci | Compiler-owned enclave gateway is unavailable or violates the handoff contract | workaround | [`findings/ci/CI-002.json`](./findings/ci/CI-002.json) |
 | CI-003 | ci | Cloud Hypervisor regression admission rejects a regional Actions OIDC endpoint | fixed | [`findings/ci/CI-003.json`](./findings/ci/CI-003.json) |
 | CI-004 | ci | Enclave regression fails after a successful invocation at a finalization gate | fixed | [`findings/ci/CI-004.json`](./findings/ci/CI-004.json) |
+| CI-005 | ci | Daily agent regression rejects an exit-0 run at a completion or routing evidence gate | fixed | [`findings/ci/CI-005.json`](./findings/ci/CI-005.json) |
+| CI-006 | ci | Claude enclave agent exits 1 before initialization with an invalid launch option | fixed | [`findings/ci/CI-006.json`](./findings/ci/CI-006.json) |
 | SEC-001 | security | Suspected isolation or credential-boundary regression must go to security review, not a bypass | needs-evidence | [`findings/security/SEC-001.json`](./findings/security/SEC-001.json) |
 
 ### Symptom lookup
@@ -330,6 +334,10 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | Cloud Hypervisor regression profiles reject before broker startup | CI-003 | ci | fixed |
 | AWF_ENCLAVE_REGRESSION_FINALIZATION | CI-004 | ci | fixed |
 | Enclave agent regression fails although the invocation result validated | CI-004 | ci | fixed |
+| AWF-REGRESSION-COMPLETE not found although the agent exited 0 | CI-005 | ci | fixed |
+| Codex routing evidence rejected after successful inference | CI-005 | ci | fixed |
+| Claude enclave agent exit 1 before stream initialization | CI-006 | ci | fixed |
+| classification unknown-option or invalid-option-value in enclave startup diagnostics | CI-006 | ci | fixed |
 | The agent container can reach a domain that is not allowlisted | SEC-001 | security | needs-evidence |
 | A provider credential is observable inside the agent environment while the api-proxy is enabled | SEC-001 | security | needs-evidence |
 | Egress succeeds without a corresponding Squid access-log entry | SEC-001 | security | needs-evidence |
