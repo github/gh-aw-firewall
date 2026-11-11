@@ -58,6 +58,30 @@ describe('approved npm feed workflow patches', () => {
     const { content } = applyGeneralWorkflowPatches(restricted, '/tmp/example.lock.yml');
     expect(content).toContain('\\"allowDomains\\":[\\"github.com\\"]');
   });
+
+  it('matches exact registry hosts instead of lookalike domains', () => {
+    const lookalikes = input.replace(
+      '\\"registry.npmjs.org\\",\\"github.com\\"',
+      '\\"registry.npmjs.org.attacker.example\\",\\"packagefeedproxy.microsoft.io.attacker.example\\"',
+    );
+    const { content: lookalikeContent } = applyGeneralWorkflowPatches(
+      lookalikes, '/tmp/example.lock.yml',
+    );
+    expect(lookalikeContent).toContain(
+      '\\"allowDomains\\":[\\"registry.npmjs.org.attacker.example\\",\\"packagefeedproxy.microsoft.io.attacker.example\\"]',
+    );
+
+    const falseApprovedFeed = input.replace(
+      '\\"registry.npmjs.org\\",\\"github.com\\"',
+      '\\"registry.npmjs.org\\",\\"packagefeedproxy.microsoft.io.attacker.example\\"',
+    );
+    const { content: feedContent } = applyGeneralWorkflowPatches(
+      falseApprovedFeed, '/tmp/example.lock.yml',
+    );
+    expect(feedContent).toContain(
+      '\\"allowDomains\\":[\\"packagefeedproxy.microsoft.io\\",\\"registry.npmjs.org\\",\\"packagefeedproxy.microsoft.io.attacker.example\\"]',
+    );
+  });
 });
 
 describe('Copilot session-state collection', () => {

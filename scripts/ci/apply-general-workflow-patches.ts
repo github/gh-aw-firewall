@@ -100,8 +100,9 @@ export function applyGeneralWorkflowPatches(
   // The compiler expands the node ecosystem into an escaped AWF config.
   // Permit the approved feed only where npm downloads were already allowed.
   content = content.replace(/(\\"allowDomains\\":\[)([^\]]*)(\])/g, (match, start: string, domains: string, end: string) => {
-    const hasNpmRegistry = /(?:^|,)\\"registry\.npmjs\.org\\"(?:,|$)/.test(domains);
-    const hasApprovedProxy = /(?:^|,)\\"packagefeedproxy\.microsoft\.io\\"(?:,|$)/.test(domains);
+    const allowedDomains = JSON.parse(`[${domains.replace(/\\"/g, '"')}]`) as string[];
+    const hasNpmRegistry = allowedDomains.some(domain => domain === 'registry.npmjs.org');
+    const hasApprovedProxy = allowedDomains.some(domain => domain === 'packagefeedproxy.microsoft.io');
     if (!hasNpmRegistry || hasApprovedProxy) return match;
     return `${start}\\"packagefeedproxy.microsoft.io\\",${domains}${end}`;
   });
