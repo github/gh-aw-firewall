@@ -80,8 +80,18 @@ jobs:
         run: npm run test:reflect-smoke
 
       - name: Run CLI proxy unit tests
+        env:
+          AWF_TEST_GH_CLI: /tmp/awf-gh-cli-2.98.0/bin/gh
         run: |
           cd containers/cli-proxy
+          GH_VERSION="$(sed -n 's/^ARG GH_VERSION=//p' Dockerfile)"
+          test "$GH_VERSION" = "2.98.0"
+          GH_ARCHIVE="gh_${GH_VERSION}_linux_amd64.tar.gz"
+          GH_DIR="/tmp/awf-gh-cli-${GH_VERSION}"
+          mkdir -p "$GH_DIR"
+          curl -fsSL --retry 3 "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ARCHIVE}" -o "/tmp/${GH_ARCHIVE}"
+          echo "3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de  /tmp/${GH_ARCHIVE}" | sha256sum --check
+          tar -xzf "/tmp/${GH_ARCHIVE}" -C "$GH_DIR" --strip-components=1
           npm ci
           npm test
 

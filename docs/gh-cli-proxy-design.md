@@ -83,6 +83,25 @@ Because `localhost:18443` is not `github.com`, `gh` treats it as GitHub Enterpri
 
 The entrypoint therefore configures `gh` (via `http_unix_socket` in a private `GH_CONFIG_DIR`) to send its API requests as plain HTTP over a Unix socket served by `gh-http-shim.js`. The shim removes `gh`'s non-secret placeholder authorization so the external DIFC proxy uses its own credential, forwards the request over TLS to `GH_HOST`, and adds a synthetic `installed_version` only when `/api/v3/meta` lacks one. Commands that bypass the shim through git or SSH are denied. `/exec` does not accept environment overrides, and each child receives only an explicit set of server-owned variables.
 
+Before dispatch, the primary proxy classifies command paths using the pinned
+`gh` CLI's Cobra command-discovery rules, including flags before and between
+command words, separate/equals/attached values, boolean flags, and `--`
+termination. It canonicalizes the built-in/default aliases of denied commands:
+`co` and `pr co` (`pr checkout`), `cs` (`codespace`), and `ext`/`extensions`
+(`extension`). Flag values and operands of accepted commands are not treated as
+command names, and accepted argument vectors are forwarded unchanged. Invalid
+syntax remains subject to `gh`'s own parser; classification does not make an
+unsupported flag valid.
+
+The shallow discovery rules and alias table in `containers/cli-proxy/security.js`
+must stay aligned with the `gh` version pinned in the sidecar Dockerfile.
+`server.test.js` covers policy decisions, HTTP rejection before an inert child
+can run, unchanged forwarding of allowed argv, and isolated, help-only checks
+against the installed `gh` parser. Enclave mode continues to use its separate
+`issues-read-v1` grammar, not this primary-proxy classification. A source fix
+requires rebuilding and deploying the CLI-proxy image; existing images are
+unchanged.
+
 ### CLI Flags
 
 | Flag | Description |

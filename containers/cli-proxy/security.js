@@ -65,6 +65,52 @@ const DENIED_COMMAND_PATHS = new Set([
   'repo sync',
 ]);
 
+// Built-in/default aliases of policy-controlled commands in the pinned gh CLI.
+// User aliases are not loaded: the sidecar owns its private GH_CONFIG_DIR.
+const ROOT_COMMAND_ALIASES = new Map([
+  ['co', ['pr', 'checkout']],
+  ['cs', ['codespace']],
+  ['ext', ['extension']],
+  ['extensions', ['extension']],
+]);
+const ROOT_DISCOVERY_BOOLEANS = new Set(['--help', '--version']);
+const GROUP_DISCOVERY_BOOLEANS = new Set(['--help']);
+
+function findCommandIndex(args, booleanFlags) {
+  // Match Cobra's stripFlags command discovery, not final leaf flag parsing.
+  // Unknown long/single-short flags consume a separate value; attached and
+  // equals forms do not. In particular, -h is not registered during discovery.
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--') break;
+    if (arg !== '' && !arg.startsWith('-')) return index;
+    if (
+      arg.startsWith('-')
+      && !arg.includes('=')
+      && (arg.startsWith('--') || Buffer.byteLength(arg, 'utf8') === 2)
+      && !booleanFlags.has(arg)
+    ) {
+      index += 1;
+    }
+  }
+  return -1;
+}
+
+function resolveCommandPath(args) {
+  const rootIndex = findCommandIndex(args, ROOT_DISCOVERY_BOOLEANS);
+  if (rootIndex < 0) return [];
+  const root = args[rootIndex];
+  if (ROOT_COMMAND_ALIASES.has(root)) return ROOT_COMMAND_ALIASES.get(root);
+
+  // Cobra removes the selected command, then searches the entire remaining
+  // vector again using that group's flags (including flags before the root).
+  const remaining = args.filter((_arg, index) => index !== rootIndex);
+  const groupIndex = findCommandIndex(remaining, GROUP_DISCOVERY_BOOLEANS);
+  let command = groupIndex < 0 ? undefined : remaining[groupIndex];
+  if (root === 'pr' && command === 'co') command = 'checkout';
+  return [root, command];
+}
+
 const ENCLAVE_ISSUE_PATH = /^\/?repos\/([a-z0-9_.-]+)\/([a-z0-9_.-]+)\/issues(?:\/([1-9][0-9]*)(\/comments)?)?$/;
 const ENCLAVE_QUERY = /^[A-Za-z0-9_.~%=&+,:*@-]*$/;
 const ENCLAVE_BOOLEAN_FLAGS = new Set(['--include', '--silent']);
@@ -336,7 +382,7 @@ function validateFileInputArgs(args) {
 /**
  * Validates the gh CLI arguments.
  * Write control is handled by the DIFC guard policy — this server only
- * blocks meta-commands that modify gh CLI itself.
+ * blocks local helpers, meta-commands, and shim-bypassing commands.
  *
  * @param {string[]} args - The argument array (excluding 'gh' itself)
  * @returns {{ valid: boolean, error?: string }}
@@ -372,24 +418,7 @@ function validateArgs(args) {
   const fileInputValidation = validateFileInputArgs(args);
   if (!fileInputValidation.valid) return fileInputValidation;
 
-  // Find the subcommand by scanning through args, skipping flags and their values.
-  let subcommand = null;
-  let i = 0;
-  while (i < args.length) {
-    const arg = args[i];
-    if (arg.startsWith('-')) {
-      if (!arg.includes('=') && i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        // Flag with a separate value (e.g., --repo owner/repo): skip both
-        i += 2;
-      } else {
-        // Boolean flag or --flag=value form: skip just the flag
-        i += 1;
-      }
-    } else {
-      subcommand = arg;
-      break;
-    }
-  }
+  const [subcommand, command] = resolveCommandPath(args);
 
   // No subcommand means flags-only invocation (e.g., --version, --help) — allow
   if (!subcommand) {
@@ -400,7 +429,7 @@ function validateArgs(args) {
   if (ALWAYS_DENIED_SUBCOMMANDS.has(subcommand)) {
     return { valid: false, error: `Subcommand '${subcommand}' is not permitted` };
   }
-  const commandPath = [subcommand, args[i + 1]].filter(Boolean).join(' ');
+  const commandPath = [subcommand, command].filter(Boolean).join(' ');
   if (DENIED_COMMAND_PATHS.has(commandPath) || DENIED_COMMAND_PATHS.has(subcommand)) {
     return { valid: false, error: `Command '${commandPath}' is not permitted` };
   }
