@@ -5,6 +5,10 @@ const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const sourcePath = path.join(workflowsDir, 'refactoring-scanner.md');
 const lockPath = path.join(workflowsDir, 'refactoring-scanner.lock.yml');
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 describe('refactoring scanner workflow prompt', () => {
   it('uses matching published AWF binaries and images instead of building containers during the scan', () => {
     const lock = fs.readFileSync(lockPath, 'utf-8');
@@ -19,7 +23,7 @@ describe('refactoring scanner workflow prompt', () => {
 
     for (const image of ['agent', 'api-proxy', 'squid']) {
       expect(lock).toMatch(new RegExp(
-        `ghcr\\.io/github/gh-aw-firewall/${image}:${install![1].replace(/\./g, '\\.')}@sha256:[a-f0-9]{64}`,
+        `ghcr\\.io/github/gh-aw-firewall/${image}:${escapeRegExp(install![1])}@sha256:[a-f0-9]{64}`,
       ));
     }
   });
