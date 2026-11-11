@@ -2,11 +2,20 @@
 
 const http = require('http');
 const tls = require('tls');
+const crypto = require('crypto');
 const { URL } = require('url');
 const { computeTokenBudgetUsage } = require('./token-budget-log');
 const { applyCopilotHostHeaders, mergeInjectedHeaders } = require('./request-headers');
 const { rememberInjectedCredentials, redactCredentialText } = require('./credential-protection');
 const { createWebSocketCredentialTransform } = require('./credential-websocket');
+
+function createMaskedPong(payload) {
+  const mask = crypto.randomBytes(4);
+  const header = Buffer.from([0x8a, 0x80 | payload.length]);
+  const masked = Buffer.from(payload);
+  for (let i = 0; i < masked.length; i++) masked[i] ^= mask[i % mask.length];
+  return Buffer.concat([header, mask, masked]);
+}
 
 function extractRequestModelFromUrl(url) {
   if (typeof url !== 'string' || !url.startsWith('/')) return null;
@@ -158,6 +167,11 @@ function createWebSocketTunnel({
         }
 
         const protectedStream = createWebSocketCredentialTransform(req);
+        protectedStream.on('ping', payload => {
+          if (!upstreamSocket.destroyed && upstreamSocket.writable) {
+            upstreamSocket.write(createMaskedPong(payload));
+          }
+        });
         let rejectedUpgrade = false;
         protectedStream.once('upgradeRejected', () => {
           rejectedUpgrade = true;

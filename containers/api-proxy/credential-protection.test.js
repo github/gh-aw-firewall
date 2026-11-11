@@ -81,6 +81,12 @@ describe('request-scoped credential protection', () => {
       .toBe('************* ***********');
   });
 
+  it('ignores empty and whitespace-only extracted authorization tokens', async () => {
+    const req = {};
+    rememberInjectedCredentials(req, { Authorization: 'Bearer       ' });
+    expect(await collect(createCredentialTransform(req), ['ordinary response'])).toEqual(Buffer.from('ordinary response'));
+  });
+
   it('tracks explicitly marked custom auth headers even when their names also denote metadata', () => {
     const req = {};
     rememberInjectedCredentials(req, withCopilotIntegration(
@@ -140,11 +146,24 @@ describe('bounded WebSocket credential protection', () => {
       frame(8, Buffer.concat([Buffer.from([0x03, 0xf3]), Buffer.from('SECRET-DUMMY')])),
     ]);
     const expected = Buffer.concat([
-      HANDSHAKE, frame(1, 'echo *******', false), frame(9, 'ping'), frame(0, '*****'),
+      HANDSHAKE, frame(1, 'echo *******', false), frame(0, '*****'),
       frame(8, Buffer.concat([Buffer.from([0x03, 0xf3]), Buffer.from('************')])),
     ]);
     expect(await collect(createWebSocketCredentialTransform(context()), [...wire].map(byte => Buffer.from([byte]))))
       .toEqual(expected);
+  });
+
+  it('masks non-ASCII credentials in raw UTF-8 upgrade headers', async () => {
+    const req = {};
+    const secret = 'clé-DUMMY';
+    rememberInjectedCredentials(req, { authorization: secret });
+    const handshake = Buffer.from(
+      `HTTP/1.1 101 Switching Protocols\r\nX-Diagnostic: ${secret}\r\n\r\n`,
+    );
+    const expected = Buffer.from(
+      `HTTP/1.1 101 Switching Protocols\r\nX-Diagnostic: ${'*'.repeat(Buffer.byteLength(secret))}\r\n\r\n`,
+    );
+    expect(await collect(createWebSocketCredentialTransform(req), [handshake])).toEqual(expected);
   });
 
   it('streams a multi-megabyte frame without buffering the model message', () => {

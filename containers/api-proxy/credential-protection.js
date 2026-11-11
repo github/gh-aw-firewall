@@ -32,7 +32,7 @@ function rememberInjectedCredentials(req, headers) {
     values.add(value);
     if (name.toLowerCase() === 'authorization') {
       const token = value.replace(/^(?:Bearer|token)\s+/i, '');
-      values.add(token);
+      if (token.trim()) values.add(token);
       if (value.startsWith('AWS4-HMAC-SHA256 ')) {
         const accessKey = /Credential=([^/,\s]+)/.exec(value)?.[1];
         const signature = /Signature=([^,\s]+)/.exec(value)?.[1];
@@ -49,6 +49,7 @@ function credentialPatterns(req) {
   if (cached?.size === size) return cached.patterns;
   const values = new Set();
   for (const value of credentials.get(req) || []) {
+    if (!value.trim()) continue;
     values.add(value);
     values.add(JSON.stringify(value).slice(1, -1));
   }
@@ -158,13 +159,17 @@ function createCredentialTransform(req) {
 function protectUpstreamResponse(source, req) {
   if (!credentials.get(req)?.size) return source;
   const headers = protectResponseHeaders(req, source.headers);
-  const hasBody = req.method !== 'HEAD' && ![204, 205, 304].includes(source.statusCode);
+  const hasBody = req.method !== 'HEAD' && ![204, 205, 304].includes(source.statusCode)
+    && String(source.headers?.['content-length'] || '').trim() !== '0';
   const encodings = hasBody ? String(headers['content-encoding'] || 'identity')
     .split(',').map(value => value.trim().toLowerCase()).filter(value => value !== 'identity') : [];
   const codecs = {
     gzip: [zlib.createGunzip, () => zlib.createGzip({ flush: zlib.constants.Z_SYNC_FLUSH })],
     deflate: [zlib.createInflate, () => zlib.createDeflate({ flush: zlib.constants.Z_SYNC_FLUSH })],
-    br: [zlib.createBrotliDecompress, () => zlib.createBrotliCompress({ flush: zlib.constants.BROTLI_OPERATION_FLUSH })],
+    br: [zlib.createBrotliDecompress, () => zlib.createBrotliCompress({
+      params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 },
+      flush: zlib.constants.BROTLI_OPERATION_FLUSH,
+    })],
   };
   if (encodings.some(encoding => !codecs[encoding])) {
     throw new Error('Unsupported upstream response content encoding');

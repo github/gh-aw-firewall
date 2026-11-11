@@ -275,6 +275,24 @@ describe('upstream credential isolation (real provider server and CONNECT proxy)
     if (method === 'HEAD') expect(response.headers['content-length']).toBe('123');
   });
 
+  it.each(['gzip', 'deflate', 'br'])('preserves empty %s responses with explicit zero length', async encoding => {
+    const secret = 'Empty-Encoded-DUMMY-Credential';
+    respond = (_req, res) => {
+      res.writeHead(200, {
+        'content-encoding': encoding, 'content-length': '0', 'x-diagnostic': secret,
+      });
+      res.end();
+    };
+    const response = await request(adapters.openai({
+      OPENAI_API_KEY: secret, OPENAI_API_TARGET: target(),
+    }));
+    expect(response.status).toBe(200);
+    expect(response.body).toBe('');
+    expect(response.headers['content-encoding']).toBe(encoding);
+    expect(response.headers['content-length']).toBe('0');
+    expect(response.headers['x-diagnostic']).toBe('*'.repeat(secret.length));
+  });
+
   it.each(['identity', 'gzip', 'deflate', 'br'])('preserves live %s SSE and masks embedded error events', async encoding => {
     const secret = 'Stream-DUMMY-Credential';
     const first = 'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n';
@@ -503,11 +521,39 @@ describe('upstream credential isolation (real provider server and CONNECT proxy)
     expect(response).toEqual(Buffer.concat([
       Buffer.from(handshake.replace(secret, mask)),
       frame(1, prefix + mask.slice(0, split), false),
-      frame(9, 'ordinary ping'),
       frame(0, mask.slice(split)),
       frame(8, Buffer.concat([Buffer.from([0x03, 0xf3]), Buffer.from(mask)])),
     ]));
     expect(logLines.join('')).not.toContain(secret);
+  });
+
+  it('answers upstream pings locally so a continuation can follow a retained credential prefix', async () => {
+    const secret = 'Ping-Gated-DUMMY-Credential';
+    const handshake = 'HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n';
+    const first = frame(1, `echo ${secret.slice(0, 10)}`, false);
+    const ping = frame(9, 'continue');
+    respondUpgrade = (_req, socket) => {
+      socket.write(Buffer.concat([Buffer.from(handshake), first, ping]));
+      let received = Buffer.alloc(0);
+      socket.on('data', chunk => {
+        received = Buffer.concat([received, chunk]);
+        if (received.length < 14 || received[0] !== 0x8a || !(received[1] & 0x80)) return;
+        const mask = received.subarray(2, 6);
+        const payload = Buffer.from(received.subarray(6, 14));
+        for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i % 4];
+        expect(payload.toString()).toBe('continue');
+        socket.end(frame(0, secret.slice(10)));
+      });
+    };
+    const response = await upgrade(adapters.openai({
+      OPENAI_API_KEY: secret, OPENAI_API_TARGET: target(),
+    }));
+    const expected = Buffer.concat([
+      Buffer.from(handshake),
+      frame(1, `echo ${'*'.repeat(10)}`, false),
+      frame(0, '*'.repeat(secret.length - 10)),
+    ]);
+    expect(response).toEqual(expected);
   });
 
   it('ends a rejected WebSocket upgrade even if the upstream keeps its diagnostic socket open', async () => {

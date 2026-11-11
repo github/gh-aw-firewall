@@ -2,7 +2,7 @@
 
 const { Transform } = require('stream');
 const { STATUS_CODES } = require('http');
-const { maskCredentialPrefix, redactCredentialText } = require('./credential-protection');
+const { maskCredentialPrefix } = require('./credential-protection');
 
 const MAX_HANDSHAKE_BYTES = 16 * 1024;
 const MAX_PENDING_FRAMING_BYTES = 64 * 1024;
@@ -82,7 +82,8 @@ function createWebSocketCredentialTransform(req) {
           if (/\r\nsec-websocket-extensions\s*:/i.test(text)) {
             throw new Error('Unrequested upstream WebSocket extension');
           }
-          this.push(Buffer.from(redactCredentialText(req, text), 'latin1'));
+          maskCredentialPrefix(req, handshake.subarray(0, end + 4), true);
+          this.push(handshake.subarray(0, end + 4));
           input = handshake.subarray(end + 4);
           handshake = Buffer.alloc(0);
           upgraded = true;
@@ -110,7 +111,7 @@ function createWebSocketCredentialTransform(req) {
             }
             frame = { remaining: length, fin, opcode, control: [] };
             if (opcode === 8) flushPayload(this, true);
-            addFraming(header);
+            if (opcode !== 9) addFraming(header);
             header = Buffer.alloc(0);
           }
           const take = Math.min(frame.remaining, input.length);
@@ -122,10 +123,14 @@ function createWebSocketCredentialTransform(req) {
           if (frame.remaining === 0) {
             if (frame.opcode >= 8) {
               const control = Buffer.concat(frame.control);
-              // Preserve the two-byte close status; only the reason is text.
-              const start = frame.opcode === 8 ? Math.min(2, control.length) : 0;
-              maskCredentialPrefix(req, control.subarray(start), true);
-              addFraming(control);
+              if (frame.opcode === 9) {
+                this.emit('ping', control);
+              } else {
+                // Preserve the two-byte close status; only the reason is text.
+                const start = frame.opcode === 8 ? Math.min(2, control.length) : 0;
+                maskCredentialPrefix(req, control.subarray(start), true);
+                addFraming(control);
+              }
             }
             const final = frame.fin && frame.opcode < 8;
             flushPayload(this, final);
