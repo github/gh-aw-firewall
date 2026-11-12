@@ -192,10 +192,10 @@ describe('shared diagnosis-maintenance contract', () => {
     ]) {
       const lock = read(`.github/workflows/${workflow}.lock.yml`);
       expect(lock).toMatch(
-        /key: memory-(?:none|approved)-(?:nopolicy|[a-f0-9]{8})-\$\{\{ env\.GH_AW_WORKFLOW_ID_SANITIZED \}\}-\$\{\{ github\.run_id \}\}/
+        /key: memory-(?:none|approved|unapproved)-(?:nopolicy|[a-f0-9]{8})-\$\{\{ env\.GH_AW_WORKFLOW_ID_SANITIZED \}\}-\$\{\{ github\.run_id \}\}/
       );
       expect(lock).toMatch(
-        /memory-(?:none|approved)-(?:nopolicy|[a-f0-9]{8})-\$\{\{ env\.GH_AW_WORKFLOW_ID_SANITIZED \}\}-\n/
+        /memory-(?:none|approved|unapproved)-(?:nopolicy|[a-f0-9]{8})-\$\{\{ env\.GH_AW_WORKFLOW_ID_SANITIZED \}\}-\n/
       );
       expect(lock).not.toContain('CACHE_MEMORY_DATE');
       expect(lock).not.toContain('--add-dir /tmp/gh-aw/cache-memory/');
