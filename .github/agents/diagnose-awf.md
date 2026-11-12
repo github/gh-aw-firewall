@@ -139,6 +139,9 @@ Reuse these instead of duplicating their commands:
 | Codex routing evidence rejected after successful inference | CI-005 | ci | fixed |
 | Claude enclave agent exit 1 before stream initialization | CI-006 | ci | fixed |
 | classification unknown-option or invalid-option-value in enclave startup diagnostics | CI-006 | ci | fixed |
+| Enclave regression stops at gateway attachment before the agent starts | CI-007 | ci | fixed |
+| Smoke enclave job times out because the gateway cannot resolve awf-enclave-mcp | CI-007 | ci | fixed |
+| Host preflight gateway-attachment fails at network-membership | CI-007 | ci | fixed |
 | The agent container can reach a domain that is not allowlisted | SEC-001 | security | needs-evidence |
 | A provider credential is observable inside the agent environment while the api-proxy is enabled | SEC-001 | security | needs-evidence |
 | Egress succeeds without a corresponding Squid access-log entry | SEC-001 | security | needs-evidence |
@@ -484,6 +487,20 @@ Reuse these instead of duplicating their commands:
 - **Related:** CI-004
 - **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11222 · code: containers/enclave/agent-entrypoint.py · test: src/enclave/claude-unattended.test.ts · test: src/enclave/agent-entrypoint-diagnostics.test.ts
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2026-12-09
+
+### CI-007 — Prestarted enclave gateway cannot resolve the private enclave service after network attachment
+
+- **Boundary:** ci · **Status:** fixed
+- **Affects:** runner=any, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Enclave regression stops at gateway attachment before the agent starts · Smoke enclave job times out because the gateway cannot resolve awf-enclave-mcp · Host preflight gateway-attachment fails at network-membership
+- **Discriminating conditions:** The compiler-launched mcpg container started on Docker's default bridge and AWF later attached it to the private awf-enclave-mcp-control network · The gateway resolver does not use Docker's private-network service discovery, so AWF validates exact network membership and writes the awf-enclave-mcp alias into the gateway's /etc/hosts · Older code used sed -i, which renames over Docker's bind-mounted /etc/hosts and fails; the current code rewrites the existing inode · A failed mapping is fail-closed and detaches the gateway; it is distinct from a retryable 503 backend_unavailable
+- **Root cause:** The prestarted gateway's resolver cannot see the AWF-created private network alias, and the first hosts-file update could not replace Docker's bind-mounted /etc/hosts. Without the alias, initialize could not reach the enclave MCP server.
+- **Safe probe:** `jq '.diagnostic.enclaveStartup.hostPreflight' path/to/protected/startup.json` → Find the gateway-attachment preflight and the phase that failed (contract, identity, network-connect or network-membership). The protected record does not retain the raw error message; pair a network-membership failure with separate run-symptom or source evidence of the gateway-resolution failure. Network-membership failure alone is insufficient; an absent record is unknown, not success. Do not read container environments.
+- **Action:** Use AWF source that validates exact control-network membership and an IPv4 server address, then rewrites the gateway hosts entry in place, keeping identity checks and disconnect-on-failure. Do not widen the network, skip membership validation or extend timeouts. Hosted acceptance remains separate.
+- **Related:** CI-002
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11393 · pull-request: https://github.com/github/gh-aw-firewall/pull/11472 · code: src/enclave/gateway.ts · test: src/enclave/gateway.test.ts
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-02-12
 
 ## Boundary: security
 

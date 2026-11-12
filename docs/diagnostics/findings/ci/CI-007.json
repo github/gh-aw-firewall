@@ -16,7 +16,7 @@
   "rootCause": "The prestarted gateway's resolver cannot see the AWF-created private network alias, and the first hosts-file update could not replace Docker's bind-mounted /etc/hosts. Without the alias, initialize could not reach the enclave MCP server.",
   "probe": {
     "command": "jq '.diagnostic.enclaveStartup.hostPreflight' path/to/protected/startup.json",
-    "expect": "Find the gateway-attachment preflight and the phase that failed (contract, identity, network-connect or network-membership). A network-membership failure with the resolution message points here; an absent record is unknown, not success. Do not read container environments.",
+    "expect": "Find the gateway-attachment preflight and the phase that failed (contract, identity, network-connect or network-membership). The protected record does not retain the raw error message; pair a network-membership failure with separate run-symptom or source evidence of the gateway-resolution failure. Network-membership failure alone is insufficient; an absent record is unknown, not success. Do not read container environments.",
     "readOnly": true,
     "secretSafe": true
   },
