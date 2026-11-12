@@ -25,7 +25,7 @@ describe('auth doctor updater workflow config', () => {
     expect(source).toContain('schedule: daily');
     expect(source).toContain('workflow_dispatch:');
     expect(source).toContain('- shared/diagnosis-maintenance.md');
-    expect(source).toContain('complete merged-PR intake');
+    expect(source).toContain('Read `/tmp/gh-aw/agent/candidates.json`');
     expect(source).toContain('query: \'is:pr is:open in:title "[docs] auth:"\'');
     expect(source).toContain('title-prefix: "[docs] auth: "');
     expect(source).toContain('labels: [documentation, ai-generated]');
@@ -36,6 +36,18 @@ describe('auth doctor updater workflow config', () => {
     expect(source).toContain('sandbox:\n  agent:\n    id: awf\nnetwork:');
     expect(source).not.toContain('runtime: cloud-hypervisor');
     expect(source).not.toContain('create-issue:');
+  });
+
+  it('uses bounded shared intake and scopes supplemental searches to auth', () => {
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+
+    expect(source).toContain('/tmp/gh-aw/agent/candidates.json');
+    expect(source).toContain('/tmp/gh-aw/cache-memory/diagnosis/receipts.json');
+    expect(source).toContain('reviewQueue.firstTime` first, up to 50 candidates');
+    expect(source).toContain('reviewQueue.deferred');
+    expect(source).toContain('without exceeding 50 total');
+    expect(source).toContain('auth-relevant issues and pull requests updated since that date');
+    expect(source).toContain('Do not treat broad keyword-search results as a second exhaustive merged-PR intake.');
   });
 
   it('audits supported auth paths and keeps trust boundaries explicit', () => {
