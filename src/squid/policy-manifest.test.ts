@@ -24,7 +24,11 @@ describe('generatePolicyManifest - regex pattern rules', () => {
       expect(regexRule!.action).toBe('deny');
       expect(regexRule!.protocol).toBe('both');
       expect(regexRule!.aclName).toBe('blocked_domains_regex');
-      expect(regexRule!.domains.length).toBeGreaterThan(0);
+      expect(regexRule!.domains).toHaveLength(1);
+      const re = new RegExp(regexRule!.domains[0], 'i');
+      expect(re.test('sub.evil.com')).toBe(true);
+      expect(re.test('sub.evil.com.attacker.net')).toBe(false);
+      expect(re.test('notevil.com')).toBe(false);
     });
 
     it('should emit both deny-blocked-plain and deny-blocked-regex when blockedDomains has mixed plain and wildcard', () => {
@@ -73,7 +77,11 @@ describe('generatePolicyManifest - regex pattern rules', () => {
       expect(regexRule!.action).toBe('allow');
       expect(regexRule!.protocol).toBe('http');
       expect(regexRule!.aclName).toBe('allowed_http_only_regex');
-      expect(regexRule!.domains.length).toBeGreaterThan(0);
+      expect(regexRule!.domains).toHaveLength(1);
+      const re = new RegExp(regexRule!.domains[0], 'i');
+      expect(re.test('sub.example.com')).toBe(true);
+      expect(re.test('sub.example.com.attacker.net')).toBe(false);
+      expect(re.test('notexample.com')).toBe(false);
     });
 
     it('should emit both allow-http-only-plain and allow-http-only-regex for mixed http domains', () => {
@@ -108,7 +116,11 @@ describe('generatePolicyManifest - regex pattern rules', () => {
       expect(regexRule!.action).toBe('allow');
       expect(regexRule!.protocol).toBe('https');
       expect(regexRule!.aclName).toBe('allowed_https_only_regex');
-      expect(regexRule!.domains.length).toBeGreaterThan(0);
+      expect(regexRule!.domains).toHaveLength(1);
+      const re = new RegExp(regexRule!.domains[0], 'i');
+      expect(re.test('sub.secure.com')).toBe(true);
+      expect(re.test('sub.secure.com.attacker.net')).toBe(false);
+      expect(re.test('notsecure.com')).toBe(false);
     });
 
     it('should emit both allow-https-only-plain and allow-https-only-regex for mixed https domains', () => {
