@@ -334,8 +334,11 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
       jest.restoreAllMocks();
     });
 
+    // Crosses 80% through a routing-classifier request, which does not count
+    // towards the recent request cost, so only the 80% threshold notice is
+    // pending (the "little left" notice needs a recent cost).
     function createCreditWarning() {
-      applyAiCreditsUsage({ input_tokens: 32 }, 'gpt-5-mini', 'copilot');
+      applyAiCreditsUsage({ input_tokens: 32 }, 'gpt-5-mini', 'copilot', { purpose: 'routing_classification' });
     }
 
     // A Chat Completions request that ends with a tool result; `opening` sets
@@ -352,7 +355,15 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
 
     const delivered = (type, threshold, first = false) => ({
       type,
+      trigger: 'threshold',
       threshold,
+      conversation: expect.stringMatching(/^[0-9a-f]{12}$/),
+      first,
+    });
+    const deliveredLittleLeft = (type, first = false) => ({
+      type,
+      trigger: 'little_left',
+      threshold: null,
       conversation: expect.stringMatching(/^[0-9a-f]{12}$/),
       first,
     });
@@ -625,14 +636,17 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
 
     test('delivers AI-credit warnings at each configured threshold on later eligible requests', async () => {
       process.env.AWF_MAX_AI_CREDITS = '1';
-      const creditUsageByThreshold = new Map([
-        [80, 32_000],
-        [90, 4_000],
-        [95, 2_000],
-        [99, 1_600],
-      ]);
+      // [threshold, input tokens, credits used]. Each request is large enough
+      // that the "little left" notice fires with the 80% threshold and ranks
+      // just above it; the later thresholds supersede it.
+      const creditUsageByThreshold = [
+        [80, 32_000, '0.8'],
+        [90, 4_000, '0.9'],
+        [95, 2_000, '0.95'],
+        [99, 1_600, '0.99'],
+      ];
 
-      for (const [threshold, inputTokens] of creditUsageByThreshold) {
+      for (const [threshold, inputTokens, used] of creditUsageByThreshold) {
         applyAiCreditsUsage({ input_tokens: inputTokens }, 'gpt-5-mini', 'copilot');
         const req = { method: 'POST', url: '/v1/chat/completions' };
         const result = await transformRequestBody(
@@ -646,7 +660,7 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
         const parsed = json(result.body);
 
         expect(parsed.messages.at(-1).content).toContain(warningPrefix);
-        expect(parsed.messages.at(-1).content).toContain(`${threshold}%`);
+        expect(parsed.messages.at(-1).content).toContain(`${used} of 1 AI credits are used`);
         expect(getPendingAiCreditSteeringWarning()).toBeNull();
       }
     });
@@ -676,10 +690,12 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
 
       try {
         const timeNotice = await runRequest('time-credit-1');
-        expect(timeNotice).toContain('[AWF TIME WARNING]');
-        expect(timeNotice).toContain('90%');
+        // At 9 of 10 minutes the 80% and 90% time thresholds and the time
+        // "little left" notice (ranked 90.5) are crossed; it outranks the 80%
+        // credit notice.
+        expect(timeNotice).toContain('[AWF TIME WARNING] 9 of 10 minutes have passed; about 1 minute remains.');
         expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
-        // The superseded 80% time notice is dropped once the 90% one is delivered.
+        // The superseded 80% and 90% time notices are dropped once it is delivered.
         expect(await runRequest('time-credit-2')).toContain('[AWF AI CREDIT WARNING]');
         expect(getPendingAiCreditSteeringWarning()).toBeNull();
         expect((await transformRequestBody(
@@ -745,10 +761,12 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
       other.req.awfSteeringDelivery.acknowledge();
       expect(other.result.steering.first).toBe(false);
 
-      // The next threshold reaches each conversation again.
+      // The next notice reaches each conversation again. This request crosses
+      // 90% with about one request's worth left, so the "little left" notice
+      // (ranked just above 90%) is the current one.
       applyAiCreditsUsage({ input_tokens: 4 }, 'gpt-5-mini', 'copilot');
       const mainNext = await send('main-3', toolResultChat('Research the papers.'));
-      expect(mainNext.result.steering).toEqual(delivered('ai_credit', 90));
+      expect(mainNext.result.steering).toEqual(deliveredLittleLeft('ai_credit'));
     });
 
     test('inspects the conversation only once a threshold has been crossed', async () => {
@@ -770,11 +788,12 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
         expect(early.result.steering).toBeNull();
         expect(inspect).not.toHaveBeenCalled();
 
-        // Once a threshold is crossed, inspection resumes and the notice is delivered.
+        // Once a threshold is crossed, inspection resumes and the notice is
+        // delivered (here "little left", which fires with the 80% threshold).
         credits.applyAiCreditsUsage({ input_tokens: 28 }, 'gpt-5-mini', 'copilot');
         const first = await send('first', 'Research the papers.');
         expect(inspect).toHaveBeenCalledTimes(1);
-        expect(first.result.steering).toEqual(delivered('ai_credit', 80));
+        expect(first.result.steering).toEqual(deliveredLittleLeft('ai_credit'));
         first.req.awfSteeringDelivery.acknowledge();
         expect(credits.getPendingAiCreditSteeringWarning()).toBeNull();
 
@@ -782,7 +801,7 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
         // inspected and hears the notice.
         const second = await send('second', 'Screen this batch.');
         expect(inspect).toHaveBeenCalledTimes(2);
-        expect(second.result.steering).toEqual(delivered('ai_credit', 80));
+        expect(second.result.steering).toEqual(deliveredLittleLeft('ai_credit'));
         inspect.mockRestore();
       });
     });
@@ -892,7 +911,7 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
 
       // Stored-response requests still hear it once, as their own conversation.
       const first = await send('stored-1');
-      expect(first.result.steering).toEqual({ type: 'ai_credit', threshold: 80, conversation: null, first: false });
+      expect(first.result.steering).toEqual({ type: 'ai_credit', trigger: 'threshold', threshold: 80, conversation: null, first: false });
       expect((await send('stored-concurrent')).result.steering).toBeNull();
       first.req.awfSteeringDelivery.acknowledge();
       expect(first.result.steering.first).toBe(false);
@@ -913,10 +932,10 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
       };
 
       const failed = await send('stored-failed');
-      expect(failed.result.steering).toEqual({ type: 'ai_credit', threshold: 80, conversation: null, first: false });
+      expect(failed.result.steering).toEqual({ type: 'ai_credit', trigger: 'threshold', threshold: 80, conversation: null, first: false });
       failed.req.awfSteeringDelivery.release();
       const retried = await send('stored-retry');
-      expect(retried.result.steering).toEqual({ type: 'ai_credit', threshold: 80, conversation: null, first: false });
+      expect(retried.result.steering).toEqual({ type: 'ai_credit', trigger: 'threshold', threshold: 80, conversation: null, first: false });
       retried.req.awfSteeringDelivery.acknowledge();
       expect(retried.result.steering.first).toBe(true);
       expect((await send('stored-after')).result.steering).toBeNull();

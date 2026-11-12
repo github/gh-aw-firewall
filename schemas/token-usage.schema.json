@@ -168,12 +168,13 @@
         }
       },
       "additionalProperties": false,
-      "description": "Present on the request that first delivered an advisory steering notice threshold in the run; written at most once per threshold per run. See steering_delivery for every delivery."
+      "description": "Present on the request that first delivered an advisory steering notice threshold in the run; written at most once per threshold per run. A \"little_left\" notice has no threshold of its own; when its delivery supersedes crossed thresholds of the same type not yet recorded, that record carries steering for the highest of them (which then counts as recorded). See steering_delivery for every delivery."
     },
     "steering_delivery": {
       "type": "object",
       "required": [
         "type",
+        "trigger",
         "threshold",
         "conversation",
         "first"
@@ -187,15 +188,27 @@
           ],
           "description": "Kind of advisory steering notice delivered with this request."
         },
+        "trigger": {
+          "type": "string",
+          "enum": [
+            "threshold",
+            "little_left"
+          ],
+          "description": "Why the notice was sent: \"threshold\" when a percent threshold (80, 90, 95 or 99) was crossed; \"little_left\" when about five model requests' worth of AI credits (ai_credit), or about five minutes (timeout), remained once at least half the budget or deadline was used. The little_left notice fires at most once per run per kind, and has a null threshold here; its record carries steering for the highest unrecorded crossed threshold of the same type it supersedes, if any."
+        },
         "threshold": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "enum": [
             80,
             90,
             95,
-            99
+            99,
+            null
           ],
-          "description": "Percent threshold of the delivered notice."
+          "description": "Percent threshold of the delivered notice; null exactly when trigger is \"little_left\"."
         },
         "conversation": {
           "type": [
@@ -207,9 +220,34 @@
         },
         "first": {
           "type": "boolean",
-          "description": "True when this was the run's first delivery of this threshold (the record that also carries steering)."
+          "description": "True when this was the run's first delivery of this notice (for a threshold notice, the record that also carries steering)."
         }
       },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "trigger": {
+                "const": "little_left"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "threshold": {
+                "const": null
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "threshold": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      ],
       "additionalProperties": false,
       "description": "Present on every request that delivered an advisory steering notice. Each conversation in the run receives each current notice once."
     },

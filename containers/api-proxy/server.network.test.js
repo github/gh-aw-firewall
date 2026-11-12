@@ -560,6 +560,7 @@ describe('reflectEndpoints', () => {
       percent_used: 0,
       thresholds_crossed: [],
       thresholds_pending: [],
+      little_left_triggered: false,
     });
   });
 
