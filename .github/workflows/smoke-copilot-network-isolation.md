@@ -141,10 +141,10 @@ not assumed results.
 Include the exact `EGRESS_RESULT allow=<pass|fail> deny=<pass|fail>` line in
 every safe-output body.
 
-- On a `pull_request` trigger, call `add_comment` with a brief summary, the
-  current PR author's name, both check results, and the overall PASS/FAIL. If
-  both checks pass, also call `add_labels` for
-  `smoke-copilot-network-isolation`. Issue both calls in the same response
-  (parallel tool calls where supported). Never call `noop` on a PR trigger.
+- On a `pull_request` trigger, call `add_comment` with a brief summary, both
+  check results, and the overall PASS/FAIL. If both checks pass, also call
+  `add_labels` for `smoke-copilot-network-isolation`. Issue both calls in the
+  same response (parallel tool calls where supported). Never call `noop` on a
+  PR trigger.
 - On `workflow_dispatch` or `schedule`, call `noop` with a concise PASS/FAIL
   summary. Do not attempt PR comments or labels without a PR.
