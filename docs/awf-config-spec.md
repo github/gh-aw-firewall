@@ -1347,8 +1347,11 @@ values (in the config file, or `--enable-token-steering` with
 `--no-steering-budget` on the CLI) is a configuration error. A CLI flag for
 either name takes precedence over the config file.
 
-When enabled, the proxy tracks AI-credit and runtime thresholds
-at 80%, 90%, 95%, and 99%. Credit thresholds use the lower of configured
+When `steering.budget` is enabled, the proxy tracks AI-credit and runtime
+thresholds at 80%, 90%, 95%, and 99%. Each kind is tracked independently:
+credit notices are always available because the hard cap applies even without
+`maxAiCredits`, while time notices are sent only when `container.agentTimeout`
+is set. Credit thresholds use the lower of configured
 `maxAiCredits` and the operator-controlled hard cap (10,000 credits by default; the hard cap is
 the ceiling when `maxAiCredits` is not configured). Runtime thresholds use the
 agent start marker written by the runtime; the host timeout and API proxy use
