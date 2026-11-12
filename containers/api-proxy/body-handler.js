@@ -318,7 +318,9 @@ function createBodyHandler({ handleRequestError, otel }) {
             : null;
           // `first` is set when this turns out to be the run's first delivery
           // of the notice; only that record of a threshold notice carries the
-          // `steering` field. The "little left" notice has no threshold.
+          // `steering` field. The "little left" notice has no threshold; its
+          // delivery carries `steering` for the highest crossed threshold it
+          // supersedes that is not yet recorded (`legacyThreshold`), if any.
           steering = {
             type: nextWarning.type,
             trigger: nextWarning.warning.trigger,
@@ -335,6 +337,8 @@ function createBodyHandler({ handleRequestError, otel }) {
           req.awfSteeringDelivery = Object.freeze({
             acknowledge: () => {
               if (delivery.acknowledge()) steeringRecord.first = true;
+              const legacyThreshold = delivery.legacyThreshold();
+              if (legacyThreshold !== null) steeringRecord.legacyThreshold = legacyThreshold;
             },
             release: delivery.release,
           });

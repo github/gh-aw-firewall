@@ -17,7 +17,11 @@ const STEERING_TRIGGER_THRESHOLD = 'threshold';
 /**
  * `steering_delivery.trigger` of the "little left" notice: about five model
  * requests' worth of AI credits, or about five minutes, remain. It has no
- * threshold, so it is never written to the legacy `steering` record field.
+ * threshold of its own. When a delivery of it supersedes crossed thresholds of
+ * the same kind that are not yet recorded, the legacy `steering` record field
+ * is written for the highest of them on that delivery (the notice states the
+ * actual amount used, so it conveys that threshold); see
+ * claimSteeringThreshold().
  */
 const STEERING_TRIGGER_LITTLE_LEFT = 'little_left';
 /** The "little left" notice fires only once at least this percentage is used. */
@@ -198,10 +202,16 @@ function recordConversationDelivery(conversations, conversation, threshold) {
  * set and, for a conversation, records that it has heard this notice. It
  * returns true only for the first delivery of this threshold in the run.
  *
+ * Acknowledging a "little left" notice also records the highest threshold
+ * below its rank that is not yet recorded (thresholds below its rank were all
+ * crossed before it fired); `legacyThreshold()` then returns that threshold,
+ * so the legacy `steering` record field is still written at most once per
+ * threshold per run. Otherwise it returns null.
+ *
  * @param {ReturnType<typeof createSteeringDeliveryState>} delivery
  * @param {number} threshold
  * @param {string|null} [conversation] - Conversation key
- * @returns {{ acknowledge: () => boolean, release: () => void }}
+ * @returns {{ acknowledge: () => boolean, release: () => void, legacyThreshold: () => number|null }}
  */
 function claimSteeringThreshold(delivery, threshold, conversation = null) {
   let inFlight = delivery.inFlight;
@@ -214,6 +224,7 @@ function claimSteeringThreshold(delivery, threshold, conversation = null) {
   }
   inFlight.set(threshold, (inFlight.get(threshold) || 0) + 1);
   let settled = false;
+  let legacyThreshold = null;
   const settle = (delivered) => {
     if (settled) return false;
     settled = true;
@@ -229,11 +240,18 @@ function claimSteeringThreshold(delivery, threshold, conversation = null) {
     if (conversation) recordConversationDelivery(delivery.conversations, conversation, threshold);
     const first = !delivery.recorded.has(threshold);
     delivery.recorded.add(threshold);
+    if (!Number.isInteger(threshold)) {
+      for (const candidate of BUDGET_WARNING_THRESHOLDS) {
+        if (candidate < threshold && !delivery.recorded.has(candidate)) legacyThreshold = candidate;
+      }
+      if (legacyThreshold !== null) delivery.recorded.add(legacyThreshold);
+    }
     return first;
   };
   return Object.freeze({
     acknowledge: () => settle(true),
     release: () => { settle(false); },
+    legacyThreshold: () => legacyThreshold,
   });
 }
 

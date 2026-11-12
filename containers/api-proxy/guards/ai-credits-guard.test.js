@@ -407,6 +407,32 @@ describe('ai-credits-guard', () => {
         'current rate about 2 more model requests fit.');
     });
 
+    it('rounds used credits up and the ceiling down, so a notice never overstates what is left', () => {
+      process.env.AWF_MAX_AI_CREDITS = '300';
+      spend(247.3);
+      expect(getPendingAiCreditSteeringWarning().message).toBe('[AWF AI CREDIT WARNING] 248 of 300 AI credits ' +
+        `are used; at the current rate less than one more model request fits. ${DIRECTIVE}`);
+      // 299.7 used: 0.3 left, so it never reads "299 of 300".
+      spend(52.4);
+      expect(getPendingAiCreditSteeringWarning().message).toContain('300 of 300 AI credits are used;');
+
+      resetAiCreditsGuardForTests();
+      process.env.AWF_MAX_AI_CREDITS = '25.38';
+      spend(20.02);
+      expect(getPendingAiCreditSteeringWarning().message).toContain('20.1 of 25.3 AI credits are used;');
+    });
+
+    it.each([
+      ['0.0000001', 1, '0.00000008 of 0.0000001'],
+      ['0.000001', 10, '0.0000008 of 0.000001'],
+    ])('keeps both values meaningful for a %s-credit ceiling', (ceiling, tokens, facts) => {
+      process.env.AWF_MAX_AI_CREDITS = ceiling;
+      // 1 input token costs 0.00000008 credits at this price.
+      process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify({ input: 0.0008, output: 0 });
+      applyAiCreditsUsage({ input_tokens: tokens }, 'unlisted-test-model', 'openai');
+      expect(getPendingAiCreditSteeringWarning().message).toContain(`] ${facts} AI credits are used;`);
+    });
+
     it('fires the "little left" notice only once at least half the budget is used, and once per run', () => {
       process.env.AWF_MAX_AI_CREDITS = '100';
       spend(40);

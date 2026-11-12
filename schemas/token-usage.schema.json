@@ -168,7 +168,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Present on the request that first delivered an advisory steering notice threshold in the run; written at most once per threshold per run. Never written for the \"little_left\" notice, which has no threshold. See steering_delivery for every delivery."
+      "description": "Present on the request that first delivered an advisory steering notice threshold in the run; written at most once per threshold per run. A \"little_left\" notice has no threshold of its own; when its delivery supersedes crossed thresholds of the same type not yet recorded, that record carries steering for the highest of them (which then counts as recorded). See steering_delivery for every delivery."
     },
     "steering_delivery": {
       "type": "object",
@@ -194,7 +194,7 @@
             "threshold",
             "little_left"
           ],
-          "description": "Why the notice was sent: \"threshold\" when a percent threshold (80, 90, 95 or 99) was crossed; \"little_left\" when about five model requests' worth of AI credits (ai_credit), or about five minutes (timeout), remained once at least half the budget or deadline was used. The little_left notice fires at most once per run per kind, has a null threshold, and is never written to steering."
+          "description": "Why the notice was sent: \"threshold\" when a percent threshold (80, 90, 95 or 99) was crossed; \"little_left\" when about five model requests' worth of AI credits (ai_credit), or about five minutes (timeout), remained once at least half the budget or deadline was used. The little_left notice fires at most once per run per kind, and has a null threshold here; its record carries steering for the highest unrecorded crossed threshold of the same type it supersedes, if any."
         },
         "threshold": {
           "type": [

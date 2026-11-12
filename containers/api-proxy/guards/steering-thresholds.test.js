@@ -83,4 +83,29 @@ describe('"little left" notice rank', () => {
     expect(selectSteeringThreshold(delivery, crossed, 'a')).toBeNull();
     expect(selectSteeringThreshold(delivery, crossed, null)).toBeNull();
   });
+
+  test('records the highest unrecorded threshold it supersedes, at most once per run', () => {
+    const delivery = createSteeringDeliveryState();
+    const failed = claimSteeringThreshold(delivery, 90.5, 'a');
+    failed.release();
+    expect(failed.legacyThreshold()).toBeNull();
+
+    const a = claimSteeringThreshold(delivery, 90.5, 'a');
+    expect(a.acknowledge()).toBe(true);
+    expect(a.legacyThreshold()).toBe(90);
+    const b = claimSteeringThreshold(delivery, 90.5, 'b');
+    expect(b.acknowledge()).toBe(false);
+    expect(b.legacyThreshold()).toBe(80);
+    const c = claimSteeringThreshold(delivery, 90.5, 'c');
+    c.acknowledge();
+    expect(c.legacyThreshold()).toBeNull();
+    expect(claimSteeringThreshold(delivery, 95, 'a').legacyThreshold()).toBeNull();
+  });
+
+  test('records no threshold when it fires before any threshold is crossed', () => {
+    const delivery = createSteeringDeliveryState();
+    const littleLeft = claimSteeringThreshold(delivery, 0.5);
+    littleLeft.acknowledge();
+    expect(littleLeft.legacyThreshold()).toBeNull();
+  });
 });

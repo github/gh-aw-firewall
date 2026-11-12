@@ -1431,11 +1431,17 @@ repeat it; different conversations may each carry it at the same time.
 
 The `token-usage.jsonl` record of a request carrying a warning includes
 `steering: {type, threshold}` only on the run's first delivery of that
-threshold (at most once per threshold per run; never for the "little left"
-warning, which has no threshold), and `steering_delivery:
+threshold (at most once per threshold per run), and `steering_delivery:
 {type, trigger, threshold, conversation, first}` on every delivery. `trigger`
 is `"threshold"` for a threshold warning (`threshold` is 80, 90, 95 or 99) or
-`"little_left"` for the "little left" warning (`threshold` is `null`).
+`"little_left"` for the "little left" warning (`threshold` is `null`). The
+"little left" warning has no threshold of its own, but when a delivery of it
+supersedes crossed thresholds of the same kind that have not yet been recorded
+(for example, one request crosses 80% and triggers it), that record also
+carries `steering` for the highest of them, since the warning states the
+amount actually used and so conveys that threshold. That threshold then counts
+as recorded, so `steering` stays at most once per threshold per run;
+`steering_delivery` keeps `trigger: "little_left"` and `threshold: null`.
 `first` is true on the run's first delivery of the warning. `conversation` is a 12-hex-character prefix of the conversation key, an
 opaque per-run identifier comparable only within one run that does not reveal
 prompt content. It is `null` in two cases: (a) a Responses request that
@@ -1462,8 +1468,11 @@ computed when the warning is added to a request. `<N>` is the remaining
 credits divided by the average cost of the run's 10 most recent priced model
 requests, excluding routing-classifier requests, rounded down ("less than one
 more model request fits" below one). With no recent request cost, the clause
-is omitted (`<used> of <ceiling> AI credits are used.`). Credits are rounded
-down to about three significant digits of the ceiling. `<elapsed>` is whole
+is omitted (`<used> of <ceiling> AI credits are used.`). Credits are shown
+to about three significant digits of the ceiling (as many decimal places as
+that needs, so very small ceilings such as 0.0000001 keep meaningful values),
+with `<used>` rounded up and `<ceiling>` rounded down, so a warning never
+overstates what is left (299.7 of 300 reads `300 of 300`). `<elapsed>` is whole
 minutes rounded down and `<M>` is rounded ("less than a minute remains" under
 one minute). Each agent reads the directive according to its own role; the
 proxy does not determine which conversation is the main agent.

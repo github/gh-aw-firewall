@@ -638,15 +638,37 @@ function buildAiCreditsReflectState() {
   };
 }
 
-/**
- * Credits rounded down to `places` decimals, without trailing zeros, so a
- * notice never reports more remaining budget than there is.
- */
-function formatCredits(value, places) {
+/** floor(log10(value)) of a positive exact value. */
+function decimalExponent(value) {
+  let exponent = value.n.toString().length - value.d.toString().length;
+  const atLeast = exponent >= 0
+    ? value.n >= value.d * 10n ** BigInt(exponent)
+    : value.n * 10n ** BigInt(-exponent) >= value.d;
+  if (!atLeast) exponent -= 1;
+  return exponent;
+}
+
+/** `units` at `places` decimals, without trailing zeros. */
+function formatCreditUnits(units, places) {
   const scale = 10n ** BigInt(places);
-  const units = (value.n * scale) / value.d;
   const fraction = places ? (units % scale).toString().padStart(places, '0').replace(/0+$/, '') : '';
   return fraction ? `${units / scale}.${fraction}` : `${units / scale}`;
+}
+
+/**
+ * "<used> of <ceiling>", with about three significant digits of the ceiling
+ * (300 -> 0 decimals, 25 -> 1, 1 -> 2, 0.0000001 -> 9). Used credits are
+ * rounded up and the ceiling down, so a notice never overstates what is
+ * left; while the ceiling is not exceeded, used is shown as at most the
+ * ceiling.
+ */
+function formatCreditsUsedOf(used, ceiling) {
+  const places = Math.max(0, 2 - decimalExponent(ceiling));
+  const scale = 10n ** BigInt(places);
+  const ceilingUnits = (ceiling.n * scale) / ceiling.d;
+  let usedUnits = (used.n * scale + used.d - 1n) / used.d;
+  if (usedUnits > ceilingUnits && exact.compare(used, ceiling) <= 0) usedUnits = ceilingUnits;
+  return `${formatCreditUnits(usedUnits, places)} of ${formatCreditUnits(ceilingUnits, places)}`;
 }
 
 /**
@@ -658,10 +680,7 @@ function formatCredits(value, places) {
  */
 function buildAiCreditSteeringMessage() {
   const ceiling = getEffectiveAiCreditsCeiling();
-  // About three significant digits of the ceiling: 300 -> 0, 25 -> 1, 1 -> 2.
-  const places = Math.min(6, Math.max(0, 2 - Math.floor(Math.log10(exact.number(ceiling)))));
-  let facts = `${formatCredits(aiCreditsState.totalAiCredits, places)} of ${formatCredits(ceiling, places)} ` +
-    'AI credits are used';
+  let facts = `${formatCreditsUsedOf(aiCreditsState.totalAiCredits, ceiling)} AI credits are used`;
   const average = averageRecentRequestCost();
   if (average) {
     const quotient = exact.divide(remainingAiCredits(ceiling), average);

@@ -335,16 +335,17 @@ describe('budget steering and injectSteeringMessage', () => {
       expect(record.steering).toEqual({ type: 'ai_credit', threshold });
       expect(record.steering_delivery).toMatchObject({ type: 'ai_credit', trigger: 'threshold', threshold, first: true });
     }
-    // The "little left" notice has no threshold, so it is recorded only in
-    // steering_delivery, never in the legacy steering field.
+    // One request crossed 80% and triggered the "little left" notice, which
+    // superseded the unrecorded 80% notice: its delivery carries the legacy
+    // 80% steering record, while steering_delivery keeps its own trigger.
     const littleLeft = recordFor('credit-delivery-little-left');
-    expect(littleLeft.steering).toBeUndefined();
+    expect(littleLeft.steering).toEqual({ type: 'ai_credit', threshold: 80 });
     expect(littleLeft.steering_delivery).toEqual({
       type: 'ai_credit', trigger: 'little_left', threshold: null,
       conversation: expect.stringMatching(/^[0-9a-f]{12}$/), first: true,
     });
     expect(tokenRecords.filter(record => record.steering).map(record => record.steering.threshold))
-      .toEqual([90, 95, 99]);
+      .toEqual([80, 90, 95, 99]);
     expect(delivered).toEqual(['little-left', 90, 95, 99].map(value => `credit-delivery-${value}`));
   });
 
