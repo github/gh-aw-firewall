@@ -90,6 +90,7 @@ describe('smoke copilot workflow output requirements', () => {
   for (const workflow of copilotSmokeWorkflows) {
     it(`${workflow.name}: requires noop fallback when no pull request context exists`, () => {
       const source = fs.readFileSync(path.join(workflowsDir, workflow.file), 'utf-8');
+      const normalizedSource = source.replace(/\s+/g, ' ');
 
       if (workflow.file === 'smoke-copilot.md') {
         expect(source).toContain(
@@ -97,6 +98,20 @@ describe('smoke copilot workflow output requirements', () => {
         );
         expect(source).toContain(
           'Do not attempt pull request comments or labels when there is no pull request.',
+        );
+      } else if (workflow.file === 'smoke-copilot-network-isolation.md') {
+        expect(normalizedSource).toContain(
+          '- On a `pull_request` trigger, call `add_comment` with a brief summary, both check results, and the overall PASS/FAIL.',
+        );
+        expect(normalizedSource).toContain(
+          'If both checks pass, also call `add_labels` for `smoke-copilot-network-isolation`.',
+        );
+        expect(normalizedSource).toContain('Never call `noop` on a PR trigger.');
+        expect(normalizedSource).toContain(
+          '- On `workflow_dispatch` or `schedule`, call `noop` with a concise PASS/FAIL summary.',
+        );
+        expect(normalizedSource).toContain(
+          'Do not attempt PR comments or labels without a PR.',
         );
       } else {
         expect(source).toContain('**If triggered by a pull request**');
@@ -148,8 +163,10 @@ describe('smoke copilot workflow output requirements', () => {
     expect(frontmatter.engine?.model).toBe('claude-haiku-4.5');
     expect(lock).toContain("--allow-tool '\\''shell(curl:*)'\\''");
     expect(lock).toContain("--allow-tool '\\''shell(echo)'\\''");
-    expect(lock).not.toContain('github-pull_request_read');
-    expect(source).toContain('both calls in the same response');
-    expect(source).toContain('Never call `noop` on a PR trigger.');
+    expect(lock).not.toContain('ghcr.io/github/github-mcp-server');
+    expect(source).not.toContain('smoke-pr-data.txt');
+    const normalizedSource = source.replace(/\s+/g, ' ');
+    expect(normalizedSource).toContain('Issue both calls in the same response');
+    expect(normalizedSource).toContain('Never call `noop` on a PR trigger.');
   });
 });

@@ -70,20 +70,6 @@ steps:
   - name: Build local AWF smoke images
     timeout-minutes: 35
     run: bash "${RUNNER_TEMP}/awf-smoke/build-smoke-images.sh"
-  - name: Pre-compute smoke test data
-    run: |
-      echo "::group::Fetching last 2 merged PRs"
-      PR_DATA=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 2 \
-        --json number,title,author,mergedAt \
-        --jq '.[] | "PR #\(.number): \(.title) (by @\(.author.login), merged \(.mergedAt))"')
-      echo "$PR_DATA"
-      echo "::endgroup::"
-
-      # Write results to file for agent context
-      mkdir -p /tmp/gh-aw/agent
-      echo "$PR_DATA" > /tmp/gh-aw/agent/smoke-pr-data.txt
-    env:
-      GH_TOKEN: ${{ github.token }}
 post-steps:
   - name: Validate egress verdict and safe outputs
     env:
