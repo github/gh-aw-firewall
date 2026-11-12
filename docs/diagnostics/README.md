@@ -271,6 +271,7 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | CI-004 | ci | Enclave regression fails after a successful invocation at a finalization gate | fixed | [`findings/ci/CI-004.json`](./findings/ci/CI-004.json) |
 | CI-005 | ci | Daily agent regression rejects an exit-0 run at a completion or routing evidence gate | fixed | [`findings/ci/CI-005.json`](./findings/ci/CI-005.json) |
 | CI-006 | ci | Claude enclave agent exits 1 before initialization with an invalid launch option | fixed | [`findings/ci/CI-006.json`](./findings/ci/CI-006.json) |
+| CI-007 | ci | Prestarted enclave gateway cannot resolve the private enclave service after network attachment | fixed | [`findings/ci/CI-007.json`](./findings/ci/CI-007.json) |
 | SEC-001 | security | Suspected isolation or credential-boundary regression must go to security review, not a bypass | needs-evidence | [`findings/security/SEC-001.json`](./findings/security/SEC-001.json) |
 
 ### Symptom lookup
@@ -338,6 +339,9 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | Codex routing evidence rejected after successful inference | CI-005 | ci | fixed |
 | Claude enclave agent exit 1 before stream initialization | CI-006 | ci | fixed |
 | classification unknown-option or invalid-option-value in enclave startup diagnostics | CI-006 | ci | fixed |
+| Enclave regression stops at gateway attachment before the agent starts | CI-007 | ci | fixed |
+| Smoke enclave job times out because the gateway cannot resolve awf-enclave-mcp | CI-007 | ci | fixed |
+| Host preflight gateway-attachment fails at network-membership | CI-007 | ci | fixed |
 | The agent container can reach a domain that is not allowlisted | SEC-001 | security | needs-evidence |
 | A provider credential is observable inside the agent environment while the api-proxy is enabled | SEC-001 | security | needs-evidence |
 | Egress succeeds without a corresponding Squid access-log entry | SEC-001 | security | needs-evidence |

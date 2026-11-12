@@ -1,0 +1,33 @@
+{
+  "$schema": "../../schema.json",
+  "id": "CI-007",
+  "boundary": "ci",
+  "title": "Prestarted enclave gateway cannot resolve the private enclave service after network attachment",
+  "symptoms": ["Enclave regression stops at gateway attachment before the agent starts", "Smoke enclave job times out because the gateway cannot resolve awf-enclave-mcp", "Host preflight gateway-attachment fails at network-membership"],
+  "conditions": [
+    "The compiler-launched mcpg container started on Docker's default bridge and AWF later attached it to the private awf-enclave-mcp-control network",
+    "The gateway resolver does not use Docker's private-network service discovery, so AWF validates exact network membership and writes the awf-enclave-mcp alias into the gateway's /etc/hosts",
+    "Older code used sed -i, which renames over Docker's bind-mounted /etc/hosts and fails; the current code rewrites the existing inode",
+    "A failed mapping is fail-closed and detaches the gateway; it is distinct from a retryable 503 backend_unavailable"
+  ],
+  "affects": { "runner": "any", "runtime": "any", "provider": "any", "authMode": "any" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "fixed",
+  "rootCause": "The prestarted gateway's resolver cannot see the AWF-created private network alias, and the first hosts-file update could not replace Docker's bind-mounted /etc/hosts. Without the alias, initialize could not reach the enclave MCP server.",
+  "probe": {
+    "command": "jq '.diagnostic.enclaveStartup.hostPreflight' path/to/protected/startup.json",
+    "expect": "Find the gateway-attachment preflight and the phase that failed (contract, identity, network-connect or network-membership). A network-membership failure with the resolution message points here; an absent record is unknown, not success. Do not read container environments.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use AWF source that validates exact control-network membership and an IPv4 server address, then rewrites the gateway hosts entry in place, keeping identity checks and disconnect-on-failure. Do not widen the network, skip membership validation or extend timeouts. Hosted acceptance remains separate.",
+  "references": [
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11393" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11472" },
+    { "kind": "code", "ref": "src/enclave/gateway.ts" },
+    { "kind": "test", "ref": "src/enclave/gateway.test.ts" }
+  ],
+  "related": ["CI-002"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-02-12"
+}
