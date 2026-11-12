@@ -1347,7 +1347,8 @@ values (in the config file, or `--enable-token-steering` with
 either name takes precedence over the config file.
 
 When enabled, the proxy tracks AI-credit and runtime thresholds
-at 80%, 90%, 95%, and 99%. Credit thresholds use the lower of configured
+at 80%, 90%, 95%, and 99%, plus one "little left" trigger per kind (below).
+Credit thresholds use the lower of configured
 `maxAiCredits` and the operator-controlled hard cap (10,000 credits by default; the hard cap is
 the ceiling when `maxAiCredits` is not configured). Runtime thresholds use the
 agent start marker written by the runtime; the host timeout and API proxy use
@@ -1397,10 +1398,27 @@ on that conversation's own next eligible request:
 - A sub-agent started from a copy of another conversation shares its opening
   and is treated as having already heard that conversation's warnings.
 
-At most one warning is injected per request, carrying the largest crossed
-percentage the conversation has not yet received. For equal percentages, time
+**"Little left" trigger.** Each kind also sends one notice when little budget
+remains, even if no threshold has been crossed: when the remaining AI credits
+are at most five times the average cost of the run's recent priced model
+requests (about five requests' worth), or when at most five minutes remain
+before the deadline. It fires only once at least 50% of the budget or deadline
+has been used, and at most once per run for each kind. It then becomes that
+kind's current warning and reaches each conversation once, like a threshold
+warning. Without a recent request cost, the credit trigger does not fire.
+
+Warnings of one kind are ordered by rank. A threshold warning ranks as its
+percentage; the "little left" warning ranks just above the highest threshold
+already crossed when it fires (including thresholds crossed in the same
+update) and below the next threshold. For example, fired between 90% and 95%
+it ranks 90.5: it supersedes the 80% and 90% warnings, and the 95% and 99%
+warnings supersede it.
+
+At most one warning is injected per request, carrying the highest-ranked
+warning the conversation has not yet received. For equal ranks, time
 warnings precede AI-credit warnings. A conversation that receives a newer
-warning never receives an older one of the same kind (time or AI credits).
+warning never receives an older (lower-ranked) one of the same kind (time or
+AI credits).
 Classifier requests, malformed JSON, unsupported body shapes, or any request
 that cannot be modified do not consume pending warnings. A warning injected
 into a request counts as delivered once the upstream response arrives with a
@@ -1414,8 +1432,17 @@ repeat it; different conversations may each carry it at the same time.
 The `token-usage.jsonl` record of a request carrying a warning includes
 `steering: {type, threshold}` only on the run's first delivery of that
 threshold (at most once per threshold per run), and `steering_delivery:
-{type, threshold, conversation, first}` on every delivery, where
-`conversation` is a 12-hex-character prefix of the conversation key, an
+{type, trigger, threshold, conversation, first}` on every delivery. `trigger`
+is `"threshold"` for a threshold warning (`threshold` is 80, 90, 95 or 99) or
+`"little_left"` for the "little left" warning (`threshold` is `null`). The
+"little left" warning has no threshold of its own, but when a delivery of it
+supersedes crossed thresholds of the same kind that have not yet been recorded
+(for example, one request crosses 80% and triggers it), that record also
+carries `steering` for the highest of them, since the warning states the
+amount actually used and so conveys that threshold. That threshold then counts
+as recorded, so `steering` stays at most once per threshold per run;
+`steering_delivery` keeps `trigger: "little_left"` and `threshold: null`.
+`first` is true on the run's first delivery of the warning. `conversation` is a 12-hex-character prefix of the conversation key, an
 opaque per-run identifier comparable only within one run that does not reveal
 prompt content. It is `null` in two cases: (a) a Responses request that
 continues a stored response, which shares one entry and receives each notice
@@ -1426,12 +1453,29 @@ state.
 The warning formats are:
 
 ```
-[AWF AI CREDIT WARNING] <threshold-specific text>
-[AWF TIME WARNING] <threshold-specific text>
+[AWF AI CREDIT WARNING] <used> of <ceiling> AI credits are used; at the current rate about <N> more model requests fit. <directive>
+[AWF TIME WARNING] <elapsed> of <timeout> minutes have passed; about <M> minutes remain. <directive>
 ```
 
-AI-credit and time messages use threshold-specific wording for the AI-credit
-budget and allotted run time.
+where `<directive>` is, word for word and for every conversation:
+
+```
+If you are responsible for this workflow's final output, stop the remaining work and submit it now with what you have. Otherwise, finish your current step and return what you have to the agent that started you.
+```
+
+Every warning, threshold or "little left", uses these formats, with facts
+computed when the warning is added to a request. `<N>` is the remaining
+credits divided by the average cost of the run's 10 most recent priced model
+requests, excluding routing-classifier requests, rounded down ("less than one
+more model request fits" below one). With no recent request cost, the clause
+is omitted (`<used> of <ceiling> AI credits are used.`). Credits are shown
+to about three significant digits of the ceiling (as many decimal places as
+that needs, so very small ceilings such as 0.0000001 keep meaningful values),
+with `<used>` rounded up and `<ceiling>` rounded down, so a warning never
+overstates what is left (299.7 of 300 reads `300 of 300`). `<elapsed>` is whole
+minutes rounded down and `<M>` is rounded ("less than a minute remains" under
+one minute). Each agent reads the directive according to its own role; the
+proxy does not determine which conversation is the main agent.
 
 **Provider-specific injection rules:**
 

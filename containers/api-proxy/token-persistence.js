@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { logRequest } = require('./logging');
 const { callerRecordFields } = require('./caller-header');
+const { STEERING_TRIGGER_THRESHOLD } = require('./guards/steering-thresholds');
 
 // Token usage log file path (inside the mounted log volume)
 const TOKEN_LOG_DIR = process.env.AWF_TOKEN_LOG_DIR || '/var/log/api-proxy';
@@ -249,8 +250,13 @@ function validateTokenUsageRecord(record) {
  *
  * `steering: { type, threshold }` is written once per threshold per run, on
  * the request that first delivered it (gh-aw reads it and expects at most one
- * per threshold). `steering_delivery` is written for every delivery and adds
- * a short conversation key (an opaque per-run identifier that does not reveal
+ * per threshold, and only thresholds 80, 90, 95 and 99). The "little left"
+ * notice has no threshold; a delivery of it carries `steering` for the highest
+ * crossed threshold of the same kind it supersedes that was not yet recorded
+ * (`legacyThreshold`), if any, since the notice states the actual amount used
+ * and so conveys that threshold. `steering_delivery` is
+ * written for every delivery and adds `trigger` ("threshold", or
+ * "little_left" with `threshold: null`), a short conversation key (an opaque per-run identifier that does not reveal
  * prompt content; null either for a Responses request that continues a
  * stored response, which shares one entry and receives each notice once per
  * run, or for an eligible request whose opening cannot be keyed, which uses
@@ -258,11 +264,17 @@ function validateTokenUsageRecord(record) {
  */
 function steeringRecordFields(steering) {
   if (!steering) return {};
-  const { type, threshold } = steering;
+  const { type } = steering;
+  const trigger = steering.trigger ?? STEERING_TRIGGER_THRESHOLD;
+  const threshold = trigger === STEERING_TRIGGER_THRESHOLD ? steering.threshold : null;
+  const legacyThreshold = trigger === STEERING_TRIGGER_THRESHOLD
+    ? (steering.first ? threshold : null)
+    : (Number.isInteger(steering.legacyThreshold) ? steering.legacyThreshold : null);
   return {
-    ...(steering.first ? { steering: { type, threshold } } : {}),
+    ...(legacyThreshold !== null ? { steering: { type, threshold: legacyThreshold } } : {}),
     steering_delivery: {
       type,
+      trigger,
       threshold,
       conversation: steering.conversation ?? null,
       first: steering.first === true,

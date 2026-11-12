@@ -13,6 +13,11 @@ const { parsePositiveNumber } = require('./guard-utils');
 const { PROVIDER_ANTHROPIC, PROVIDER_COPILOT } = require('../provider-names');
 const {
   BUDGET_WARNING_THRESHOLDS,
+  STEERING_DIRECTIVE,
+  LITTLE_LEFT_MIN_PERCENT,
+  littleLeftSteeringRank,
+  describeSteeringRank,
+  steeringThresholdsOnly,
   createSteeringDeliveryState,
   selectSteeringThreshold,
   acknowledgeSteeringThreshold,
@@ -26,6 +31,14 @@ const exact = require('../catalogue-contract/exact-pricing');
 const TOKENS_PER_MILLION = 1_000_000;
 const DOLLARS_PER_CREDIT = 0.01;
 const CREDIT_DENOMINATOR = TOKENS_PER_MILLION * DOLLARS_PER_CREDIT;
+
+// Number of the run's most recent priced model requests (excluding
+// routing-classifier requests) whose average cost estimates how many more
+// requests fit in the remaining AI-credit budget.
+const RECENT_REQUEST_COST_WINDOW = 10;
+// The "little left" credit notice fires once about this many requests' worth
+// of credits remain.
+const LITTLE_LEFT_REQUESTS = 5;
 
 // Default operator-controlled safety limit, enforced regardless of maxAiCredits.
 const HARD_CAP_AI_CREDITS = 10_000;
@@ -109,17 +122,48 @@ function updateAiCreditSteeringThresholds() {
   if (aiCreditsState.steeringConfigKey !== configKey) {
     aiCreditsState.steeringConfigKey = configKey;
     aiCreditsState.emittedThresholds = new Set();
+    aiCreditsState.littleLeftRank = null;
     aiCreditsState.steeringDelivery = createSteeringDeliveryState();
   }
 
+  const used = percent => exact.compare(exact.multiply(aiCreditsState.totalAiCredits, exact.decimal(100)),
+    exact.multiply(ceiling, exact.decimal(percent))) >= 0;
   for (const threshold of BUDGET_WARNING_THRESHOLDS) {
-    if (exact.compare(exact.multiply(aiCreditsState.totalAiCredits, exact.decimal(100)),
-      exact.multiply(ceiling, exact.decimal(threshold))) >= 0 &&
-      !aiCreditsState.emittedThresholds.has(threshold)) {
+    if (used(threshold) && !aiCreditsState.emittedThresholds.has(threshold)) {
       aiCreditsState.emittedThresholds.add(threshold);
       aiCreditsState.steeringDelivery.pending.add(threshold);
     }
   }
+
+  // "Little left": about five requests' worth of credits remain, once at least
+  // half the budget is used; at most once per run. Without a recent cost
+  // there is no estimate, so it does not fire.
+  const average = averageRecentRequestCost();
+  if (aiCreditsState.littleLeftRank === null && average && used(LITTLE_LEFT_MIN_PERCENT) &&
+    exact.compare(remainingAiCredits(ceiling),
+      exact.multiply(average, exact.decimal(LITTLE_LEFT_REQUESTS))) <= 0) {
+    aiCreditsState.littleLeftRank = littleLeftSteeringRank(aiCreditsState.emittedThresholds);
+    aiCreditsState.emittedThresholds.add(aiCreditsState.littleLeftRank);
+    aiCreditsState.steeringDelivery.pending.add(aiCreditsState.littleLeftRank);
+  }
+}
+
+/** Credits left under `ceiling` (zero once it is reached). */
+function remainingAiCredits(ceiling) {
+  const total = aiCreditsState.totalAiCredits;
+  if (exact.compare(total, ceiling) >= 0) return exact.ZERO;
+  return exact.divide(
+    { n: ceiling.n * total.d - total.n * ceiling.d, d: 1n },
+    { n: ceiling.d * total.d, d: 1n },
+  );
+}
+
+/** Average cost of the run's recent priced model requests, or null if none cost anything. */
+function averageRecentRequestCost() {
+  const costs = aiCreditsState.recentRequestCosts;
+  if (costs.length === 0) return null;
+  const average = exact.divide(costs.reduce(exact.add, exact.ZERO), exact.decimal(costs.length));
+  return exact.compare(average, exact.ZERO) > 0 ? average : null;
 }
 
 function createAiCreditsState() {
@@ -130,6 +174,8 @@ function createAiCreditsState() {
     pricingFailure: false,
     steeringConfigKey: null,
     emittedThresholds: new Set(),
+    littleLeftRank: null,
+    recentRequestCosts: [],
     steeringDelivery: createSteeringDeliveryState(),
   };
 }
@@ -515,6 +561,12 @@ function applyExactAiCreditsUsage(normalizedUsage, model, provider = undefined, 
   modelBucket.dynamicSelector = calc.dynamicSelector;
   modelBucket.pricingEstimate = calc.pricingEstimate;
   aiCreditsState.totalAiCredits = total;
+  if (options.purpose !== 'routing_classification') {
+    aiCreditsState.recentRequestCosts.push(calc.totalCredits);
+    if (aiCreditsState.recentRequestCosts.length > RECENT_REQUEST_COST_WINDOW) {
+      aiCreditsState.recentRequestCosts.shift();
+    }
+  }
   updateAiCreditSteeringThresholds();
 
   process.env.AWF_AI_CREDITS_USED = String(roundCredits(aiCreditsState.totalAiCredits));
@@ -579,18 +631,66 @@ function buildAiCreditsReflectState() {
     max_ai_credits: config.max,
     effective_max_ai_credits: Number(config.max ?? config.hardCap),
     percent_used: exact.number(exact.multiply(exact.divide(reflectedTotal, effectiveCeiling), exact.decimal(100)), 2),
-    thresholds_crossed: [...aiCreditsState.emittedThresholds].sort((a, b) => a - b),
-    thresholds_pending: [...aiCreditsState.steeringDelivery.pending].sort((a, b) => a - b),
+    thresholds_crossed: steeringThresholdsOnly(aiCreditsState.emittedThresholds),
+    thresholds_pending: steeringThresholdsOnly(aiCreditsState.steeringDelivery.pending),
+    little_left_triggered: aiCreditsState.littleLeftRank !== null,
     by_model: byModel,
   };
 }
 
-const AI_CREDIT_STEERING_MESSAGES = {
-  80: 'You have used 80% of your AI-credit budget. Begin planning to wrap up your current work.',
-  90: 'You have used 90% of your AI-credit budget. Complete your current task and prepare final output.',
-  95: 'You have used 95% of your AI-credit budget. Finalize and submit your work now.',
-  99: 'You have used 99% of your AI-credit budget. You are about to be cut off. Submit immediately.',
-};
+/** floor(log10(value)) of a positive exact value. */
+function decimalExponent(value) {
+  let exponent = value.n.toString().length - value.d.toString().length;
+  const atLeast = exponent >= 0
+    ? value.n >= value.d * 10n ** BigInt(exponent)
+    : value.n * 10n ** BigInt(-exponent) >= value.d;
+  if (!atLeast) exponent -= 1;
+  return exponent;
+}
+
+/** `units` at `places` decimals, without trailing zeros. */
+function formatCreditUnits(units, places) {
+  const scale = 10n ** BigInt(places);
+  const fraction = places ? (units % scale).toString().padStart(places, '0').replace(/0+$/, '') : '';
+  return fraction ? `${units / scale}.${fraction}` : `${units / scale}`;
+}
+
+/**
+ * "<used> of <ceiling>", with about three significant digits of the ceiling
+ * (300 -> 0 decimals, 25 -> 1, 1 -> 2, 0.0000001 -> 9). Used credits are
+ * rounded up and the ceiling down, so a notice never overstates what is
+ * left; while the ceiling is not exceeded, used is shown as at most the
+ * ceiling.
+ */
+function formatCreditsUsedOf(used, ceiling) {
+  const places = Math.max(0, 2 - decimalExponent(ceiling));
+  const scale = 10n ** BigInt(places);
+  const ceilingUnits = (ceiling.n * scale) / ceiling.d;
+  let usedUnits = (used.n * scale + used.d - 1n) / used.d;
+  if (usedUnits > ceilingUnits && exact.compare(used, ceiling) <= 0) usedUnits = ceilingUnits;
+  return `${formatCreditUnits(usedUnits, places)} of ${formatCreditUnits(ceilingUnits, places)}`;
+}
+
+/**
+ * Facts of an AI-credit notice, from the current totals: "247 of 300 AI
+ * credits are used; at the current rate about 12 more model requests fit."
+ * The estimate is the remaining credits divided by the average cost of the
+ * run's recent priced model requests, rounded down, and is left out when no
+ * recent request cost anything.
+ */
+function buildAiCreditSteeringMessage() {
+  const ceiling = getEffectiveAiCreditsCeiling();
+  let facts = `${formatCreditsUsedOf(aiCreditsState.totalAiCredits, ceiling)} AI credits are used`;
+  const average = averageRecentRequestCost();
+  if (average) {
+    const quotient = exact.divide(remainingAiCredits(ceiling), average);
+    const requests = Number(quotient.n / quotient.d);
+    facts += requests === 0
+      ? '; at the current rate less than one more model request fits'
+      : `; at the current rate about ${requests} more model ${requests === 1 ? 'request fits' : 'requests fit'}`;
+  }
+  return `[AWF AI CREDIT WARNING] ${facts}. ${STEERING_DIRECTIVE}`;
+}
 
 /**
  * @param {string|null} [conversation] - Conversation key; omit for the
@@ -602,12 +702,16 @@ function getPendingAiCreditSteeringWarning(conversation = null) {
   } catch (error) {
     throwAccountingFailure(error);
   }
-  const threshold = selectSteeringThreshold(
+  const rank = selectSteeringThreshold(
     aiCreditsState.steeringDelivery, aiCreditsState.emittedThresholds, conversation);
-  if (threshold === null) return null;
-  const text = AI_CREDIT_STEERING_MESSAGES[threshold] ||
-    `You have used ${threshold}% of your AI-credit budget.`;
-  return { threshold, message: `[AWF AI CREDIT WARNING] ${text}` };
+  if (rank === null) return null;
+  let message;
+  try {
+    message = buildAiCreditSteeringMessage();
+  } catch (error) {
+    throwAccountingFailure(error);
+  }
+  return { ...describeSteeringRank(rank), message };
 }
 
 /**
@@ -624,12 +728,14 @@ function hasCrossedAiCreditSteeringThreshold() {
   return aiCreditsState.emittedThresholds.size > 0;
 }
 
-function acknowledgeAiCreditSteeringWarning(threshold) {
-  acknowledgeSteeringThreshold(aiCreditsState.steeringDelivery.pending, threshold);
+/** @param {number} rank - Notice rank (warning.rank) */
+function acknowledgeAiCreditSteeringWarning(rank) {
+  acknowledgeSteeringThreshold(aiCreditsState.steeringDelivery.pending, rank);
 }
 
-function claimAiCreditSteeringWarning(threshold, conversation = null) {
-  return claimSteeringThreshold(aiCreditsState.steeringDelivery, threshold, conversation);
+/** @param {number} rank - Notice rank (warning.rank) */
+function claimAiCreditSteeringWarning(rank, conversation = null) {
+  return claimSteeringThreshold(aiCreditsState.steeringDelivery, rank, conversation);
 }
 
 function getAiCreditsBlockState() {

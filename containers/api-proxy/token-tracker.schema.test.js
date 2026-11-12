@@ -148,7 +148,9 @@ describe('shared token usage helpers', () => {
       duration_ms: 123,
       response_bytes: 456,
       steering: { type: 'ai_credit', threshold: 90 },
-      steering_delivery: { type: 'ai_credit', threshold: 90, conversation: '0123456789ab', first: true },
+      steering_delivery: {
+        type: 'ai_credit', trigger: 'threshold', threshold: 90, conversation: '0123456789ab', first: true,
+      },
       requested_endpoint: '/chat/completions',
       upstream_endpoint: '/responses',
     });
@@ -166,7 +168,9 @@ describe('shared token usage helpers', () => {
       steering: { type: 'timeout', threshold: 80, conversation: 'abcdef012345', first: false },
     });
     expect(later.steering).toBeUndefined();
-    expect(later.steering_delivery).toEqual({ type: 'timeout', threshold: 80, conversation: 'abcdef012345', first: false });
+    expect(later.steering_delivery).toEqual({
+      type: 'timeout', trigger: 'threshold', threshold: 80, conversation: 'abcdef012345', first: false,
+    });
     expect(validateTokenUsageRecord(later)).toBe(true);
 
     const stored = buildTokenUsageRecord(usage, {
@@ -174,7 +178,27 @@ describe('shared token usage helpers', () => {
       steering: { type: 'ai_credit', threshold: 95, conversation: null, first: true },
     });
     expect(stored.steering).toEqual({ type: 'ai_credit', threshold: 95 });
-    expect(stored.steering_delivery).toEqual({ type: 'ai_credit', threshold: 95, conversation: null, first: true });
+    expect(stored.steering_delivery).toEqual({
+      type: 'ai_credit', trigger: 'threshold', threshold: 95, conversation: null, first: true,
+    });
+
+    // The "little left" notice has no threshold: it is recorded only in
+    // steering_delivery, even on its first delivery.
+    const littleLeft = buildTokenUsageRecord(usage, {
+      ...base,
+      steering: { type: 'timeout', trigger: 'little_left', threshold: null, conversation: 'abcdef012345', first: true },
+    });
+    expect(littleLeft.steering).toBeUndefined();
+    expect(littleLeft.steering_delivery).toEqual({
+      type: 'timeout', trigger: 'little_left', threshold: null, conversation: 'abcdef012345', first: true,
+    });
+    expect(validateTokenUsageRecord(littleLeft)).toBe(true);
+    const schema = JSON.parse(fs.readFileSync(require('path').join(__dirname, '..', '..', 'schemas', 'token-usage.schema.json'), 'utf8'));
+    const deliverySchema = schema.properties.steering_delivery;
+    expect(deliverySchema.required).toContain('trigger');
+    expect(deliverySchema.properties.trigger.enum).toEqual(['threshold', 'little_left']);
+    expect(deliverySchema.properties.threshold.enum).toContain(null);
+    expect(schema.properties.steering.properties.threshold.enum).toEqual([80, 90, 95, 99]);
 
     const none = buildTokenUsageRecord(usage, base);
     expect(none.steering).toBeUndefined();
