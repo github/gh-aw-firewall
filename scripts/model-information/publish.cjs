@@ -7,25 +7,38 @@ const { execFileSync, spawnSync } = require('node:child_process');
 const {
   dataBranch, channelPath, inputPaths, json, digest, payload, snapshotPath,
   isCommit, isDigest, readSnapshot, readPointer,
+  pricingChannelPath, pricingSnapshotPath, pricingPayload, readPricingPointer, readPricingSnapshotEnvelope,
 } = require('./publication-contract.cjs');
 
-function publish({ cwd, bytes, expectedDigest, sourceCommit, bytesV2, expectedDigestV2 }) {
+const modelContract = { read: readSnapshot, readPointer, channelPath, snapshotPath, payload };
+const pricingContract = {
+  read: readPricingSnapshotEnvelope, readPointer: readPricingPointer,
+  channelPath: pricingChannelPath, snapshotPath: pricingSnapshotPath, payload: pricingPayload,
+};
+
+function publish({ cwd, bytes, expectedDigest, sourceCommit, bytesV2, expectedDigestV2,
+  pricingBytes, expectedPricingDigest }) {
   const inputs = [{ bytes, expectedDigest }];
   if (bytesV2 !== undefined) inputs.push({ bytes: bytesV2, expectedDigest: expectedDigestV2 });
+  if (inputs.length === 2 &&
+      inputs.map(input => readSnapshot(input.bytes).schemaVersion).join() !== '1,2') {
+    throw new Error('Dual publication requires v1 and v2 artifacts');
+  }
+  if (pricingBytes !== undefined) inputs.push({
+    bytes: pricingBytes, expectedDigest: expectedPricingDigest, contract: pricingContract,
+  });
   const publications = inputs.map(input => {
     if (!isDigest(input.expectedDigest) || digest(input.bytes) !== input.expectedDigest) {
       throw new Error('Artifact digest differs from validated read-only job output');
     }
-    const candidate = readSnapshot(input.bytes);
-    if (!isCommit(sourceCommit) || candidate.sourceCommit !== sourceCommit) {
+    const contract = input.contract || modelContract;
+    const candidate = contract.read(input.bytes);
+    if (!isCommit(sourceCommit) ||
+        (contract === modelContract && candidate.sourceCommit !== sourceCommit)) {
       throw new Error('Artifact source differs from trusted event SHA');
     }
-    return { candidate, bytes: input.bytes };
+    return { candidate, bytes: input.bytes, contract };
   });
-  if (publications.length === 2 &&
-      publications.map(({ candidate }) => candidate.schemaVersion).join() !== '1,2') {
-    throw new Error('Dual publication requires v1 and v2 artifacts');
-  }
   const temporary = fs.mkdtempSync(path.join(cwd, '.awf-catalogue-publish-'));
   const env = {
     ...process.env, GIT_INDEX_FILE: path.join(temporary, 'index'),
@@ -67,23 +80,26 @@ function publish({ cwd, bytes, expectedDigest, sourceCommit, bytesV2, expectedDi
         parent = git('rev-parse', 'FETCH_HEAD');
       }
       const updates = [];
-      for (const { candidate, bytes: candidateBytes } of publications) {
+      for (const { candidate, bytes: candidateBytes, contract } of publications) {
         const version = candidate.schemaVersion;
-        const pointerPath = channelPath(version);
+        const pointerPath = contract.channelPath(version);
         const channelBytes = blob(parent, pointerPath);
-        // Bootstrap v2 only from a usable existing v1 channel, retaining all v1 bytes.
-        const currentBytes = channelBytes || (version === 2 ? blob(parent, channelPath(1)) : null);
+        // New channels bootstrap only from a usable v1 channel, retaining its bytes.
+        const currentBytes = channelBytes ||
+          (version === 2 || contract === pricingContract ? blob(parent, channelPath(1)) : null);
         if (parent && !currentBytes) throw new Error('Existing data branch has no usable v1 pointer');
         if (currentBytes) {
-          const current = readPointer(currentBytes, channelBytes ? version : 1);
+          const currentContract = channelBytes ? contract : modelContract;
+          const current = currentContract.readPointer(currentBytes, channelBytes ? version : 1);
           const currentSnapshotBytes = blob(parent, current.snapshot);
           if (!currentSnapshotBytes || digest(currentSnapshotBytes) !== current.sha256) {
             throw new Error('Existing current snapshot is missing or corrupt');
           }
-          const currentSnapshot = readSnapshot(currentSnapshotBytes);
+          const currentSnapshot = currentContract.read(currentSnapshotBytes);
           if (currentSnapshot.schemaVersion !== current.schemaVersion ||
               currentSnapshot.revision !== current.revision ||
-              !ancestor(currentSnapshot.sourceCommit, current.sourceCommit) ||
+              (currentContract === modelContract &&
+                !ancestor(currentSnapshot.sourceCommit, current.sourceCommit)) ||
               !ancestor(current.sourceCommit, main)) throw new Error('Invalid current source provenance');
           if (current.sourceCommit !== sourceCommit && ancestor(sourceCommit, current.sourceCommit)) {
             return 'superseded: current pointer has a newer source';
@@ -94,14 +110,14 @@ function publish({ cwd, bytes, expectedDigest, sourceCommit, bytesV2, expectedDi
           }
           if (channelBytes && current.revision === candidate.revision) continue;
         }
-        const file = snapshotPath(candidate.revision, version);
+        const file = contract.snapshotPath(candidate.revision, version);
         const existing = blob(parent, file);
         let snapshotBytes = candidateBytes;
         if (existing) {
-          const snapshot = readSnapshot(existing);
+          const snapshot = contract.read(existing);
           if (snapshot.revision !== candidate.revision ||
-              json(payload(snapshot)) !== json(payload(candidate)) ||
-              !ancestor(snapshot.sourceCommit, sourceCommit)) {
+              json(contract.payload(snapshot)) !== json(contract.payload(candidate)) ||
+              (contract === modelContract && !ancestor(snapshot.sourceCommit, sourceCommit))) {
             throw new Error('Immutable revision collision');
           }
           // A reviewed rollback can reuse earlier immutable bytes, never overwrite them.
@@ -139,7 +155,7 @@ if (require.main === module) {
   if (process.env.GITHUB_EVENT_NAME !== 'push' ||
       process.env.GITHUB_REF !== 'refs/heads/main' ||
       process.env.GITHUB_REPOSITORY !== 'github/gh-aw-firewall' ||
-      ![3, 4].includes(process.argv.length)) throw new Error('Publisher requires trusted repository main push');
+      ![3, 4, 5].includes(process.argv.length)) throw new Error('Publisher requires trusted repository main push');
   const origin = execFileSync('git', ['remote', 'get-url', 'origin'], { encoding: 'utf8' }).trim();
   if (origin !== 'https://github.com/github/gh-aw-firewall' &&
       origin !== 'https://github.com/github/gh-aw-firewall.git') throw new Error('Untrusted publication origin');
@@ -148,6 +164,8 @@ if (require.main === module) {
     expectedDigest: process.env.SNAPSHOT_SHA256, sourceCommit: process.env.GITHUB_SHA,
     bytesV2: process.argv[3] ? fs.readFileSync(process.argv[3]) : undefined,
     expectedDigestV2: process.env.SNAPSHOT_SHA256_V2,
+    pricingBytes: process.argv[4] ? fs.readFileSync(process.argv[4]) : undefined,
+    expectedPricingDigest: process.env.SNAPSHOT_SHA256_PRICING,
   }));
 }
 module.exports = { publish };
