@@ -9,9 +9,11 @@ interface WorkflowFrontmatter {
     id: string;
     version: string;
     'checksums-sha256': string;
+    model?: string;
   };
   tools?: {
     bash?: string[];
+    github?: false;
   };
 }
 
@@ -136,9 +138,18 @@ describe('smoke copilot workflow output requirements', () => {
       path.join(workflowsDir, 'smoke-copilot-network-isolation.lock.yml'),
       'utf-8'
     );
+    const source = fs.readFileSync(
+      path.join(workflowsDir, 'smoke-copilot-network-isolation.md'),
+      'utf-8'
+    );
 
     expect(frontmatter.tools?.bash).toEqual(expect.arrayContaining(['curl', 'echo']));
+    expect(frontmatter.tools?.github).toBe(false);
+    expect(frontmatter.engine?.model).toBe('claude-haiku-4.5');
     expect(lock).toContain("--allow-tool '\\''shell(curl:*)'\\''");
     expect(lock).toContain("--allow-tool '\\''shell(echo)'\\''");
+    expect(lock).not.toContain('github-pull_request_read');
+    expect(source).toContain('both calls in the same response');
+    expect(source).toContain('Never call `noop` on a PR trigger.');
   });
 });
