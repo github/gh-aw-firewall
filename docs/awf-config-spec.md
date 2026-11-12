@@ -1353,25 +1353,75 @@ the ceiling when `maxAiCredits` is not configured). Runtime thresholds use the
 agent start marker written by the runtime; the host timeout and API proxy use
 that same start time and deadline.
 
-Warnings are advisory and are injected into the **next eligible outbound model
-request** after a threshold crossing. They do not interrupt an in-progress model
+Warnings are advisory and are injected into a later eligible outbound model
+request after a threshold crossing. They do not interrupt an in-progress model
 request or tool, extend a timeout, raise a budget, guarantee a later request, or
 guarantee that the agent completes or submits work. If the budget is already
 exhausted, normal terminal rejection remains in effect.
 
-Each threshold is recorded once per run. At most one warning is injected per
-request, carrying the largest crossed percentage that is pending. For equal
-percentages, time warnings precede AI-credit warnings. Delivering a warning
-drops any older pending warnings of the same kind (time or AI credits), so an
-older warning never follows a newer one.
+A harness resends its own copy of the conversation on every turn, so an injected
+notice lasts one turn. The proxy therefore delivers the current time warning and
+the current AI-credit warning to **every conversation in the run, once each**,
+on that conversation's own next eligible request:
+
+- A **conversation** is identified by an opaque key derived from its opening:
+  the system prompt or instructions plus the opening user turn (every message
+  before the model's first reply, which for most harnesses is the first user
+  message). The key is an HMAC-SHA-256 under a random secret generated when
+  the api-proxy starts and kept in memory only, so it is comparable only
+  within one proxy process and does not reveal prompt content; a restart
+  changes every key.
+  Prompt-cache markers (`cache_control`, `copilot_cache_control`) and Claude
+  Code's per-request `x-anthropic-billing-header` system block are ignored.
+- An **eligible request** ends with a tool result: a `tool` message (Chat
+  Completions), a final user message with `tool_result` blocks (Messages,
+  including Claude on Vertex `:rawPredict`/`:streamRawPredict` and Claude on
+  Bedrock `/model/<id>/invoke`/`/model/<id>/invoke-with-response-stream`; a
+  body with an `anthropic_version` field is read as Messages), a tool output
+  item such as `function_call_output` (Responses; an input message without a
+  `role` counts as a user message), or function responses (Gemini). Other
+  requests, such as a harness request to summarize the conversation, are left
+  unchanged. Token-counting requests (such as `/v1/messages/count_tokens`) and
+  compaction requests (`/v1/responses/compact`) are not working model calls
+  and never carry or acknowledge a warning.
+- A Responses request continuing a stored response with `previous_response_id`
+  (or a non-null `conversation`) has no history to hash. All such requests
+  together count as one conversation, recorded alongside the hashed ones: each
+  warning goes to one of them per run, independently of hashed conversations,
+  under the same pending, acknowledgement and in-flight rules.
+- The proxy records, per warning kind, the latest warning each conversation has
+  received, only once the request carrying it is acknowledged. The record is
+  bounded to 1,024 conversations, dropping the one notified least recently. A
+  conversation whose opening changes (for example after compaction), or that
+  was dropped or outlived a proxy restart, hears the current warning once more.
+- A sub-agent started from a copy of another conversation shares its opening
+  and is treated as having already heard that conversation's warnings.
+
+At most one warning is injected per request, carrying the largest crossed
+percentage the conversation has not yet received. For equal percentages, time
+warnings precede AI-credit warnings. A conversation that receives a newer
+warning never receives an older one of the same kind (time or AI credits).
 Classifier requests, malformed JSON, unsupported body shapes, or any request
 that cannot be modified do not consume pending warnings. A warning injected
 into a request counts as delivered once the upstream response arrives with a
 2xx status (streaming or not, even if the client closes early). Non-2xx
 responses, requests rejected by a guard or by request transformation, and
 clients that disconnect before the upstream response arrives leave the warning
-pending for the next eligible request. While a request carrying a warning is in
-flight, concurrent requests do not repeat it.
+pending for that conversation's next eligible request. While a request carrying
+a warning is in flight, concurrent requests in the same conversation do not
+repeat it; different conversations may each carry it at the same time.
+
+The `token-usage.jsonl` record of a request carrying a warning includes
+`steering: {type, threshold}` only on the run's first delivery of that
+threshold (at most once per threshold per run), and `steering_delivery:
+{type, threshold, conversation, first}` on every delivery, where
+`conversation` is a 12-hex-character prefix of the conversation key, an
+opaque per-run identifier comparable only within one run that does not reveal
+prompt content. It is `null` in two cases: (a) a Responses request that
+continues a stored response, which shares one entry and receives each notice
+once per run; (b) an eligible request whose opening cannot be keyed, such as
+Responses input that starts with a `reasoning` item, which uses run-level
+state.
 
 The warning formats are:
 
@@ -1390,8 +1440,8 @@ result. The proxy never changes the top-level system prompt, `instructions`,
 `systemInstruction`, tools, or earlier conversation items, so the provider
 prompt-cache prefix (including any cache breakpoint the harness or
 `anthropicAutoCache` placed on the last existing block) is preserved and the
-notice request reads the cache like its neighbours. Once delivered, the notice
-is not added to later requests.
+notice request reads the cache like its neighbours. Once delivered to a
+conversation, the notice is not added to its later requests.
 
 - **OpenAI / Copilot Chat Completions** — the proxy appends a final `{ "role": "user", "content": "<message>" }` message after the last message (typically the last `tool` message). When translated to Responses, it remains the final `input` item; it is not moved into `instructions`.
 - **OpenAI / Copilot Responses** — the proxy appends one final `developer` message item to `input`, after all existing items (including tool results), leaving `instructions`, tools, existing input items, and streaming fields unchanged. A string `input` becomes a single user message followed by the notice. When translated to Chat Completions, it remains the final message and the leading system message from `instructions` is unchanged.

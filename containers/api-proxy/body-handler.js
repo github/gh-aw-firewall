@@ -20,17 +20,26 @@
  * model-not-supported retry backoff.
  */
 
-const { sanitizeNullToolCallTypes, injectSteeringMessage, injectStreamOptions } = require('./body-transform');
+const {
+  sanitizeNullToolCallTypes,
+  injectSteeringMessage,
+  describeSteeringConversation,
+  injectStreamOptions,
+} = require('./body-transform');
 const { sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const {
   getPendingTimeoutSteeringWarning,
+  hasCrossedTimeoutSteeringThreshold,
   claimTimeoutSteeringWarning,
 } = require('./guards/timeout-steering');
+
 const {
   getPendingAiCreditSteeringWarning,
+  hasCrossedAiCreditSteeringThreshold,
   claimAiCreditSteeringWarning,
 } = require('./guards/ai-credits-guard');
+const { STORED_RESPONSE_CONVERSATION } = require('./guards/steering-thresholds');
 const { translateCodexCustomToolsForCopilot } = require('./codex-compat');
 const { endpointForPath, translateCopilotWireApi } = require('./wire-api-compat');
 const { stripRedundantModelPrefixInBody } = require('./model-body-rewriter');
@@ -261,18 +270,29 @@ function createBodyHandler({ handleRequestError, otel }) {
     }
 
     const allowSteering = req.awfRequestContext?.purpose !== 'routing_classification';
-    if (allowSteering && isSteeringEnabled() && (req.method === 'POST' || req.method === 'PUT')) {
+    // A notice goes only on a request that ends with tool results, the kind a
+    // working agent makes, so harness housekeeping requests (e.g. a request to
+    // summarize the conversation) are skipped. Every conversation hears each
+    // notice once, on its own next such request. Until a threshold of either
+    // kind is crossed no notice can be selected, so the body is not inspected;
+    // both guards are asked so each updates its crossed thresholds.
+    const target = allowSteering && isSteeringEnabled() && (req.method === 'POST' || req.method === 'PUT') &&
+      [hasCrossedTimeoutSteeringThreshold(), hasCrossedAiCreditSteeringThreshold()].includes(true)
+      ? describeSteeringConversation(body, provider, req.url)
+      : null;
+    if (target?.endsWithToolResult) {
+      const { conversation } = target;
       const steeringMessages = [
         {
           type: 'timeout',
           priority: 3,
-          warning: getPendingTimeoutSteeringWarning(),
+          warning: getPendingTimeoutSteeringWarning(conversation),
           claim: claimTimeoutSteeringWarning,
         },
         {
           type: 'ai_credit',
           priority: 2,
-          warning: getPendingAiCreditSteeringWarning(),
+          warning: getPendingAiCreditSteeringWarning(conversation),
           claim: claimAiCreditSteeringWarning,
         },
       ];
@@ -285,15 +305,39 @@ function createBodyHandler({ handleRequestError, otel }) {
         const steered = injectSteeringMessage(body, provider, nextWarning.warning.message, req.url);
         if (steered) {
           body = steered;
-          steering = { type: nextWarning.type, threshold: nextWarning.warning.threshold };
+          // Records carry a 12-hex-character prefix of the opaque per-run
+          // conversation key, or null in two cases: (a) a Responses request
+          // that continues a stored response, which shares one entry and
+          // receives each notice once per run; (b) an eligible request whose
+          // opening cannot be keyed, which uses run-level state.
+          const shortConversation = conversation && conversation !== STORED_RESPONSE_CONVERSATION
+            ? conversation.slice(0, 12)
+            : null;
+          // `first` is set when this turns out to be the run's first delivery
+          // of the threshold; only that record carries the `steering` field.
+          steering = {
+            type: nextWarning.type,
+            threshold: nextWarning.warning.threshold,
+            conversation: shortConversation,
+            first: false,
+          };
           // The notice stays pending until the request carrying it succeeds:
           // the upstream response handler acknowledges it on a 2xx response
-          // and proxy-request releases it when the request fails.
-          req.awfSteeringDelivery = nextWarning.claim(nextWarning.warning.threshold);
+          // and proxy-request releases it when the request fails. The
+          // conversation is recorded as having heard it only on acknowledge.
+          const delivery = nextWarning.claim(nextWarning.warning.threshold, conversation);
+          const steeringRecord = steering;
+          req.awfSteeringDelivery = Object.freeze({
+            acknowledge: () => {
+              if (delivery.acknowledge()) steeringRecord.first = true;
+            },
+            release: delivery.release,
+          });
           logRequest('info', `${nextWarning.type}_steering`, {
             request_id: requestId,
             provider,
             threshold: nextWarning.warning.threshold,
+            conversation: shortConversation,
             message: nextWarning.warning.message,
           });
         }
