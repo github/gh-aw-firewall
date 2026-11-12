@@ -2,7 +2,7 @@
 # Supply the release's build-tools digest, or a locally built base via BuildKit context.
 ARG BUILD_TOOLS_IMAGE=awf-build-tools
 
-FROM python:3.14.10-alpine3.24@sha256:eb2c62658b8d51bff0acc408504b76521d02030de56a8a3c1e830083e89b89d2 AS enclave-script
+FROM python:3.13.18-alpine3.24@sha256:9ef1a599f863231c3d91e941389bfdc4a2d6070557243d54df1a4e57015b960e AS enclave-script
 LABEL io.github.awf.enclave.role="script"
 
 RUN apk upgrade --no-cache \
