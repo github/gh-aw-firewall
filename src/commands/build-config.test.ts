@@ -54,9 +54,10 @@ describe('buildConfig', () => {
   });
 
   it.each([
-    [{}, false],
+    [{}, true],
     [{ steeringBudget: true }, true],
     [{ steeringBudget: false }, false],
+    [{ enableTokenSteering: false, steeringBudget: false }, false],
     [{ enableTokenSteering: true }, true],
     [{ enableTokenSteering: true, steeringBudget: true }, true],
   ])('resolves budget steering from %j', (steeringOptions, expected) => {

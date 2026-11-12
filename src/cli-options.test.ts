@@ -22,13 +22,13 @@ describe('cli-options program', () => {
     program.setOptionValueWithSource('cloudHypervisorScratchMib', undefined, 'default');
     program.setOptionValueWithSource('cloudHypervisorEnclaveDebugPublic', undefined, 'default');
     program.setOptionValueWithSource('steeringBudget', undefined, 'default');
-    program.setOptionValueWithSource('enableTokenSteering', false, 'default');
+    program.setOptionValueWithSource('enableTokenSteering', undefined, 'default');
   });
 
   it('parses budget steering flags and the --enable-token-steering alias', () => {
     program.parse(['node', 'awf', '--', 'true'], { from: 'node' });
     expect(program.opts().steeringBudget).toBeUndefined();
-    expect(program.opts().enableTokenSteering).toBe(false);
+    expect(program.opts().enableTokenSteering).toBeUndefined();
     program.parse(['node', 'awf', '--steering-budget', '--', 'true'], { from: 'node' });
     expect(program.opts().steeringBudget).toBe(true);
     program.parse(['node', 'awf', '--no-steering-budget', '--', 'true'], { from: 'node' });

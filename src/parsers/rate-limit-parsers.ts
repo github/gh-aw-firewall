@@ -69,7 +69,7 @@ export function validateRateLimitFlags(enableApiProxy: boolean, options: {
 /**
  * Resolves budget steering from `--steering-budget` / `--no-steering-budget`
  * (or `apiProxy.steering.budget`) and its alias `--enable-token-steering`
- * (or `apiProxy.enableTokenSteering`). Budget steering is off unless enabled.
+ * (or `apiProxy.enableTokenSteering`). Budget steering is on unless disabled.
  * Setting the alias and the canonical option to different values is an error.
  */
 export function resolveSteeringBudget(options: {
@@ -84,7 +84,7 @@ export function resolveSteeringBudget(options: {
       error: '--enable-token-steering is an alias for --steering-budget and cannot be combined with --no-steering-budget',
     };
   }
-  return { valid: true, value: budget ?? alias ?? false };
+  return { valid: true, value: budget ?? alias ?? true };
 }
 
 /**

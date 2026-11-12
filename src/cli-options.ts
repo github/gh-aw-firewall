@@ -529,19 +529,18 @@ program
   )
   .option(
     '--steering-budget',
-    'Enable AI-credit and time budget notices in the API proxy (default: off).\n' +
+    'Enable AI-credit and time budget notices in the API proxy (default: on).\n' +
     '                                       Credit notices use --max-ai-credits (or the hard cap); time notices use --agent-timeout.\n' +
     '                                       Injects advisory notices at 80%, 90%, 95%, and 99% of each limit into the next\n' +
     '                                       eligible request; it does not interrupt work or guarantee completion.',
   )
   .option(
     '--no-steering-budget',
-    'Explicitly disable AI-credit and time budget notices.',
+    'Disable AI-credit and time budget notices (they are on by default).',
   )
   .option(
     '--enable-token-steering',
     'Alias for --steering-budget (config: apiProxy.enableTokenSteering).',
-    false
   )
 
   // -- CLI Proxy (external DIFC proxy) --

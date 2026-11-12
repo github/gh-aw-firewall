@@ -69,9 +69,9 @@ awf [options] -- <command>
 | `--rate-limit-rph <n>` | number | `10000` | Max requests per hour per provider |
 | `--rate-limit-bytes-pm <n>` | number | `52428800` (~50 MB) | Max request bytes per minute per provider |
 | `--no-rate-limit` | flag | — | Disable rate limiting in API proxy |
-| `--steering-budget` | flag | off | Opt in to AI-credit and time budget notices |
-| `--no-steering-budget` | flag | — | Explicitly disable AI-credit and time budget notices |
-| `--enable-token-steering` | flag | `false` | Alias for `--steering-budget` |
+| `--steering-budget` | flag | on | Enable AI-credit and time budget notices (on by default) |
+| `--no-steering-budget` | flag | — | Disable AI-credit and time budget notices |
+| `--enable-token-steering` | flag | — | Alias for `--steering-budget` |
 | `--difc-proxy-host <host:port>` | string | — | Connect to external DIFC proxy and enable CLI proxy sidecar |
 | `--difc-proxy-ca-cert <path>` | string | — | Path to TLS CA cert for external DIFC proxy verification |
 | `--diagnostic-logs` | flag | `false` | Collect diagnostics on non-zero exit |
@@ -957,11 +957,11 @@ sudo -E awf --enable-api-proxy --no-rate-limit \
 
 ### `--steering-budget` / `--no-steering-budget`
 
-Opt in to advisory AI-credit and time budget notices at 80%, 90%, 95%, and 99% of their limits (config: `apiProxy.steering.budget`). Notices are injected one per eligible outbound request; they do not interrupt ongoing work or guarantee completion. AI-credit thresholds use the lower of `maxAiCredits` and the 10,000-credit hard cap. Configure `container.agentTimeout` to enable time notices. `--no-steering-budget` turns notices off explicitly.
+Enable advisory AI-credit and time budget notices at 80%, 90%, 95%, and 99% of their limits (config: `apiProxy.steering.budget`). Notices are injected one per eligible outbound request; they do not interrupt ongoing work or guarantee completion. AI-credit thresholds use the lower of `maxAiCredits` and the 10,000-credit hard cap. Configure `container.agentTimeout` to enable time notices. Notices are on by default; `--no-steering-budget` (config: `apiProxy.steering.budget: false`) turns them off.
 
 `--enable-token-steering` (config: `apiProxy.enableTokenSteering`) is an alias for `--steering-budget`. Combining `--enable-token-steering` with `--no-steering-budget` is an error.
 
-- **Default:** off
+- **Default:** on
 - **Requires:** `--enable-api-proxy`
 
 ```bash

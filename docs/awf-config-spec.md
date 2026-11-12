@@ -226,7 +226,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.enabled` → `--enable-api-proxy` *([DEPRECATED] API proxy is always enabled; this flag is ignored)*
 - `apiProxy.copilotTokenBroker` → `--copilot-token-broker` *(experimental, explicit boolean opt-in for renewable GitHub Copilot inference; runtime-only `GH_AW_TOKEN_BROKER_URL` and host Actions OIDC bootstrap are required; see [broker integration and backend contract](auth-matrix.md#renewable-token-broker-experimental-copilot-inference))*
 - `apiProxy.caCert` → `--api-proxy-ca-cert <path>` *(mounts an additional CA certificate into the api-proxy sidecar and sets `NODE_EXTRA_CA_CERTS` for upstream TLS verification)*
-- `apiProxy.steering.budget` → `--steering-budget` / `--no-steering-budget` *(maps to `AWF_ENABLE_TOKEN_STEERING`; opts into AI-credit and time budget notices; omit or set to `false` to opt out; see [§10.1](#101-budget-steering))*
+- `apiProxy.steering.budget` → `--steering-budget` / `--no-steering-budget` *(maps to `AWF_ENABLE_TOKEN_STEERING`; AI-credit and time budget notices are on by default; set to `false` to turn them off; see [§10.1](#101-budget-steering))*
 - `apiProxy.enableTokenSteering` → `--enable-token-steering` *(alias for `apiProxy.steering.budget`; setting both to different values is a configuration error)*
 - `apiProxy.anthropicAutoCache` → `--anthropic-auto-cache`
 - `apiProxy.anthropicCacheTailTtl` → `--anthropic-cache-tail-ttl <5m|1h>`
@@ -1320,17 +1320,18 @@ versions. See [gh-aw #38925](https://github.com/github/gh-aw/issues/38925).
 
 ### 10.1 Budget Steering
 
-Budget steering is **opt-in**. It is active only when `apiProxy.steering.budget`
-is `true` (CLI: `--steering-budget`), which sets
-`AWF_ENABLE_TOKEN_STEERING=true` in the api-proxy sidecar. When disabled (the
-default), thresholds remain observable but no warning messages are injected.
-Setting the field to `false` (CLI: `--no-steering-budget`), or omitting it, opts out.
+Budget steering is **on by default**. When `apiProxy.steering.budget` is
+`true` or omitted (CLI: `--steering-budget`, or no flag), AWF sets
+`AWF_ENABLE_TOKEN_STEERING=true` in the api-proxy sidecar. Setting the field to
+`false` (or `apiProxy.enableTokenSteering: false`; CLI: `--no-steering-budget`)
+turns notices off; thresholds remain observable but no warning messages are
+injected.
 
 ```yaml
 apiProxy:
   maxAiCredits: 300
   steering:
-    budget: true   # AI-credit and time notices
+    budget: true   # default; set to false to turn AI-credit and time notices off
 container:
   agentTimeout: 20
 ```
@@ -1346,9 +1347,11 @@ values (in the config file, or `--enable-token-steering` with
 `--no-steering-budget` on the CLI) is a configuration error. A CLI flag for
 either name takes precedence over the config file.
 
-When enabled, the proxy tracks AI-credit and runtime thresholds
-at 80%, 90%, 95%, and 99%, plus one "little left" trigger per kind (below).
-Credit thresholds use the lower of configured
+When `steering.budget` is enabled, the proxy tracks AI-credit and runtime
+thresholds at 80%, 90%, 95%, and 99%, plus one "little left" trigger per kind
+(below). Each kind is tracked independently: credit notices are always available
+because the hard cap applies even without `maxAiCredits`, while time notices
+are sent only when `container.agentTimeout` is set. Credit thresholds use the lower of configured
 `maxAiCredits` and the operator-controlled hard cap (10,000 credits by default; the hard cap is
 the ceiling when `maxAiCredits` is not configured). Runtime thresholds use the
 agent start marker written by the runtime; the host timeout and API proxy use
