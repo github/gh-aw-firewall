@@ -875,8 +875,10 @@ marketing prose. Uncertain facts are marked unverified or left unknown.
 
 ### Scheduled checked-in source upkeep
 
-`.github/workflows/model-api-mapping-updater.md` now runs daily and supports
-manual dispatch on `main`. It captures the approved official documentation and
+`.github/workflows/model-api-mapping-updater.md` runs twice daily (`every 12h`,
+with a compiler-scattered UTC minute off the hour) and supports manual dispatch
+on `main`. Scheduled start times are twelve hours apart; Actions may delay runs.
+It captures the approved official documentation and
 OpenRouter model API listed in
 `scripts/model-information/maintenance-sources.json`, including exact response
 hashes, retrieval times, source scopes and explicit import exclusions. Capture
@@ -948,7 +950,9 @@ checks are incomplete runs, not successful no-ops.
 
 This updater is scheduled reviewed source upkeep only: no automatic merge,
 runtime refresh/cache or activation of staged corrections. A separate ordinary
-post-merge publisher implements the versioned distribution portion of Gate 8;
+post-merge publisher still publishes automatically after a reviewed source PR
+is merged to `main`, including the independent pricing export. It implements
+the versioned distribution portion of Gate 8;
 see [the producer contract and automation](../model-catalogue-publication.md).
 The bounded runtime consumer now adds reviewed-source authentication, scoped
 central pricing and automated producer/consumer publication checks; this does
