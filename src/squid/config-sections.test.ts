@@ -270,6 +270,12 @@ describe('buildConfigSections', () => {
       expect(apiProxySection).toContain('http_access allow allow_api_proxy_ip');
       expect(apiProxySection).toContain('http_access allow from_api_proxy');
     });
+
+    it('matches only literal api-proxy IPs without resolving unlisted hostnames', () => {
+      const { apiProxySection } = buildWithDefaults({ apiProxyIp: '172.30.0.30' });
+      expect(apiProxySection).toMatch(/^acl allow_api_proxy_ip dst -n 172\.30\.0\.30$/m);
+      expect(apiProxySection).toContain('acl from_api_proxy src 172.30.0.30/32');
+    });
   });
 
   describe('allowedIpSection', () => {
@@ -282,6 +288,14 @@ describe('buildConfigSections', () => {
       const { allowedIpSection } = buildWithDefaults({ domains: ['192.168.1.1', 'github.com'] });
       expect(allowedIpSection).toContain('192.168.1.1');
       expect(allowedIpSection).toContain('http_access allow allow_ip_192_168_1_1');
+    });
+
+    it('matches only literal allowlisted IPs without resolving unlisted hostnames', () => {
+      const { allowedIpSection } = buildWithDefaults({
+        domains: ['192.168.1.1', '10.0.0.5', 'github.com'],
+      });
+      expect(allowedIpSection).toMatch(/^acl allow_ip_192_168_1_1 dst -n 192\.168\.1\.1$/m);
+      expect(allowedIpSection).toMatch(/^acl allow_ip_10_0_0_5 dst -n 10\.0\.0\.5$/m);
     });
 
     it('is empty when domains is empty', () => {

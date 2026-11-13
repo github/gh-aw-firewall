@@ -173,7 +173,7 @@ describe('generateSquidConfig', () => {
       const result = generateSquidConfig(config);
 
       // Should have a dst ACL allow for the IP
-      expect(result).toContain('acl allow_ip_172_30_0_1 dst 172.30.0.1');
+      expect(result).toContain('acl allow_ip_172_30_0_1 dst -n 172.30.0.1');
       expect(result).toContain('http_access allow allow_ip_172_30_0_1');
 
       // The allow rule must appear before the raw-IP deny
@@ -201,8 +201,8 @@ describe('generateSquidConfig', () => {
       };
       const result = generateSquidConfig(config);
 
-      expect(result).toContain('acl allow_ip_172_30_0_1 dst 172.30.0.1');
-      expect(result).toContain('acl allow_ip_10_0_0_5 dst 10.0.0.5');
+      expect(result).toContain('acl allow_ip_172_30_0_1 dst -n 172.30.0.1');
+      expect(result).toContain('acl allow_ip_10_0_0_5 dst -n 10.0.0.5');
     });
   });
 });
