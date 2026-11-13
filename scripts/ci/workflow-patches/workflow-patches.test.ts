@@ -32,6 +32,12 @@ const installStep =
   '      - name: Install awf binary\n' +
   '        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.28.66\n';
 
+beforeEach(() => {
+  jest.replaceProperty(process, 'env', { ...process.env });
+  delete process.env[session.ENABLE_SESSION_STATE_ARTIFACTS_ENV];
+});
+afterEach(() => jest.restoreAllMocks());
+
 describe('standalone workflow patch domains', () => {
   it('only adds approved npm access to exact registry hosts and is idempotent', () => {
     const restricted = String.raw`echo "{\"allowDomains\":[\"registry.npmjs.org.attacker.example\"]}"`;
@@ -56,7 +62,8 @@ describe('standalone workflow patch domains', () => {
     expect(installLocalAwf(installStep, context('C:\\repo\\auth-doctor-updater.lock.yml')).content).toBe(installStep);
   });
 
-  it('collects both session invocation shapes without duplicate flags or legacy log paths', () => {
+  it.each(['true', '1'])('collects both session invocation shapes when opted in with %s', value => {
+    process.env[session.ENABLE_SESSION_STATE_ARTIFACTS_ENV] = value;
     const input = 'awf --audit-dir /tmp/gh-aw/sandbox/firewall/audit\n' +
       'awf --config "${RUNNER_TEMP}/gh-aw/awf-config.json"\n' +
       '/tmp/gh-aw/sandbox/firewall/logs/api-proxy\n';
@@ -64,6 +71,19 @@ describe('standalone workflow patch domains', () => {
     expect(first.messages).toHaveLength(3);
     expect(first.content.split(`--session-state-dir ${session.SESSION_STATE_DIR}`)).toHaveLength(3);
     expect(first.content).toContain('/logs/api-proxy-logs');
+    expect(session.collectSessionState(first.content).content).toBe(first.content);
+  });
+
+  it.each([undefined, '', '0', 'false'])('does not collect session state with opt-in value %s', value => {
+    if (value !== undefined) process.env[session.ENABLE_SESSION_STATE_ARTIFACTS_ENV] = value;
+    const input = 'awf --audit-dir /tmp/gh-aw/sandbox/firewall/audit\n' +
+      'awf --config "${RUNNER_TEMP}/gh-aw/awf-config.json"\n' +
+      '/tmp/gh-aw/sandbox/firewall/logs/api-proxy\n';
+    const first = session.collectSessionState(input);
+    expect(first.content).not.toContain('--session-state-dir');
+    expect(first.content).toContain('/logs/api-proxy-logs');
+    expect(first.messages.filter(message => message.includes('Skipped --session-state-dir injection')))
+      .toHaveLength(2);
     expect(session.collectSessionState(first.content).content).toBe(first.content);
   });
 
@@ -92,6 +112,7 @@ describe('standalone workflow patch domains', () => {
     const excluded = excludeAzureCredentials(oidc, azure);
     expect(excluded.content).toContain('--exclude-env AWF_AUTH_AZURE_TENANT_ID');
     expect(excludeAzureCredentials(excluded.content, azure).content).toBe(excluded.content);
+    expect(() => excludeAzureCredentials('', azure)).toThrow('refusing to continue without Azure OIDC protection');
     expect(excludeAzureCredentials(oidc, context('/repo/example.lock.yml')).content).toBe(oidc);
     const roots = 'GH_AW_RECOVERY_ADDITIONAL_ROOTS: \'["/tmp/gh-aw","/tmp/gh-aw/agent_output.json"]\'\n';
     expect(restrictRecoveryRoots(roots, context('C:\\repo\\self-hosted-runner-doctor-updater.lock.yml')).content)
@@ -110,7 +131,7 @@ describe('standalone workflow patch domains', () => {
     expect(restrictDiagnosisCacheContext(
       'copilot --add-dir /tmp/gh-aw/cache-memory/ --model test',
       context('C:\\repo\\network-doctor-updater.lock.yml'),
-    ).content).toBe('copilot --model test');
+    ).content).toMatch(/^copilot\s+--model test$/);
   });
 
   it('keeps concurrency substring matching, per-issue scoping, and diagnostic warnings', () => {
@@ -158,6 +179,7 @@ describe('ordered workflow pipeline compatibility', () => {
   });
 
   it('hands off updated content and preserves interleaved domain log order', () => {
+    process.env[session.ENABLE_SESSION_STATE_ARTIFACTS_ENV] = 'true';
     const input = 'env:\n  EXISTING: value\n' +
       '# gh-aw-manifest: {"admission":false}\n' +
       'jobs:\n  activation:\n    outputs:\n      existing: value\n' +

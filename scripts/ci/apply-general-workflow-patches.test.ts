@@ -295,6 +295,7 @@ describe('applyGeneralWorkflowPatches Copilot CLI copy step gating', () => {
 describe('applyGeneralWorkflowPatches AOAI smoke GitHub MCP catalog', () => {
   const compilerOutput =
     '          cp "${RUNNER_TEMP}/gh-aw/awf-config.json" /tmp/gh-aw/awf-config.json\n' +
+    '          awf --config config.json --env-all --exclude-env ACTIONS_ID_TOKEN_REQUEST_TOKEN --exclude-env ACTIONS_ID_TOKEN_REQUEST_URL\n' +
     '              "github": {\n' +
     '                "env": {\n' +
     '                  "GITHUB_TOOLSETS": "pull_requests"\n' +

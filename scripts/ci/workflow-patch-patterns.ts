@@ -9,7 +9,7 @@ export {
 } from './workflow-patches/network-and-install-patterns';
 export {
   sessionStateDirInjectionRegex, sessionStateDirConfigInjectionRegex,
-  SESSION_STATE_DIR, legacyApiProxyLogsDirRegex,
+  SESSION_STATE_DIR, ENABLE_SESSION_STATE_ARTIFACTS_ENV, legacyApiProxyLogsDirRegex,
 } from './workflow-patches/session-state';
 export {
   copilotModelOverrideRegex, removeCopilotGithubCliPermission,
