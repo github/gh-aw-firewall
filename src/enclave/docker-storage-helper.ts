@@ -49,7 +49,7 @@ export function assertDockerStorageHelperAvailable(): void {
       || result.maxBytes !== DOCKER_ENCLAVE_MAX_HOST_BYTES
       || result.stateRoot !== dockerHelperHostStateRoot()) throw new Error('Helper version mismatch');
   } catch {
-    throw new Error('Docker enclaves require the matching AWF host storage helper and noninteractive sudo authorization; reinstall AWF with install.sh (do not sudo the entire workflow)');
+    throw new Error('Docker enclaves require the matching AWF host storage helper and noninteractive sudo authorization; install or upgrade it with install.sh --install-enclave-storage-helper (do not sudo the entire workflow)');
   }
 }
 

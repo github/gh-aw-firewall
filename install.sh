@@ -226,7 +226,10 @@ check_node() {
         return
     fi
     if command -v node &> /dev/null; then
-        NODE_VERSION=$(node -v | sed 's/^v//')
+        if ! NODE_VERSION=$(node -v | sed 's/^v//'); then
+            USE_BUNDLE=false
+            return
+        fi
         NODE_MAJOR=$(echo "$NODE_VERSION" | cut -d. -f1)
         NODE_MINOR=$(echo "$NODE_VERSION" | cut -d. -f2)
         if [ "$NODE_MAJOR" -gt 20 ] || { [ "$NODE_MAJOR" -eq 20 ] && [ "$NODE_MINOR" -ge 19 ]; }; then
@@ -254,7 +257,9 @@ get_latest_version() {
     info "Fetching latest release version..."
     
     # Try GitHub API with -f to fail on HTTP errors
-    VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    if ! VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'); then
+        VERSION=""
+    fi
     
     if [ -z "$VERSION" ]; then
         error "Failed to fetch latest version from GitHub API"
@@ -356,7 +361,12 @@ verify_checksum() {
     # Extract the checksum for our binary from checksums.txt
     # Format: "checksum  filename" (two spaces) - use exact filename match at end of line
     local expected_sum
-    expected_sum=$(awk -v fname="$BINARY_NAME" '$2 == fname || $2 == "*" fname {count++; digest=$1} END {if (count == 1) print digest}' "$checksums_file")
+    expected_sum=$(awk -v fname="$BINARY_NAME" '{
+        line = $0
+        if (sub(/^[^[:space:]]+  /, "", line) || sub(/^[^[:space:]]+ \*/, "", line)) {
+            if (line == fname) {count++; digest=$1}
+        }
+    } END {if (count == 1) print digest}' "$checksums_file")
     
     if [ -z "$expected_sum" ]; then
         error "Expected exactly one checksum for $BINARY_NAME in authenticated checksums.txt"
@@ -393,7 +403,12 @@ install_enclave_storage_helper() {
     [ "$INSTALL_HELPER" = true ] || return 0
     [ "$(uname -s)" = Linux ] || return 0
     local helper="enclave-storage-helper.py"
-    if ! awk -v fname="$helper" '$2 == fname || $2 == "*" fname { found=1 } END { exit !found }' "$TEMP_DIR/checksums.txt"; then
+    if ! awk -v fname="$helper" '{
+        line = $0
+        if (sub(/^[^[:space:]]+  /, "", line) || sub(/^[^[:space:]]+ \*/, "", line)) {
+            if (line == fname) found=1
+        }
+    } END { exit !found }' "$TEMP_DIR/checksums.txt"; then
         warn "This authenticated legacy release has no unprivileged Docker enclave support; installing the ordinary CLI only"
         return 0
     fi

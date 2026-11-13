@@ -92,13 +92,17 @@ while [ "$#" -gt 0 ]; do
 done
 asset="\${url##*/}"
 printf '%s\\n' "$asset" >> "$CASE_DIR/curl.log"
-if [ "$asset" = latest ]; then printf '{"tag_name": "%s"}\\n' "\${LATEST_TAG:-v1.2.3}"; exit; fi
+if [ "$asset" = latest ]; then
+  [ "\${CURL_LATEST_STATUS:-0}" = "0" ] || { echo "latest lookup failed" >&2; exit "$CURL_LATEST_STATUS"; }
+  printf '{"tag_name": "%s"}\\n' "\${LATEST_TAG:-v1.2.3}"
+  exit
+fi
 cp "$CASE_DIR/assets/$asset" "$output"
 `,
     file: '#!/bin/bash\necho "$1: ELF 64-bit LSB executable"\n',
     uname: '#!/bin/bash\nif [ "$1" = "-s" ]; then echo Linux; else echo x86_64; fi\n',
     docker: '#!/bin/bash\nprintf "%s\\n" "$*" >> "$CASE_DIR/docker.log"\nexit "${DOCKER_STATUS:-0}"\n',
-    node: '#!/bin/bash\necho v22.0.0\n',
+    node: '#!/bin/bash\n[ "\${NODE_STATUS:-0}" = "0" ] || exit "$NODE_STATUS"\necho v22.0.0\n',
     'helper-installer': `#!/bin/bash
 cat > "$CASE_DIR/helper-install-body"
 printf '%s\\n' "$*" >> "$CASE_DIR/helper-install.log"
@@ -255,6 +259,21 @@ describe('release bootstrap authentication', () => {
     expect(f.log('curl.log')).toBe('');
   });
 
+  it('reports latest release lookup failures instead of exiting before diagnostics', () => {
+    const f = fixture();
+    const result = f.run('installer', { INPUT_VERSION: '', CURL_LATEST_STATUS: '22' });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('latest lookup failed');
+    expect(result.stderr).toContain('Failed to fetch latest version from GitHub API');
+  });
+
+  it('falls back to the standalone binary when the Node.js shim fails', () => {
+    const f = fixture({ bundle: true });
+    const result = f.run('installer', { NODE_STATUS: '1' });
+    expect(result.status).toBe(0);
+    expect(f.log('curl.log')).toContain('awf-linux-x64');
+  });
+
   it('accepts a pinned AWF_VERSION and a binary-mode checksum entry', () => {
     const f = fixture();
     const manifest = path.join(f.assets, 'checksums.txt');
@@ -266,12 +285,13 @@ describe('release bootstrap authentication', () => {
     expect(f.log('curl.log')).not.toContain('latest');
   });
 
-  it.each(['manifest', 'payload', 'duplicate', 'missing', 'malformed'])('fails closed on pinned %s corruption', failure => {
+  it.each(['manifest', 'payload', 'duplicate', 'missing', 'malformed', 'suffix'])('fails closed on pinned %s corruption', failure => {
     const f = fixture();
     const manifest = path.join(f.assets, 'checksums.txt');
     if (failure === 'duplicate') fs.appendFileSync(manifest, `${hash('test ELF payload\n')}  awf-linux-x64\n`);
     if (failure === 'missing') fs.writeFileSync(manifest, `${hash('other')}  other\n`);
     if (failure === 'malformed') fs.writeFileSync(manifest, 'invalid  awf-linux-x64\n');
+    if (failure === 'suffix') fs.writeFileSync(manifest, `${hash('test ELF payload\n')}  awf-linux-x64 backup\n`);
     const digest = hash(fs.readFileSync(manifest, 'utf8'));
     if (failure === 'manifest') {
       const payload = 'substituted payload\n';
