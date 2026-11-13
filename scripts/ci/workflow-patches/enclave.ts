@@ -165,6 +165,11 @@ export function configureEnclaveReadiness(content: string, { workflowPath }: Pat
       }
       const stagingTokenExclusion = '--exclude-env GH_TOKEN';
       if (!content.includes(stagingTokenExclusion)) {
+        if (!content.includes(gatewayKeyExclusion)) {
+          throw new Error(
+            'Could not exclude GH_TOKEN from primary agent: missing MCP_GATEWAY_API_KEY exclusion anchor'
+          );
+        }
         content = content.replace(
           gatewayKeyExclusion,
           `${stagingTokenExclusion} ${gatewayKeyExclusion}`
