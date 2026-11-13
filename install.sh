@@ -60,6 +60,7 @@ parse_arguments() {
                 ;;
             --install-enclave-storage-helper) INSTALL_HELPER=true; shift ;;
             --rootless) ROOTLESS=true; shift ;;
+            "") shift ;;
             --help|-h)
                 echo "Usage: $0 [vX.Y.Z] [--checksums-sha256 DIGEST] [--rootless] [--install-enclave-storage-helper]"
                 echo "DIGEST must be an independently reviewed SHA256 of checksums.txt for the explicit version."
