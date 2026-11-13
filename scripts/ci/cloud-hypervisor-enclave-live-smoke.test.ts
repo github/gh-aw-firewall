@@ -21,6 +21,8 @@ import {
 const root = path.resolve(__dirname, '../..');
 const harnessPath = path.join(root, 'scripts/ci/cloud-hypervisor-enclave-live-smoke.js');
 const workflowPath = path.join(root, '.github/workflows/test-cloud-hypervisor-enclaves.yml');
+const implementationSource = (...modules: string[]) => modules.map(name =>
+  fs.readFileSync(path.join(__dirname, 'enclave-smoke', `${name}.js`), 'utf8')).join('\n');
 type StartupChild = { exitCode: number | null; signalCode: string | null };
 type VmResidue = {
   namespaces: string[];
@@ -1019,9 +1021,9 @@ describe('sanitized host startup diagnostics', () => {
   });
 
   it('retains projections before raw-log cleanup, including retained recovery state', () => {
-    const source = fs.readFileSync(harnessPath, 'utf8');
+    const source = implementationSource('runner', 'fixtures', 'scenarios');
     expect(source).toContain("stage: 'initial', stderrFile: awfErr");
-    expect(source).toContain("stage: 'recovery', stderrFile: awfErr");
+    expect(source).toContain("stage: 'recovery', stderrFile: context.awfErr");
     expect(source).toContain("NO_COLOR: '1', FORCE_COLOR: '0'");
     expect(source.indexOf('removePrivateAwfLogs(awfOut, awfErr,'))
       .toBeLessThan(source.indexOf('if (keepArtifacts) {'));
@@ -1100,12 +1102,12 @@ describe('Cloud Hypervisor enclave live acceptance harness', () => {
           .toThrow(/configured executors/);
       }
     }
-    const source = fs.readFileSync(harnessPath, 'utf8');
+    const source = implementationSource('scenarios');
     expect(source).toContain("for (const profile of ['script-only', 'agent-only'])");
-    expect(source).toContain("writeAwfConfig(workDir, awfConfigPath, profile)");
-    expect(source).toContain("waitForHostGatewayReadiness(awf, Date.now() + 150_000, diagnostics)");
-    expect(source).toContain("assertExpectedToolResult(response, requestId + 2, scriptProbe.expected, 'script-only profile')");
-    expect(source).toContain("scopedGithubProbe?.expected || agentResultValue, 'agent-only profile'");
+    expect(source).toContain("context.writeAwfConfig(context.workDir, context.awfConfigPath, profile)");
+    expect(source).toContain("waitForHostGatewayReadiness(context.awf, Date.now() + 150_000, diagnostics)");
+    expect(source).toContain("assertExpectedToolResult(response, requestId + 2, context.scriptProbe.expected, 'script-only profile')");
+    expect(source).toContain("context.scopedGithubProbe?.expected || context.agentResultValue, 'agent-only profile'");
   });
 
   it('requires the package-matched release assets, never development artifacts', () => {
@@ -1121,11 +1123,11 @@ describe('Cloud Hypervisor enclave live acceptance harness', () => {
       .toThrow(/enclave-rootfs\.ext4/);
     expect(() => harness.assertReleaseAssets(harness.RELEASE_ASSETS, []))
       .toThrow(/release-attested.*not accepted/);
-    const source = fs.readFileSync(harnessPath, 'utf8');
+    const source = implementationSource('artifacts', 'fixtures');
     expect(source).toContain('setup-enclave-artifacts.sh');
     expect(source).toContain("run('gh', [");
     expect(source).toContain(
-      "apiTimeoutMs: require('../../dist/types/runtime-options').CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS",
+      "apiTimeoutMs: require('../../../dist/types/runtime-options').CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS",
     );
     expect(source).not.toMatch(/DEVELOPMENT_ALLOW_UNATTESTED|allow-unattested|fake.?vm|mock.?manager/i);
   });
@@ -1458,25 +1460,25 @@ print(json.dumps({"milestones": milestones, "output": value, "failure": failure,
     expect(() => harness.assertNoSuccessfulResult({
       error: { code: -32603, message: 'interrupted' },
     })).not.toThrow();
-    const source = fs.readFileSync(harnessPath, 'utf8');
+    const source = implementationSource('scenarios');
     expect(source).toContain("process.kill(vmmPid, 'SIGKILL')");
-    expect(source).toContain('killAwfForRecovery(awf)');
-    expect(source).toContain("awf = launchAwf('recovery', 'combined')");
+    expect(source).toContain('killAwfForRecovery(context.awf)');
+    expect(source).toContain("context.awf = context.launchAwf('recovery', 'combined')");
     expect(source).toContain("recoveryTools = await requestMcp");
     expect(source).toContain("open(\"/output/cancel-probe-started\"");
     expect(source).toContain("cancellationController.abort()");
     expect(source).toContain('open("/output/timeout-probe-started"');
-    expect(source).toContain("waitForInvocationOutcome(journalRoot, timeoutActive.record, 'timeout')");
-    expect(source).toContain("waitForInvocationOutcome(journalRoot, cancellationActive.record, 'cancelled')");
+    expect(source).toContain("waitForInvocationOutcome(context.journalRoot, timeoutActive.record, 'timeout')");
+    expect(source).toContain("waitForInvocationOutcome(context.journalRoot, cancellationActive.record, 'cancelled')");
   });
 
   it('preserves first-run diagnostics and isolates recovery state', () => {
-    const source = fs.readFileSync(harnessPath, 'utf8');
+    const source = implementationSource('runner', 'scenarios', 'commands');
     expect(source).toContain('...artifacts.enclaveArtifactEnvironment');
-    expect(source).toContain("path.join(root, 'awf-work-recovery')");
-    expect(source).toContain("path.join(root, 'awf-config-recovery.json')");
+    expect(source).toContain("path.join(context.root, 'awf-work-recovery')");
+    expect(source).toContain("path.join(context.root, 'awf-config-recovery.json')");
     expect(source).toContain('captureStderr: true');
-    expect(source).toContain('...preRestartLogContents');
+    expect(source).toContain('...context.preRestartLogContents');
     expect(source).toContain('process.exitCode = 1');
     expect(source).toContain('fs.chmodSync(workspace, 0o755)');
     expect(source).toContain("mode: 0o644");
@@ -1661,7 +1663,7 @@ print(json.dumps({"milestones": milestones, "output": value, "failure": failure,
   });
 
   it('invokes both executor tools over the public MCP HTTP route', () => {
-    const source = fs.readFileSync(harnessPath, 'utf8');
+    const source = implementationSource('fixtures', 'scenarios');
     expect(source).toContain('/mcp/awf-enclave');
     expect(source).toContain("name: 'enclave_run_script'");
     expect(source).toContain("name: 'enclave_run_agent'");
@@ -1871,9 +1873,9 @@ describe('bounded MCP acceptance check diagnostics', () => {
 
   it.each(['agent-enospc', 'script-enospc', 'guest-oom'])(
     'wires every %s phase and preserves the original failure without logging its message', async step => {
-      const source = fs.readFileSync(harnessPath, 'utf8');
+      const source = implementationSource('scenarios');
       for (const phase of ['request', 'result-validation', 'cleanup']) {
-        expect(source).toContain(`acceptanceCheck(failureContext, '${step}', '${phase}'`);
+        expect(source).toContain(`acceptanceCheck(context.failureContext, '${step}', '${phase}'`);
         const context: { check?: Record<string, unknown> } = {};
         const error = new Error(sentinel);
         await expect(harness.acceptanceCheck(context, step, phase, () => { throw error; }))
@@ -2148,17 +2150,16 @@ describe('single-executor profile acceptance diagnostics', () => {
   afterEach(() => jest.restoreAllMocks());
 
   it.each(['script-only', 'agent-only'])('wires each %s operation through the shared checkpoint guard', () => {
-    const source = fs.readFileSync(harnessPath, 'utf8');
-    const block = source.slice(source.indexOf("for (const profile of ['script-only', 'agent-only'])"),
-      source.indexOf('acceptancePassed = true;'));
-    for (const phase of phases) expect(block).toContain(`acceptanceCheck(failureContext, profile, '${phase}'`);
-    expect(block.match(/acceptanceCheck\(failureContext, profile, 'request'/g)).toHaveLength(2);
-    expect(block.match(/acceptanceCheck\(failureContext, profile, 'result-validation'/g)).toHaveLength(2);
+    const source = implementationSource('scenarios');
+    const block = source.slice(source.indexOf("for (const profile of ['script-only', 'agent-only'])"));
+    for (const phase of phases) expect(block).toContain(`acceptanceCheck(context.failureContext, profile, '${phase}'`);
+    expect(block.match(/acceptanceCheck\(context.failureContext, profile, 'request'/g)).toHaveLength(2);
+    expect(block.match(/acceptanceCheck\(context.failureContext, profile, 'result-validation'/g)).toHaveLength(2);
     expect(block.indexOf("'initialize-validation'")).toBeGreaterThan(block.indexOf("'initialize'"));
     expect(block.indexOf("'tools-validation'")).toBeGreaterThan(block.indexOf("'tools-list'"));
     expect(block.indexOf("'result-validation'")).toBeGreaterThan(block.indexOf("'request'"));
     expect(block.indexOf("'output-redaction'")).toBeGreaterThan(block.indexOf("'cleanup'"));
-    expect(block).toContain('() => captureLiveContainerLogs(profile)');
+    expect(block).toContain('() => context.captureLiveContainerLogs(profile)');
     expect(block.indexOf("'output-redaction'")).toBeGreaterThan(block.indexOf("'container-logs'"));
     expect(block).toContain('[profileStdout, profileStderr, ...profileContainerLogs]');
   });
@@ -2282,9 +2283,9 @@ describe('guarded crash-recovery diagnostics', () => {
   afterEach(() => jest.restoreAllMocks());
 
   it('refreshes the complete journal only after the guest marker and before killing the VMM', () => {
-    const source = fs.readFileSync(harnessPath, 'utf8');
+    const source = implementationSource('scenarios');
     const crash = source.slice(source.indexOf('const crashProbe ='), source.indexOf(
-      'failureContext.stage = FAILURE_STAGES.OUTPUT_REDACTION;',
+      'context.failureContext.stage = FAILURE_STAGES.OUTPUT_REDACTION;',
     ));
     const marker = crash.indexOf("'marker-wait'");
     const refresh = crash.indexOf("'resource-refresh'");
@@ -2292,7 +2293,7 @@ describe('guarded crash-recovery diagnostics', () => {
     expect(marker).toBeGreaterThan(0);
     expect(refresh).toBeGreaterThan(marker);
     expect(kill).toBeGreaterThan(refresh);
-    expect(crash).toContain('readCrashRecoveryBaseline(journalRoot, active, awf.pid)');
+    expect(crash).toContain('readCrashRecoveryBaseline(context.journalRoot, active, context.awf.pid)');
     expect(crash).toContain('assertRecoveredInvocation(crashBaseline.record, recovered.after, recovered.records)');
     expect(crash).not.toContain('assertRecoveredInvocation(active.record,');
   });
@@ -2361,8 +2362,8 @@ describe('guarded crash-recovery diagnostics', () => {
   );
 
   it.each(phases)('retains the exact failed %s phase and errno through independent cleanup', async phase => {
-    const source = fs.readFileSync(harnessPath, 'utf8');
-    expect(source).toContain(`acceptanceCheck(failureContext, 'crash-recovery', '${phase}'`);
+    const source = implementationSource('scenarios');
+    expect(source).toContain(`acceptanceCheck(context.failureContext, 'crash-recovery', '${phase}'`);
     const error = Object.assign(new Error(sentinel), { code: 'EIO' });
     const context: { check?: Record<string, unknown>; checks?: Array<Record<string, unknown>> } = {};
     const order: string[] = [];
@@ -3034,12 +3035,12 @@ describe('sanitized live acceptance failure reporting', () => {
     });
 
     it('uses the same gate for the initial, recovery, and single-executor harness launches', () => {
-      const liveSource = fs.readFileSync(harnessPath, 'utf8');
+      const liveSource = implementationSource('runner', 'scenarios');
       const probeSource = fs.readFileSync(path.join(root,
         'scripts/ci/cloud-hypervisor-enclave-environment-probe.js'), 'utf8');
-      expect(liveSource.match(/waitForPrimaryVmReadiness\(\s*awf,/g)).toHaveLength(3);
+      expect(liveSource.match(/waitForPrimaryVmReadiness\(\s*(?:context\.)?awf,/g)).toHaveLength(3);
       expect(liveSource).toContain(
-        "primaryVmResidue = await acceptanceCheck(failureContext, 'crash-recovery', 'primary-readiness',",
+        "context.primaryVmResidue = await acceptanceCheck(context.failureContext, 'crash-recovery', 'primary-readiness',",
       );
       expect(probeSource).toContain('primaryVmResidue = await live.waitForPrimaryVmReadiness(');
       expect(liveSource).not.toContain('capturePrimaryVmResidue');

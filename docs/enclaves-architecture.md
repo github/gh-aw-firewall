@@ -196,6 +196,13 @@ NVX phase acceptance and Docker integration evidence must likewise be recorded
 per host, artifact set, role and combination. No full cross-backend conformance
 certificate is asserted here.
 
+The enclave live-smoke entry point remains a CommonJS compatibility facade.
+Its helpers live in `scripts/ci/enclave-smoke/`, grouped by MCP assertions,
+startup evidence, VM readiness, guest probes, crash recovery, fixtures and
+artifact preparation. Scenario functions share run context while retaining
+the existing acceptance order and cleanup checks. This organization does not
+change the acceptance scope or establish cross-backend parity.
+
 ### Resource-limit semantics
 
 Limits are scoped and must not be conflated:

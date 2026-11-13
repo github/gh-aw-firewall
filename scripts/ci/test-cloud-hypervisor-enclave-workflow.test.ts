@@ -358,6 +358,7 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       'containers/enclave/**', 'guest/microvm-supervisor/**',
       'scripts/ci/*cloud-hypervisor*.test.ts',
       'scripts/ci/cloud-hypervisor-enclave-live-smoke.js',
+      'scripts/ci/enclave-smoke/**',
       'scripts/ci/cloud-hypervisor-enclave-release-gate.js',
       'scripts/ci/cloud-hypervisor-enclave-startup-faults.js',
       'scripts/ci/cloud-hypervisor-enclave-gateway*',
