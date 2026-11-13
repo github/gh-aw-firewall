@@ -8,6 +8,24 @@ import {
 } from './cache-memory-patterns';
 import { buildStripExecBitsStep, buildScanInjectionStep, buildCacheDateStep } from '../workflow-step-builders';
 
+const DEFAULT_INJECTION_PATTERN =
+  "^(New instruction:|SYSTEM:|Ignore (all |previous |prior )instructions?:|<system>)";
+// Match role tags anywhere after punctuation or whitespace, without regard to case.
+const HARDENED_INJECTION_PATTERN =
+  `(^|[[:space:][:punct:]])(system|assistant|developer|user)[[:space:]]*:|^(New instruction:|Ignore (all |previous |prior )instructions?:|<system>)`;
+
+function buildHardenedScanInjectionStep(indent: string): string {
+  const step = buildScanInjectionStep(indent);
+  const defaultPattern = `INJECTION_PATTERN='${DEFAULT_INJECTION_PATTERN}'`;
+  const grepCommand = 'grep -lE "$INJECTION_PATTERN"';
+  if (!step.includes(defaultPattern) || !step.includes(grepCommand)) {
+    throw new Error('Could not harden the cache-memory instruction-injection scanner');
+  }
+  return step
+    .replace(defaultPattern, `INJECTION_PATTERN='${HARDENED_INJECTION_PATTERN}'`)
+    .replace(grepCommand, 'grep -liE "$INJECTION_PATTERN"');
+}
+
 const diagnosisMaintenanceCacheWorkflowLockFiles = new Set([
   'auth-doctor-updater.lock.yml',
   'ci-integration-doctor-updater.lock.yml',
@@ -53,14 +71,14 @@ export function hardenCacheMemory(content: string, { workflowFile }: PatchContex
   }
 
   // Upgrade old scanners as well as injecting missing quarantine-based scanners.
-  const scanStepNewVersion = "also match the explicit '<system>' instruction tag";
+  const scanStepNewVersion = `INJECTION_PATTERN='${HARDENED_INJECTION_PATTERN}'`;
   if (!content.includes(scanInjectionStepSentinel)) {
     const commitMatch = content.match(cacheMemoryCommitStepRegex);
     if (commitMatch) {
       const indent = commitMatch[1];
       content = content.replace(
         cacheMemoryCommitStepRegex,
-        (m) => buildScanInjectionStep(indent) + m
+        (m) => buildHardenedScanInjectionStep(indent) + m
       );
       messages.push(`  Injected 'Scan cache-memory for instruction-injection' step before commit`);
     }
@@ -70,7 +88,7 @@ export function hardenCacheMemory(content: string, { workflowFile }: PatchContex
     const oldMatch = content.match(oldScanStepRegex);
     if (oldMatch) {
       const indent = oldMatch[1];
-      content = content.replace(oldScanStepRegex, buildScanInjectionStep(indent));
+      content = content.replace(oldScanStepRegex, buildHardenedScanInjectionStep(indent));
       messages.push(`  Updated 'Scan cache-memory for instruction-injection' step to new version`);
     }
   } else {

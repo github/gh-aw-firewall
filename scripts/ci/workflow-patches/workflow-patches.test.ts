@@ -12,6 +12,7 @@ import { hardenCacheMemory, restrictDiagnosisCacheContext } from './cache-memory
 import { configureEnclaveReadiness, configureEnclaveDiagnostics } from './enclave';
 import { declareDisabledAdmissionOutputs } from './admission';
 import type { PatchContext } from './types';
+import { buildScanInjectionStep } from '../workflow-step-builders';
 
 const context = (workflowPath: string): PatchContext => ({
   workflowPath, workflowFile: workflowPath.split(/[/\\]/).pop(),
@@ -124,10 +125,20 @@ describe('standalone workflow patch domains', () => {
     const first = hardenCacheMemory(cacheSteps, workflow);
     expect(first.content).toContain('chmod a-x');
     expect(first.content).toContain('/.quarantine');
-    expect(first.content).toContain("also match the explicit '<system>' instruction tag");
+    expect(first.content).toContain(
+      "INJECTION_PATTERN='(^|[[:space:][:punct:]])(system|assistant|developer|user)[[:space:]]*:|^(New instruction:|Ignore (all |previous |prior )instructions?:|<system>)'"
+    );
+    expect(first.content).toContain('grep -liE "$INJECTION_PATTERN"');
     expect(first.content.indexOf(cachePatterns.scanInjectionStepSentinel))
       .toBeLessThan(first.content.indexOf('- name: Commit cache-memory changes'));
     expect(hardenCacheMemory(first.content, workflow).content).toBe(first.content);
+    const upgraded = hardenCacheMemory(buildScanInjectionStep('      ') + cacheSteps, workflow);
+    expect(upgraded.content).toContain(
+      "INJECTION_PATTERN='(^|[[:space:][:punct:]])(system|assistant|developer|user)[[:space:]]*:|^(New instruction:|Ignore (all |previous |prior )instructions?:|<system>)'"
+    );
+    expect(upgraded.messages).toContain(
+      "  Updated 'Scan cache-memory for instruction-injection' step to new version"
+    );
     expect(restrictDiagnosisCacheContext(
       'copilot --add-dir /tmp/gh-aw/cache-memory/ --model test',
       context('C:\\repo\\network-doctor-updater.lock.yml'),
