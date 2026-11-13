@@ -18,6 +18,7 @@ const diagnosisMaintenanceCacheWorkflowLockFiles = new Set([
 
 export function restrictDiagnosisCacheContext(content: string, { workflowFile }: PatchContext): TransformResult {
   const messages: string[] = [];
+  // Diagnosis-maintenance caches retain intake checkpoints and review receipts across daily runs.
   if (workflowFile !== undefined && diagnosisMaintenanceCacheWorkflowLockFiles.has(workflowFile)) {
     const rewritten = content.replace(/--add-dir \/tmp\/gh-aw\/cache-memory\/ /g, '');
     if (rewritten !== content) {

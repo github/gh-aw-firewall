@@ -235,8 +235,9 @@ export function configureEnclaveDiagnostics(content: string, { workflowPath }: P
           version: 'v0.28.66',
           checksum: 'f184f3993a1f0c3168d0dd96b01752670a5061c9c9bc1a37e3653fc6b54fba29',
         };
+    const escapedEnclaveVersion = enclaveRelease.version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const unpinnedEnclaveInstall = new RegExp(
-      `(^[ \\t]*run: bash "\\$\\{RUNNER_TEMP\\}/gh-aw/actions/install_awf_binary\\.sh" ${enclaveRelease.version.replace(/\./g, '\\.')})(?=\\r?$)`,
+      `(^[ \\t]*run: bash "\\$\\{RUNNER_TEMP\\}/gh-aw/actions/install_awf_binary\\.sh" ${escapedEnclaveVersion})(?=\\r?$)`,
       'gm',
     );
     content = content.replace(

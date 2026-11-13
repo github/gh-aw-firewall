@@ -49,6 +49,7 @@ export function restrictRecoveryRoots(content: string, { workflowFile }: PatchCo
   return { content, messages };
 }
 
+// gh-aw v0.87.0 supplies the Azure authentication IDs but omits their exclusions from --env-all.
 export function excludeAzureCredentials(content: string, { workflowPath }: PatchContext): TransformResult {
   const messages: string[] = [];
   const isCopilotByokAoaiEntraSmoke = workflowPath.endsWith(
