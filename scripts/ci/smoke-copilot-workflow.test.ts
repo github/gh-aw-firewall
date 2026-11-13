@@ -15,6 +15,12 @@ interface WorkflowFrontmatter {
     bash?: string[];
     github?: false;
   };
+  'safe-outputs'?: {
+    noop?: {
+      max?: number;
+      'report-as-issue'?: boolean;
+    };
+  };
 }
 
 function loadFrontmatter(file: string): WorkflowFrontmatter {
@@ -51,6 +57,30 @@ const copilotInstallerWorkflows = [
 ];
 
 describe('smoke copilot workflow output requirements', () => {
+  it('claude-token-optimizer reports successful no-issue exits with noop', () => {
+    const source = fs.readFileSync(
+      path.join(workflowsDir, 'claude-token-optimizer.md'),
+      'utf-8',
+    );
+
+    expect(loadFrontmatter('claude-token-optimizer.md')['safe-outputs']?.noop).toEqual({
+      max: 1,
+      'report-as-issue': false,
+    });
+    expect(source).toContain(
+      'Every successful run must end with exactly one terminal safe output',
+    );
+    expect(source).toContain(
+      'If `$TOP_WORKFLOW` is empty or `$TARGET_NOT_FOUND` is `1`, log that no eligible workflow file could be staged, then call `noop`',
+    );
+    expect(source).toContain(
+      'If no report exists, do **not** create an optimization issue. Log that no token usage report was found',
+    );
+    expect(source).toContain(
+      'then call `noop` with that explanation.',
+    );
+  });
+
   it('runs token-usage verification only after the agent succeeds', () => {
     for (const file of ['smoke-copilot.md', 'smoke-copilot.lock.yml']) {
       const workflow = fs.readFileSync(path.join(workflowsDir, file), 'utf-8');
