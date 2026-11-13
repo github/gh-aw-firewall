@@ -35,7 +35,6 @@ export function restrictDiagnosisCacheContext(content: string, { workflowFile }:
 
 export function hardenCacheMemory(content: string, { workflowFile }: PatchContext): TransformResult {
   const messages: string[] = [];
-  const scanInjectionStep = buildScanInjectionStep(HARDENED_INJECTION_PATTERN);
   const updateCacheSetupMatches = content.match(updateCacheSetupScriptRegex);
   if (updateCacheSetupMatches) {
     content = content.replace(updateCacheSetupScriptRegex, '$2');
