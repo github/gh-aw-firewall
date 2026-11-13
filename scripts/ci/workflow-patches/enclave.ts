@@ -154,6 +154,10 @@ export function configureEnclaveReadiness(content: string, { workflowPath }: Pat
           `${gatewayKeyExclusion} ${gatewayAgentIdExclusion}`
         );
         messages.push(`  Excluded gateway API key from the primary agent`);
+      } else {
+        throw new Error(
+          'Could not exclude MCP_GATEWAY_API_KEY from primary agent: missing MCP_GATEWAY_AGENT_ID exclusion anchor'
+        );
       }
     }
     if (workflowPath.endsWith('smoke-enclave-issues-read.lock.yml')) {
