@@ -123,6 +123,10 @@ jobs:
             src/commands/main-action-startup-diagnostics.test.ts \
             src/cli-workflow.test.ts \
             src/cloud-hypervisor/host-enclave-executor.test.ts \
+            src/cloud-hypervisor/host-enclave-executor.bounded-result.test.ts \
+            src/cloud-hypervisor/host-enclave-executor.staging.test.ts \
+            src/cloud-hypervisor/host-enclave-executor.preflight.test.ts \
+            src/cloud-hypervisor/host-enclave-executor.result-validation.test.ts \
             src/cloud-hypervisor/enclave-storage.test.ts \
             src/cloud-hypervisor/trusted-enclave-storage.test.ts \
             src/cloud-hypervisor/trusted-enclave-preflight.test.ts \

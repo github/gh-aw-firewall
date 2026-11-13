@@ -81,7 +81,7 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
     expect(job.env).toEqual({ AWF_TEST_ENCLAVE_STORAGE: '0', AWF_TEST_ENCLAVE_NETWORK: '0' });
     const command = job.steps.find((step) => step.name === 'Run deterministic enclave conformance')!.run!;
     expect(command).toContain('--runTestsByPath');
-    const selectors = command.match(/[\w/-]+\.test\.ts/g)!;
+    const selectors = command.match(/[\w/.-]+\.test\.ts/g)!;
     expect(selectors.length).toBeGreaterThan(20);
     for (const selector of selectors) expect(fs.existsSync(path.join(root, selector))).toBe(true);
     expect(selectors).toEqual(expect.arrayContaining([
@@ -89,6 +89,10 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       'src/enclave/host-executor-protocol.test.ts',
       'src/enclave/cloud-hypervisor-lifecycle.test.ts',
       'src/cloud-hypervisor/host-enclave-executor.test.ts',
+      'src/cloud-hypervisor/host-enclave-executor.bounded-result.test.ts',
+      'src/cloud-hypervisor/host-enclave-executor.staging.test.ts',
+      'src/cloud-hypervisor/host-enclave-executor.preflight.test.ts',
+      'src/cloud-hypervisor/host-enclave-executor.result-validation.test.ts',
       'src/cloud-hypervisor/enclave-storage.test.ts',
       'src/cloud-hypervisor/trusted-enclave-storage.test.ts',
       'src/cloud-hypervisor/trusted-enclave-preflight.test.ts',
