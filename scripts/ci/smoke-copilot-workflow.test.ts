@@ -17,6 +17,7 @@ interface WorkflowFrontmatter {
   };
   'safe-outputs'?: {
     noop?: {
+      max?: number;
       'report-as-issue'?: boolean;
     };
   };
@@ -63,6 +64,7 @@ describe('smoke copilot workflow output requirements', () => {
     );
 
     expect(loadFrontmatter('claude-token-optimizer.md')['safe-outputs']?.noop).toEqual({
+      max: 1,
       'report-as-issue': false,
     });
     expect(source).toContain(
