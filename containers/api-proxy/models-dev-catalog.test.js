@@ -60,10 +60,22 @@ describe('models-dev-catalog', () => {
     });
   });
 
-  it('uses the exact DeepSeek model price instead of a versioned alias price', () => {
-    expect(resolveCatalogModel('deepseek/deepseek-v4-flash')).toMatchObject({
-      exists: true,
-      pricing: { input: 0.091, cachedInput: 0.0182, output: 0.182 },
+  it.each([false, true])('uses the exact DeepSeek price over a versioned alias (alias first: %s)', aliasFirst => {
+    const exact = {
+      id: 'deepseek/deepseek-v4-flash',
+      canonical_slug: 'deepseek/deepseek-v4-flash-20260423',
+      pricing: { prompt: '0.000000091', input_cache_read: '0.0000000182', completion: '0.000000182' },
+    };
+    const versioned = {
+      id: 'deepseek/deepseek-v4-flash-0731',
+      canonical_slug: 'deepseek/deepseek-v4-flash-20260731',
+      pricing: { prompt: '0.0000000434', input_cache_read: '0.000000035', completion: '0.0000003' },
+    };
+    const index = buildCatalogIndex(aliasFirst ? [versioned, exact] : [exact, versioned]);
+
+    expect(resolveCatalogModel('deepseek/deepseek-v4-flash', index)).toEqual({
+      exists: true, zeroCost: false,
+      pricing: { input: 0.091, cachedInput: 0.0182, cacheWrite: null, output: 0.182 },
     });
   });
 });

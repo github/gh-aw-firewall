@@ -1,10 +1,10 @@
 ---
 emoji: 🗺️
 name: Model source maintenance
-description: Daily evidence-backed canonical model source updates and complete generated projections in one reviewed PR.
+description: Twice-daily evidence-backed canonical model source updates and complete generated projections in one reviewed PR.
 intent: Keep canonical model facts current without relying on maintainers to discover changes or remember regeneration.
 on:
-  schedule: daily
+  schedule: every 12h
   workflow_dispatch:
 permissions:
   copilot-requests: write
