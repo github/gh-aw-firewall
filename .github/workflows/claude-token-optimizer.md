@@ -33,6 +33,7 @@ safe-outputs:
     labels: [claude-token-optimization]
     close-older-issues: true
   noop:
+    max: 1
     report-as-issue: false
 timeout-minutes: 15
 sandbox:
