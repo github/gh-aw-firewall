@@ -8,6 +8,10 @@ import {
 } from './cache-memory-patterns';
 import { buildStripExecBitsStep, buildScanInjectionStep, buildCacheDateStep } from '../workflow-step-builders';
 
+// Case-insensitive and tolerant of leading whitespace / common punctuation prefixes.
+// This is used when (re)injecting the scan step to reduce prompt-injection bypasses.
+const HARDENED_INJECTION_PATTERN = String.raw`(?i).*(?:^|[\s\-\*\>\#\|:;.,\(\)\[\]\{\}"'])(system|assistant|developer|user)\s*:.*`;
+
 const diagnosisMaintenanceCacheWorkflowLockFiles = new Set([
   'auth-doctor-updater.lock.yml',
   'ci-integration-doctor-updater.lock.yml',
@@ -31,6 +35,7 @@ export function restrictDiagnosisCacheContext(content: string, { workflowFile }:
 
 export function hardenCacheMemory(content: string, { workflowFile }: PatchContext): TransformResult {
   const messages: string[] = [];
+  const scanInjectionStep = buildScanInjectionStep(HARDENED_INJECTION_PATTERN);
   const updateCacheSetupMatches = content.match(updateCacheSetupScriptRegex);
   if (updateCacheSetupMatches) {
     content = content.replace(updateCacheSetupScriptRegex, '$2');
