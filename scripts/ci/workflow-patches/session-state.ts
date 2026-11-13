@@ -1,8 +1,8 @@
 import type { TransformResult } from './types';
 
-// Inject --session-state-dir into AWF invocations so Copilot CLI session-state
-// (events.jsonl) is written to a predictable host path that artifact upload can
-// read. A global regex is used because some lock files contain two agent jobs.
+// Inject --session-state-dir into AWF invocations only when explicitly opted in,
+// so Copilot CLI session-state (events.jsonl) is not persisted/uploaded by default.
+// A global regex is used because some lock files contain two agent jobs.
 //
 // Two invocation shapes are supported:
 //   1. Legacy: logging directories passed as CLI flags (`--audit-dir ...`).
@@ -15,32 +15,51 @@ export const sessionStateDirInjectionRegex =
 export const sessionStateDirConfigInjectionRegex =
   /awf --config "\$\{RUNNER_TEMP\}\/gh-aw\/awf-config\.json"(?! --session-state-dir)/g;
 export const SESSION_STATE_DIR = '/tmp/gh-aw/sandbox/agent/session-state';
+export const ENABLE_SESSION_STATE_ARTIFACTS_ENV = 'ENABLE_COPILOT_SESSION_STATE_ARTIFACTS';
 export const legacyApiProxyLogsDirRegex =
   /\/tmp\/gh-aw\/sandbox\/firewall\/logs\/api-proxy(?!-logs)/g;
 
+function isSessionStateArtifactsEnabled(): boolean {
+  const value = process.env[ENABLE_SESSION_STATE_ARTIFACTS_ENV];
+  return value === '1' || value === 'true';
+}
+
 export function collectSessionState(content: string): TransformResult {
   const messages: string[] = [];
+  const allowSessionStateInjection = isSessionStateArtifactsEnabled();
   sessionStateDirInjectionRegex.lastIndex = 0;
   const sessionStateDirMatches = content.match(sessionStateDirInjectionRegex);
   if (sessionStateDirMatches) {
-    content = content.replace(
-      sessionStateDirInjectionRegex,
-      `--audit-dir /tmp/gh-aw/sandbox/firewall/audit --session-state-dir ${SESSION_STATE_DIR}`
-    );
-    messages.push(
-      `  Injected --session-state-dir in ${sessionStateDirMatches.length} awf invocation(s)`
-    );
+    if (allowSessionStateInjection) {
+      content = content.replace(
+        sessionStateDirInjectionRegex,
+        `--audit-dir /tmp/gh-aw/sandbox/firewall/audit --session-state-dir ${SESSION_STATE_DIR}`
+      );
+      messages.push(
+        `  Injected --session-state-dir in ${sessionStateDirMatches.length} awf invocation(s)`
+      );
+    } else {
+      messages.push(
+        `  Skipped --session-state-dir injection for ${sessionStateDirMatches.length} awf invocation(s); set ${ENABLE_SESSION_STATE_ARTIFACTS_ENV}=true to opt in`
+      );
+    }
   }
   sessionStateDirConfigInjectionRegex.lastIndex = 0;
   const sessionStateDirConfigMatches = content.match(sessionStateDirConfigInjectionRegex);
   if (sessionStateDirConfigMatches) {
-    content = content.replace(
-      sessionStateDirConfigInjectionRegex,
-      (match) => `${match} --session-state-dir ${SESSION_STATE_DIR}`
-    );
-    messages.push(
-      `  Injected --session-state-dir in ${sessionStateDirConfigMatches.length} awf --config invocation(s)`
-    );
+    if (allowSessionStateInjection) {
+      content = content.replace(
+        sessionStateDirConfigInjectionRegex,
+        (match) => `${match} --session-state-dir ${SESSION_STATE_DIR}`
+      );
+      messages.push(
+        `  Injected --session-state-dir in ${sessionStateDirConfigMatches.length} awf --config invocation(s)`
+      );
+    } else {
+      messages.push(
+        `  Skipped --session-state-dir injection for ${sessionStateDirConfigMatches.length} awf --config invocation(s); set ${ENABLE_SESSION_STATE_ARTIFACTS_ENV}=true to opt in`
+      );
+    }
   }
   if (!sessionStateDirMatches && !sessionStateDirConfigMatches) {
     if (content.includes(`--session-state-dir ${SESSION_STATE_DIR}`)) {
