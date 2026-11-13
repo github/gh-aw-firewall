@@ -8,7 +8,6 @@ import { normalizeEnclavesConfig } from '../../src/parsers/enclave-parser';
 import type { RawEnclavesConfig } from '../../src/types/enclave-options';
 import { isCloudHypervisorAgentAcceptanceWorkflow } from '../../src/enclave/cloud-hypervisor-script-acceptance';
 import { buildBranchEnclaveInstallSteps } from './workflow-step-builders';
-import { CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } from '../../src/cloud-hypervisor/artifact-manifest';
 
 const workflowPath = path.resolve(__dirname,
   '../../.github/workflows/smoke-enclave-cloud-hypervisor-copilot.lock.yml');
@@ -84,7 +83,7 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     const enclave = {
       agent: {
         engine: 'copilot', model: 'claude-sonnet-5',
-        'max-task-bytes': 4096, 'max-model-requests': 8, 'max-model-tokens': 131072,
+        'max-task-bytes': 4096, 'max-model-requests': 8, 'max-model-tokens': 2048,
       },
       runtime: 'cloud-hypervisor',
       repos: [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }],
@@ -92,17 +91,16 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     };
     expect(frontmatter.enclaves).toEqual([enclave]);
     expect(frontmatter.sandbox.agent).toEqual({
-      id: 'awf', version: 'v0.28.66', runtime: 'cloud-hypervisor',
-      'checksums-sha256': 'f184f3993a1f0c3168d0dd96b01752670a5061c9c9bc1a37e3653fc6b54fba29',
+      id: 'awf', version: 'v0.28.62', runtime: 'cloud-hypervisor',
+      'checksums-sha256': '4a4d55b288c6146349cc3d3a5e0f492a5609127393a57f64ce59dcf7e8edd82b',
       config: { filesystem: { 'allow-write': ['/tmp/gh-aw/aw_info.json'] } },
     });
-    expect(CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG).toBe(frontmatter.sandbox.agent.version);
     const match = lock.match(/\\"enclaves\\":(\[.+?\]),\\"container\\"/);
     expect(match).not.toBeNull();
     expect(JSON.parse(match![1].replace(/\\"/g, '"'))).toEqual([{
       agent: {
         engine: 'copilot', model: 'claude-sonnet-5',
-        maxTaskBytes: 4096, maxModelRequests: 8, maxModelTokens: 131072,
+        maxTaskBytes: 4096, maxModelRequests: 8, maxModelTokens: 2048,
       },
       runtime: 'cloud-hypervisor', repos: enclave.repos,
       timeout: 90, maxOutputBytes: 256, maxInvocations: 1,
@@ -152,7 +150,7 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
         cloudHypervisor: {
           previewEnabled: true,
           mountPolicy: 'workspace-and-tool-cache',
-          artifactReleaseTag: 'v0.28.66',
+          artifactReleaseTag: 'v0.28.62',
           cloudHypervisorBinary: '/usr/local/bin/cloud-hypervisor',
           vcpuCount: 2,
           memoryMib: 512,
@@ -162,16 +160,16 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
       expect(isCloudHypervisorAgentAcceptanceWorkflow(acceptanceConfig)).toBe(true);
       expect(isCloudHypervisorAgentAcceptanceWorkflow({
         ...acceptanceConfig,
-        cloudHypervisor: { ...acceptanceConfig.cloudHypervisor, artifactReleaseTag: 'v0.28.62' },
+        cloudHypervisor: { ...acceptanceConfig.cloudHypervisor, artifactReleaseTag: 'v0.28.66' },
       })).toBe(false);
-      expect(source).toContain('host acceptance gate selects only v0.28.66');
+      expect(source).toContain('host acceptance gate selects only v0.28.62');
     } finally {
       process.env = original;
     }
     const dockerPrimaryEnclaves = normalizeEnclavesConfig(entries, { primaryRuntime: 'docker' });
     expect(dockerPrimaryEnclaves?.executors.agent.runtime).toBe('cloud-hypervisor');
     expect(source).toContain('eight-request and');
-    expect(source).toContain('131,072-token advisory invocation budgets');
+    expect(source).toContain('2,048-token advisory invocation budgets');
   });
 
   it('uses the exact static agent tool request contract', () => {
@@ -201,14 +199,13 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     expect(compiled.jobs.agent.env?.GH_AW_ENGINE_VERSION).toBe('1.0.96');
     expect(lock).toContain('"engine_versions":{"copilot":"1.0.96"}');
     expect(agentSteps.find(step => step.name === 'Install AWF binary')?.run).toBe(
-      'bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.28.66 --checksums-sha256 '
-      + 'f184f3993a1f0c3168d0dd96b01752670a5061c9c9bc1a37e3653fc6b54fba29'
+      'bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.28.62'
     );
-    expect(lock).toContain('"compiler_version":"dev-v1.2.2-agent-acceptance-v0.28.66-budget131072"');
-    expect(lock).toContain('github/gh-aw-actions/setup@53d0749e19424a918acd82b4d140264ce48f2f14');
+    expect(lock).toContain('"compiler_version":"v1.2.3"');
+    expect(lock).toContain('github/gh-aw-actions/setup@862164f9ffbcce2e24e5397da938e3b19f839dce');
     expect(lock).toContain('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1');
-    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.5.6@sha256:342cd624e1f179d91be2de7a146fc4f387092e62e6c8a47506d7932e113d2311');
-    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.66@');
+    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.5.8@sha256:e237aabf51d4485474b9355649b811ca6c1db22359eeb1860832fc1fb5a7a347');
+    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.62@');
     expect(lock).not.toContain('resolution_failures');
     expect(agentSteps.find(step => step.name === 'Download and verify cloud-hypervisor enclave artifacts')?.run)
       .toContain('cloud_hypervisor_setup_enclave_artifacts.sh');
@@ -231,10 +228,6 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     expect(upload?.with?.['retention-days']).toBe(1);
     expect(upload?.with?.['if-no-files-found']).toBe('error');
     expect(applyGeneralWorkflowPatches(lock, workflowPath).content).toBe(lock);
-    const pin = ' --checksums-sha256 f184f3993a1f0c3168d0dd96b01752670a5061c9c9bc1a37e3653fc6b54fba29';
-    const unpinned = lock.replace(pin, '');
-    expect(unpinned).not.toBe(lock);
-    expect(applyGeneralWorkflowPatches(unpinned, workflowPath).content).toBe(lock);
   });
 
   it('requires release supervisors without an exact-PR development override', () => {

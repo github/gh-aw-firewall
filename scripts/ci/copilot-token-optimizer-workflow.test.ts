@@ -83,6 +83,13 @@ describe.each(retryWorkflows)('%s installer execution', workflow => {
       'printf "%s\\n" "$*" >> "$RUNNER_TEMP/delays"',
       '',
     ].join('\n'), { mode: 0o755 });
+    fs.writeFileSync(path.join(tempDir, 'bin/timeout'), [
+      '#!/bin/bash',
+      'while [[ "$1" == -* ]]; do shift; done',
+      'shift',
+      'exec "$@"',
+      '',
+    ].join('\n'), { mode: 0o755 });
   });
 
   afterEach(() => {

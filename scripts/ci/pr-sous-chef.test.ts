@@ -918,7 +918,7 @@ describe('PR sous-chef workflow safety contract', () => {
     expect(lock).not.toContain('--build-local');
     expect(lock).not.toContain('Build local AWF');
     expect(lock).not.toContain('required_labels');
-    expect(lock).toContain('install_awf_binary.sh" v0.29.11');
+    expect(lock).toContain('install_awf_binary.sh" v0.29.12');
     const configStep = agent.steps.find(step => step.name === 'Generate Safe Outputs Config')!;
     expect(configStep.env!.GH_AW_SAFE_OUTPUTS_CONFIG).not.toContain('${{ secrets.');
     const modelSteps = agent.steps.filter(step => step.run?.includes('copilot_harness') || step.run?.includes('copilot --'));
