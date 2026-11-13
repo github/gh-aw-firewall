@@ -584,6 +584,7 @@ describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
       '          AWF_REFLECT_ENABLED: 1',
       gatewayKey,
       '          RUNNER_TEMP: ${{ runner.temp }}',
+      '        run: awf --exclude-env MCP_GATEWAY_API_KEY --exclude-env MCP_GATEWAY_AGENT_ID',
       '      - name: Detect agent errors',
     ].join('\n');
 
@@ -593,6 +594,9 @@ describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
     );
 
     expect(content.split(gatewayKey).length - 1).toBe(1);
+    expect(content).toContain(
+      'run: awf --exclude-env GH_TOKEN --exclude-env MCP_GATEWAY_API_KEY --exclude-env MCP_GATEWAY_AGENT_ID'
+    );
     expect(log).toContain(
       '  Removed duplicate gateway API key entries from enclave smoke agent environment'
     );
