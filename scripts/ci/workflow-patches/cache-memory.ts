@@ -20,7 +20,7 @@ export function restrictDiagnosisCacheContext(content: string, { workflowFile }:
   const messages: string[] = [];
   // Diagnosis-maintenance caches retain intake checkpoints and review receipts across daily runs.
   if (workflowFile !== undefined && diagnosisMaintenanceCacheWorkflowLockFiles.has(workflowFile)) {
-    const rewritten = content.replace(/--add-dir \/tmp\/gh-aw\/cache-memory\/ /g, '');
+    const rewritten = content.replace(/(^|\s)--add-dir\s+["']?\/tmp\/gh-aw\/cache-memory\/["']?(?=\s|$)/g, '$1');
     if (rewritten !== content) {
       content = rewritten;
       messages.push('  Kept persistent cache-memory out of the diagnosis updater agent context');
