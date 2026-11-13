@@ -2,10 +2,8 @@
 // pipeline. Each function takes an indentation string and returns a YAML step
 // block ready for splicing into a compiled lock file.
 
-import {
-  SAFE_XPIA_CONTENT,
-  copilotCliDaemonCopyStepSentinel,
-} from './workflow-patch-patterns';
+import { SAFE_XPIA_CONTENT } from './workflow-patch-patterns';
+import { copilotCliDaemonCopyStepSentinel } from './workflow-patches/engine-lifecycle-patterns';
 
 // Builds the local-install step sequence that replaces the compiled
 // "Install awf binary" step so smoke tests build and run from source.

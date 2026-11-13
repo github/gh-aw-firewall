@@ -295,6 +295,7 @@ describe('applyGeneralWorkflowPatches Copilot CLI copy step gating', () => {
 describe('applyGeneralWorkflowPatches AOAI smoke GitHub MCP catalog', () => {
   const compilerOutput =
     '          cp "${RUNNER_TEMP}/gh-aw/awf-config.json" /tmp/gh-aw/awf-config.json\n' +
+    '          awf --config config.json --env-all --exclude-env ACTIONS_ID_TOKEN_REQUEST_TOKEN --exclude-env ACTIONS_ID_TOKEN_REQUEST_URL\n' +
     '              "github": {\n' +
     '                "env": {\n' +
     '                  "GITHUB_TOOLSETS": "pull_requests"\n' +
@@ -584,6 +585,7 @@ describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
       '          AWF_REFLECT_ENABLED: 1',
       gatewayKey,
       '          RUNNER_TEMP: ${{ runner.temp }}',
+      '        run: awf --exclude-env MCP_GATEWAY_API_KEY --exclude-env MCP_GATEWAY_AGENT_ID',
       '      - name: Detect agent errors',
     ].join('\n');
 
@@ -593,6 +595,9 @@ describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
     );
 
     expect(content.split(gatewayKey).length - 1).toBe(1);
+    expect(content).toContain(
+      'run: awf --exclude-env GH_TOKEN --exclude-env MCP_GATEWAY_API_KEY --exclude-env MCP_GATEWAY_AGENT_ID'
+    );
     expect(log).toContain(
       '  Removed duplicate gateway API key entries from enclave smoke agent environment'
     );
