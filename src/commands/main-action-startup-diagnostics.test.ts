@@ -2,6 +2,12 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { testHelpers } from './main-action';
+import {
+  writeStartupFailureDiagnostic,
+  emitStartupExitMarker,
+  startupElapsedBucket,
+  writeIncompleteEnclaveAuditMarker,
+} from './main-action-startup-diagnostics';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import { initializeEnclaveStartupProgress, updateEnclaveStartupProgress } from '../enclave/startup-progress';
 import type { WrapperConfig } from '../types';
@@ -32,11 +38,18 @@ describe('startup progress descriptor publication', () => {
     fs.rmSync(directory, { recursive: true, force: true });
   });
 
+  it('keeps direct diagnostic exports compatible with the legacy test helpers', () => {
+    expect(testHelpers.writeStartupFailureDiagnostic).toBe(writeStartupFailureDiagnostic);
+    expect(testHelpers.emitStartupExitMarker).toBe(emitStartupExitMarker);
+    expect(testHelpers.startupElapsedBucket).toBe(startupElapsedBucket);
+    expect(testHelpers.writeIncompleteEnclaveAuditMarker).toBe(writeIncompleteEnclaveAuditMarker);
+  });
+
   it('replaces longer progress records without trailing bytes and keeps the private parent', () => {
     updateEnclaveStartupProgress(config, { stage: 'artifact-preflight' });
-    testHelpers.writeStartupFailureDiagnostic(config, new Error('x'.repeat(8192)));
+    writeStartupFailureDiagnostic(config, new Error('x'.repeat(8192)));
     updateEnclaveStartupProgress(config, { stage: 'initialize', readiness: 'attempted', attempts: 1 });
-    testHelpers.writeStartupFailureDiagnostic(
+    writeStartupFailureDiagnostic(
       config, new Error('Enclave startup in progress'), 'enclave-startup-progress',
     );
     const record = JSON.parse(fs.readFileSync(recordPath, 'utf8'));

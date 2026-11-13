@@ -7,9 +7,6 @@ import {
   writeConfigs,
   startContainers,
   runAgentCommand,
-  stopContainers,
-  cleanup,
-  preserveIptablesAudit,
   fastKillAgentContainer,
   collectDiagnosticLogs,
   setAwfDockerHost,
@@ -17,29 +14,13 @@ import {
 import {
   ensureFirewallNetwork,
   setupHostIptables,
-  cleanupHostIptables,
 } from '../host-iptables';
 import { runMainWorkflow } from '../cli-workflow';
-import { resolveRouterLogsDir } from '../routing/router-log-capture';
-import { deriveSensitiveEndpointForms, redactSecrets, redactSensitiveValues } from '../redact-secrets';
 import { joinShellArgs } from '../option-parsers';
-import { assertRealDirectory, writeFileNoFollow } from '../fs-utils';
-import {
-  exportResolvedConfigPath,
-  publishEarlyResolvedConfig,
-  publishFinalResolvedConfig,
-} from '../resolved-config-artifact';
 import { applyConfigFilePrecedence } from './preflight';
 import { registerSignalHandlers } from './signal-handler';
 import { validateOptions } from './validate-options';
 import { probeSplitFilesystem } from '../dind-probe';
-import { applyHostPathPrefixToVolumes, resolveRunnerMountPaths } from '../services/host-path-prefix';
-import { buildCustomVolumeMounts } from '../services/agent-volumes/workspace-mounts';
-import { buildCredentialHidingOverlays } from '../services/agent-volumes/credential-hiding';
-import { createLocalSourceResolver } from '../services/agent-volumes/mount-topology';
-import { filterAgentVolumesForSysroot } from '../services/optional-services';
-import { getRealUserHome } from '../host-identity';
-import { runtimeUsesComposeAgent } from '../container-runtime';
 import { assertTopologySupported, connectTopologyContainers } from '../topology';
 import { runDindBootstrap } from '../dind-bootstrap';
 import { adaptExternalRuntimeBackend } from '../external-runtime-backend';
@@ -47,42 +28,25 @@ import { createDockerHarnessObservation } from '../docker-harness-observation';
 import { harnessContext } from '../harness-observation';
 import type { ExternalAgentRuntimeBackend } from '../external-runtime-backend';
 import { resolveExternalRuntimeBackend } from '../external-runtime-backend-resolver';
-import { prepareEnclaves, teardownEnclaves } from '../enclave/manager';
-import {
-  closeCloudHypervisorEnclaveAdmissions,
-  stopCloudHypervisorEnclaveLifecycle,
-} from '../enclave/cloud-hypervisor-lifecycle';
-import {
-  closeDockerEnclaveAdmissions,
-  isDockerEnclaveSelected,
-  stopDockerEnclaveLifecycle,
-} from '../enclave/docker-lifecycle';
+import { prepareEnclaves } from '../enclave/manager';
 import {
   startEnclaveDynamicDelegation,
-  stopEnclaveDynamicDelegation,
 } from '../enclave/dynamic-delegation';
 import { takeStaticGithubExecutorCapability } from '../enclave/static-github-handoff';
-import { getStartupDiagnosticPath } from '../logs/startup-diagnostics';
 import { withEarlyStartupDiagnostics } from '../logs/early-startup-diagnostics';
 import { HostPreflightReporter } from '../cloud-hypervisor/host-preflight-progress';
 import {
-  getEnclaveStartupProgress,
   initializeEnclaveStartupProgress,
   updateEnclaveStartupProgress,
 } from '../enclave/startup-progress';
 import {
   assertEnclaveGatewayReady,
   connectEnclaveGateway,
-  shutdownEnclaveGateway,
 } from '../enclave/gateway';
-import { captureEnclaveStartupDiagnostics } from '../enclave/startup-diagnostics';
 import {
   assertEnclaveGithubGatewayReady,
   connectEnclaveGithubGateway,
-  disconnectEnclaveGithubGateway,
 } from '../enclave/github-gateway';
-import type { WrapperConfig } from '../types';
-import { COPILOT_BROKER_PRIVATE_ENV } from '../copilot-token-broker';
 import {
   prepareProtectedCommandOutputCapture,
   type ProtectedCommandOutputCapture,
@@ -99,20 +63,19 @@ import {
   waitForRoutingSelection,
 } from '../routing/bootstrap';
 
-const SENSITIVE_CONFIG_KEYS = new Set([
-  'openaiApiKey',
-  'anthropicApiKey',
-  'copilotGithubToken',
-  'copilotProviderApiKey',
-  'geminiApiKey',
-  'googleApiKey',
-  'githubToken',
-  // Secret-derived allowlist entries must not appear in logs or the audit artifact.
-  'sensitiveAllowedDomains',
-]);
+import { persistConfigAuditArtifact, redactConfigForLogging } from './main-action-audit';
+import { buildCleanupFn } from './main-action-cleanup';
+import {
+  writeStartupFailureDiagnostic,
+  emitStartupExitMarker,
+  startupElapsedBucket,
+  writeIncompleteEnclaveAuditMarker,
+  type StartupDiagnosticWriteOutcome,
+  type StartupDiagnosticWriteReason,
+  type StartupExitState,
+} from './main-action-startup-diagnostics';
 
 const REFLECT_COMMAND = 'curl --fail --silent --show-error --noproxy "*" http://api-proxy:10000/reflect';
-const resolvedConfigSnapshots = new WeakMap<WrapperConfig, string>();
 
 function findRoutingFailure(error: unknown): RoutingFailureExitError | undefined {
   const seen = new Set<unknown>();
@@ -123,452 +86,6 @@ function findRoutingFailure(error: unknown): RoutingFailureExitError | undefined
     current = (current as Error & { cause?: unknown }).cause;
   }
   return undefined;
-}
-
-function redactConfigForLogging(config: WrapperConfig): Record<string, unknown> {
-  const redactedConfig: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(config)) {
-    if (SENSITIVE_CONFIG_KEYS.has(key)) continue;
-
-    if (key === 'agentCommand') {
-      redactedConfig[key] = redactSecrets(value as string);
-      continue;
-    }
-
-    if (key === 'additionalEnv' && value && typeof value === 'object') {
-      redactedConfig[key] = Object.fromEntries(
-        Object.keys(value as Record<string, string>)
-          .filter(envKey => !COPILOT_BROKER_PRIVATE_ENV.some(name => name === envKey))
-          .map((envKey) => [envKey, '[REDACTED]']),
-      );
-      continue;
-    }
-
-    redactedConfig[key] = value;
-  }
-  return redactedConfig;
-}
-
-function persistConfigAuditArtifact(
-  config: WrapperConfig,
-  redactedConfig: Record<string, unknown>,
-): void {
-  try {
-    let runnerMountPaths: ReturnType<typeof resolveRunnerMountPaths> | undefined;
-    if (config.runnerTopology === 'arc-dind') {
-      const customMounts = applyHostPathPrefixToVolumes(
-        buildCustomVolumeMounts(config.volumeMounts, config.dockerHostPathPrefix, { quiet: true }),
-        config.dockerHostPathPrefix,
-      );
-      const retained = new Set(filterAgentVolumesForSysroot(customMounts, config, getRealUserHome()));
-      const localCustomMounts = buildCustomVolumeMounts(config.volumeMounts, undefined, { quiet: true });
-      const customSourceRoots = new Map(
-        customMounts.map((spec, index) => [
-          spec.split(':')[0] ?? '',
-          localCustomMounts[index]?.split(':')[0] ?? '',
-        ]),
-      );
-      let credentialOverlayTargets: string[];
-      try {
-        credentialOverlayTargets = buildCredentialHidingOverlays(
-          getRealUserHome(),
-          customMounts,
-          createLocalSourceResolver(customSourceRoots, config.dockerHostPathPrefix),
-        ).flatMap((spec) => {
-          const parts = spec.split(':');
-          return parts[0] === '/dev/null' && parts[1] ? [parts[1]] : [];
-        });
-      } catch {
-        // If effective credential masks cannot be determined, do not publish
-        // runner paths that might point through one.
-        credentialOverlayTargets = customMounts.flatMap((spec) => {
-          const target = spec.split(':')[1];
-          return target ? [target] : [];
-        });
-      }
-      const runnerBackedMounts = config.volumeMounts?.filter((_, index) => {
-        const mount = customMounts[index];
-        if (!retained.has(mount)) return false;
-        const target = mount.split(':')[1];
-        if (!target) return false;
-        return !credentialOverlayTargets.some((overlayTarget) =>
-          overlayTarget === target || overlayTarget.startsWith(`${target}/`) || target.startsWith(`${overlayTarget}/`)
-        );
-      });
-      runnerMountPaths = resolveRunnerMountPaths(
-        runnerBackedMounts,
-        config.dockerHostPathPrefix,
-      );
-      if (runtimeUsesComposeAgent(config.containerRuntime)) {
-        runnerMountPaths = runnerMountPaths.filter(({ sandboxPath }) => sandboxPath !== '/');
-      }
-    }
-    const contents = JSON.stringify({
-      ...redactedConfig,
-      ...(runnerMountPaths !== undefined ? { runnerMountPaths } : {}),
-    }, null, 2) + '\n';
-    resolvedConfigSnapshots.set(config, contents);
-    if (process.platform === 'linux' && process.geteuid?.() === 0) {
-      const file = publishEarlyResolvedConfig(contents);
-      exportResolvedConfigPath(file);
-    }
-  } catch (err) {
-    logger.warn('Failed to publish resolved config artifact:', err);
-  }
-}
-
-// Large enough for the full cumulative checklist plus late-stage gateway
-// evidence; the CI reader uses the same bound.
-const STARTUP_DIAGNOSTIC_MAX_BYTES = 64 * 1024;
-
-type StartupDiagnosticWriteOutcome =
-  | 'written' | 'oversize' | 'unsafe-target' | 'io-error' | 'error' | 'not-attempted';
-type StartupDiagnosticWriteReason =
-  | 'record-too-large' | 'unsafe-directory' | 'unsafe-symlink' | 'unsafe-type'
-  | 'unsafe-link-count' | 'unsafe-owner' | 'permission-denied' | 'io-error' | 'unknown';
-
-function writeStartupFailureDiagnostic(
-  config: WrapperConfig,
-  error: unknown,
-  phase = 'startup',
-  onRejected?: (reason: StartupDiagnosticWriteReason) => void,
-): StartupDiagnosticWriteOutcome {
-  const rejected = (
-    outcome: StartupDiagnosticWriteOutcome,
-    reason: StartupDiagnosticWriteReason,
-  ): StartupDiagnosticWriteOutcome => {
-    onRejected?.(reason);
-    return outcome;
-  };
-  try {
-    const proxyLogsDir = config.proxyLogsDir || path.join(config.workDir, 'squid-logs');
-    fs.mkdirSync(proxyLogsDir, { recursive: true, mode: 0o700 });
-    try {
-      assertRealDirectory(proxyLogsDir);
-    } catch {
-      return rejected('unsafe-target', 'unsafe-directory');
-    }
-    let enclaveStartup = getEnclaveStartupProgress(config);
-    const redactedMessage = redactSensitiveValues(
-      redactSecrets(error instanceof Error ? error.message : String(error)),
-      deriveSensitiveEndpointForms(config.sensitiveAllowedDomains),
-    );
-    const messageBound = enclaveStartup?.hostPreflight ? 1024 : 8 * 1024;
-    let message = enclaveStartup && Buffer.byteLength(JSON.stringify(redactedMessage), 'utf8') > messageBound
-      ? 'Enclave startup failure exceeded diagnostic message bound'
-      : redactedMessage;
-    const timestamp = new Date().toISOString();
-    const serialize = (): string => JSON.stringify({
-      timestamp, phase, message,
-      ...(enclaveStartup ? { enclaveStartup } : {}),
-    }, null, enclaveStartup?.startupChecks ? undefined : 2) + '\n';
-    let record = serialize();
-    if (enclaveStartup?.startupChecks && Buffer.byteLength(record, 'utf8') > STARTUP_DIAGNOSTIC_MAX_BYTES) {
-      // The cumulative checklist already retains every active-scope check.
-      enclaveStartup = { ...enclaveStartup, hostPreflight: undefined };
-      record = serialize();
-    }
-    if (enclaveStartup?.startupChecks && Buffer.byteLength(record, 'utf8') > STARTUP_DIAGNOSTIC_MAX_BYTES) {
-      message = 'Enclave startup failure exceeded diagnostic message bound';
-      record = serialize();
-    }
-    if (enclaveStartup && Buffer.byteLength(record, 'utf8') > STARTUP_DIAGNOSTIC_MAX_BYTES) {
-      return rejected('oversize', 'record-too-large');
-    }
-    const flags =
-      fs.constants.O_WRONLY |
-      fs.constants.O_CREAT |
-      fs.constants.O_NONBLOCK |
-      (fs.constants.O_NOFOLLOW ?? 0);
-    const fd = fs.openSync(getStartupDiagnosticPath(proxyLogsDir), flags, 0o600);
-    try {
-      const stat = fs.fstatSync(fd);
-      if (!stat.isFile()) return rejected('unsafe-target', 'unsafe-type');
-      if (stat.nlink !== 1) return rejected('unsafe-target', 'unsafe-link-count');
-      if (stat.uid !== process.getuid?.()) return rejected('unsafe-target', 'unsafe-owner');
-      fs.fchmodSync(fd, 0o600);
-      fs.ftruncateSync(fd, 0);
-      fs.writeFileSync(fd, record);
-      fs.fsyncSync(fd);
-      fs.fchmodSync(fd, 0o644);
-    } finally {
-      fs.closeSync(fd);
-    }
-    return 'written';
-  } catch (diagnosticError) {
-    const code = (diagnosticError as NodeJS.ErrnoException | undefined)?.code;
-    if (code === 'ELOOP') return rejected('unsafe-target', 'unsafe-symlink');
-    if (code === 'EACCES' || code === 'EPERM') return rejected('io-error', 'permission-denied');
-    if (typeof code === 'string') return rejected('io-error', 'io-error');
-    return rejected('error', 'unknown');
-  }
-}
-
-interface StartupExitState {
-  startedAt: number;
-  lastProgressWrite: StartupDiagnosticWriteOutcome;
-  progressWriteFailures: number;
-  firstProgressWriteFailure?: StartupDiagnosticWriteReason;
-  lastProgressWriteFailure?: StartupDiagnosticWriteReason;
-}
-
-function startupElapsedBucket(ms: number): string | null {
-  if (!Number.isFinite(ms) || ms < 0) return null;
-  const buckets: Array<[number, string]> = [
-    [60_000, '<1m'], [3 * 60_000, '<3m'], [5 * 60_000, '<5m'], [8 * 60_000, '<8m'],
-    [10 * 60_000, '<10m'], [15 * 60_000, '<15m'],
-  ];
-  return buckets.find(([limit]) => ms < limit)?.[1] ?? '>=15m';
-}
-
-/**
- * Emits one fixed-code enclave startup exit marker on stderr. It carries no
- * messages, paths or identifiers, so CI can read it even when the structured
- * record is missing and AWF runs with `--log-level error`.
- */
-function emitStartupExitMarker(
-  config: WrapperConfig,
-  state: StartupExitState,
-  marker: {
-    path: 'fatal' | 'workflow-return';
-    exitCode: number;
-    containersStarted: boolean;
-    agentStarted: boolean;
-    recordWrite: StartupDiagnosticWriteOutcome;
-    recordWriteReason?: StartupDiagnosticWriteReason | null;
-    cleanup: 'pending' | 'completed' | 'failed';
-  },
-): void {
-  if (!config.enclaves?.enabled) return;
-  try {
-    const progress = getEnclaveStartupProgress(config);
-    const failedCheck = Object.entries(progress?.startupChecks?.checks ?? {})
-      .find(([, [result]]) => result === 'failed')?.[0] ?? null;
-    let recordAfterCleanup: 'present' | 'missing' | 'unknown' = 'unknown';
-    if (marker.cleanup !== 'pending') {
-      const proxyLogsDir = config.proxyLogsDir || path.join(config.workDir, 'squid-logs');
-      recordAfterCleanup = fs.existsSync(getStartupDiagnosticPath(proxyLogsDir)) ? 'present' : 'missing';
-    }
-    process.stderr.write(`AWF_STARTUP_EXIT ${JSON.stringify({
-      schemaVersion: 1,
-      path: marker.path,
-      exitCode: Number.isInteger(marker.exitCode) && marker.exitCode >= 0 && marker.exitCode <= 255
-        ? marker.exitCode : 255,
-      stage: progress?.stage ?? null,
-      failedCheck,
-      containersStarted: marker.containersStarted,
-      agentStarted: marker.agentStarted,
-      recordWrite: marker.recordWrite,
-      recordWriteReason: marker.recordWriteReason ?? null,
-      lastProgressWrite: state.lastProgressWrite,
-      progressWriteFailures: state.progressWriteFailures,
-      firstProgressWriteFailure: state.firstProgressWriteFailure ?? null,
-      lastProgressWriteFailure: state.lastProgressWriteFailure ?? null,
-      cleanup: marker.cleanup,
-      recordAfterCleanup,
-      elapsed: startupElapsedBucket(Date.now() - state.startedAt),
-    })}\n`);
-  } catch {
-    // Diagnostics must never change the exit path.
-  }
-}
-
-function writeIncompleteEnclaveAuditMarker(targetAuditDir: string): void {
-  fs.mkdirSync(targetAuditDir, { recursive: true, mode: 0o755 });
-  assertRealDirectory(targetAuditDir);
-  writeFileNoFollow(
-    path.join(targetAuditDir, 'enclave-audit-incomplete.txt'),
-    'Enclave shutdown or protected audit preservation was not confirmed; enclave audit artifacts may be incomplete.\n',
-    0o644,
-  );
-}
-
-function buildCleanupFn(
-  config: WrapperConfig,
-  getContainersStarted: () => boolean,
-  getHostIptablesSetup: () => boolean,
-  externalRuntimeBackend?: ExternalAgentRuntimeBackend,
-) {
-  // The workflow cleans up before verifying routing completion; the fatal
-  // path and signal handlers must not tear down a removed work directory again.
-  let cleanupRun: Promise<void> | undefined;
-  return (signal?: string): Promise<void> => {
-    cleanupRun ??= runCleanup(config, getContainersStarted, getHostIptablesSetup, externalRuntimeBackend, signal);
-    return cleanupRun;
-  };
-}
-
-async function runCleanup(
-  config: WrapperConfig,
-  getContainersStarted: () => boolean,
-  getHostIptablesSetup: () => boolean,
-  externalRuntimeBackend: ExternalAgentRuntimeBackend | undefined,
-  signal: string | undefined,
-): Promise<void> {
-  let externalRuntimeCleanupError: unknown;
-  const dockerEnclaves = isDockerEnclaveSelected(config);
-  if (signal) {
-    logger.info(`Received ${signal}, cleaning up...`);
-  }
-  closeCloudHypervisorEnclaveAdmissions(config);
-  closeDockerEnclaveAdmissions(config);
-
-  if (externalRuntimeBackend) {
-    try {
-      if (config.diagnosticLogs) {
-        await externalRuntimeBackend.collectDiagnostics();
-      }
-      if (config.keepContainers && externalRuntimeBackend.preserve) {
-        await externalRuntimeBackend.preserve();
-      } else if (!config.keepContainers) {
-        await externalRuntimeBackend.stop();
-      }
-    } catch (error) {
-      externalRuntimeCleanupError = error;
-      logger.warn(
-        config.containerRuntime === 'cloud-hypervisor' && config.enclaves?.enabled
-          ? 'Unified Cloud Hypervisor cleanup failed; infrastructure and recovery state must be preserved.'
-          : 'External runtime cleanup failed; continuing with infrastructure teardown.',
-        error,
-      );
-    }
-  }
-
-  // Let the enclave server emit final cleanup telemetry before preserving
-  // container artifacts. Stopped containers remain available to docker cp
-  // until the subsequent compose down removes them.
-  let containersStarted = false;
-  let enclaveAuditComplete = true;
-  let auditRecoveryFailure: { error: unknown } | undefined;
-  try {
-    containersStarted = getContainersStarted();
-    // Keep delegated identities and sidecars alive through host cancellation.
-    // Failure retains networks, seeds and recovery state, but still saves audit.
-    let dockerEnclaveShutdownFailed = false;
-    let dockerEnclaveShutdownError: unknown;
-    try {
-      await stopDockerEnclaveLifecycle(config);
-    } catch (error) {
-      dockerEnclaveShutdownFailed = true;
-      dockerEnclaveShutdownError = error;
-    }
-    if (containersStarted || dockerEnclaves) {
-      try {
-        // Revoke every outstanding dynamic identity before the broker and the
-        // gateway go away, so no delegated bearer can outlive the run.
-        await stopEnclaveDynamicDelegation(config);
-      } catch (error) {
-        enclaveAuditComplete = false;
-        logger.warn(
-          'Dynamic enclave delegation shutdown did not complete; mcpg state may be unreconciled.',
-          error,
-        );
-        if (dockerEnclaves && !dockerEnclaveShutdownFailed) throw error;
-      }
-    }
-    if (dockerEnclaveShutdownFailed) throw dockerEnclaveShutdownError;
-    if (containersStarted) {
-      try {
-        await shutdownEnclaveGateway(config);
-      } catch {
-        enclaveAuditComplete = false;
-        if (config.enclaves?.enabled) {
-          await captureEnclaveStartupDiagnostics(config.workDir, config.proxyLogsDir, 'shutdown-failure');
-        }
-        logger.warn(
-          'Enclave gateway did not complete graceful shutdown; preserved enclave audit is marked incomplete.',
-        );
-      }
-    }
-  } finally {
-    // VM cancellation/cleanup must complete before disconnecting its peers or
-    // tearing down sidecars/networks, even when broker draining fails.
-    try {
-      await stopCloudHypervisorEnclaveLifecycle(config);
-    } finally {
-      // Recover broker evidence even when host shutdown must retain resources.
-      if (containersStarted) {
-        try {
-          if (preserveIptablesAudit(config.workDir, config.auditDir) === false) {
-            enclaveAuditComplete = false;
-            logger.warn('One or more protected enclave audit artifacts could not be preserved.');
-          }
-        } catch (error) {
-          logger.error('Protected audit recovery failed (role=broker-audit, reason=preservation).');
-          auditRecoveryFailure = { error };
-        }
-      }
-    }
-  }
-  if (auditRecoveryFailure) throw auditRecoveryFailure.error;
-  if (externalRuntimeCleanupError
-    && config.containerRuntime === 'cloud-hypervisor' && config.enclaves?.enabled) {
-    throw externalRuntimeCleanupError;
-  }
-  if (containersStarted) {
-    try {
-      await disconnectEnclaveGithubGateway(config);
-    } catch (error) {
-      enclaveAuditComplete = false;
-      logger.warn(
-        'Compiler-owned shared MCP gateway could not be disconnected cleanly.',
-        error,
-      );
-    }
-    if (!enclaveAuditComplete && config.enclaves?.enabled) {
-      const targetAuditDir = config.auditDir || path.join(config.workDir, 'audit');
-      try {
-        writeIncompleteEnclaveAuditMarker(targetAuditDir);
-      } catch (error) {
-        logger.warn('Failed to write the incomplete enclave audit marker.', error);
-      }
-    }
-    await stopContainers(config.workDir, config.keepContainers, { routerLogsDir: resolveRouterLogsDir(config) });
-  }
-
-  if (getHostIptablesSetup() && !config.keepContainers) {
-    await cleanupHostIptables();
-  }
-
-  // Remove any probe container still labelled with this run and restore
-  // write permissions on the immutable seeds. Must run before the generic
-  // work-directory cleanup: `rm -rf` cannot unlink entries inside a
-  // directory whose write bit was stripped during staging.
-  await teardownEnclaves(config);
-
-  if (!config.keepContainers) {
-    await cleanup(
-      config.workDir,
-      false,
-      config.proxyLogsDir,
-      config.auditDir,
-      config.sessionStateDir,
-      config.dockerHostPathPrefix,
-      config.imageRegistry,
-      config.imageTag,
-      config.agentImage,
-      config.images,
-      config.tokenLogDir,
-    );
-    const resolvedConfigSnapshot = resolvedConfigSnapshots.get(config);
-    if (!externalRuntimeCleanupError && resolvedConfigSnapshot !== undefined) {
-      const finalAuditDir = config.auditDir ||
-        path.join(os.tmpdir(), `awf-audit-${path.basename(config.workDir).replace('awf-', '')}`);
-      try {
-        publishFinalResolvedConfig(finalAuditDir, resolvedConfigSnapshot);
-      } catch (error) {
-        logger.warn('Failed to publish finalized resolved config artifact:', error);
-      }
-    }
-    // Note: We don't remove the firewall network here since it can be reused
-    // across multiple runs. Cleanup script will handle removal if needed.
-  } else {
-    logger.info(`Configuration files preserved at: ${config.workDir}`);
-    logger.info(`Agent logs available at: ${config.workDir}/agent-logs/`);
-    logger.info(`Squid logs available at: ${config.workDir}/squid-logs/`);
-    logger.info(`Host iptables rules preserved (--keep-containers enabled)`);
-  }
-  if (externalRuntimeCleanupError) throw externalRuntimeCleanupError;
 }
 
 /**

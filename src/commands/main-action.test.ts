@@ -5,6 +5,7 @@ import { constants as fsConstants } from 'fs';
 jest.mock('fs', () => require('./main-action-fs-mock.test-utils').mainActionFsMockFactory());
 
 import { createMainAction, testHelpers } from './main-action';
+import { buildCleanupFn } from './main-action-cleanup';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').loggerMockFactory());
@@ -1663,7 +1664,7 @@ describe('createMainAction', () => {
     });
 
     it('buildCleanupFn runs cleanup using provided state getters', async () => {
-      const performCleanup = testHelpers.buildCleanupFn(
+      const performCleanup = buildCleanupFn(
         MAIN_ACTION_STUB_CONFIG,
         () => true,
         () => true,
@@ -1726,7 +1727,7 @@ describe('createMainAction', () => {
     });
 
     it('buildCleanupFn tears down only once across repeated calls', async () => {
-      const performCleanup = testHelpers.buildCleanupFn(
+      const performCleanup = buildCleanupFn(
         MAIN_ACTION_STUB_CONFIG,
         () => true,
         () => true,
