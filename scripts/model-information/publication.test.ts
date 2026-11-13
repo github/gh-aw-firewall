@@ -10,7 +10,18 @@ const v2 = require('../../shared/model-information/publication.v2.cjs');
 const { publish } = require('./publish.cjs');
 const {
   json, digest, payload, inputPaths, dataBranch, pointerPath, channelPath, readSnapshot, readPointer,
+  pricingChannelPath, pricingPayload, readPricingPointer,
 } = require('./publication-contract.cjs');
+const {
+  getPricingSnapshot, readPublishedPricingSnapshot,
+} = require('../../shared/model-information/pricing-consumer');
+const pricingFile = 'shared/model-information/pricing-consumer.v1.generated.json';
+const pricingBytes = (price = '2') => {
+  const data = JSON.parse(JSON.stringify(getPricingSnapshot()));
+  data.maintained.find((model: { identity: { rawId: string } }) =>
+    model.identity.rawId === 'gpt-6.1-sol').tariffs[0].components.input.price = price;
+  return json({ ...data, revision: digest(json(pricingPayload(data))) });
+};
 const root = path.resolve(__dirname, '../..');
 const catalogue = require('../../shared/model-information/catalog.generated.json');
 const evidence = {
@@ -284,6 +295,114 @@ describe('credential-free data branch publication', () => {
     expect(show(pointerPath)).toBe(oldPointer);
     expect(readPointer(show(channelPath(2)), 2).revision).not.toBe(oldV2.revision);
     expect(show(oldV2.snapshot)).toBeTruthy();
+  });
+
+  it('publishes and reads newer pricing revisions with unchanged schema, API and firewall version', () => {
+    const packageVersion = require('../../package.json').version;
+    const publishPricing = (pricing: string) => {
+      fs.mkdirSync(path.dirname(path.join(work, pricingFile)), { recursive: true });
+      fs.writeFileSync(path.join(work, pricingFile), pricing);
+      source();
+      const bytes = snapshot();
+      const bytesV2 = buildSnapshotV2(fixture(), head(), time);
+      return publish({ cwd: work, bytes, expectedDigest: digest(bytes), sourceCommit: head(),
+        bytesV2, expectedDigestV2: digest(bytesV2),
+        pricingBytes: pricing, expectedPricingDigest: digest(pricing) });
+    };
+    const first = pricingBytes('2');
+    expect(publishPricing(first)).toMatch(/^published/);
+    expect(git(remote, 'rev-list', '--count', dataBranch)).toBe('1');
+    const oldPointer = show(pricingChannelPath(1));
+    const old = readPricingPointer(oldPointer);
+    const modelPointer = show(pointerPath);
+    const v2Pointer = show(channelPath(2));
+    const second = pricingBytes('2.0000000000000000000000000001');
+    expect(publishPricing(second)).toMatch(/^published/);
+    expect(git(remote, 'rev-list', '--count', dataBranch)).toBe('2');
+    const nextPointer = show(pricingChannelPath(1));
+    const next = readPricingPointer(nextPointer);
+    expect(next.revision).not.toBe(old.revision);
+    expect(next.sourceCommit).toBe(head());
+    for (const [pointerBytes, expectedBytes] of [[oldPointer, first], [nextPointer, second]]) {
+      const pointer = readPricingPointer(pointerBytes);
+      const publishedBytes = show(pointer.snapshot);
+      const reviewed = git(work, 'show', `${pointer.sourceCommit}:${pricingFile}`) + '\n';
+      expect(publishedBytes).toBe(expectedBytes);
+      const consumed = readPublishedPricingSnapshot(publishedBytes, pointerBytes, reviewed);
+      expect(consumed.snapshot.revision).toBe(pointer.revision);
+      expect(consumed.snapshot.schemaVersion).toBe(1);
+      expect(consumed.snapshot.schemaHash).toBe(getPricingSnapshot().schemaHash);
+      expect(Object.isFrozen(consumed.snapshot.maintained[0].tariffs)).toBe(true);
+    }
+    expect(show(pointerPath)).toBe(modelPointer);
+    expect(show(channelPath(2))).toBe(v2Pointer);
+    expect(require('../../package.json').version).toBe(packageVersion);
+    expect(show(old.snapshot)).toBe(first);
+    expect(publishPricing(first)).toMatch(/^published/);
+    expect(readPricingPointer(show(pricingChannelPath(1))).snapshot).toBe(old.snapshot);
+    expect(show(old.snapshot)).toBe(first);
+  });
+
+  it('bootstraps pricing from the existing trusted data branch without rewriting model channels', () => {
+    run();
+    const old = show(pointerPath);
+    const pricing = pricingBytes();
+    const bytes = snapshot();
+    const invoke = () => publish({ cwd: work, bytes, expectedDigest: digest(bytes),
+      sourceCommit: head(), pricingBytes: pricing, expectedPricingDigest: digest(pricing) });
+    expect(invoke()).toMatch(/^published/);
+    expect(invoke()).toBe('unchanged');
+    expect(show(pointerPath)).toBe(old);
+    const pointer = readPricingPointer(show(pricingChannelPath(1)));
+    expect(show(pointer.snapshot)).toBe(pricing);
+    expect(() => readPointer(show(pricingChannelPath(1)))).toThrow();
+    expect(() => readPricingPointer(old)).toThrow();
+    const oldSource = head();
+    const previousHead = remoteHead();
+    source();
+    const delayed = pricingBytes('9');
+    expect(publish({ cwd: work, bytes, expectedDigest: digest(bytes), sourceCommit: oldSource,
+      pricingBytes: delayed, expectedPricingDigest: digest(delayed) })).toMatch(/^superseded/);
+    expect(remoteHead()).toBe(previousHead);
+  });
+
+  it('rejects invalid pricing artifacts and pointers atomically without advancing other channels', () => {
+    const pricing = pricingBytes();
+    const bytes = snapshot();
+    const invoke = (candidate = pricing, expectedPricingDigest = digest(candidate)) => publish({
+      cwd: work, bytes, expectedDigest: digest(bytes), sourceCommit: head(),
+      pricingBytes: candidate, expectedPricingDigest,
+    });
+    expect(invoke()).toMatch(/^published/);
+    const before = remoteHead();
+    expect(() => invoke(pricing, '0'.repeat(64))).toThrow(/Artifact digest/);
+    const unknownVersion = { ...JSON.parse(pricing), schemaVersion: 2 };
+    const unknownBytes = json({
+      ...unknownVersion, revision: digest(json(pricingPayload(unknownVersion))),
+    });
+    expect(() => invoke(unknownBytes)).toThrow(/pricing publication/);
+    expect(remoteHead()).toBe(before);
+    const pointerBytes = show(pricingChannelPath(1));
+    const pointer = readPricingPointer(pointerBytes);
+    expect(() => readPublishedPricingSnapshot(pricing, pointerBytes, pricingBytes('99')))
+      .toThrow(/publication_mismatch/);
+    expect(() => readPublishedPricingSnapshot(pricingBytes('99'), pointerBytes, pricingBytes('99')))
+      .toThrow(/publication_mismatch/);
+    expect(() => readPricingPointer(json({ ...pointer, snapshot: '../untrusted' }))).toThrow();
+    const staging = path.join(directory, 'invalid-pricing');
+    git(directory, 'clone', '--quiet', '--branch', dataBranch, remote, staging);
+    fs.writeFileSync(path.join(staging, pricingChannelPath(1)), '{}\n');
+    git(staging, 'add', '.');
+    git(staging, 'commit', '--quiet', '-m', 'invalid pricing fixture');
+    git(staging, 'push', '--quiet');
+    const corruptHead = remoteHead();
+    const newSource = source();
+    const changed = snapshot(newSource, '9');
+    expect(() => publish({ cwd: work, bytes: changed, expectedDigest: digest(changed),
+      sourceCommit: newSource, pricingBytes: pricing, expectedPricingDigest: digest(pricing) }))
+      .toThrow(/Invalid current pointer/);
+    expect(remoteHead()).toBe(corruptHead);
+    expect(show(pointerPath)).toBeTruthy();
   });
 
   it('does not partially advance v1 when validation of the v2 channel fails', () => {
@@ -620,8 +739,9 @@ exec '${realGit}' "$@"
     fs.symlinkSync(path.join(root, 'node_modules'), path.join(work, 'node_modules'), 'dir');
     const output = path.join(directory, 'snapshot.json');
     const outputV2 = path.join(directory, 'snapshot-v2.json');
+    const outputPricing = path.join(directory, 'pricing-v1.json');
     const command = path.join(work, 'scripts/model-information/build-publication.cjs');
-    const invoke = (sha = head()) => spawnSync(process.execPath, [command, output, outputV2], {
+    const invoke = (sha = head()) => spawnSync(process.execPath, [command, output, outputV2, outputPricing], {
       cwd: work, env: { ...process.env, GITHUB_SHA: sha }, encoding: 'utf8',
     });
     expect(invoke('a'.repeat(40)).stderr).toContain('Checkout must equal');
@@ -629,8 +749,10 @@ exec '${realGit}' "$@"
     expect(invoke().status).toBe(0);
     expect(readSnapshot(fs.readFileSync(output)).sourceCommit).toBe(head());
     expect(v2.validateSnapshot(fs.readFileSync(outputV2)).schemaVersion).toBe(2);
+    expect(fs.readFileSync(outputPricing)).toEqual(fs.readFileSync(path.join(work, pricingFile)));
     fs.unlinkSync(output);
     fs.unlinkSync(outputV2);
+    fs.unlinkSync(outputPricing);
     fs.writeFileSync(path.join(work, 'containers/api-proxy/model-information.pricing.generated.json'), '{}\n');
     const stale = invoke();
     expect(stale.status).not.toBe(0);
@@ -666,8 +788,8 @@ describe('trusted publication workflow graph', () => {
       permissions: object;
       concurrency: { group: string; queue: string; 'cancel-in-progress': boolean };
       jobs: Record<string, {
-        needs?: string; if: string; permissions?: object;
-        steps: Array<{ uses?: string; run?: string; with?: Record<string, unknown>; env?: Record<string, string> }>;
+        needs?: string; if: string; permissions?: object; outputs: Record<string, string>;
+        steps: Array<{ id?: string; uses?: string; run?: string; with?: Record<string, unknown>; env?: Record<string, string> }>;
       }>;
     };
     expect(Object.keys(workflow.on)).toEqual(['push']);
@@ -693,15 +815,20 @@ describe('trusted publication workflow graph', () => {
     expect(build.steps.some(step => step.run === 'npm ci --ignore-scripts')).toBe(true);
     expect(build.steps.some(step => step.run?.includes('build-publication.cjs'))).toBe(true);
     expect(build.steps.some(step => step.run ===
-      'npm test -- --runInBand scripts/model-information/publication.test.ts')).toBe(true);
+      'npm test -- --runInBand scripts/model-information/publication.test.ts scripts/model-information/pricing-consumer.test.ts')).toBe(true);
+    expect(build.outputs.sha256_pricing).toBe('${{ steps.snapshot.outputs.sha256_pricing }}');
+    expect(build.steps.find(step => step.id === 'snapshot')?.run).toContain('"$RUNNER_TEMP/pricing-v1.json"');
+    expect(build.steps.find(step => step.uses?.startsWith('actions/upload-artifact@'))?.with?.path)
+      .toContain('${{ runner.temp }}/pricing-v1.json');
     expect(build.steps.some(step => step.run ===
       'npm test --prefix containers/api-proxy -- --runInBand catalogue-loader.test.js catalogue-proxy.test.js guards/ai-credits-guard.test.js runtime-model-catalog.test.js token-budget-log.test.js upstream-token.test.js upstream-http.test.js model-api-mapping.test.js routing-catalogue.test.js wire-api-compat.test.js server.decisions.test.js')).toBe(true);
     expect(writer.steps.filter(step => step.run).map(step => step.run)).toEqual([
-      'node scripts/model-information/publish.cjs "$RUNNER_TEMP/model-catalogue/snapshot.json" "$RUNNER_TEMP/model-catalogue/snapshot-v2.json"',
+      'node scripts/model-information/publish.cjs "$RUNNER_TEMP/model-catalogue/snapshot.json" "$RUNNER_TEMP/model-catalogue/snapshot-v2.json" "$RUNNER_TEMP/model-catalogue/pricing-v1.json"',
     ]);
     expect(writer.steps[writer.steps.length - 1].env).toEqual({
       SNAPSHOT_SHA256: '${{ needs.build.outputs.sha256 }}',
       SNAPSHOT_SHA256_V2: '${{ needs.build.outputs.sha256_v2 }}',
+      SNAPSHOT_SHA256_PRICING: '${{ needs.build.outputs.sha256_pricing }}',
     });
     expect(fs.readFileSync(path.join(__dirname, 'publish.cjs'), 'utf8'))
       .not.toMatch(/--force|workflow_dispatch|npm |checkout/);

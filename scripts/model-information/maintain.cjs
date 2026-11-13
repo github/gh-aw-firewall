@@ -62,6 +62,7 @@ const projections = [
   'shared/model-information/manifest.generated.json', 'shared/model-information/target.generated.json',
   'shared/model-information/baseline-to-target.generated.json',
   'shared/model-information/naming.generated.json',
+  'shared/model-information/pricing-consumer.v1.generated.json',
   'src/model-information.naming.generated.json',
   'src/model-information.compat.generated.json',
   'containers/api-proxy/model-information.naming.generated.json',

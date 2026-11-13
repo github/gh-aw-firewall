@@ -7,8 +7,9 @@ const { execFileSync } = require('node:child_process');
 const { buildSnapshot } = require('../../shared/model-information/publication.cjs');
 const { buildSnapshot: buildSnapshotV2 } = require('../../shared/model-information/publication.v2.cjs');
 const { digest } = require('./publication-contract.cjs');
+const { readPricingSnapshot } = require('../../shared/model-information/pricing-consumer');
 
-function build(output, outputV2) {
+function build(output, outputV2, outputPricing) {
   const root = path.resolve(__dirname, '../..');
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
   const sourceCommit = git('rev-parse', 'HEAD');
@@ -22,11 +23,22 @@ function build(output, outputV2) {
     fs.writeFileSync(outputV2, bytesV2, { flag: 'wx' });
     if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `sha256_v2=${digest(bytesV2)}\n`);
   }
+  if (outputPricing) {
+    const pricingBytes = fs.readFileSync(path.join(root,
+      'shared/model-information/pricing-consumer.v1.generated.json'));
+    readPricingSnapshot(pricingBytes.toString());
+    fs.writeFileSync(outputPricing, pricingBytes, { flag: 'wx' });
+    if (process.env.GITHUB_OUTPUT) {
+      fs.appendFileSync(process.env.GITHUB_OUTPUT, `sha256_pricing=${digest(pricingBytes)}\n`);
+    }
+  }
   if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `sha256=${digest(bytes)}\n`);
 }
 
 if (require.main === module) {
-  if (![3, 4].includes(process.argv.length)) throw new Error('Usage: build-publication.cjs OUTPUT_V1 [OUTPUT_V2]');
-  build(process.argv[2], process.argv[3]);
+  if (![3, 4, 5].includes(process.argv.length)) {
+    throw new Error('Usage: build-publication.cjs OUTPUT_V1 [OUTPUT_V2 [OUTPUT_PRICING]]');
+  }
+  build(process.argv[2], process.argv[3], process.argv[4]);
 }
 module.exports = { buildSnapshot, buildSnapshotV2 };

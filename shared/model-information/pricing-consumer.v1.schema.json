@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/github/gh-aw-firewall/blob/main/shared/model-information/pricing-consumer.v1.schema.json",
+  "type": "object",
+  "required": ["kind", "schemaVersion", "schemaHash", "catalogRevision", "revision", "generatedAt", "maintained", "compatibility", "imported"],
+  "properties": {
+    "kind": { "const": "awf-pricing-consumer" },
+    "schemaVersion": { "const": 1 },
+    "schemaHash": { "$ref": "#/$defs/digest" },
+    "catalogRevision": { "$ref": "#/$defs/digest" },
+    "revision": { "$ref": "#/$defs/digest" },
+    "generatedAt": { "$ref": "schema.v1.json#/$defs/provenance/properties/at" },
+    "maintained": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["identity", "tariffs", "provenance"],
+        "properties": {
+          "identity": {
+            "type": "object",
+            "allOf": [
+              { "$ref": "schema.v1.json#/$defs/identity" },
+              { "not": { "anyOf": [{ "required": ["aliases"] }, { "required": ["family"] }] } }
+            ]
+          },
+          "tariffs": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "schema.v1.json#/$defs/tariff" }
+          },
+          "provenance": { "$ref": "schema.v1.json#/$defs/provenance" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "required": ["policy", "channel", "authority", "confidence", "sourceProvenance", "providers"],
+      "properties": {
+        "policy": { "const": "legacy_native_compatibility" },
+        "channel": { "const": "native-api" },
+        "authority": { "const": "policy" },
+        "confidence": { "const": "policy_fallback" },
+        "sourceProvenance": { "$ref": "schema.v1.json#/$defs/provenance" },
+        "providers": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z0-9][a-z0-9-]*$" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": { "$ref": "#/$defs/compatibilityRates" }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "imported": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["scope", "prices"],
+        "properties": {
+          "scope": {
+            "type": "object",
+            "required": ["provider", "channel"],
+            "properties": {
+              "provider": { "const": "openrouter" },
+              "channel": { "const": "native-api" }
+            },
+            "additionalProperties": false
+          },
+          "prices": {
+            "type": "object",
+            "propertyNames": { "pattern": "^[a-z0-9][a-z0-9-]*/[^?#]+$" },
+            "additionalProperties": { "$ref": "schema.v1.json#/$defs/importedPricing" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "maxItems": 1
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "compatibilityRates": {
+      "type": "object",
+      "required": ["input", "cachedInput", "cacheWrite", "output"],
+      "properties": {
+        "input": { "$ref": "schema.v1.json#/$defs/decimal" },
+        "cachedInput": { "$ref": "schema.v1.json#/$defs/decimal" },
+        "cacheWrite": { "oneOf": [{ "$ref": "schema.v1.json#/$defs/decimal" }, { "type": "null" }] },
+        "output": { "$ref": "schema.v1.json#/$defs/decimal" },
+        "reasoning": { "$ref": "schema.v1.json#/$defs/decimal" },
+        "longContext": { "$ref": "#/$defs/compatibilityTier" }
+      },
+      "additionalProperties": false
+    },
+    "compatibilityTier": {
+      "type": "object",
+      "required": ["input", "cachedInput", "cacheWrite", "output", "threshold"],
+      "properties": {
+        "input": { "$ref": "schema.v1.json#/$defs/decimal" },
+        "cachedInput": { "$ref": "schema.v1.json#/$defs/decimal" },
+        "cacheWrite": { "oneOf": [{ "$ref": "schema.v1.json#/$defs/decimal" }, { "type": "null" }] },
+        "output": { "$ref": "schema.v1.json#/$defs/decimal" },
+        "reasoning": { "$ref": "schema.v1.json#/$defs/decimal" },
+        "threshold": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

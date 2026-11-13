@@ -420,6 +420,10 @@ describe('maintained model compilation', () => {
         components: { input: { price: '1.5000000000000000000000000001',
           provenance: successor.provenance } },
       });
+      const consumer = JSON.parse(fs.readFileSync(
+        path.join(directory, 'shared/model-information/pricing-consumer.v1.generated.json'), 'utf8'));
+      expect(consumer.maintained.find((entry: { identity: { key: string } }) =>
+        entry.identity.key === model.identity.key).tariffs).toEqual(model.tariffs);
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }

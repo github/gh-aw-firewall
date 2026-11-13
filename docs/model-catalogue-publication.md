@@ -51,6 +51,138 @@ compiler integration in github/gh-aw#70728).
 
 ## Active canonical fallback pricing
 
+### Independently published pricing consumer contract v1
+
+AWF is the maintained pricing authority. Downstream consumers, including gh-aw,
+may bundle a generated AWF snapshot for offline use, but must not independently
+curate its prices. `npm run models:generate` owns
+`shared/model-information/pricing-consumer.v1.generated.json`;
+`npm run models:check` rejects missing or stale copies. Generation uses only
+committed sources and the governed import, not network access, credentials, the
+wall clock, runtime observations, or Git checkout metadata. It does not activate
+`sources/target.json` proposals.
+
+**Pricing updates do not require a firewall release or package upgrade.** The
+existing reviewed-source publication workflow also publishes this generated
+snapshot after relevant merges to `main`, through its same read-only validation,
+artifact digests, trusted-main ancestry checks and atomic `catalogue-data`
+commit. Schema/API compatibility (`v1`) is separate from the independently
+content-addressed data revision. No release trigger, manual dispatch or parallel
+publication service is introduced.
+
+| Path on the `catalogue-data` branch | Meaning |
+| --- | --- |
+| `channels/pricing/v1/current.json` | Current compatible pricing revision, exact reviewed `sourceCommit`, immutable snapshot path and file SHA-256 |
+| `snapshots/pricing/v1/<revision>.json` | Immutable pricing data, retained after later updates and reviewed rollbacks |
+
+The npm package is an **offline seed**, not the update/distribution boundary.
+It ships these stable subpaths without changing existing imports:
+
+| Surface under `@github/agentic-workflow-firewall/` | Purpose |
+| --- | --- |
+| `shared/model-information/pricing-consumer.v1.generated.json` | Language-neutral offline pricing snapshot, directly readable by Go or JavaScript |
+| `shared/model-information/pricing-consumer.v1.schema.json` | Strict JSON Schema 2020-12 envelope; references the shipped `shared/model-information/schema.v1.json` definitions |
+| `shared/model-information/pricing-consumer.js` | CommonJS bundled/offline/publication readers |
+| `shared/model-information/pricing-consumer.d.ts` | Deeply readonly TypeScript types |
+
+```javascript
+const { getPricingSnapshot } = require(
+  '@github/agentic-workflow-firewall/shared/model-information/pricing-consumer'
+);
+const snapshot = getPricingSnapshot();
+// Keep snapshot.revision with a bundled copy; retain each tariff's scope/evidence.
+```
+
+`getPricingSnapshot()` validates and caches deeply frozen bundled data.
+`readPricingSnapshot(jsonText)` validates an offline copy and returns an
+independently frozen view. Both reject unknown schema versions/hashes, invalid
+content revisions, schema violations, conflicting identity projections,
+cross-provider tariffs, invalid intervals and invalid exact decimals. There is
+no implicit network refresh, filesystem write, configuration mutation or new
+price selection policy. Direct JSON consumers need neither Node nor a subprocess.
+
+To adopt current data, a consumer uses the same reviewed-source trust protocol
+as the existing catalogue loader: resolve `refs/heads/catalogue-data` to an exact
+commit, read the pricing pointer and snapshot at **that same commit**, and
+authenticate `pointer.sourceCommit` as an ancestor of trusted `main`. Fetch
+`shared/model-information/pricing-consumer.v1.generated.json` at that exact
+source commit, not at moving `main`. Then call
+`readPublishedPricingSnapshot(snapshotText, pointerText, reviewedSourceText)`.
+This read-only helper verifies the strict pricing pointer/path, file digest,
+content revision, supported schema and byte equality with reviewed source data.
+It returns frozen `{ snapshot, pointer }`; it does **not** authenticate the
+network or establish main ancestry for the caller. Never treat a self-supplied
+digest, arbitrary URL or unverified source commit as trusted publication.
+
+Existing loader refresh/cache principles still apply to downstream integration:
+use bounded trusted HTTPS transport without ambient credentials or redirects,
+pin reads to one data commit, preserve the last accepted source against
+regression, validate before replacing a cached revision, retain explicit failure
+status and never silently substitute failed/missing pricing with zero. This
+foundation does not install a second runtime loader or activate central-feed
+precedence for the exported policy/import sections. Downstream transports and
+caches remain consumer-owned. For offline/reproducible use, persist the validated
+snapshot plus pointer/source identity and pin `revision`; `readPricingSnapshot`
+can read that copy without upgrading AWF or fetching anything. Old immutable
+snapshots remain addressable. Local Git regressions exercise two published
+pricing revisions with identical schema/API/package versions and retained pins.
+
+The envelope identifies `kind: "awf-pricing-consumer"` and `schemaVersion: 1`.
+`schemaHash` is SHA-256 of the existing publication canonical JSON encoding of
+`{ canonicalSchema, consumerSchema }`. `revision` is SHA-256 of that encoding
+of the entire envelope **excluding `revision`**: recursively lexicographically
+sorted object keys, preserved array order, two-space indentation and one final
+newline. `catalogRevision` links back to the canonical compiler's source
+revision; `generatedAt` is its deterministic latest source timestamp, **not**
+a tariff effective date or evidence refresh. This is a local content identity,
+not a signature, source commit, package version or proof of authenticity.
+Consumers should pin trusted AWF source/publication provenance as well as the data
+revision. An incompatible contract needs a new version/path, not reinterpretation
+of v1. Publication v1/v2 and their remote refresh contracts are unchanged.
+GitHub distribution plus SHA-256 integrity is the publication mechanism;
+cryptographic signatures and attestation infrastructure are not required.
+
+The three sections retain their existing, separate authorities:
+
+| Section | Meaning and applicability |
+| --- | --- |
+| `maintained` | Exact canonical identities, model provenance and tariffs. Each tariff retains its own provider/channel/deployment scope, currency/unit, components, evidence, tier, strict `promptTokensAbove` boundary, effective interval, promotion and successor. No aliases, family inference, availability or routing claims are exported. |
+| `compatibility` | The existing `legacy_native_compatibility` provider/model associations, decimal-string rates and long-context thresholds. These are `authority: policy`, `confidence: policy_fallback`, on `native-api` with no deployment; `sourceProvenance` is the historical reference, not new verified native billing evidence. All rates are USD per million tokens. |
+| `imported` | Governed imported prices under explicit OpenRouter `native-api` scope with no deployment. A key such as `anthropic/claude-sonnet-5.5` is the full OpenRouter wire ID; `sourceNamespace: anthropic` is its publisher, **not** permission to price a native Anthropic call. Component/source provenance and original revision remain intact. |
+
+Decimal prices remain strings, including trailing precision; never parse through
+binary floats before accounting. Absent components remain absent, explicit
+`{ "unavailable": true }` remains unavailable, compatibility `cacheWrite: null`
+remains unavailable, and `"0"` remains a supplied free rate. Imports are raw
+governed facts: the runtime's legacy missing-cache policy is **not** filled into
+the export. Missing models/scopes/components are unknown, not free and not
+permission to borrow another provider's price. An omitted deployment applies
+only to the default deployment, not every custom deployment. Effective intervals
+are start-inclusive/end-exclusive; `promptTokensAbove` is strictly greater-than,
+not greater-than-or-equal. Keep all tiers and dates rather than flattening prices.
+Preserved `freshUntil`, stale/freshness and observation metadata are not renewed
+by bundling. Missing evidence stays missing.
+
+This is a descriptive consumer data/API foundation, **not** a request's actual
+resolved charge or an operator/configured-catalogue override. Do not copy it into
+`apiProxy.providers` or otherwise elevate its authority. AWF's shared
+`pricing-resolution.js` remains the runtime resolver; operator/configured
+overrides, fresh provider and central observations, fallbacks and captured
+request revisions retain their existing precedence. This contract does not add
+a second resolver, a CLI or a reporting subsystem.
+
+Downstream integration is deliberately separate: gh-aw still needs to replace
+independently curated prices with pinned/generated AWF data, distinguish genuine
+user overrides from catalogue defaults, and migrate reporting consumers. These
+are later migration steps; this change does not modify gh-aw, remove automatic
+overrides, or finish #10297. Evidence for uncovered
+`gpt-5.6-sol-fast`, `gpt-6.1-sol-fast` and `mai-code-2-flash` must be migrated
+separately; this export does not manufacture their coverage. Packaging tests
+extract an actual npm tarball off-tree and exercise its JSON, schemas, readonly
+types and frozen API with network access prohibited.
+
+### Runtime fallback projections
+
 The shared pricing resolver now receives maintained fallback rates from
 `model-information.pricing.generated.json`, not `ai-credits-pricing.js`.
 `scripts/model-information/compile.cjs` derives that projection from the active
