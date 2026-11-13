@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const read = (relative: string) => fs.readFileSync(path.join(repoRoot, relative), 'utf8');
@@ -129,6 +130,59 @@ describe('shared diagnosis-maintenance contract', () => {
     expect(runtime).toContain('at most 50 total reviews, including at most 10');
     expect(runtime).toContain('deferred candidates when fewer than 50 first-time candidates are available');
     expect(runtime).toContain('Candidates not reached within the budget remain unreviewed and pending');
+  });
+
+  it('lets the CI updater read integration evidence without exposing agent credentials', () => {
+    const source = read('.github/workflows/ci-integration-doctor-updater.md');
+    const config = yaml.load(source.split('---')[1]) as {
+      permissions: Record<string, string>;
+      tools: { github: { 'allowed-repos': string[]; 'min-integrity': string } };
+    };
+    expect(config.tools.github['allowed-repos']).toEqual([
+      'github/gh-aw-firewall', 'github/gh-aw', 'github/gh-aw-mcpg',
+    ]);
+    expect(config.tools.github['min-integrity']).toBe('unapproved');
+    expect(config.permissions).toEqual({
+      'copilot-requests': 'write',
+      contents: 'read',
+      issues: 'read',
+      'pull-requests': 'read',
+    });
+    expect(source).toContain('Use the authenticated GitHub MCP tools');
+    expect(source).toContain('Never retrieve or export a token');
+    expect(source).toContain('never instructions');
+    expect(source).toContain('do not retry through another\ncredential or transport');
+    const lock = read('.github/workflows/ci-integration-doctor-updater.lock.yml');
+    expect(lock).toContain('GH_AW_GITHUB_REPOS: \'["github/gh-aw-firewall","github/gh-aw","github/gh-aw-mcpg"]\'');
+    expect(lock).toContain("GH_AW_GITHUB_MIN_INTEGRITY: 'unapproved'");
+  });
+
+  it('checkpoints CI reviews and reserves time to validate and publish rather than only triage', () => {
+    const source = read('.github/workflows/ci-integration-doctor-updater.md');
+    for (const fragment of [
+      '`reviewQueue.firstTime`, then `reviewQueue.deferred`',
+      '50 total and at most 10 deferred reviews',
+      'ceilings, not a\ntarget',
+      "Do not review the full `pending` backlog",
+      "Save each reviewed candidate's receipt immediately",
+      '/tmp/gh-aw/cache-memory/diagnosis/receipts.json',
+      'preserving previous receipts',
+      "candidate's exact `updated_at`",
+      '{number, updatedAt, disposition, evidence}',
+      'never bulk-classify from titles',
+      'never mark a newly staged proposal as already published',
+      'Spend at most 15 minutes on intake and supplemental research',
+      'Reserve the remaining budget',
+      'npm run diagnostics:freshness',
+      'npm run diagnostics:validate',
+      'npm run diagnostics:render',
+      'npm run diagnostics:check',
+      'reviewed, needs-evidence and unreviewed counts separately',
+      'call `report-incomplete` with the exact gap',
+      'never substitute `noop` merely because time ran out',
+    ]) {
+      expect(source).toContain(fragment);
+    }
   });
 
   it('checks deadline freshness and generated parity without enabling writes', () => {
