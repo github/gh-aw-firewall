@@ -494,7 +494,7 @@ program
   )
   .option(
     '--max-ai-credits <number>',
-    'Maximum cumulative AI credits per run; -1 or 0 disables the configured budget.\n' +
+    'Maximum cumulative AI credits per run; K/M suffixes are supported. -1 or 0 disables the configured budget.\n' +
     '                                       The non-overridable 10,000-credit hard cap still applies.',
   )
   .option(

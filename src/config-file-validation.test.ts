@@ -220,9 +220,23 @@ describe('validateAwfFileConfig', () => {
     expect(validateAwfFileConfig({ apiProxy: { maxAiCredits } })).toEqual([]);
   });
 
+  it.each(['20K', '100M', '20k', '100m', ' 20K '])(
+    'accepts apiProxy.maxAiCredits suffix %s',
+    (maxAiCredits) => {
+      expect(validateAwfFileConfig({ apiProxy: { maxAiCredits } })).toEqual([]);
+    },
+  );
+
   it.each([-2, -0.5, '0', '-1', null, true])('rejects invalid apiProxy.maxAiCredits of %s', (maxAiCredits) => {
     expect(validateAwfFileConfig({ apiProxy: { maxAiCredits } })).not.toEqual([]);
   });
+
+  it.each(['20KK', '20.5K', '0K', '-2K', '10000000000000000M'])(
+    'rejects invalid apiProxy.maxAiCredits suffix %s',
+    (maxAiCredits) => {
+      expect(validateAwfFileConfig({ apiProxy: { maxAiCredits } })).not.toEqual([]);
+    },
+  );
 
   it('validates maxModelMultiplierCap in apiProxy', () => {
     expect(validateAwfFileConfig({ apiProxy: { maxModelMultiplierCap: 4 } })).toEqual([]);

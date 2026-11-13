@@ -44,10 +44,13 @@ describe('cli-options program', () => {
     expect(program.description()).toContain('firewall');
   });
 
-  it.each(['-1', '0', '0.5', '100'])('parses --max-ai-credits %s', (value) => {
-    program.parse(['node', 'awf', '--max-ai-credits', value, '--', 'true'], { from: 'node' });
-    expect(program.opts().maxAiCredits).toBe(value);
-  });
+  it.each(['-1', '0', '0.5', '100', '20K', '100M', '20k', '100m'])(
+    'parses --max-ai-credits %s',
+    (value) => {
+      program.parse(['node', 'awf', '--max-ai-credits', value, '--', 'true'], { from: 'node' });
+      expect(program.opts().maxAiCredits).toBe(value);
+    },
+  );
 
   it('accumulates repeated --env values via the collect callback', () => {
     program.parse(
