@@ -50,6 +50,7 @@ docker network prune -f
 # Remove temporary work directories
 echo "Removing temporary work directories..."
 rm -rf /tmp/awf-* || true
+sudo rm -rf /tmp/gh-aw || true
 
 echo "✓ Cleanup complete"
 echo "==========================================="
