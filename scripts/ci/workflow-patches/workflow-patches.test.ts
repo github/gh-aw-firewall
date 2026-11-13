@@ -135,7 +135,7 @@ describe('standalone workflow patch domains', () => {
       '"awf-enclave": {\n                "required": false,\n' +
       '      - name: Execute GitHub Copilot CLI\n        env:\n          FOO: bar\n',
       context('/repo/smoke-enclave-issues-read.lock.yml'),
-    )).toThrow('missing MCP_GATEWAY_API_KEY exclusion anchor');
+    )).toThrow('missing MCP_GATEWAY_AGENT_ID exclusion anchor');
     expect(() => configureEnclaveDiagnostics(
       installStep + 'exec "${NODE_BIN}" "${WORKSPACE_PATH}/dist/cli.js" --build-local\n' +
       'sudo --preserve-env awf --config x\n/usr/local/bin/awf --config y\n',
