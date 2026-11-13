@@ -1129,7 +1129,21 @@ describe('Cloud Hypervisor enclave live acceptance harness', () => {
     expect(source).toContain(
       "apiTimeoutMs: require('../../../dist/types/runtime-options').CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS",
     );
+  });
+
+  it('preserves global safety guards across the facade and all implementation modules', () => {
+    const source = [
+      fs.readFileSync(harnessPath, 'utf8'),
+      implementationSource(
+        ...fs.readdirSync(path.join(__dirname, 'enclave-smoke'))
+          .filter(name => name.endsWith('.js'))
+          .map(name => name.slice(0, -'.js'.length)),
+      ),
+    ].join('\n');
     expect(source).not.toMatch(/DEVELOPMENT_ALLOW_UNATTESTED|allow-unattested|fake.?vm|mock.?manager/i);
+    expect(source).not.toContain('executor.sock');
+    expect(source).not.toContain('host-executor-client');
+    expect(source).not.toContain('capturePrimaryVmResidue');
   });
 
   it('accepts only canonical bounded public MCP results', () => {
