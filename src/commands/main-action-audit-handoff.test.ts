@@ -1,4 +1,6 @@
 import { testHelpers } from './main-action';
+import { persistConfigAuditArtifact, redactConfigForLogging } from './main-action-audit';
+import { buildCleanupFn } from './main-action-cleanup';
 import { MAIN_ACTION_STUB_CONFIG } from './main-action.test-utils';
 import { stopCloudHypervisorEnclaveLifecycle } from '../enclave/cloud-hypervisor-lifecycle';
 import { cleanup as cleanupWorkDirectory, preserveIptablesAudit, stopContainers } from '../docker-manager';
@@ -17,6 +19,12 @@ jest.mock('../enclave/dynamic-delegation', () => ({ stopEnclaveDynamicDelegation
 
 describe('resolved configuration startup artifact handoff', () => {
   const originalPlatform = process.platform;
+
+  it('keeps direct audit and cleanup exports compatible with the legacy test helpers', () => {
+    expect(testHelpers.persistConfigAuditArtifact).toBe(persistConfigAuditArtifact);
+    expect(testHelpers.redactConfigForLogging).toBe(redactConfigForLogging);
+    expect(testHelpers.buildCleanupFn).toBe(buildCleanupFn);
+  });
 
   beforeAll(() => {
     Object.defineProperty(process, 'platform', { value: 'linux' });
@@ -61,14 +69,14 @@ describe('resolved configuration startup artifact handoff', () => {
 
   it('does not hand off the compatibility snapshot until all privileged writers finish', async () => {
     const config = { ...MAIN_ACTION_STUB_CONFIG, auditDir: '/tmp/audit' };
-    testHelpers.persistConfigAuditArtifact(config, { state: 'initial-redacted-snapshot' });
+    persistConfigAuditArtifact(config, { state: 'initial-redacted-snapshot' });
     config.agentCommand = 'LATE_RUNTIME_SENTINEL';
     const events: string[] = [];
     jest.mocked(preserveIptablesAudit).mockImplementation(() => { events.push('audit'); return true; });
     jest.mocked(stopContainers).mockImplementation(async () => { events.push('stop'); });
     jest.mocked(cleanupWorkDirectory).mockImplementation(async () => { events.push('cleanup'); });
     jest.mocked(publishFinalResolvedConfig).mockImplementation(() => { events.push('final'); });
-    await testHelpers.buildCleanupFn(
+    await buildCleanupFn(
       config, () => true, () => false,
     )();
     expect(events).toEqual(['audit', 'stop', 'cleanup', 'final']);
