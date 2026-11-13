@@ -1,7 +1,7 @@
 {
   "source": "https://openrouter.ai/api/v1/models",
-  "revision": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
-  "retrievedAt": "2026-11-10T12:53:39.888Z",
-  "sha256": "63cbc45064d8406038e0ddd74742c0a27dafd15fc1d13bf2d71deb83e5a22ee3",
+  "revision": "0f0e2dc669d6a25097b1aa8897b53769c0c0d9d565a571b5c65bba27c9b4ad8e",
+  "retrievedAt": "2026-11-13T12:31:35.300Z",
+  "sha256": "0f0e2dc669d6a25097b1aa8897b53769c0c0d9d565a571b5c65bba27c9b4ad8e",
   "license": "Model API does not declare a catalogue/model license; no license rights inferred."
 }
