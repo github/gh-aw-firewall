@@ -65,7 +65,9 @@ export function excludeAzureCredentials(content: string, { workflowPath }: Patch
         content = content.replace(oidcExclusions, oidcExclusions + azureExclusions);
         messages.push(`  Restored Azure OIDC environment exclusions from the AWF invocation`);
       } else {
-        messages.push(`  WARNING: Could not find OIDC environment exclusions for Azure OIDC protection`);
+        throw new Error(
+          `Could not find OIDC environment exclusions anchor while patching ${workflowPath}; refusing to continue without Azure OIDC protection`
+        );
       }
     } else {
       messages.push(`  Azure OIDC environment exclusions already present`);
