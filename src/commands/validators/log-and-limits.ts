@@ -9,6 +9,7 @@ import {
   parsePidsLimit,
 } from '../../option-parsers';
 import { processAgentImageOption } from '../../domain-utils';
+import { parseAiCreditSuffix } from '../../ai-credits';
 
 /**
  * The result produced by {@link validateLogAndLimits}.
@@ -59,11 +60,19 @@ function parseOptionalNumber(option: string | number | undefined): number | unde
 
 function parseMaxAiCredits(option: unknown): number | undefined {
   if (option === undefined) return undefined;
-  const value = typeof option === 'number' || (typeof option === 'string' && option.trim() !== '')
-    ? Number(option)
-    : NaN;
+  const suffix = parseAiCreditSuffix(option);
+  if (suffix.recognized && 'error' in suffix) {
+    exitValidationError(`Error: Invalid maxAiCredits value (${suffix.error})`);
+  }
+  const value = suffix.recognized
+    ? suffix.value
+    : typeof option === 'number' || (typeof option === 'string' && option.trim() !== '')
+      ? Number(option)
+      : NaN;
   if (!Number.isFinite(value) || (value < 0 && value !== -1)) {
-    exitValidationError('Error: Invalid maxAiCredits value (must be > 0, or -1 or 0 to disable the configured budget)');
+    exitValidationError(
+      'Error: Invalid maxAiCredits value (must be a positive number or whole-number K/M suffix, or -1 or 0 to disable the configured budget)',
+    );
   }
   return value === -1 || value === 0 ? undefined : value;
 }

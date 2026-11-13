@@ -1519,9 +1519,13 @@ ports still serve provider-local `/health` responses.
 ### 10.3 Max AI Credits Configuration
 
 `maxAiCredits` accepts a positive budget or a disabled value (`-1` or `0`).
-It is supplied via `--max-ai-credits <number>` or the AWF config file
-(including stdin config via `--config -`). A positive budget maps to the
-`AWF_MAX_AI_CREDITS` environment variable injected into the api-proxy
+Positive whole-number budgets may use a case-insensitive `K` suffix for
+thousands or `M` suffix for millions (for example, `20K`, `100M`, `20k`, or
+`100m`). These compact values are normalized to numbers before validation and
+enforcement; the expanded value must be a safe integer. They are supported by
+`--max-ai-credits <number>` and the AWF config file, including stdin config via
+`--config -`. A positive budget maps to
+the `AWF_MAX_AI_CREDITS` environment variable injected into the api-proxy
 container.
 
 Setting `maxAiCredits` to `-1` or `0` disables the configured budget, as if the

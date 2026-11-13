@@ -56,6 +56,28 @@ describe('loadAwfFileConfig', () => {
     expect(result.network?.allowDomains).toEqual(['example.com']);
   });
 
+  it.each<[string, string, string, number]>([
+    ['JSON file', 'awf.json', JSON.stringify({ apiProxy: { maxAiCredits: '20K' } }), 20_000],
+    ['YAML file', 'awf.yaml', 'apiProxy:\n  maxAiCredits: 100m\n', 100_000_000],
+  ])('normalizes suffixed maxAiCredits from %s', (_input, fileName, contents, expected) => {
+    const filePath = path.join(testDir, fileName);
+    fs.writeFileSync(filePath, contents);
+
+    expect(loadAwfFileConfig(filePath).apiProxy?.maxAiCredits).toBe(expected);
+  });
+
+  it.each<[string, number]>([
+    ['{"apiProxy":{"maxAiCredits":"20k"}}', 20_000],
+    ['apiProxy:\n  maxAiCredits: 100M\n', 100_000_000],
+  ])('normalizes suffixed maxAiCredits from stdin', (contents, expected) => {
+    expect(loadAwfFileConfig('-', () => contents).apiProxy?.maxAiCredits).toBe(expected);
+  });
+
+  it('reports an actionable error for an overflowing maxAiCredits suffix from stdin', () => {
+    expect(() => loadAwfFileConfig('-', () => '{"apiProxy":{"maxAiCredits":"10000000000000000M"}}'))
+      .toThrow('maxAiCredits must resolve to a positive safe integer');
+  });
+
   it('loads extensionless config file as JSON', () => {
     const filePath = path.join(testDir, 'awfconfig');
     fs.writeFileSync(filePath, JSON.stringify({ logging: { logLevel: 'error' } }));

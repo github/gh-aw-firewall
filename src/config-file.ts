@@ -12,6 +12,7 @@ import type { ModelRoutingConfig } from './types/api-proxy-routing-options';
 import type { ClaudeHostedWebConfig } from './claude-hosted-web-policy';
 import type { CodexHostedWebConfig } from './codex-hosted-web-policy';
 import type { ModelCatalogueOptions } from './types/rate-limit-options';
+import { parseAiCreditSuffix } from './ai-credits';
 
 /** @internal Used only by config-file helpers — not part of public API */
 // ts-prune-ignore-next
@@ -48,7 +49,7 @@ export interface AwfFileConfig {
       claude?: ClaudeHostedWebConfig;
       codex?: CodexHostedWebConfig;
     };
-    maxAiCredits?: number;
+    maxAiCredits?: number | string;
     defaultAiCreditsPricing?: {
       input: number;
       output: number;
@@ -290,9 +291,12 @@ export interface AwfFileConfig {
  */
 // ts-prune-ignore-next
 export function validateAwfFileConfig(config: unknown): string[] {
-  const errors = validateWithSchema(config);
+  const normalized = normalizeMaxAiCredits(config);
+  if (normalized.error) return [normalized.error];
+
+  const errors = validateWithSchema(normalized.config);
   if (errors.length) return errors;
-  const apiProxy = (config as AwfFileConfig).apiProxy;
+  const apiProxy = (normalized.config as AwfFileConfig).apiProxy;
   const steeringBudget = apiProxy?.steering?.budget;
   if (
     apiProxy?.enableTokenSteering !== undefined &&
@@ -312,6 +316,35 @@ export function validateAwfFileConfig(config: unknown): string[] {
     }
   }
   return errors;
+}
+
+function normalizeMaxAiCredits(config: unknown): { config: unknown; error?: string } {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return { config };
+  const record = config as Record<string, unknown>;
+  const apiProxy = record.apiProxy;
+  if (!apiProxy || typeof apiProxy !== 'object' || Array.isArray(apiProxy)) return { config };
+
+  const apiProxyRecord = apiProxy as Record<string, unknown>;
+  const suffix = parseAiCreditSuffix(apiProxyRecord.maxAiCredits);
+  if (!suffix.recognized) {
+    if (typeof apiProxyRecord.maxAiCredits === 'string') {
+      return {
+        config,
+        error: 'config.apiProxy.maxAiCredits must be a number or positive whole number followed by K or M',
+      };
+    }
+    return { config };
+  }
+  if ('error' in suffix) {
+    return { config, error: `config.apiProxy.maxAiCredits ${suffix.error}` };
+  }
+
+  return {
+    config: {
+      ...record,
+      apiProxy: { ...apiProxyRecord, maxAiCredits: suffix.value },
+    },
+  };
 }
 
 const readStdinSync = (): string => fs.readFileSync(process.stdin.fd, 'utf8');
@@ -358,10 +391,11 @@ export function loadAwfFileConfig(configPath: string, readStdin: () => string = 
     throw new Error(`Failed to parse AWF config from ${sourceLabel}: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  const errors = validateAwfFileConfig(parsed);
+  const normalized = normalizeMaxAiCredits(parsed);
+  const errors = normalized.error ? [normalized.error] : validateAwfFileConfig(normalized.config);
   if (errors.length > 0) {
     throw new Error(`Invalid AWF config at ${sourceLabel}:\n- ${errors.join('\n- ')}`);
   }
 
-  return parsed as AwfFileConfig;
+  return normalized.config as AwfFileConfig;
 }
