@@ -54,6 +54,16 @@ describe('host executor runtime preparation boundary', () => {
     runtime.capability.fill(0);
   });
 
+  it('does not create a capability when the run journal already exists', () => {
+    const runtimeDir = path.join(root, 'runtime');
+    const journalPath = path.join(runState.journalDir!, `${runState.runId}.journal`);
+    fs.mkdirSync(runState.journalDir!, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(journalPath, 'existing run');
+
+    expect(() => prepareHostExecutorRuntime({ runState, runtimeDir })).toThrow(/EEXIST/);
+    expect(fs.readdirSync(runtimeDir)).toEqual([]);
+  });
+
   it('rejects a runtime directory symlink without writing a capability into its target', () => {
     const target = path.join(root, 'target');
     const runtimeDir = path.join(root, 'runtime');
