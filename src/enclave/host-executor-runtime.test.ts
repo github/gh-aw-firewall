@@ -8,6 +8,18 @@ import {
 } from './host-executor-runtime';
 import type { HostExecutorRunState } from './host-executor-server';
 
+function readCapabilityFile(filePath: string): { mode: number; contents: string } {
+  const fd = fs.openSync(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    return {
+      mode: fs.fstatSync(fd).mode & 0o777,
+      contents: fs.readFileSync(fd, 'utf8'),
+    };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 describe('host executor runtime preparation boundary', () => {
   let root: string;
   let runState: HostExecutorRunState;
@@ -46,11 +58,12 @@ describe('host executor runtime preparation boundary', () => {
     const runtime = prepareHostExecutorRuntime({ runState, runtimeDir });
     expect(runtime.statusLeaseMs).toBe(HOST_EXECUTOR_DEFAULT_STATUS_LEASE_MS);
     expect(fs.statSync(runtimeDir).mode & 0o777).toBe(0o700);
-    expect(fs.statSync(runtime.capabilityPath).mode & 0o777).toBe(0o600);
-    expect(fs.readFileSync(runtime.capabilityPath, 'utf8')).toBe(runtime.capability.toString('hex'));
+    const capabilityFile = readCapabilityFile(runtime.capabilityPath);
+    expect(capabilityFile.mode).toBe(0o600);
+    expect(capabilityFile.contents).toBe(runtime.capability.toString('hex'));
     expect(fs.existsSync(path.join(runState.journalDir!, `${runState.runId}.journal`))).toBe(true);
     expect(() => prepareHostExecutorRuntime({ runState, runtimeDir })).toThrow(/already exists/);
-    expect(fs.readFileSync(runtime.capabilityPath, 'utf8')).toBe(runtime.capability.toString('hex'));
+    expect(readCapabilityFile(runtime.capabilityPath).contents).toBe(runtime.capability.toString('hex'));
     runtime.capability.fill(0);
   });
 
