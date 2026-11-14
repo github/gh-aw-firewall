@@ -123,7 +123,11 @@ describeLinux('Docker host container operations', () => {
     )).resolves.toBe(7);
     expect(launched).toHaveBeenCalledTimes(1);
     expect(exited).toHaveBeenCalledWith({ running: false, exitCode: 7, oomKilled: false });
-    expect(diagnostic.events.map(event => event.stage)).toEqual(['workload-start', 'workload-exit']);
+    expect(diagnostic.events).toEqual([
+      { stage: 'workload-start', status: 'started' },
+      { stage: 'workload-start', status: 'succeeded' },
+      { stage: 'workload-exit', status: 'succeeded' },
+    ]);
   });
 
   test('does not launch an already cancelled invocation', async () => {
