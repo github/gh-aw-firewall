@@ -1,5 +1,26 @@
-import * as path from 'path';
 import type { CloudHypervisorDirectoryExport } from './exports';
+import { readExactMounts, readTreeMountInfo } from './mount-tree-parse';
+import type { MountInfoEntry } from './mount-tree-parse';
+import {
+  assertCleanAbsolutePath,
+  assertContainedPath,
+  assertNoOverlap,
+  containsOrEquals,
+  containsPath,
+  pathDepth,
+  stagedPathFor,
+} from './mount-tree-paths';
+import {
+  assertMountToolSupported,
+  assertRootMount,
+  MountTreeVerifier,
+  remountOptionsSatisfied,
+} from './mount-tree-verify';
+import type { ResolvedMask, ResolvedOverlay } from './mount-tree-verify';
+
+export { parseMountInfo } from './mount-tree-parse';
+export type { MountInfoEntry } from './mount-tree-parse';
+export { assertMountToolSupported } from './mount-tree-verify';
 
 /**
  * Host mount-tree enforcement for virtiofsd exports.
@@ -98,63 +119,14 @@ export interface StagedHostMountTreeOptions {
   readonly dependencies: MountTreeDependencies;
 }
 
-interface ResolvedOverlay {
-  readonly source: string;
-  readonly stagedDestination: string;
-  readonly kind: VirtiofsdOverlayKind;
-}
-
-interface ResolvedMask {
-  readonly stagedDestination: string;
-}
-
-export interface MountInfoEntry {
-  readonly mountPoint: string;
-  readonly options: readonly string[];
-  readonly optionalFields: readonly string[];
-}
-
 const MAX_WRITABLE_OVERLAYS = 64;
 const MAX_MASKED_PATHS = 16;
 const READONLY_REMOUNT_OPTIONS = 'remount,bind,ro,nosuid,nodev';
 const WRITABLE_REMOUNT_OPTIONS = 'remount,bind,rw,nosuid,nodev';
 const HARDENED_REMOUNT_OPTIONS = 'remount,bind,nosuid,nodev';
 const MASK_MOUNT_OPTIONS = 'ro,nosuid,nodev,size=0,mode=000';
-const MINIMUM_UTIL_LINUX = { major: 2, minor: 23 } as const;
 const BUSY_RETRY_ATTEMPTS = 5;
 const BUSY_RETRY_INTERVAL_MS = 25;
-
-/**
- * Recursive read-only enforcement is applied one mount at a time rather than
- * through libmount's `ro=recursive` option argument: on util-linux 2.39.3 (the
- * GitHub-hosted Ubuntu 24.04 runner version) `mount -o rbind,ro=recursive` and
- * `mount -o remount,bind,ro=recursive` both succeed while leaving submounts
- * writable, which would be a silent security failure. Per-mount remounts work on
- * every supported version; `--make-rprivate` needs util-linux >= 2.23.
- */
-export async function assertMountToolSupported(
-  tools: MountTreeTools,
-  dependencies: MountTreeDependencies,
-): Promise<void> {
-  const output = await dependencies.captureTool(tools.mount, ['--version']);
-  const match = /util-linux\s+(\d+)\.(\d+)/.exec(output);
-  if (!match) {
-    throw new Error(
-      `Unable to determine util-linux version for host mount-tree enforcement from: ${output.trim()}`,
-    );
-  }
-  const major = Number(match[1]);
-  const minor = Number(match[2]);
-  const supported =
-    major > MINIMUM_UTIL_LINUX.major ||
-    (major === MINIMUM_UTIL_LINUX.major && minor >= MINIMUM_UTIL_LINUX.minor);
-  if (!supported) {
-    throw new Error(
-      `Host mount-tree enforcement requires util-linux >= ${MINIMUM_UTIL_LINUX.major}.` +
-      `${MINIMUM_UTIL_LINUX.minor} for private mount propagation, found ${major}.${minor}`,
-    );
-  }
-}
 
 export function selectMountPlan(
   enforcement: VirtiofsdMountEnforcement | undefined,
@@ -199,8 +171,11 @@ export class StagedHostMountTree {
   private readonly pendingMounts = new Set<string>();
   private rootDirectoryCreated = false;
   private staged = false;
+  private readonly verifier: MountTreeVerifier;
 
-  constructor(private readonly options: StagedHostMountTreeOptions) {}
+  constructor(private readonly options: StagedHostMountTreeOptions) {
+    this.verifier = new MountTreeVerifier(options);
+  }
 
   get rootPath(): string {
     return this.options.rootPath;
@@ -266,7 +241,7 @@ export class StagedHostMountTree {
 
   private async stageReadonlyRoot(): Promise<void> {
     await this.stageRootBind(READONLY_REMOUNT_OPTIONS);
-    await this.assertTreeIsReadonly();
+    await this.verifier.assertTreeIsReadonly();
   }
 
   /**
@@ -276,7 +251,7 @@ export class StagedHostMountTree {
    */
   private async stageWritableRoot(): Promise<void> {
     await this.stageRootBind(HARDENED_REMOUNT_OPTIONS);
-    await this.assertTreeIsHardenedAndPrivate();
+    await this.verifier.assertTreeIsHardenedAndPrivate();
   }
 
   private async stageRootBind(remountOptions: string): Promise<void> {
@@ -284,25 +259,15 @@ export class StagedHostMountTree {
     await assertMountToolSupported(tools, dependencies);
     await dependencies.mkdir(this.rootPath, { recursive: true, mode: 0o700 });
     this.rootDirectoryCreated = true;
-    // Overlay destinations are validated by `realpath` equality against paths
-    // built from this root, so the root itself has to be canonical for that
-    // comparison to mean anything.
-    const resolvedRoot = await dependencies.realpath(this.rootPath);
-    if (resolvedRoot !== this.rootPath) {
-      throw new Error(
-        `Staged mount tree root must be canonical: ${this.rootPath} resolves to ${resolvedRoot}`,
-      );
-    }
+    await this.verifier.assertRootIsCanonical();
     await dependencies.runTool(tools.mount, ['--rbind', directoryExport.source, this.rootPath]);
     this.pendingMounts.add(this.rootPath);
     // Private propagation before anything writable exists, so neither the
     // read-only attributes nor the later overlays can leak into the host or the
     // original export's peer group.
     await dependencies.runTool(tools.mount, ['--make-rprivate', this.rootPath]);
-    const staged = await this.readTreeMountInfo();
-    if (!staged.some((entry) => entry.mountPoint === this.rootPath)) {
-      throw new Error(`Staged mount tree is missing its root mount: ${this.rootPath}`);
-    }
+    const staged = await readTreeMountInfo(dependencies, this.rootPath);
+    assertRootMount(staged, this.rootPath);
     const targets = staged
       .map((entry) => entry.mountPoint)
       .sort((left, right) => pathDepth(right) - pathDepth(left));
@@ -336,7 +301,7 @@ export class StagedHostMountTree {
         return;
       } catch (error) {
         if (!isBusyMountError(error)) throw error;
-        const entries = await this.readExactMounts(target);
+        const entries = await readExactMounts(dependencies, target);
         if (entries.length === 0) return;
         this.assertOwnedTarget(target, 'unmount');
         if (attempt === BUSY_RETRY_ATTEMPTS) throw error;
@@ -349,7 +314,7 @@ export class StagedHostMountTree {
     target: string,
     busyError: unknown,
   ): Promise<MountInfoEntry> {
-    const entries = await this.readExactMounts(target);
+    const entries = await readExactMounts(this.options.dependencies, target);
     if (entries.length !== 1) {
       throw new Error(
         `Refusing to reconcile busy remount for ambiguous staged mount ${target}: ` +
@@ -358,11 +323,6 @@ export class StagedHostMountTree {
     }
     this.assertOwnedTarget(target, 'remount');
     return entries[0];
-  }
-
-  private async readExactMounts(target: string): Promise<MountInfoEntry[]> {
-    return parseMountInfo(await this.options.dependencies.readMountInfo())
-      .filter((entry) => entry.mountPoint === target);
   }
 
   private assertOwnedTarget(target: string, operation: 'remount' | 'unmount'): void {
@@ -393,8 +353,8 @@ export class StagedHostMountTree {
   private async stageWritableOverlays(overlays: readonly ResolvedOverlay[]): Promise<void> {
     const { dependencies, tools } = this.options;
     for (const overlay of overlays) {
-      await this.assertOverlaySource(overlay);
-      await this.assertOverlayDestination(overlay);
+      await this.verifier.assertOverlaySource(overlay);
+      await this.verifier.assertOverlayDestination(overlay);
       // Non-recursive bind: a writable directory never exposes submounts nested
       // inside it. The follow-up remount sets the flags explicitly instead of
       // inheriting whatever the source mount carried.
@@ -415,13 +375,13 @@ export class StagedHostMountTree {
       await dependencies.runTool(tools.mount, ['--make-rprivate', overlay.stagedDestination]);
       await this.remountOwnedTarget(WRITABLE_REMOUNT_OPTIONS, overlay.stagedDestination);
     }
-    await this.assertOnlyOverlaysAreWritable(overlays);
+    await this.verifier.assertOnlyOverlaysAreWritable(overlays);
   }
 
   private async stageMasks(masks: readonly ResolvedMask[]): Promise<void> {
     const { dependencies, tools } = this.options;
     for (const mask of masks) {
-      await this.assertMaskDestination(mask);
+      await this.verifier.assertMaskDestination(mask);
       // A synthetic tmpfs, not a bind: there is no host source to leak, so it
       // is mounted read-only directly rather than bound and then remounted.
       await dependencies.runTool(tools.mount, [
@@ -434,7 +394,7 @@ export class StagedHostMountTree {
       ]);
       this.pendingMounts.add(mask.stagedDestination);
     }
-    await this.assertMasksAreHidden(masks);
+    await this.verifier.assertMasksAreHidden(masks);
   }
 
   private async rollback(cause: unknown): Promise<void> {
@@ -535,212 +495,6 @@ export class StagedHostMountTree {
       ),
     };
   }
-
-  /**
-   * Defense in depth: the overlay source lives in the still-writable original
-   * export, so it is re-validated immediately before the bind. `realpath`
-   * equality rejects symlinked components and any escape out of the export.
-   */
-  private async assertOverlaySource(overlay: ResolvedOverlay): Promise<void> {
-    const { dependencies, directoryExport } = this.options;
-    const resolved = await dependencies.realpath(overlay.source);
-    if (resolved !== overlay.source) {
-      throw new Error(
-        `Writable overlay source must be canonical: ${overlay.source} resolves to ${resolved}`,
-      );
-    }
-    assertContainedPath(
-      directoryExport.source,
-      resolved,
-      `export "${directoryExport.tag}" overlay source`,
-    );
-    const stats = await dependencies.statPath(overlay.source);
-    assertStatsMatchKind(stats, overlay.kind, `writable overlay source ${overlay.source}`);
-  }
-
-  /**
-   * The destination is inspected inside the staged tree, which is already
-   * recursively read-only and privately propagated, so it cannot be swapped
-   * between this check and the bind.
-   *
-   * `lstat` alone is not sufficient: it only reveals a symlink in the final
-   * component, while the kernel resolves every intermediate component when it
-   * binds. A staged `tools -> /etc` symlink would make `tools/sudoers` lstat as
-   * an ordinary file and then bind over the host's `/etc/sudoers`. `realpath`
-   * equality rejects a symlink in any component, and the containment check
-   * keeps the resolved target inside the staged root.
-   */
-  private async assertOverlayDestination(overlay: ResolvedOverlay): Promise<void> {
-    const { dependencies } = this.options;
-    const label = `writable overlay destination ${overlay.stagedDestination}`;
-    const resolved = await dependencies.realpath(overlay.stagedDestination);
-    if (resolved !== overlay.stagedDestination) {
-      throw new Error(
-        `Writable overlay destination must be canonical: ${overlay.stagedDestination} resolves to ${resolved}`,
-      );
-    }
-    assertContainedPath(this.rootPath, resolved, label);
-    const stats = await dependencies.statPath(overlay.stagedDestination);
-    assertStatsMatchKind(stats, overlay.kind, label);
-  }
-
-  private async assertTreeIsReadonly(): Promise<void> {
-    const entries = await this.readTreeMountInfo();
-    if (!entries.some((entry) => entry.mountPoint === this.rootPath)) {
-      throw new Error(`Staged mount tree is missing its root mount: ${this.rootPath}`);
-    }
-    for (const entry of entries) {
-      if (!entry.options.includes('ro')) {
-        throw new Error(
-          `Staged mount tree is not recursively read-only: ${entry.mountPoint} is writable`,
-        );
-      }
-      assertHardenedOptions(entry);
-      assertPrivatePropagation(entry);
-    }
-  }
-
-  private async assertOnlyOverlaysAreWritable(overlays: readonly ResolvedOverlay[]): Promise<void> {
-    const expected = new Set(overlays.map((overlay) => overlay.stagedDestination));
-    const entries = await this.readTreeMountInfo();
-    const writable = new Set<string>();
-    for (const entry of entries) {
-      assertHardenedOptions(entry);
-      assertPrivatePropagation(entry);
-      if (entry.options.includes('ro')) continue;
-      if (!expected.has(entry.mountPoint)) {
-        throw new Error(
-          `Unexpected writable mount in staged tree: ${entry.mountPoint}`,
-        );
-      }
-      writable.add(entry.mountPoint);
-    }
-    for (const destination of expected) {
-      if (!writable.has(destination)) {
-        throw new Error(`Writable overlay was not applied: ${destination}`);
-      }
-    }
-  }
-
-  /**
-   * Counterpart to {@link assertTreeIsReadonly} for a masks-only plan: the
-   * staged root must stay read-write (masks are applied afterwards, on top of
-   * this), but every mount still has to be hardened and privately propagated.
-   */
-  private async assertTreeIsHardenedAndPrivate(): Promise<void> {
-    const entries = await this.readTreeMountInfo();
-    const root = entries.find((entry) => entry.mountPoint === this.rootPath);
-    if (!root) {
-      throw new Error(`Staged mount tree is missing its root mount: ${this.rootPath}`);
-    }
-    if (!root.options.includes('rw')) {
-      throw new Error(`Staged mount tree root is not writable: ${this.rootPath}`);
-    }
-    for (const entry of entries) {
-      assertHardenedOptions(entry);
-      assertPrivatePropagation(entry);
-    }
-  }
-
-  /**
-   * Same rationale as {@link assertOverlayDestination}: the mask target is
-   * inspected inside the already privately propagated staged tree, and
-   * `realpath` equality rejects a symlink in any path component so a mask can
-   * never be redirected onto an unrelated host directory.
-   */
-  private async assertMaskDestination(mask: ResolvedMask): Promise<void> {
-    const { dependencies } = this.options;
-    const label = `masked destination ${mask.stagedDestination}`;
-    const resolved = await dependencies.realpath(mask.stagedDestination);
-    if (resolved !== mask.stagedDestination) {
-      throw new Error(
-        `Masked destination must be canonical: ${mask.stagedDestination} resolves to ${resolved}`,
-      );
-    }
-    assertContainedPath(this.rootPath, resolved, label);
-    const stats = await dependencies.statPath(mask.stagedDestination);
-    assertStatsMatchKind(stats, 'directory', label);
-  }
-
-  private async assertMasksAreHidden(masks: readonly ResolvedMask[]): Promise<void> {
-    if (masks.length === 0) return;
-    const expected = new Set(masks.map((mask) => mask.stagedDestination));
-    const entries = await this.readTreeMountInfo();
-    const applied = new Set<string>();
-    for (const entry of entries) {
-      if (!expected.has(entry.mountPoint)) continue;
-      if (!entry.options.includes('ro')) {
-        throw new Error(`Masked mount is not read-only: ${entry.mountPoint}`);
-      }
-      assertHardenedOptions(entry);
-      assertPrivatePropagation(entry);
-      applied.add(entry.mountPoint);
-    }
-    for (const destination of expected) {
-      if (!applied.has(destination)) {
-        throw new Error(`Masked path was not applied: ${destination}`);
-      }
-    }
-  }
-
-  private async readTreeMountInfo(): Promise<MountInfoEntry[]> {
-    const entries = parseMountInfo(await this.options.dependencies.readMountInfo());
-    return entries.filter(
-      (entry) => entry.mountPoint === this.rootPath || containsPath(this.rootPath, entry.mountPoint),
-    );
-  }
-}
-
-export function parseMountInfo(contents: string): MountInfoEntry[] {
-  const entries: MountInfoEntry[] = [];
-  for (const line of contents.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
-    const fields = trimmed.split(' ');
-    const separator = fields.indexOf('-');
-    if (fields.length < 7 || separator < 6) continue;
-    entries.push({
-      mountPoint: unescapeMountInfoPath(fields[4]),
-      options: fields[5].split(','),
-      optionalFields: fields.slice(6, separator),
-    });
-  }
-  return entries;
-}
-
-function assertPrivatePropagation(entry: MountInfoEntry): void {
-  const propagation = entry.optionalFields.find(
-    (field) =>
-      field.startsWith('shared:') ||
-      field.startsWith('master:') ||
-      field.startsWith('propagate_from:'),
-  );
-  if (propagation !== undefined) {
-    throw new Error(
-      `Staged mount tree propagation would leak: ${entry.mountPoint} has ${propagation}`,
-    );
-  }
-}
-
-function assertHardenedOptions(entry: MountInfoEntry): void {
-  for (const option of ['nosuid', 'nodev']) {
-    if (!entry.options.includes(option)) {
-      throw new Error(`Staged mount ${entry.mountPoint} is missing ${option}`);
-    }
-  }
-}
-
-function remountOptionsSatisfied(entry: MountInfoEntry, remountOptions: string): boolean {
-  const requested = new Set(remountOptions.split(','));
-  const expectedMode = requested.has('ro') ? 'ro' : requested.has('rw') ? 'rw' : undefined;
-  if (expectedMode !== undefined && !entry.options.includes(expectedMode)) return false;
-  return ['nosuid', 'nodev'].every((option) => entry.options.includes(option)) &&
-    !entry.optionalFields.some(
-      (field) =>
-        field.startsWith('shared:') ||
-        field.startsWith('master:') ||
-        field.startsWith('propagate_from:'),
-    );
 }
 
 function isBusyMountError(error: unknown): boolean {
@@ -752,81 +506,6 @@ function isBusyMountError(error: unknown): boolean {
 function isBusyDirectoryError(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   return code === 'EBUSY' || code === 'ENOTEMPTY';
-}
-
-function assertStatsMatchKind(
-  stats: MountTreeStats,
-  kind: VirtiofsdOverlayKind,
-  label: string,
-): void {
-  if (stats.isSymbolicLink()) {
-    throw new Error(`${label} must not be a symbolic link`);
-  }
-  if (kind === 'directory' && !stats.isDirectory()) {
-    throw new Error(`${label} must be an existing directory`);
-  }
-  if (kind === 'file' && !stats.isFile()) {
-    throw new Error(`${label} must be an existing regular file`);
-  }
-}
-
-function assertCleanAbsolutePath(value: string, label: string): void {
-  if (
-    typeof value !== 'string' ||
-    !path.isAbsolute(value) ||
-    path.normalize(value) !== value ||
-    value === '/' ||
-    value.endsWith('/') ||
-    value.includes('\0') ||
-    Buffer.byteLength(value) > 4096
-  ) {
-    throw new Error(`Cloud Hypervisor ${label} must be an absolute clean non-root path: ${value}`);
-  }
-}
-
-function assertContainedPath(parent: string, child: string, label: string): void {
-  if (!containsPath(parent, child)) {
-    throw new Error(`Cloud Hypervisor ${label} must stay inside ${parent}: ${child}`);
-  }
-}
-
-function containsPath(parent: string, child: string): boolean {
-  const relative = path.relative(parent, child);
-  return (
-    relative !== '' &&
-    relative !== '..' &&
-    !relative.startsWith(`..${path.sep}`) &&
-    !path.isAbsolute(relative)
-  );
-}
-
-function containsOrEquals(left: string, right: string): boolean {
-  return left === right || containsPath(left, right) || containsPath(right, left);
-}
-
-function assertNoOverlap(existing: readonly string[], candidate: string, label: string): void {
-  for (const other of existing) {
-    if (other === candidate) {
-      throw new Error(`Duplicate ${label} destination: ${candidate}`);
-    }
-    if (containsPath(other, candidate) || containsPath(candidate, other)) {
-      throw new Error(`Overlapping ${label} destinations: ${other} and ${candidate}`);
-    }
-  }
-}
-
-function stagedPathFor(rootPath: string, source: string, destination: string): string {
-  return path.join(rootPath, path.relative(source, destination));
-}
-
-function pathDepth(value: string): number {
-  return value.split(path.sep).length;
-}
-
-function unescapeMountInfoPath(value: string): string {
-  return value.replace(/\\([0-7]{3})/g, (_match, code: string) =>
-    String.fromCharCode(parseInt(code, 8)),
-  );
 }
 
 function formatError(error: unknown): string {
