@@ -157,6 +157,15 @@ Three capability queries drive the rest of the codebase:
 
 `sbx-manager.ts` is a thin, well-documented wrapper over the `sbx` CLI:
 
+The focused modules under `src/sbx/` separate creation/environment handling,
+execution, and verification; each `SbxLifecycleManager` owns a
+`CredentialScrubHandle` for credential scrub/restore state. The existing named
+functions use a default lifecycle; creation across instances must still be
+serialized because it temporarily changes `process.env`.
+The class is an internal test seam, not a same-home concurrency API: lifecycles
+sharing a host home must not overlap, even when their creation is serialized,
+because restoring credentials would expose them through another live mount.
+
 - **`createSandbox(config)`** — probes auth (`sbx ls`, falling back to
   `sbx daemon status` for diagnostics), then runs `sbx create --name <n> shell
   <workspace> [mounts...]`. It translates AWF's Docker-style
@@ -248,8 +257,8 @@ hold tool settings but also stash a secret in a well-known child — e.g.
 `service_principal_entries.json`). Because the parent is mounted
 wholesale and sbx cannot overlay or mask a nested path, the manager instead
 **moves those credential paths aside on the host before `sbx create` and restores
-them after the sandbox is torn down** (`scrubHomeCredentials` /
-`restoreHomeCredentials` in `sbx-manager.ts`). The move target is a
+them after the sandbox is torn down** (`CredentialScrubHandle.scrubHomeCredentials` /
+`restoreHomeCredentials` in `src/sbx/credential-scrub.ts`). The move target is a
 `.awf-sbx-cred-backup-<pid>` dir at the home root — never a mounted subdir — so
 the secrets are absent from the VM while the benign tool state stays available.
 This is the sbx analog of compose mode's `/dev/null` credential overlays, and the
