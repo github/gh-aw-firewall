@@ -5,7 +5,7 @@ import * as enginePatterns from './engine-lifecycle-patterns';
 import * as cachePatterns from './cache-memory-patterns';
 import * as session from './session-state';
 import * as concurrency from './concurrency';
-import { configureNpmFeed, installLocalAwf } from './network-and-install';
+import { configureNpmFeed, installLocalAwf, normalizePreparedImages } from './network-and-install';
 import { gateEngineLifecycle } from './engine-lifecycle';
 import { excludeAuditorCredentials, excludeAzureCredentials, restrictRecoveryRoots } from './credentials';
 import { hardenCacheMemory, restrictDiagnosisCacheContext } from './cache-memory';
@@ -107,6 +107,18 @@ describe('standalone workflow patch domains', () => {
     expect(installLocalAwf(configLine, context('/repo/build-test.lock.yml')).content).toBe(configLine);
     const otherConfig = input.replace('/awf-config.json"', '/tool-config.json"');
     expect(installLocalAwf(otherConfig, context('/repo/build-test.lock.yml')).content).toBe(otherConfig);
+  });
+
+  it('keeps all committed local-image workflow configs synchronized with postprocessing', () => {
+    const workflows = path.resolve(__dirname, '../../../.github/workflows');
+    const stale = fs.readdirSync(workflows).filter(name => {
+      if (!name.endsWith('.lock.yml')) return false;
+      const file = path.join(workflows, name);
+      const input = fs.readFileSync(file, 'utf8');
+      const normalized = normalizePreparedImages(input, context(file)).content;
+      return installLocalAwf(normalized, context(file)).content !== input;
+    });
+    expect(stale).toEqual([]);
   });
 
   it.each(['true', '1'])('collects both session invocation shapes when opted in with %s', value => {

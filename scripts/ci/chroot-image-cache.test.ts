@@ -20,6 +20,34 @@ const action = yaml.load(fs.readFileSync(path.join(root, '.github/actions/build-
   runs: { using: string; steps: Step[] };
 };
 
+test('smoke chroot pre-agent cleanup preserves workflow prompts and test results', () => {
+  const source = fs.readFileSync(path.join(root, '.github/workflows/smoke-chroot.md'), 'utf8');
+  const smoke = yaml.load(source.split('---')[1]) as { steps: Step[] };
+  const cleanup = smoke.steps.find(step => step.name === 'Cleanup test containers')!.run!;
+  expect(cleanup).not.toContain('scripts/ci/cleanup.sh');
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-chroot-cleanup-'));
+  try {
+    const evidence = ['prompt.txt', 'user.txt', 'results.env'];
+    for (const file of evidence) fs.writeFileSync(path.join(temp, file), 'preserved');
+    const result = spawnSync('/bin/bash', ['-euc', `docker() { printf '%s\\n' "$*"; }\n${cleanup}`], {
+      cwd: temp,
+      encoding: 'utf8',
+      env: { PATH: temp },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('rm -f awf-squid awf-agent');
+    expect(result.stdout).toContain('network rm awf-net');
+    for (const file of evidence) expect(fs.readFileSync(path.join(temp, file), 'utf8')).toBe('preserved');
+    const lock = yaml.load(fs.readFileSync(path.join(root, '.github/workflows/smoke-chroot.lock.yml'), 'utf8')) as {
+      jobs: { agent: { steps: Step[] } };
+    };
+    expect(lock.jobs.agent.steps.find(step => step.name === 'Cleanup test containers')!.run).toBe(cleanup);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
 describe('chroot cached image wiring', () => {
   it('keeps every job, suite, timeout and cleanup while using the shared cache builder', () => {
     const expected = [

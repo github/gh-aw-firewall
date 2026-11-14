@@ -168,7 +168,8 @@ steps:
   - name: Cleanup test containers
     if: always()
     run: |
-      ./scripts/ci/cleanup.sh || true
+      docker rm -f awf-squid awf-agent awf-iptables-init awf-api-proxy awf-cli-proxy awf-cli-proxy-mcpg || true
+      docker network rm awf-net || true
   - name: Ensure .copilot directory permissions
     run: |
       mkdir -p /home/runner/.copilot

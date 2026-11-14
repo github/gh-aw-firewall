@@ -189,6 +189,34 @@ ${preparation.run}
     expect(options).toEqual({ imageRegistry: 'awf-smoke', imageTag: 'run-12345-2', skipPull: true });
   });
 
+  it('stages configs that select the prepared images in every routing mode', () => {
+    const lock = yaml.load(fs.readFileSync(workflowPath, 'utf8')) as {
+      jobs: { agent: { steps: Step[] } };
+    };
+    const execute = lock.jobs.agent.steps.find(step => step.name === `Execute ${engine} CLI`)!.run!;
+    const configs = execute.split('\n').filter(line => line.startsWith("printf '%s\\n' ") && line.endsWith('/awf-config.json"'));
+    expect(configs.length).toBeGreaterThan(0);
+    fs.mkdirSync(path.join(directory, 'gh-aw'));
+    for (const stage of configs) {
+      const result = spawnSync('bash', ['-euc', stage], {
+        env: { PATH: process.env.PATH, RUNNER_TEMP: directory, GH_AW_MAX_AI_CREDITS: '10' },
+        encoding: 'utf8',
+      });
+      expect(result.status).toBe(0);
+      const config = JSON.parse(fs.readFileSync(path.join(directory, 'gh-aw/awf-config.json'), 'utf8'));
+      expect(config.container).not.toHaveProperty('images');
+      expect(config.container).not.toHaveProperty('imageTag');
+      const compose = generateDockerCompose({
+        ...baseConfig, ...config.container, workDir: directory,
+        enableApiProxy: true, copilotGithubToken: 'fixture',
+        imageRegistry: 'awf-smoke', imageTag: 'run-12345-2', skipPull: true,
+      }, { ...mockNetworkConfig, proxyIp: '172.30.0.30' });
+      expect(compose.services['squid-proxy'].image).toBe('awf-smoke/squid:run-12345-2');
+      expect(compose.services.agent.image).toBe('awf-smoke/agent:run-12345-2');
+      expect(compose.services['api-proxy'].image).toBe('awf-smoke/api-proxy:run-12345-2');
+    }
+  });
+
   it('rejects prepared-image workflows without a local CLI install anchor', () => {
     expect(() => applyGeneralWorkflowPatches(
       `      - name: ${preparation.name}\n        run: echo prepare\n`, workflowPath,
