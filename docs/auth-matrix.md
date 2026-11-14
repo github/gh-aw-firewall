@@ -561,7 +561,7 @@ When `AWF_AUTH_TYPE=github-oidc` with Copilot:
 :::caution[Agent routing is credential-triggered]
 Cloud OIDC configuration can initialize credentials in the sidecar, but the agent's OpenAI and Copilot base URLs/placeholders are currently configured only when the corresponding static OpenAI/Copilot credential is present. Treat Azure, GCP, and AWS OIDC support for OpenAI/Copilot as sidecar authentication capability rather than a complete keyless agent-routing path until OIDC-aware agent routing is implemented for those adapters.
 
-OpenAI native WIF (`isOpenAiOidcConfigured()`), Anthropic WIF (`shouldProxyAnthropic()` recognizes `AWF_AUTH_PROVIDER=anthropic`), and GCP WIF for Gemini and Vertex AI (`isGcpOidcConfigured()` in `gemini-credential-env.ts`/`vertex-credential-env.ts`, added in [PR #8888](https://github.com/github/gh-aw-firewall/pull/8888)) set agent base-URL/placeholder env vars from OIDC config alone, without a static key. GCP OIDC routing for **Copilot** specifically remains credential-triggered only; `buildCopilotCredentialEnv()` does not check `isGcpOidcConfigured()`.
+OpenAI native WIF (`isOpenAiOidcConfigured()`), Anthropic WIF (`shouldProxyAnthropic()` recognizes `AWF_AUTH_PROVIDER=anthropic`), and GCP WIF for Gemini and Vertex AI (`isGcpOidcConfigured()` in `gemini-credential-env.ts`/`vertex-credential-env.ts`, added in [PR #8888](https://github.com/github/gh-aw-firewall/pull/8888)) set agent base-URL/placeholder env vars from OIDC config alone, without a static key. Azure OIDC does not set OpenAI agent routing. GCP OIDC routing for **Copilot** specifically remains credential-triggered only; `buildCopilotCredentialEnv()` does not check `isGcpOidcConfigured()`.
 :::
 
 :::note[AWS OIDC + Copilot]
@@ -679,7 +679,7 @@ All OIDC flows require GitHub Actions runtime tokens:
 
 Documentation audits treat both as non-observable credentials: they verify `id-token: write` and sidecar configuration but never request or print either value, a minted JWT, or exchanged cloud credentials.
 
-AWF forwards these variables to the api-proxy sidecar in `github-oidc` mode, and also when `GH_AW_OTLP_WORKLOAD_IDENTITY` is configured to enable OIDC workload identity for the OTLP trace exporter; both cases exclude the variables from the agent container. GitHub Agentic Workflows independently passes them from its runner-owned **Start MCP Gateway** step directly to the MCP gateway when a remote HTTP MCP server uses `auth.type: github-oidc`; AWF does not launch or configure that gateway. [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) is resolved by [github/gh-aw#50054](https://github.com/github/gh-aw/pull/50054), which enforces this boundary.
+AWF forwards these variables to the api-proxy sidecar in `github-oidc` mode, and also when `GH_AW_OTLP_WORKLOAD_IDENTITY` is configured to enable OIDC workload identity for the OTLP trace exporter (`buildOtelEnv()` in `src/services/api-proxy-env-config.ts`); both cases exclude the variables from the agent container. GitHub Agentic Workflows independently passes them from its runner-owned **Start MCP Gateway** step directly to the MCP gateway when a remote HTTP MCP server uses `auth.type: github-oidc`; AWF does not launch or configure that gateway. [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) is resolved by [github/gh-aw#50054](https://github.com/github/gh-aw/pull/50054), which enforces this boundary.
 
 ### Azure (Entra ID)
 
@@ -788,6 +788,17 @@ The `token` prefix is used for classic PAT/OAuth GitHub tokens on the enterprise
 ---
 
 ## Custom Headers & Injection
+
+### Trusted LLM service secret headers (`trustedService`)
+
+For OpenAI and Anthropic, `apiProxy.targets.<provider>.trustedService` routes the sidecar to a caller-managed HTTPS service instead of the provider host (`readTrustedService()` in `containers/api-proxy/trusted-service.js`). The service is an upstream of the API proxy and is never selected by an agent-supplied URL or header.
+
+| Setting | Meaning |
+|---------|---------|
+| `endpoint` | Exact HTTPS endpoint on a dotted, non-IP hostname (no `localhost`, `.local`, or `.internal` names); optional path prefix only |
+| `secretHeaders` | Map of supplemental header name → **runner environment variable name** (never a literal value) |
+
+AWF rejects reserved authentication, routing, framing, and hop-by-hop headers, the configured provider authentication header, and case-insensitive duplicates. Secret source variables are excluded from the agent, and resolved values are never written to configuration, reflection, diagnostics, or logs. AWS and GCP OIDC request signing are not supported with this contract. See the [trusted-service contract](awf-config-spec.md#910-trusted-llm-services).
 
 ### Protected Headers (cannot be overridden)
 

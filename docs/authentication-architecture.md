@@ -671,7 +671,7 @@ AWF keeps the Actions OIDC request capability, minted GitHub JWT, and exchanged 
 
 #### Step 1: Configuration forwarding
 
-The AWF CLI forwards `AWF_AUTH_*` configuration and the Actions runtime OIDC request URL and token only to the api-proxy sidecar. `buildOidcEnv()` conditionally adds the runtime variables to the sidecar in `github-oidc` mode, while `buildExclusionSet()` prevents every agent environment input path from adding them.
+The AWF CLI forwards `AWF_AUTH_*` configuration and the Actions runtime OIDC request URL and token only to the api-proxy sidecar. `buildOidcEnv()` adds the runtime variables in `github-oidc` mode, and `buildOtelEnv()` adds them when `GH_AW_OTLP_WORKLOAD_IDENTITY` is set for OTLP exporter workload identity. `buildExclusionSet()` prevents every agent environment input path from adding them.
 
 ```
 Host environment                    Sidecar container          Agent container
@@ -679,7 +679,7 @@ Host environment                    Sidecar container          Agent container
 AWF_AUTH_TYPE=github-oidc    ──►    AWF_AUTH_TYPE ✓            ✗ (excluded)
 AWF_AUTH_PROVIDER=azure      ──►    AWF_AUTH_PROVIDER ✓        ✗ (excluded)
 AWF_AUTH_AZURE_TENANT_ID=... ──►    AWF_AUTH_AZURE_TENANT_ID ✓ ✗ (excluded)
-ACTIONS_ID_TOKEN_REQUEST_URL ──►    forwarded when type=oidc ✓ ✗ (excluded)
+ACTIONS_ID_TOKEN_REQUEST_URL ──►    forwarded for OIDC auth or OTLP WIF ✓ ✗ (excluded)
 ```
 
 :::note[OIDC-authenticated MCP servers]

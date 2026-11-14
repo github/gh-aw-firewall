@@ -1892,7 +1892,7 @@ AWF supports OIDC-based credential exchange with multiple cloud providers via Gi
 Never print or inspect either Actions OIDC variable. Documentation audits should verify the `id-token: write` permission and the presence/consistency of non-secret provider configuration instead.
 
 :::note[OIDC request capability is sidecar-only]
-AWF forwards `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` only to the api-proxy sidecar when `AWF_AUTH_TYPE=github-oidc`. The variables are excluded from the agent even when `--env-all`, `--env-file`, or explicit `--env` options request them. The minted GitHub JWT and exchanged provider credentials also remain inside the sidecar.
+AWF forwards `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` only to the api-proxy sidecar when `AWF_AUTH_TYPE=github-oidc` or when `GH_AW_OTLP_WORKLOAD_IDENTITY` is set for OTLP exporter workload identity (`buildOtelEnv()` in `src/services/api-proxy-env-config.ts`). The variables are excluded from the agent even when `--env-all`, `--env-file`, or explicit `--env` options request them. The minted GitHub JWT and exchanged provider credentials also remain inside the sidecar.
 
 GitHub Agentic Workflows handles HTTP MCP `auth.type: github-oidc` separately: the compiler-generated, runner-owned **Start MCP Gateway** step passes the Actions variables directly to the MCP gateway, which mints an audience-bound JWT for the remote server. AWF neither launches nor configures that gateway, and the variables do not need to pass through the agent. [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) is resolved by [github/gh-aw#50054](https://github.com/github/gh-aw/pull/50054); recompile older workflow lock files that predate this direct runner-to-gateway path.
 :::
@@ -1917,7 +1917,7 @@ Exchanges the GitHub OIDC JWT for an Azure AD access token via workload identity
 Default OIDC audience: `api://AzureADTokenExchange`
 
 :::caution[Agent routing is not automatically configured]
-Azure OIDC can initialize in the sidecar, but OIDC configuration alone does not set `OPENAI_BASE_URL` or OpenAI compatibility placeholders in the agent. `buildOpenAiCredentialEnv()` currently enables agent routing only when `OPENAI_API_KEY` is configured. Until OIDC-aware OpenAI routing is implemented, AWF does not provide a complete keyless Azure OpenAI invocation path.
+Azure OIDC can initialize in the sidecar, but OIDC configuration alone does not set `OPENAI_BASE_URL` or OpenAI compatibility placeholders in the agent. `buildOpenAiCredentialEnv()` enables agent routing when `OPENAI_API_KEY` is configured or when native OpenAI WIF is fully configured (`isOpenAiOidcConfigured()`, which requires `AWF_AUTH_PROVIDER=openai` plus both OpenAI IDs). Azure OIDC does not enable that path. Until OIDC-aware OpenAI routing is implemented for Azure, AWF does not provide a complete keyless Azure OpenAI invocation path.
 :::
 
 ### AWS Bedrock
@@ -1959,7 +1959,7 @@ Exchanges the GitHub OIDC JWT for a GCP access token via the Security Token Serv
 Default GitHub OIDC audience: `https://iam.googleapis.com/` followed by the `gcpWorkloadIdentityProvider` value. `AWF_AUTH_OIDC_AUDIENCE` overrides this default; the STS audience remains `//iam.googleapis.com/` followed by the provider resource name.
 
 :::note
-`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` are injected by the Actions runner automatically. AWF forwards them to the sidecar when `AWF_AUTH_TYPE=github-oidc` and excludes them from the agent container.
+`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` are injected by the Actions runner automatically. AWF forwards them to the sidecar when `AWF_AUTH_TYPE=github-oidc` or when `GH_AW_OTLP_WORKLOAD_IDENTITY` is set for OTLP exporter workload identity, and excludes them from the agent container.
 :::
 
 :::tip

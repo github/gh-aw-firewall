@@ -532,8 +532,10 @@ When `--env-all` IS active, all host variables not in the excluded set
 (§8.3) SHALL be forwarded, subject to credential isolation rules (§9).
 
 Actions OIDC request variables MUST be forwarded directly to the api-proxy
-sidecar when `apiProxy.auth.type` is `github-oidc` and MUST NOT be forwarded
-to the agent through any environment input path.
+sidecar when `apiProxy.auth.type` is `github-oidc` or when
+`GH_AW_OTLP_WORKLOAD_IDENTITY` is configured for OTLP exporter workload
+identity. They MUST NOT be forwarded to the agent through any environment
+input path.
 
 ### 8.5 Explicit Overrides
 
@@ -688,9 +690,10 @@ exchange protocol. A conforming implementation MUST:
 
 2. Forward the GitHub Actions OIDC runtime tokens
    (`ACTIONS_ID_TOKEN_REQUEST_URL`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN`) to
-   the sidecar when `AWF_AUTH_TYPE=github-oidc`. These are injected
-   automatically by the Actions runner when the workflow declares
-   `permissions: id-token: write`.
+   the sidecar when `AWF_AUTH_TYPE=github-oidc` or when
+   `GH_AW_OTLP_WORKLOAD_IDENTITY` is configured for OTLP exporter workload
+   identity. These are injected automatically by the Actions runner when the
+   workflow declares `permissions: id-token: write`.
 
    If OIDC is requested for a provider but these runtime variables are not
    present in the sidecar environment, the provider adapter MUST fail closed
