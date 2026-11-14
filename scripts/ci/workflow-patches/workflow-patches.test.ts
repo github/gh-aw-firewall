@@ -5,7 +5,7 @@ import * as enginePatterns from './engine-lifecycle-patterns';
 import * as cachePatterns from './cache-memory-patterns';
 import * as session from './session-state';
 import * as concurrency from './concurrency';
-import { configureNpmFeed, installLocalAwf } from './network-and-install';
+import { configureNpmFeed, installLocalAwf, normalizePreparedImages } from './network-and-install';
 import { gateEngineLifecycle } from './engine-lifecycle';
 import { excludeAuditorCredentials, excludeAzureCredentials, restrictRecoveryRoots } from './credentials';
 import { hardenCacheMemory, restrictDiagnosisCacheContext } from './cache-memory';
@@ -13,6 +13,8 @@ import { configureEnclaveReadiness, configureEnclaveDiagnostics } from './enclav
 import { declareDisabledAdmissionOutputs } from './admission';
 import type { PatchContext } from './types';
 import { buildScanInjectionStep } from '../workflow-step-builders';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const context = (workflowPath: string): PatchContext => ({
   workflowPath, workflowFile: workflowPath.split(/[/\\]/).pop(),
@@ -61,6 +63,62 @@ describe('standalone workflow patch domains', () => {
     expect(first.content).not.toContain('ghcr.io/github/gh-aw-firewall/agent:');
     expect(installLocalAwf(first.content, context('/repo/example.lock.yml')).content).toBe(first.content);
     expect(installLocalAwf(installStep, context('C:\\repo\\auth-doctor-updater.lock.yml')).content).toBe(installStep);
+  });
+
+  it.each([
+    { images: { agent: 'ghcr.io/github/gh-aw-firewall/agent:0.29.12' }, agentTimeout: 45 },
+    { agentTimeout: 45, images: { agent: 'ghcr.io/github/gh-aw-firewall/agent:0.29.12' } },
+    { agentTimeout: 45, images: { agent: 'ghcr.io/github/gh-aw-firewall/agent:0.29.12' }, memoryLimit: '8g' },
+    { images: { agent: 'ghcr.io/github/gh-aw-firewall/agent:0.29.12' } },
+  ])('removes pinned images from local-build configs without changing other settings: %j', container => {
+    const config = { network: { allowDomains: ['github.com'] }, container };
+    const configLine = `          printf '%s\\n' "${JSON.stringify(config).replace(/"/g, '\\"')}" > "\${RUNNER_TEMP}/gh-aw/awf-config.json"\n`;
+    const input = configLine.repeat(2) + '          awf --skip-pull -- command\n';
+    const first = installLocalAwf(input, context('/repo/build-test.lock.yml'));
+    const { images: _images, ...remaining } = container;
+    const expected = JSON.stringify({ ...config, container: remaining }).replace(/"/g, '\\"');
+    expect(first.content.split(expected)).toHaveLength(3);
+    expect(first.content).toContain('--build-local');
+    expect(installLocalAwf(first.content, context('/repo/build-test.lock.yml')).content).toBe(first.content);
+    expect(installLocalAwf(input, context('/repo/auth-doctor-updater.lock.yml')).content).toBe(input);
+  });
+
+  it('repairs both committed build-test configs while preserving pinned tool images', () => {
+    const lockPath = path.resolve(__dirname, '../../../.github/workflows/build-test.lock.yml');
+    const input = fs.readFileSync(lockPath, 'utf8');
+    const { content } = installLocalAwf(input, context(lockPath));
+    const configs = content.split('\n').filter(line => line.includes("printf '%s\\n'") && line.endsWith('/awf-config.json"'));
+    expect(configs).toHaveLength(2);
+    for (const line of configs) {
+      const container = line.match(/\\"container\\":(\{[^{}]*\})/)![1];
+      expect(JSON.parse(container.replace(/\\"/g, '"'))).toEqual({ agentTimeout: 45 });
+    }
+    expect(content).toContain('--build-local');
+    expect(content).toMatch(/ghcr\.io\/github\/gh-aw-mcpg:[^ ]+@sha256:/);
+  });
+
+  it('removes legacy digest tags only from local-build AWF configs', () => {
+    const configLine = String.raw`printf '%s\n' "{\"container\":{\"imageTag\":\"0.29.12,agent=sha256:abc\",\"agentTimeout\":45}}"` +
+      ' > "${RUNNER_TEMP}/gh-aw/awf-config.json"';
+    const input = configLine + '\nawf --build-local -- command\n';
+    const { content } = installLocalAwf(input, context('/repo/build-test.lock.yml'));
+    expect(content).toContain(String.raw`\"container\":{\"agentTimeout\":45}`);
+    expect(content).not.toContain('imageTag');
+    expect(installLocalAwf(configLine, context('/repo/build-test.lock.yml')).content).toBe(configLine);
+    const otherConfig = input.replace('/awf-config.json"', '/tool-config.json"');
+    expect(installLocalAwf(otherConfig, context('/repo/build-test.lock.yml')).content).toBe(otherConfig);
+  });
+
+  it('keeps all committed local-image workflow configs synchronized with postprocessing', () => {
+    const workflows = path.resolve(__dirname, '../../../.github/workflows');
+    const stale = fs.readdirSync(workflows).filter(name => {
+      if (!name.endsWith('.lock.yml')) return false;
+      const file = path.join(workflows, name);
+      const input = fs.readFileSync(file, 'utf8');
+      const normalized = normalizePreparedImages(input, context(file)).content;
+      return installLocalAwf(normalized, context(file)).content !== input;
+    });
+    expect(stale).toEqual([]);
   });
 
   it.each(['true', '1'])('collects both session invocation shapes when opted in with %s', value => {

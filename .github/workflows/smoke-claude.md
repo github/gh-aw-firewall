@@ -138,7 +138,7 @@ post-steps:
 
 # Smoke Test: Claude Engine Validation
 
-The host preparation step builds the checked-out Squid, agent, and API proxy
+The host preparation step builds the checked-out Squid, agent, API proxy, and router
 images with a separate 35-minute budget. Repository post-processing selects
 those run-specific local images with `--skip-pull`, leaving the 20-minute Claude
 execution budget for startup and the smoke checks rather than cold builds.

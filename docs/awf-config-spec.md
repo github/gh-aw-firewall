@@ -3019,8 +3019,11 @@ enclaves:
 - **Entry-level controls** — `runtime`, `image`, `memoryLimit`, `cpuLimit`, `pidsLimit`, `tmpfsLimit`, `maxOutputBytes`, and `maxInvocations` apply to the entry's selected executor. `script.maxScriptBytes` and agent `maxTaskBytes`, `maxModelRequests`, and `maxModelTokens` remain executor-specific. Network and interpreter are AWF-owned invariants, not input fields.
 
 Docker enclaves support an unprivileged AWF host process (`gh-aw --rootless`)
-using the version-matched, narrowly authorized storage helper from `install.sh`;
-this does **not** support a rootless Docker daemon. Helper-backed `tmpfsLimit`
+using the version-matched, narrowly authorized storage helper from `install.sh`.
+Install or upgrade the helper with
+`bash ./install.sh vX.Y.Z --install-enclave-storage-helper`; ordinary CLI
+installation does not provision it.
+This does **not** support a rootless Docker daemon. Helper-backed `tmpfsLimit`
 has a hard 4 GiB host-allocation ceiling. Preflight requires noninteractive
 helper authorization and private host-only allocation paths; no configuration
 or environment variable may select another helper or weaken mount/network

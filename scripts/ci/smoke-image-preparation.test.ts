@@ -8,6 +8,10 @@ import { generateDockerCompose } from '../../src/compose-generator';
 import { getSafeHostUid, getSafeHostGid } from '../../src/host-identity';
 import { applyConfigOptionsInPlaceWithCliPrecedence } from '../../src/config-precedence';
 import { baseConfig, mockNetworkConfig } from '../../src/test-helpers/docker-test-fixtures.test-utils';
+import { buildRouterService } from '../../src/services/router-service';
+import { parseImageTag } from '../../src/image-tag';
+import { cleanupRoutingState, stageRoutingConversation } from '../../src/routing/bootstrap';
+import { validateSkipPullWithBuildLocal } from '../../src/option-parsers';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('../../src/test-helpers/mock-execa.test-utils').execaMockFactory());
@@ -20,6 +24,9 @@ interface Step {
 
 const root = path.resolve(__dirname, '../..');
 const imageArgs = '--image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG:?}" --skip-pull';
+const routingImageArgs =
+  '--image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG:?}" ' +
+  '$(if [ "${GH_AW_MODEL_ROUTING:-0}" != "1" ]; then printf %s --skip-pull; fi)';
 
 describe.each([
   ['claude', 20, 'Claude Code'],
@@ -113,7 +120,18 @@ ${preparation.run}
       }
       expect(calls).toContainEqual(['image', 'inspect', execution.services[service].image!]);
     }
-    expect(calls).toHaveLength(6);
+    const router = buildRouterService({
+      imageConfig: {
+        useGHCR: false, registry: 'awf-smoke',
+        parsedTag: parseImageTag('run-12345-2'), projectRoot: root,
+      },
+    });
+    expect(calls).toContainEqual([
+      'build', '--build-arg', `OPENAPI_SHA256=${router.build.args.OPENAPI_SHA256}`,
+      '--tag', 'awf-smoke/router:run-12345-2', path.relative(root, router.build.context),
+    ]);
+    expect(calls).toContainEqual(['image', 'inspect', 'awf-smoke/router:run-12345-2']);
+    expect(calls).toHaveLength(8);
     for (const service of Object.values(execution.services)) expect(service.build).toBeUndefined();
   });
 
@@ -172,6 +190,8 @@ ${preparation.run}
     'image inspect awf-smoke/squid',
     'image inspect awf-smoke/agent',
     'image inspect awf-smoke/api-proxy',
+    'build --build-arg OPENAPI_SHA256=',
+    'image inspect awf-smoke/router',
   ])(
     'fails closed before publishing image selection on %s failure', failure => {
       const { result } = runPreparation(failure);
@@ -187,6 +207,93 @@ ${preparation.run}
       imageTag: `0.29.0,squid=sha256:${'a'.repeat(64)}`,
     }, name => ['imageRegistry', 'imageTag', 'skipPull'].includes(name));
     expect(options).toEqual({ imageRegistry: 'awf-smoke', imageTag: 'run-12345-2', skipPull: true });
+  });
+
+  it('stages configs that select the prepared images in every routing mode', () => {
+    const lock = yaml.load(fs.readFileSync(workflowPath, 'utf8')) as {
+      jobs: { agent: { steps: Step[] } };
+    };
+    const execute = lock.jobs.agent.steps.find(step => step.name === `Execute ${engine} CLI`)!.run!;
+    const invocation = execute.split('\n').find(line => line.includes('awf --config '))!
+      .replace(/^.*?awf --config /, 'awf --config ')
+      .replace(/\$\{\{ job\.services\['(?:postgres|redis)'\]\.ports\['(5432|6379)'\] \}\}/g, '$1')
+      .trim().replace(/\\$/, '');
+    const configs = execute.split('\n').filter(line => line.startsWith("printf '%s\\n' ") && line.endsWith('/awf-config.json"'));
+    expect(configs.length).toBeGreaterThan(0);
+    fs.mkdirSync(path.join(directory, 'gh-aw'));
+    for (const stage of configs) {
+      const result = spawnSync('bash', ['-euc', stage], {
+        env: { PATH: process.env.PATH, RUNNER_TEMP: directory, GH_AW_MAX_AI_CREDITS: '10' },
+        encoding: 'utf8',
+      });
+      expect(result.status).toBe(0);
+      const config = JSON.parse(fs.readFileSync(path.join(directory, 'gh-aw/awf-config.json'), 'utf8'));
+      expect(config.container).not.toHaveProperty('images');
+      expect(config.container).not.toHaveProperty('imageTag');
+      const invocationResult = spawnSync('bash', ['-euc', `
+        awf() { printf '%s\\0' "$@"; }
+        ${invocation}
+      `], {
+        env: {
+          PATH: process.env.PATH, RUNNER_TEMP: directory, GITHUB_WORKSPACE: root,
+          AWF_SMOKE_IMAGE_TAG: 'run-12345-2',
+          GH_AW_MODEL_ROUTING: config.experimental?.modelRouting ? '1' : '0',
+        },
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      expect(invocationResult.error).toBeUndefined();
+      expect(invocationResult.status).toBe(0);
+      const args = invocationResult.stdout.split('\0').filter(Boolean);
+      const skipPull = args.includes('--skip-pull');
+      expect(validateSkipPullWithBuildLocal(skipPull, config.container.buildLocal)).toEqual({ valid: true });
+      expect(skipPull).toBe(!config.experimental?.modelRouting);
+      const runtimeConfig = {
+        ...baseConfig, ...config.container, workDir: directory,
+        enableApiProxy: true, copilotGithubToken: 'fixture',
+        imageRegistry: 'awf-smoke', imageTag: 'run-12345-2', skipPull,
+        experimentalModelRouting: config.experimental?.modelRouting,
+        modelRouting: config.apiProxy.routing && {
+          ...config.apiProxy.routing,
+          task: { conversationFile: path.join(directory, 'conversation.json') },
+        },
+      };
+      if (runtimeConfig.experimentalModelRouting) {
+        fs.writeFileSync(runtimeConfig.modelRouting.task.conversationFile, JSON.stringify([
+          { role: 'user', parts: [{ text: 'Run the smoke checks' }] },
+        ]));
+        const platform = process.platform;
+        try {
+          Object.defineProperty(process, 'platform', { value: 'linux' });
+          expect(stageRoutingConversation(runtimeConfig)).toBeDefined();
+          const compose = generateDockerCompose(runtimeConfig, {
+            ...mockNetworkConfig, proxyIp: '172.30.0.30',
+          });
+          const { calls } = runPreparation();
+          for (const [service, image] of [
+            ['squid-proxy', 'squid'], ['agent', 'agent'], ['api-proxy', 'api-proxy'], ['router', 'router'],
+          ]) {
+            const build = compose.services[service].build!;
+            const args = Object.entries(build.args ?? {}).flatMap(([key, value]) => [
+              '--build-arg', `${key}=${value}`,
+            ]);
+            expect(calls).toContainEqual([
+              'build', ...args, '--tag', `awf-smoke/${image}:run-12345-2`, path.relative(root, build.context),
+            ]);
+          }
+        } finally {
+          cleanupRoutingState(runtimeConfig);
+          Object.defineProperty(process, 'platform', { value: platform });
+        }
+        continue;
+      }
+      const compose = generateDockerCompose(runtimeConfig, {
+        ...mockNetworkConfig, proxyIp: '172.30.0.30',
+      });
+      expect(compose.services['squid-proxy'].image).toBe('awf-smoke/squid:run-12345-2');
+      expect(compose.services.agent.image).toBe('awf-smoke/agent:run-12345-2');
+      expect(compose.services['api-proxy'].image).toBe('awf-smoke/api-proxy:run-12345-2');
+    }
   });
 
   it('rejects prepared-image workflows without a local CLI install anchor', () => {
@@ -220,7 +327,9 @@ ${preparation.run}
     expect(steps[executeIndex]['timeout-minutes']).toBe(frontmatter['timeout-minutes']);
     expect(frontmatter['timeout-minutes']).toBe(executionTimeout);
     expect(lock.jobs.agent['timeout-minutes']).toBeGreaterThanOrEqual(35 + Number(executionTimeout));
-    expect(steps[executeIndex].run).toContain(imageArgs);
+    expect(steps[executeIndex].run).toContain(
+      steps[executeIndex].run!.includes('\\"modelRouting\\":true') ? routingImageArgs : imageArgs,
+    );
     expect(steps[executeIndex].run).not.toContain('--build-local');
     expect(steps[executeIndex].run).not.toMatch(/docker (?:build|compose .*build)/);
     expect(applyGeneralWorkflowPatches(fs.readFileSync(workflowPath, 'utf8'), workflowPath).content)

@@ -32,9 +32,22 @@ sudo awf --allow-domains github.com -- curl https://api.github.com
 
 For CI, prefer the [setup action](docs/github_actions.md) pinned to a reviewed
 commit. For local installation, first obtain and review `install.sh` through an
-independently authenticated channel. The installer requires a trusted `gh` CLI
-with GitHub authentication; because `sudo` normally changes `HOME` and drops
-tokens, pass the token explicitly:
+independently authenticated channel. For repeatable CLI installs, supply an exact
+release version and its independently reviewed `checksums.txt` SHA256:
+
+```bash
+bash ./install.sh vX.Y.Z --checksums-sha256 <reviewed-manifest-sha256> --rootless
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Replace the placeholders with a reviewed version/digest pair, not a digest
+downloaded alongside the executable. This path requires no `gh`, GitHub token,
+or runtime attestation API calls. Omit `--rootless` and run with sudo to install
+into `/usr/local/bin` instead.
+
+Without a manifest pin, the installer requires a trusted `gh` CLI with GitHub
+authentication. Because `sudo` normally changes `HOME` and drops tokens, pass
+the token explicitly:
 
 ```bash
 gh auth status
@@ -42,6 +55,12 @@ export GH_TOKEN="$(gh auth token)"
 sudo --preserve-env=GH_TOKEN bash ./install.sh
 unset GH_TOKEN
 ```
+
+Ordinary CLI installation does not provision privileged enclave support.
+Add `--install-enclave-storage-helper` under sudo when that support is needed;
+this explicitly retains online attestations even with a manifest pin.
+See the [installation trust contract](docs/releasing.md#bootstrap-authentication-and-compatibility)
+for release-pin review and downstream adoption.
 
 Do not pipe an unauthenticated download into `sudo bash`. See
 [release security](docs/releasing.md#initial-trust-is-a-prerequisite-not-something-the-installer-can-create)

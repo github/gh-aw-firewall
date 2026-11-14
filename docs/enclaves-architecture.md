@@ -1323,10 +1323,14 @@ The default `gh-aw --rootless` mode means an unprivileged **AWF process**, not a
 rootless Docker daemon. Docker enclaves retain their rootful local daemon,
 namespace/identity checks and network restrictions. AWF without `CAP_SYS_ADMIN`
 uses the version-matched host storage helper installed by the authenticated
-`install.sh`. Run that installer using sudo as the workflow's host user; it
+`install.sh`. Run that installer with `--install-enclave-storage-helper` using
+sudo as the workflow's host user; it
 installs a root-owned Python helper and an exact, noninteractive sudo rule for
 that numeric user. Installation as root without `SUDO_UID` does not authorize
-an additional user. npm/source installs alone do not install privileged support.
+an additional user. Ordinary CLI installs (including pinned/rootless installs)
+and npm/source installs alone do not install privileged support. Helper opt-in
+retains the attested identity, manifest and payload checks even with a trusted
+manifest pin, and cannot be combined with the installer's `--rootless` flag.
 Authenticated legacy releases whose signed checksum manifest predates the helper
 still install the ordinary CLI, with an explicit unsupported-helper warning;
 a listed helper may never be skipped on download or authentication failure.
