@@ -373,6 +373,7 @@ describe('applyGeneralWorkflowPatches published AWF maintenance workflows', () =
     'network-doctor-updater.lock.yml',
     'ci-integration-doctor-updater.lock.yml',
     'doc-maintainer.lock.yml',
+    'firewall-issue-dispatcher.lock.yml',
     'model-api-mapping-updater.lock.yml',
     'pr-sous-chef.lock.yml',
     'refactoring-scanner.lock.yml',
@@ -391,6 +392,18 @@ describe('applyGeneralWorkflowPatches published AWF maintenance workflows', () =
     expect(content).toContain('--image-tag 0.28.2 --skip-pull');
     expect(content).not.toContain('--build-local');
     expect(log).toContain('  Preserved published AWF binary and images for maintenance workflow');
+  });
+
+  it('keeps the dispatcher lock compatible with its compiler-pinned image manifest', () => {
+    const lock = fs.readFileSync(
+      path.join(__dirname, '../../.github/workflows/firewall-issue-dispatcher.lock.yml'),
+      'utf8',
+    );
+
+    expect(lock).toContain('\\"images\\":');
+    expect(lock).toContain('install_awf_binary.sh" v');
+    expect(lock).not.toContain('--build-local');
+    expect(lock).not.toContain('Install awf binary (local)');
   });
 
   it('continues using local builds for validation workflows', () => {
