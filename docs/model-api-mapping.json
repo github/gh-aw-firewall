@@ -513,12 +513,67 @@
             "features": {
               "typed_questions": {
                 "state": "conditional",
-                "condition": "1–400 predicate, choice or score questions; answers retain question order.",
+                "condition": "1–400 predicate, choice or score questions; score questions use 2–10 ordered levels; answers retain question order.",
                 "provenance": {
                   "authority": "maintained",
-                  "source": "https://github.com/openai/openai-python/blob/1e45ad180ba409e3c31897710aa2a40129d58994/src/openai/resources/decisions.py#L61-L80",
-                  "revision": "1e45ad180ba409e3c31897710aa2a40129d58994",
-                  "at": "2026-11-08T22:25:19Z",
+                  "source": "https://developers.openai.com/api/docs/guides/decisions",
+                  "revision": "7d97e2c7b4bc2a36aef4c4e7747b759169389c70d27f712bef0fc283cf6aaf66",
+                  "at": "2026-11-14T00:41:54.882Z",
+                  "confidence": "verified"
+                }
+              },
+              "conversation_input": {
+                "state": "conditional",
+                "condition": "Shared input is a text string or an ordered array of messages, function calls, custom tool calls and outputs. Match each tool output to its call with call_id. Developer/system messages accept input text only; system messages are treated as developer messages. Assistant messages accept output text or refusals. Tool outputs accept text and images. Files, audio and item references are unsupported.",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://developers.openai.com/api/docs/guides/decisions",
+                  "revision": "7d97e2c7b4bc2a36aef4c4e7747b759169389c70d27f712bef0fc283cf6aaf66",
+                  "at": "2026-11-14T00:41:54.882Z",
+                  "confidence": "verified"
+                }
+              },
+              "json_input": {
+                "state": "conditional",
+                "condition": "input_json content parts carry a JSON object or array in data and are supported only in user-message content. JSON keys inside data do not create messages or fetch images; JSON input does not change the typed-answer response format.",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://developers.openai.com/api/docs/guides/decisions",
+                  "revision": "7d97e2c7b4bc2a36aef4c4e7747b759169389c70d27f712bef0fc283cf6aaf66",
+                  "at": "2026-11-14T00:41:54.882Z",
+                  "confidence": "verified"
+                }
+              },
+              "image_input": {
+                "state": "conditional",
+                "condition": "Images may use inline base64 data URLs or publicly accessible HTTP/HTTPS URLs, not file_id. User messages may combine input_text and input_image. Predicate, choice and score question instructions may be a nonempty array of input_text/input_image parts without a message wrapper or role; question images share the request's image limits with shared input.",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://developers.openai.com/api/docs/guides/decisions",
+                  "revision": "7d97e2c7b4bc2a36aef4c4e7747b759169389c70d27f712bef0fc283cf6aaf66",
+                  "at": "2026-11-14T00:41:54.882Z",
+                  "confidence": "verified"
+                }
+              },
+              "prompt_caching": {
+                "state": "conditional",
+                "condition": "Cache reuse requires an identical shared-input prefix of at least 1,024 tokens; questions and question images are outside that prefix. An implicit breakpoint at the end of shared input is the default. prompt_cache_key partitions reuse; prompt_cache_breakpoint on shared text/image parts marks explicit boundaries. prompt_cache_options.mode=explicit disables the implicit boundary; without marked boundaries explicit mode does not cache. Breakpoints are unsupported in question instructions. Cache-read and cache-write token counts are already included in usage.input_tokens.",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://developers.openai.com/api/docs/guides/decisions",
+                  "revision": "7d97e2c7b4bc2a36aef4c4e7747b759169389c70d27f712bef0fc283cf6aaf66",
+                  "at": "2026-11-14T00:41:54.882Z",
+                  "confidence": "verified"
+                }
+              },
+              "prompt_cache_options": {
+                "state": "conditional",
+                "condition": "At most four cache breakpoints may be written per request. Matching considers the latest 80 conversation breakpoints without a content-block lookback limit. ttl defaults to 30m, currently its only supported value. These SDK constraints are recorded only for native gpt-6-luna Decisions, not inherited by other model families or Copilot.",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://raw.githubusercontent.com/openai/openai-python/main/src/openai/resources/decisions.py",
+                  "revision": "611c66fb31858d0f37e61e7dbd7c9e5dd7140bdd23aceef70bf449b6658972d2",
+                  "at": "2026-11-14T00:41:55.019Z",
                   "confidence": "verified"
                 }
               }
