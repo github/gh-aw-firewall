@@ -232,7 +232,7 @@ When `chroot.binariesSourcePath` is set in stdin config, AWF also mounts:
 | Empty chroot home (`<workDir>-chroot-home`) | `/host$HOME:rw` | Empty writable home; the real `$HOME` is **not** mounted |
 | `$HOME/<tool dir>` | `/host$HOME/<tool dir>:rw` | Allowlisted tool dirs (`.cache`, `.config`, `.local/{bin,lib,lib64,share,pipx}`, `.azure`, `.anthropic`, `.claude`, `.cargo`, `.rustup`, `.npm`, `.nvm`; `.gemini` only when a Gemini/Google API key is set) |
 | `$HOME/.copilot` | `/host$HOME/.copilot:rw` | Host bind only when the directory exists and is readable/writable; session-state and logs are separately overlaid from AWF's work directory |
-| `/tmp` | `/host/tmp:rw` | Temporary files |
+| `/tmp` | `/tmp:rw` and `/host/tmp:rw` | Temporary files (bound at both the direct and `/host` paths) |
 | `/dev/null` | `/host/dev/null:rw` | Lets chrooted tools write to `/dev/null` |
 
 Known credential files inside the mounted tool dirs are masked with
