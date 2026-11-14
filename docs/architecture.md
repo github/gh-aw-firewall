@@ -74,7 +74,7 @@ The firewall uses a containerized architecture with Squid proxy for L7 (HTTP/HTT
 
 ### Squid Container (`containers/squid/`)
 - Based on `alpine:3.24` with Squid installed from Alpine packages
-- Mounts dynamically-generated `squid.conf` from work directory
+- Receives the generated `squid.conf` as the base64 `AWF_SQUID_CONFIG_B64` environment variable (not a bind mount), decoded by the container entrypoint
 - Exposes port 3128 for proxy traffic
 - Logs to shared volume `squid-logs:/var/log/squid`
 - **Network:** Connected to `awf-net` at `172.30.0.10`
@@ -82,7 +82,7 @@ The firewall uses a containerized architecture with Squid proxy for L7 (HTTP/HTT
 
 ### Agent Execution Container (`containers/agent/`)
 - Based on `ubuntu:22.04` with iptables, curl, git, nodejs, npm
-- Mounts entire host filesystem at `/host` and user home directory for full access
+- Mounts only selected host paths: read-only system directories and `/etc` files under `/host`, the workspace, `/tmp`, an empty chroot home with allowlisted `$HOME` tool directories, and AWF's log/state directories. The real `$HOME` is not mounted; the Docker socket is hidden behind a `/dev/null` overlay unless `--enable-dind` is set (see [Selective Mounting](./selective-mounting.md) and [Sandbox Mount Policy](./mount-policy.md))
 - `NET_ADMIN` capability required for iptables setup during initialization
 - **Security:** `NET_ADMIN` is dropped via `capsh --drop=cap_net_admin` before executing user commands, preventing malicious code from modifying iptables rules
 - **Chroot Mode:** User commands run inside `chroot /host` for transparent host binary access. See [Chroot Mode](./chroot-mode.md) for details.
