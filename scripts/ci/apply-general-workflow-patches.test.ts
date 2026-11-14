@@ -400,7 +400,7 @@ describe('applyGeneralWorkflowPatches published AWF maintenance workflows', () =
       'utf8',
     );
 
-    expect(lock).toContain('\\"containers\\":');
+    expect(lock).toContain('\\"images\\":');
     expect(lock).toContain('install_awf_binary.sh" v');
     expect(lock).not.toContain('--build-local');
     expect(lock).not.toContain('Install awf binary (local)');
