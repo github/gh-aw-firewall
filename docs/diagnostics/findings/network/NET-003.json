@@ -24,7 +24,11 @@
     { "kind": "code", "ref": "src/squid/api-proxy-upstreams.ts" },
     { "kind": "test", "ref": "src/squid/api-proxy-upstreams.test.ts" },
     { "kind": "test", "ref": "containers/api-proxy/server.target-ports.test.js" },
-    { "kind": "doc", "ref": "docs/awf-config-spec.md" }
+    { "kind": "doc", "ref": "docs/awf-config-spec.md" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11345", "title": "Trusted LLM service routing keeps the sidecar upstream exact and proxy-only" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11363", "title": "Azure Foundry target shares the exact custom-port sidecar upstream path" },
+    { "kind": "code", "ref": "src/services/api-proxy-env-config.ts", "title": "resolveApiProxyUpstreams() emits custom-port and trusted-service proxyOnly upstreams" },
+    { "kind": "test", "ref": "src/trusted-service.test.ts", "title": "Trusted service admits only the proxy source to the exact HTTPS service" }
   ],
   "related": ["NET-001"],
   "owner": "@github/gh-aw-firewall-maintainers",
