@@ -32,6 +32,9 @@ const cloudHypervisorBundleRetryWorkflowLockFiles = new Set([
 ]);
 const preparedSmokeImageArgs =
   '--image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG:?}" --skip-pull';
+const routingPreparedSmokeImageArgs =
+  '--image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG:?}" ' +
+  '$(if [ "${GH_AW_MODEL_ROUTING:-0}" != "1" ]; then printf %s --skip-pull; fi)';
 
 export function usesPublishedAwfRelease(workflowPath: string): boolean {
   const workflowFile = workflowPath.split(/[/\\]/).pop();
@@ -64,6 +67,8 @@ export function configureNpmFeed(content: string): TransformResult {
 export function normalizePreparedImages(content: string, { workflowPath }: PatchContext): TransformResult {
   // Normalize our prior output before the shared local-build transforms for idempotency.
   if (usesPreparedSmokeImages(content, workflowPath)) {
+    content = content.split(routingPreparedSmokeImageArgs).join('--build-local');
+    content = content.split(JSON.stringify(routingPreparedSmokeImageArgs).slice(1, -1)).join('--build-local');
     content = content.split(preparedSmokeImageArgs).join('--build-local');
     content = content.split(JSON.stringify(preparedSmokeImageArgs).slice(1, -1)).join('--build-local');
   }
@@ -287,11 +292,14 @@ export function installLocalAwf(content: string, { workflowPath }: PatchContext)
           content = content.replace(preparation[0], step => step + connectivity[0]);
         }
       }
+      const imageArgs = content.includes('\\"modelRouting\\":true')
+        ? routingPreparedSmokeImageArgs
+        : preparedSmokeImageArgs;
       content = content.split('\n').map(line => line.replace(
         /--build-local\b/g,
         /^\s*run: "/.test(line)
-          ? JSON.stringify(preparedSmokeImageArgs).slice(1, -1)
-          : preparedSmokeImageArgs,
+          ? JSON.stringify(imageArgs).slice(1, -1)
+          : imageArgs,
       )).join('\n');
       messages.push('  Reused prepared PR images outside the smoke execution budget');
     }

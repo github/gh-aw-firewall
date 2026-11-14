@@ -11,6 +11,7 @@ import { baseConfig, mockNetworkConfig } from '../../src/test-helpers/docker-tes
 import { buildRouterService } from '../../src/services/router-service';
 import { parseImageTag } from '../../src/image-tag';
 import { cleanupRoutingState, stageRoutingConversation } from '../../src/routing/bootstrap';
+import { validateSkipPullWithBuildLocal } from '../../src/option-parsers';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('../../src/test-helpers/mock-execa.test-utils').execaMockFactory());
@@ -23,6 +24,9 @@ interface Step {
 
 const root = path.resolve(__dirname, '../..');
 const imageArgs = '--image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG:?}" --skip-pull';
+const routingImageArgs =
+  '--image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG:?}" ' +
+  '$(if [ "${GH_AW_MODEL_ROUTING:-0}" != "1" ]; then printf %s --skip-pull; fi)';
 
 describe.each([
   ['claude', 20, 'Claude Code'],
@@ -210,6 +214,10 @@ ${preparation.run}
       jobs: { agent: { steps: Step[] } };
     };
     const execute = lock.jobs.agent.steps.find(step => step.name === `Execute ${engine} CLI`)!.run!;
+    const invocation = execute.split('\n').find(line => line.includes('awf --config '))!
+      .replace(/^.*?awf --config /, 'awf --config ')
+      .replace(/\$\{\{ job\.services\['(?:postgres|redis)'\]\.ports\['(5432|6379)'\] \}\}/g, '$1')
+      .trim().replace(/\\$/, '');
     const configs = execute.split('\n').filter(line => line.startsWith("printf '%s\\n' ") && line.endsWith('/awf-config.json"'));
     expect(configs.length).toBeGreaterThan(0);
     fs.mkdirSync(path.join(directory, 'gh-aw'));
@@ -222,10 +230,28 @@ ${preparation.run}
       const config = JSON.parse(fs.readFileSync(path.join(directory, 'gh-aw/awf-config.json'), 'utf8'));
       expect(config.container).not.toHaveProperty('images');
       expect(config.container).not.toHaveProperty('imageTag');
+      const invocationResult = spawnSync('bash', ['-euc', `
+        awf() { printf '%s\\0' "$@"; }
+        ${invocation}
+      `], {
+        env: {
+          PATH: process.env.PATH, RUNNER_TEMP: directory, GITHUB_WORKSPACE: root,
+          AWF_SMOKE_IMAGE_TAG: 'run-12345-2',
+          GH_AW_MODEL_ROUTING: config.experimental?.modelRouting ? '1' : '0',
+        },
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      expect(invocationResult.error).toBeUndefined();
+      expect(invocationResult.status).toBe(0);
+      const args = invocationResult.stdout.split('\0').filter(Boolean);
+      const skipPull = args.includes('--skip-pull');
+      expect(validateSkipPullWithBuildLocal(skipPull, config.container.buildLocal)).toEqual({ valid: true });
+      expect(skipPull).toBe(!config.experimental?.modelRouting);
       const runtimeConfig = {
         ...baseConfig, ...config.container, workDir: directory,
         enableApiProxy: true, copilotGithubToken: 'fixture',
-        imageRegistry: 'awf-smoke', imageTag: 'run-12345-2', skipPull: true,
+        imageRegistry: 'awf-smoke', imageTag: 'run-12345-2', skipPull,
         experimentalModelRouting: config.experimental?.modelRouting,
         modelRouting: config.apiProxy.routing && {
           ...config.apiProxy.routing,
@@ -301,7 +327,9 @@ ${preparation.run}
     expect(steps[executeIndex]['timeout-minutes']).toBe(frontmatter['timeout-minutes']);
     expect(frontmatter['timeout-minutes']).toBe(executionTimeout);
     expect(lock.jobs.agent['timeout-minutes']).toBeGreaterThanOrEqual(35 + Number(executionTimeout));
-    expect(steps[executeIndex].run).toContain(imageArgs);
+    expect(steps[executeIndex].run).toContain(
+      steps[executeIndex].run!.includes('\\"modelRouting\\":true') ? routingImageArgs : imageArgs,
+    );
     expect(steps[executeIndex].run).not.toContain('--build-local');
     expect(steps[executeIndex].run).not.toMatch(/docker (?:build|compose .*build)/);
     expect(applyGeneralWorkflowPatches(fs.readFileSync(workflowPath, 'utf8'), workflowPath).content)
