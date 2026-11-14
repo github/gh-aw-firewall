@@ -1810,5 +1810,38 @@ describe('createMainAction', () => {
       );
       expect(mockFchmodSync).toHaveBeenLastCalledWith(42, 0o644);
     });
+
+    it('warns when the incomplete audit marker cannot be written', async () => {
+      mockedDockerManager.preserveIptablesAudit.mockReturnValueOnce(false);
+      mockOpenSync.mockImplementationOnce(() => {
+        throw new Error('marker write failed');
+      });
+      const config = {
+        ...MAIN_ACTION_STUB_CONFIG,
+        enclaves: {
+          enabled: true,
+          executors: {
+            script: { enabled: false },
+            agent: {
+              enabled: true,
+              github: { cli: 'issues-read-v1' },
+            },
+          },
+        },
+      } as unknown as import('../types').WrapperConfig;
+      const performCleanup = testHelpers.buildCleanupFn(
+        config,
+        () => true,
+        () => false,
+      );
+
+      await performCleanup();
+
+      expect(mockedLogger.warn).toHaveBeenCalledWith(
+        'Failed to write the incomplete enclave audit marker.',
+        expect.objectContaining({ message: 'marker write failed' }),
+      );
+      expect(mockedDockerManager.stopContainers).toHaveBeenCalled();
+    });
   });
 });
