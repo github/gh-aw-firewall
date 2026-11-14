@@ -153,6 +153,31 @@ describe('DLP Patterns', () => {
       expect(matchingRegexes).toContain('xoxb-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24}');
     });
 
+    // Slack user tokens: three numeric groups (10-13 digits) then 32 lowercase hex chars
+    it.each([
+      ['minimum-length groups', '1'.repeat(10), '2'.repeat(10), '3'.repeat(10)],
+      ['maximum-length groups', '1'.repeat(13), '2'.repeat(13), '3'.repeat(13)],
+    ])('should detect Slack user token (xoxp-) with %s', (_label, a, b, c) => {
+      const fakeToken = 'xoxp-' + a + '-' + b + '-' + c + '-' + '0123456789abcdef'.repeat(2);
+      const matchingRegexes = findMatchingDlpRegexes(
+        'https://api.example.com/?token=' + fakeToken
+      );
+      expect(matchingRegexes).toContain('xoxp-[0-9]{10,13}-[0-9]{10,13}-[0-9]{10,13}-[a-f0-9]{32}');
+    });
+
+    it('should not match Slack user token shapes outside the documented length bounds', () => {
+      const validHex = '0123456789abcdef'.repeat(2);
+      const shortHex = validHex.slice(1);
+      const shortDigits = '1'.repeat(9);
+      const nonMatching = [
+        'https://api.example.com/?token=xoxp-' + '1'.repeat(10) + '-' + '2'.repeat(10) + '-' + '3'.repeat(10) + '-' + shortHex,
+        'https://api.example.com/?token=xoxp-' + shortDigits + '-' + '2'.repeat(10) + '-' + '3'.repeat(10) + '-' + validHex,
+      ];
+      for (const url of nonMatching) {
+        expect(findMatchingDlpRegexes(url).some(regex => regex.startsWith('xoxp-'))).toBe(false);
+      }
+    });
+
     // Generic patterns
     it('should detect bearer token in URL parameter', () => {
       const matchingRegexes = findMatchingDlpRegexes(
