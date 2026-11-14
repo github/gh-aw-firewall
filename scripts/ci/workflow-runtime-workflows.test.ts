@@ -139,6 +139,16 @@ describe('runtime audit/optimizer workflow configuration', () => {
     expect(optimizerSource).not.toContain('close-older-issues: true');
   });
 
+  it('allows 30 minutes for optimizer analysis in both source and compiled execution', () => {
+    expect(frontmatter(optimizerSource)).toMatchObject({ 'timeout-minutes': 30 });
+    const compiled = yaml.load(readLock('workflow-runtime-optimizer')) as {
+      jobs: { agent: { 'timeout-minutes': number; steps: { name: string; 'timeout-minutes'?: number }[] } };
+    };
+    expect(compiled.jobs.agent.steps.find(step => step.name === 'Execute GitHub Copilot CLI'))
+      .toMatchObject({ 'timeout-minutes': 30 });
+    expect(compiled.jobs.agent['timeout-minutes']).toBeGreaterThan(30);
+  });
+
   it.each(['workflow-runtime-auditor', 'workflow-runtime-optimizer'])(
     'compiles %s with read-only data access and required postprocessing',
     id => {

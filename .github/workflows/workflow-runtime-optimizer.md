@@ -33,7 +33,7 @@ safe-outputs:
     title-prefix: "[Workflow Runtime Optimization] "
     labels: [workflow-runtime-optimization]
     max: 1
-timeout-minutes: 20
+timeout-minutes: 30
 strict: true
 steps:
   - name: Find source audit and existing recommendations
