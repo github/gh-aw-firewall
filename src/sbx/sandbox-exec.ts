@@ -24,7 +24,12 @@ export async function execInSandbox(
     tty?: boolean;
   },
 ): Promise<{ exitCode: number }> {
-  logger.info(`Executing in sandbox "${name}": ${command}`);
+  logger.info(
+    `Executing in sandbox "${name}"` +
+      `${options?.workDir ? ` (workdir: ${options.workDir})` : ''}` +
+      `${options?.tty ? ' (tty)' : ''}` +
+      `${options?.timeoutMinutes ? ` (timeout: ${options.timeoutMinutes}m)` : ''}`,
+  );
 
   const args = ['exec'];
   if (options?.workDir) {
