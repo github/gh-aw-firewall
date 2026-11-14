@@ -8,6 +8,9 @@ import { generateDockerCompose } from '../../src/compose-generator';
 import { getSafeHostUid, getSafeHostGid } from '../../src/host-identity';
 import { applyConfigOptionsInPlaceWithCliPrecedence } from '../../src/config-precedence';
 import { baseConfig, mockNetworkConfig } from '../../src/test-helpers/docker-test-fixtures.test-utils';
+import { buildRouterService } from '../../src/services/router-service';
+import { parseImageTag } from '../../src/image-tag';
+import { cleanupRoutingState, stageRoutingConversation } from '../../src/routing/bootstrap';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('../../src/test-helpers/mock-execa.test-utils').execaMockFactory());
@@ -113,7 +116,18 @@ ${preparation.run}
       }
       expect(calls).toContainEqual(['image', 'inspect', execution.services[service].image!]);
     }
-    expect(calls).toHaveLength(6);
+    const router = buildRouterService({
+      imageConfig: {
+        useGHCR: false, registry: 'awf-smoke',
+        parsedTag: parseImageTag('run-12345-2'), projectRoot: root,
+      },
+    });
+    expect(calls).toContainEqual([
+      'build', '--build-arg', `OPENAPI_SHA256=${router.build.args.OPENAPI_SHA256}`,
+      '--tag', 'awf-smoke/router:run-12345-2', path.relative(root, router.build.context),
+    ]);
+    expect(calls).toContainEqual(['image', 'inspect', 'awf-smoke/router:run-12345-2']);
+    expect(calls).toHaveLength(8);
     for (const service of Object.values(execution.services)) expect(service.build).toBeUndefined();
   });
 
@@ -172,6 +186,8 @@ ${preparation.run}
     'image inspect awf-smoke/squid',
     'image inspect awf-smoke/agent',
     'image inspect awf-smoke/api-proxy',
+    'build --build-arg OPENAPI_SHA256=',
+    'image inspect awf-smoke/router',
   ])(
     'fails closed before publishing image selection on %s failure', failure => {
       const { result } = runPreparation(failure);
@@ -206,11 +222,48 @@ ${preparation.run}
       const config = JSON.parse(fs.readFileSync(path.join(directory, 'gh-aw/awf-config.json'), 'utf8'));
       expect(config.container).not.toHaveProperty('images');
       expect(config.container).not.toHaveProperty('imageTag');
-      const compose = generateDockerCompose({
+      const runtimeConfig = {
         ...baseConfig, ...config.container, workDir: directory,
         enableApiProxy: true, copilotGithubToken: 'fixture',
         imageRegistry: 'awf-smoke', imageTag: 'run-12345-2', skipPull: true,
-      }, { ...mockNetworkConfig, proxyIp: '172.30.0.30' });
+        experimentalModelRouting: config.experimental?.modelRouting,
+        modelRouting: config.apiProxy.routing && {
+          ...config.apiProxy.routing,
+          task: { conversationFile: path.join(directory, 'conversation.json') },
+        },
+      };
+      if (runtimeConfig.experimentalModelRouting) {
+        fs.writeFileSync(runtimeConfig.modelRouting.task.conversationFile, JSON.stringify([
+          { role: 'user', parts: [{ text: 'Run the smoke checks' }] },
+        ]));
+        const platform = process.platform;
+        try {
+          Object.defineProperty(process, 'platform', { value: 'linux' });
+          expect(stageRoutingConversation(runtimeConfig)).toBeDefined();
+          const compose = generateDockerCompose(runtimeConfig, {
+            ...mockNetworkConfig, proxyIp: '172.30.0.30',
+          });
+          const { calls } = runPreparation();
+          for (const [service, image] of [
+            ['squid-proxy', 'squid'], ['agent', 'agent'], ['api-proxy', 'api-proxy'], ['router', 'router'],
+          ]) {
+            const build = compose.services[service].build!;
+            const args = Object.entries(build.args ?? {}).flatMap(([key, value]) => [
+              '--build-arg', `${key}=${value}`,
+            ]);
+            expect(calls).toContainEqual([
+              'build', ...args, '--tag', `awf-smoke/${image}:run-12345-2`, path.relative(root, build.context),
+            ]);
+          }
+        } finally {
+          cleanupRoutingState(runtimeConfig);
+          Object.defineProperty(process, 'platform', { value: platform });
+        }
+        continue;
+      }
+      const compose = generateDockerCompose(runtimeConfig, {
+        ...mockNetworkConfig, proxyIp: '172.30.0.30',
+      });
       expect(compose.services['squid-proxy'].image).toBe('awf-smoke/squid:run-12345-2');
       expect(compose.services.agent.image).toBe('awf-smoke/agent:run-12345-2');
       expect(compose.services['api-proxy'].image).toBe('awf-smoke/api-proxy:run-12345-2');

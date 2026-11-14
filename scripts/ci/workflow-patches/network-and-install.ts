@@ -234,10 +234,20 @@ export function installLocalAwf(content: string, { workflowPath }: PatchContext)
           /(,?)\\"images\\":\{[^{}\n]*\}(,?)/g,
           (_match, before: string, after: string) => before && after ? ',' : '',
         );
-        return line.replace(
+        line = line.replace(
           /(,?)\\"imageTag\\":\\"[^"\\]*\\"(,?)/g,
           (_match, before: string, after: string) => before && after ? ',' : '',
         );
+        if (preparedSmokeImages && line.includes('\\"modelRouting\\":true')) {
+          // Routing trusts checkout builds, not the mutable tags used by non-routing smokes.
+          line = line.replace(/\\"container\\":(\{[^{}]*\})/, (_match, container: string) =>
+            `\\"container\\":${JSON.stringify({
+              ...JSON.parse(container.replace(/\\"/g, '"')),
+              buildLocal: true,
+            }).replace(/"/g, '\\"')}`,
+          );
+        }
+        return line;
       }).join('\n');
       localAwfImageDownloadRegex.lastIndex = 0;
       const localAwfImageMatches = content.match(localAwfImageDownloadRegex);

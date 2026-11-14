@@ -4,10 +4,13 @@ set -euo pipefail
 AWF_SMOKE_IMAGE_TAG="run-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}"
 HOST_UID="$(node -p "require('./dist/host-identity').getSafeHostUid()")"
 HOST_GID="$(node -p "require('./dist/host-identity').getSafeHostGid()")"
-for image in squid agent api-proxy; do
+for image in squid agent api-proxy router; do
   build_args=()
   if [ "$image" = agent ]; then
     build_args+=(--build-arg "USER_UID=$HOST_UID" --build-arg "USER_GID=$HOST_GID")
+  elif [ "$image" = router ]; then
+    contract_sha="$(node -p "require('crypto').createHash('sha256').update(require('fs').readFileSync('containers/router/openapi.yaml')).digest('hex')")"
+    build_args+=(--build-arg "OPENAPI_SHA256=$contract_sha")
   fi
   docker build "${build_args[@]}" --tag "awf-smoke/${image}:${AWF_SMOKE_IMAGE_TAG}" "containers/${image}"
   docker image inspect "awf-smoke/${image}:${AWF_SMOKE_IMAGE_TAG}" > /dev/null
