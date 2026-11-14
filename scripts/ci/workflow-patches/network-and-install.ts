@@ -225,6 +225,20 @@ export function installLocalAwf(content: string, { workflowPath }: PatchContext)
     }
     // Remove only unreleased AWF images, not digest-pinned tool images.
     if (content.includes('--build-local')) {
+      // Compiler-pinned images conflict with --build-local, including in routing configs.
+      content = content.split('\n').map(line => {
+        if (!line.includes("printf '%s\\n'") || !line.endsWith('/awf-config.json"')) {
+          return line;
+        }
+        line = line.replace(
+          /(,?)\\"images\\":\{[^{}\n]*\}(,?)/g,
+          (_match, before: string, after: string) => before && after ? ',' : '',
+        );
+        return line.replace(
+          /(,?)\\"imageTag\\":\\"[^"\\]*\\"(,?)/g,
+          (_match, before: string, after: string) => before && after ? ',' : '',
+        );
+      }).join('\n');
       localAwfImageDownloadRegex.lastIndex = 0;
       const localAwfImageMatches = content.match(localAwfImageDownloadRegex);
       if (localAwfImageMatches) {
