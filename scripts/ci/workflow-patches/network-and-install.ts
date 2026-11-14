@@ -17,6 +17,7 @@ const publishedAwfWorkflowLockFiles = new Set([
   'ci-integration-doctor-updater.lock.yml',
   'daily-agent-runtime-triage.lock.yml',
   'doc-maintainer.lock.yml',
+  'firewall-issue-dispatcher.lock.yml',
   'model-api-mapping-updater.lock.yml',
   'pr-sous-chef.lock.yml',
   'refactoring-scanner.lock.yml',
