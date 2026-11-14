@@ -2,6 +2,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createHash, randomBytes } from 'crypto';
 import { dockerMemoryBytes, assertDockerHostPath, type DockerHostMountIdentity } from './docker-host-storage';
+import type { DockerHostContext, DockerHostEnclaveExecutorOptions } from './docker-host-context';
+import type { DockerHostContainerOperations } from './docker-host-container';
+import { logger } from '../logger';
 
 export interface DockerHostCommandResult {
   exitCode: number;
@@ -319,9 +322,57 @@ export async function removeDockerHostContainer(docker: DockerHostCommand, recor
       if (after?.State?.Running) throw new Error('Docker enclave termination could not be proven');
     }
   }
+
   const removed = await docker(['rm', '-f', inspected.Id]);
   if (removed.exitCode !== 0 || await inspectDockerHostContainer(docker, inspected.Id)
     || await inspectDockerHostContainer(docker, record.expected.name)) {
     throw new Error('Docker enclave removal could not be proven');
+  }
+}
+
+export function createDockerHostRecoveryState(options: Pick<DockerHostEnclaveExecutorOptions, 'journalDir' | 'runId'>) {
+  const journal = new DockerHostRecoveryJournal(options.journalDir, options.runId);
+  const owner = captureDockerHostOwner();
+  const ownerKey = `${options.journalDir}\0${options.runId}`;
+  const backendIdentity = Symbol('docker-host-executor');
+  return { journal, owner, ownerKey, backendIdentity };
+}
+
+export async function initializeDockerHostRecovery(
+  context: DockerHostContext, containers: Pick<DockerHostContainerOperations, 'labelledIds' | 'reconcileCreate' | 'cleanup'>,
+): Promise<void> {
+  const { options, docker, journal, owner, ownerKey, backendIdentity } = context;
+  const { labelledIds, reconcileCreate, cleanup } = containers;
+  if ([...context.backendOwners.get(ownerKey) || []].some((value) => value !== backendIdentity)) {
+    throw new Error('Docker enclave run has another active host executor');
+  }
+  const info = await docker(['info', '--format', '{{json .}}']);
+  if (info.exitCode !== 0) throw new Error('Local Docker enclave daemon is unavailable');
+  const daemon = JSON.parse(info.stdout);
+  if (daemon.OSType !== 'linux' || (daemon.SecurityOptions || []).some((v: string) => /rootless|userns/.test(v))) {
+    throw new Error('Docker host enclave daemon filesystem/identity mode is unsupported');
+  }
+  const records = journal.records(true);
+  const recoverable: DockerHostRecoveryRecord[] = [];
+  for (const record of records) {
+    if (record.runId !== options.runId && isDockerHostOwnerLive(record.owner, owner)) continue;
+    assertDockerHostOwnerStopped(record.owner, owner);
+    recoverable.push(record);
+  }
+  const known = new Set(records.map((record) => record.expected?.name).filter(Boolean));
+  // Labels alone confer no cleanup authority. Every orphan must have a
+  // durable intent and an inspected launch configuration before removal.
+  for (const id of await labelledIds()) {
+    const inspected = await inspectDockerHostContainer(docker, id);
+    if (!inspected || !known.has(inspected.Name?.slice(1))) throw new Error('Unjournaled Docker enclave resources require operator recovery');
+  }
+  for (const record of recoverable) {
+    if (record.runId !== options.runId && record.publicDebug?.pending && !record.publicDebug.retained) {
+      await reconcileCreate(record);
+      await removeDockerHostContainer(docker, record);
+      logger.warn(`Public Docker diagnostics for run ${record.runId}, invocation ${record.invocationId} require trusted recovery; source is preserved`);
+      continue;
+    }
+    await cleanup(record);
   }
 }
