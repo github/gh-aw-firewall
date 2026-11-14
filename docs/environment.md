@@ -26,7 +26,7 @@ awf --env-file /tmp/runtime-paths.env -e MY_VAR=override 'command'
 
 When using `sudo -E`, these host variables are automatically passed: `GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_PERSONAL_ACCESS_TOKEN`, `USER`, `TERM`, `HOME`, `XDG_CONFIG_HOME`.
 
-GitHub Actions supplies `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` when the job grants `id-token: write`. Never print or inspect either value. AWF excludes them from the agent environment. It forwards them directly to the API-proxy sidecar when `AWF_AUTH_TYPE=github-oidc`, and also when `GH_AW_OTLP_WORKLOAD_IDENTITY` is set to enable OIDC workload identity for the OTLP trace exporter (`src/services/api-proxy-env-config.ts`).
+GitHub Actions supplies `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` when the job grants `id-token: write`. Never print or inspect either value. AWF excludes them from the agent environment. It forwards them directly to the API-proxy sidecar when `AWF_AUTH_TYPE=github-oidc`, and also when `GH_AW_OTLP_WORKLOAD_IDENTITY` is set to enable OIDC workload identity for the OTLP trace exporter (`buildOtelEnv()` in `src/services/api-proxy-env-config.ts`).
 
 The following are always set/overridden: `PATH` (container values).
 
