@@ -43,6 +43,7 @@ on:
       - 'src/types/enclave-options.ts'
       - 'src/parsers/enclave-parser.ts'
       - 'src/commands/main-action*'
+      - 'src/commands/main-action/**'
       - 'src/cli-workflow*'
       - 'src/services/enclave-mcp-service*'
       - 'containers/enclave/**'
@@ -122,6 +123,8 @@ jobs:
             src/services/enclave-mcp-service.test.ts \
             src/commands/main-action.test.ts \
             src/commands/main-action-startup-diagnostics.test.ts \
+            src/commands/main-action/external-runtime-wiring.test.ts \
+            src/commands/main-action/exit-handling.test.ts \
             src/cli-workflow.test.ts \
             src/cloud-hypervisor/host-enclave-executor.test.ts \
             src/cloud-hypervisor/host-enclave-executor.bounded-result.test.ts \
