@@ -221,6 +221,7 @@ remain `unknown` unless independently established.
 | CI-004 | Merged [#11194](https://github.com/github/gh-aw-firewall/pull/11194), regression finalization gates and collector projection tests: validated invocation results are separate from post-success audit/cleanup failures, with audit retained outside the AWF work directory. |
 | CI-005 | Merged [#11158](https://github.com/github/gh-aw-firewall/pull/11158) / [#11191](https://github.com/github/gh-aw-firewall/pull/11191), regression evidence collector and host/guest harness tests: standalone completion-marker evidence and persisted Codex routing audit are independently classified. |
 | CI-006 | Merged [#11222](https://github.com/github/gh-aw-firewall/pull/11222), Claude unattended policy and enclave session-diagnostics tests: invalid startup options retain a finite classification in protected diagnostics without raw stderr. |
+| CI-008 | Merged [#11317](https://github.com/github/gh-aw-firewall/pull/11317) / [#11318](https://github.com/github/gh-aw-firewall/pull/11318) / [#11314](https://github.com/github/gh-aw-firewall/pull/11314), [#11311](https://github.com/github/gh-aw-firewall/pull/11311) / [#11383](https://github.com/github/gh-aw-firewall/pull/11383), [#11473](https://github.com/github/gh-aw-firewall/pull/11473) / [#11569](https://github.com/github/gh-aw-firewall/pull/11569), smoke image-preparation, installer-retry and published-release patch tests: pre-agent setup failures are classified by step (prepared images, installer download, published-release image mode) and are distinct from engine exit or provider failures. |
 | A4, RT-001, NET-002 | Corrected misleading probes: an Alpine probe container does not identify daemon libc; daemon default does not establish explicit runtime selection; chroot DNS and transient Squid failures need distinct checks. Current `config-sections.ts` uses a 10-second DNS timeout, not the 5 seconds in historical [#8171](https://github.com/github/gh-aw-firewall/pull/8171). |
 
 ## Agent entry point
@@ -272,6 +273,7 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | CI-005 | ci | Daily agent regression rejects an exit-0 run at a completion or routing evidence gate | fixed | [`findings/ci/CI-005.json`](./findings/ci/CI-005.json) |
 | CI-006 | ci | Claude enclave agent exits 1 before initialization with an invalid launch option | fixed | [`findings/ci/CI-006.json`](./findings/ci/CI-006.json) |
 | CI-007 | ci | Prestarted enclave gateway cannot resolve the private enclave service after network attachment | fixed | [`findings/ci/CI-007.json`](./findings/ci/CI-007.json) |
+| CI-008 | ci | Agentic workflow fails in pre-agent setup before the engine starts | fixed | [`findings/ci/CI-008.json`](./findings/ci/CI-008.json) |
 | SEC-001 | security | Suspected isolation or credential-boundary regression must go to security review, not a bypass | needs-evidence | [`findings/security/SEC-001.json`](./findings/security/SEC-001.json) |
 
 ### Symptom lookup
@@ -342,6 +344,11 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | Enclave regression stops at gateway attachment before the agent starts | CI-007 | ci | fixed |
 | Smoke enclave job times out because the gateway cannot resolve awf-enclave-mcp | CI-007 | ci | fixed |
 | Host preflight gateway-attachment fails at network-membership | CI-007 | ci | fixed |
+| Agentic workflow reports an engine crash or incomplete result although the agent never started | CI-008 | ci | fixed |
+| Install GitHub Copilot CLI step fails after repeated HTTP 504 responses while downloading the checksum manifest | CI-008 | ci | fixed |
+| Smoke workflow exhausts its execution timeout during a cold local Docker image build | CI-008 | ci | fixed |
+| AWF invocation combines a compiler-pinned image manifest with --build-local | CI-008 | ci | fixed |
+| Maintenance workflow npm ci fails certificate verification against a blocked package mirror | CI-008 | ci | fixed |
 | The agent container can reach a domain that is not allowlisted | SEC-001 | security | needs-evidence |
 | A provider credential is observable inside the agent environment while the api-proxy is enabled | SEC-001 | security | needs-evidence |
 | Egress succeeds without a corresponding Squid access-log entry | SEC-001 | security | needs-evidence |
