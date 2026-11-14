@@ -63,6 +63,14 @@ intentionally allowlisted origin. DNS tunneling can exfiltrate data through
 allowed DNS servers by encoding data in queries. These risks require additional
 controls beyond domain and SNI filtering.
 
+Squid's API-proxy and explicit-IP access exceptions use `dst -n` to match
+literal IP destinations without DNS lookups. Without `-n`, evaluating these
+exceptions resolves even an unlisted hostname before the later domain rule
+denies it, leaking the requested name through DNS despite the HTTP refusal.
+Hostnames resolving to an excepted IP do not inherit that IP's exception.
+This fix does not filter direct DNS queries or queries for allowlisted names;
+use a policy-enforcing resolver via `--dns-servers` when those also need filtering.
+
 ## Security Layers Compared
 
 | Layer | What It Blocks | Bypass Method |

@@ -170,7 +170,8 @@ function generateApiProxySection(apiProxyIp?: string): string {
 # the api-proxy via HTTP_PROXY without honouring NO_PROXY for raw IP addresses,
 # causing them to arrive at Squid and be rejected by the raw-IP deny rule below.
 # This allow rule fires first for the known api-proxy IP.
-acl allow_api_proxy_ip dst ${apiProxyIp}
+# -n matches literal IPs only, without resolving names before domain denial.
+acl allow_api_proxy_ip dst -n ${apiProxyIp}
 http_access allow allow_api_proxy_ip
 
 # Allow the api-proxy sidecar unrestricted outbound through Squid.
@@ -220,7 +221,8 @@ function generateTopologyPeersSection(topologyPeers?: string[]): string {
  * requests to IP addresses to prevent bypassing domain-based filtering.  However,
  * when the operator explicitly whitelists an IP (e.g. `172.30.0.1` for the MCP
  * gateway), those requests must be allowed.  This function emits `dst`-based
- * allow rules that fire *before* the blanket raw-IP deny.
+ * allow rules that fire *before* the blanket raw-IP deny. The `-n` flag keeps
+ * these exceptions from resolving hostnames before domain filtering.
  */
 function generateAllowedIpSection(domains: string[]): string {
   const ips = domains.filter(d => IPV4_REGEX.test(d));
@@ -232,7 +234,7 @@ function generateAllowedIpSection(domains: string[]): string {
     '# it must be allowed through before the blanket dst_ipv4/dst_ipv6 deny.',
   ];
   for (const ip of ips) {
-    lines.push(`acl allow_ip_${ip.replace(/\./g, '_')} dst ${ip}`);
+    lines.push(`acl allow_ip_${ip.replace(/\./g, '_')} dst -n ${ip}`);
     lines.push(`http_access allow allow_ip_${ip.replace(/\./g, '_')}`);
   }
   return lines.join('\n') + '\n';
