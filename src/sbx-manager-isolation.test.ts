@@ -205,13 +205,17 @@ describe('isolated sbx credential and lifecycle state', () => {
       expect(firstHandle.hasPendingRestoration).toBe(true);
       expect(secondHandle.hasPendingRestoration).toBe(true);
 
+      const commandArguments: string[][] = [];
+      const credentialPresenceAtCall: boolean[] = [];
       mockExecaFn.mockImplementation(async (_command, args) => {
-        expect(entries.has(first.secret)).toBe(false);
-        expect(args).toEqual(args[0] === 'stop' ? ['stop', 'first'] : ['rm', '--force', 'first']);
+        commandArguments.push(args);
+        credentialPresenceAtCall.push(entries.has(first.secret));
         return success;
       });
       await firstManager.removeSandbox('first');
       expect(mockExecaFn).toHaveBeenCalledTimes(2);
+      expect(commandArguments).toEqual([['stop', 'first'], ['rm', '--force', 'first']]);
+      expect(credentialPresenceAtCall).toEqual([false, false]);
       expect(contents(first.secret)).toBe(first.value);
       expect(firstHandle.hasPendingRestoration).toBe(false);
       expect(entries.has(second.secret)).toBe(false);
