@@ -51,7 +51,10 @@ The firewall uses a containerized architecture with Squid proxy for L7 (HTTP/HTT
 - All configs are written to a temporary work directory (default: `/tmp/awf-<timestamp>`)
 
 ### 3. Docker Management
-- **`src/container-lifecycle.ts`**: Manages container startup and agent command execution using `execa`
+- **`src/container-lifecycle.ts`**: Backward-compatible re-export facade for the lifecycle modules
+- **`src/container-startup.ts`**: Manages Compose startup, readiness checks, and retries
+- **`src/agent-run.ts`**: Orchestrates agent execution, log streaming, exit waiting, and gVisor recovery
+- **`src/squid-block-report.ts`**: Flushes and reads Squid logs, then reports blocked domains
 - **`src/container-cleanup.ts`**: Handles container teardown, log collection, and cleanup
 - **`src/host-env.ts`**: Host environment utilities (UID/GID mapping, env passthrough, filesystem helpers)
 - **`src/services/`**: Service classes for each container (Squid, agent, API proxy, CLI proxy, DoH proxy)
@@ -102,7 +105,7 @@ When the firewall is running with gVisor runtime, it implements automatic recove
 - **Retryable Exit Codes:** Exit codes 134 (abort) and 139 (segmentation fault) are treated as startup crashes
 - **Startup Window:** Only eligible exits from containers whose measured runtime is less than 30 seconds are retried; runtime is used as a heuristic for an initialization crash and does not prove that user code has not started
 - **Retry Limit:** The container will be restarted once (maximum 1 retry attempt per command execution)
-- **Implementation:** Located in `src/container-lifecycle.ts`
+- **Implementation:** Located in `src/agent-run.ts`
 
 This recovery mechanism retries likely transient initialization failures. If a retry occurs, the command's final exit code is taken from the restarted attempt.
 
