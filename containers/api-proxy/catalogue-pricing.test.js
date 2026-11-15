@@ -22,6 +22,17 @@ jest.mock('./model-information.naming.generated.json', () => ({
 const { resolveCentralPricing, validateTariffs, getMedianPricingFact } = require('./catalogue-pricing');
 const { computeTokenBudgetUsage } = require('./token-budget-log');
 
+test('scheduled imported prices are not exposed as fixed fallback rates', () => {
+  const { getImportedPricingFact } = require('./catalogue-pricing');
+  for (const id of [
+    'deepseek/deepseek-v4.1-flash-1017',
+    'minimax/minimax-m3.1-flash',
+  ]) {
+    expect(getImportedPricingFact('openrouter', id)).toBeNull();
+  }
+  expect(getImportedPricingFact('openrouter', 'deepseek/deepseek-r1-0528')).not.toBeNull();
+});
+
 const provenance = { at: '2026-10-23T00:00:00Z' };
 function capture(rawId = 'canonical-model', price = '2', deployment) {
   return {
