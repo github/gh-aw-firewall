@@ -37,10 +37,10 @@ for an example and fail-closed input verification guidance.
 | --- | --- | --- | --- |
 | `system.directories.default` / `.sysroot` | allow (dirs) | compose (Docker + gVisor) | `system-mounts.ts` |
 | `system.etc` | allow (files) | compose (Docker + gVisor) | `etc-mounts.ts` |
-| `home.toolSubdirs` | allow (dirs) | compose + sbx + NVX; microVM workspace tests | `home-strategy.ts`, `sbx-manager.ts`, `nvx/guest-config-layer.ts`, `microvm/workspace.ts` |
-| `home.narrowPaths` | narrow allow override | compose + sbx + NVX; microVM workspace tests | `home-strategy.ts`, `sbx-manager.ts`, `nvx/guest-config-layer.ts`, `microvm/workspace.ts` |
+| `home.toolSubdirs` | allow (dirs) | compose + sbx + NVX; microVM workspace tests | `home-strategy.ts`, `sbx/sandbox-create.ts`, `nvx/guest-config-layer.ts`, `microvm/workspace.ts` |
+| `home.narrowPaths` | narrow allow override | compose + sbx + NVX; microVM workspace tests | `home-strategy.ts`, `sbx/sandbox-create.ts`, `nvx/guest-config-layer.ts`, `microvm/workspace.ts` |
 | `home.forbiddenSubdirs` | deny guard | compose + sbx + NVX | invariant tests, `nvx/guest-config-layer.ts`, `nvx/filesystem-builder.ts`, `nvx/live-mount-policy.ts` |
-| `credentials.entries` | deny (files/dirs) | compose + sbx + NVX; microVM workspace tests | `credential-hiding.ts`, `sbx-manager.ts`, `nvx/guest-config-layer.ts`, `nvx/filesystem-builder.ts`, `nvx/live-mount-policy.ts`, `microvm/workspace.ts` |
+| `credentials.entries` | deny (files/dirs) | compose + sbx + NVX; microVM workspace tests | `credential-hiding.ts`, `sbx/credential-scrub.ts`, `nvx/guest-config-layer.ts`, `nvx/filesystem-builder.ts`, `nvx/live-mount-policy.ts`, `microvm/workspace.ts` |
 
 In compose, `~/.gemini` is mounted only when a Gemini or Google API key is
 configured; the other `toolSubdirs` are always bound (with `.local` replaced by
