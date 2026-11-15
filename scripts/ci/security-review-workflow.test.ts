@@ -25,7 +25,7 @@ describe('daily security review workflow', () => {
   });
 
   it('treats escape-test context as optional without concealing genuine blockers', () => {
-    expect(source).toContain('optional complementary context');
+    expect(source).toContain('optional, corroborative context');
     expect(source).toContain('record the limitation in the discussion and continue the repository snapshot review');
     expect(source).toContain('do not infer that escape attempts passed or failed');
     expect(source).toContain('Missing optional escape-test context alone is not a reason');
