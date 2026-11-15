@@ -14,6 +14,127 @@ const compilerInstallStep =
   '      - name: Install GitHub Copilot CLI\n' +
   `        run: ${installCommand}\n`;
 
+describe('copilot token optimizer inputs', () => {
+  const source = fs.readFileSync(path.join(workflowsDir, 'copilot-token-optimizer.md'), 'utf-8');
+  const frontmatter = yaml.load(source.split('---')[1]) as {
+    tools: { github: { toolsets: string[]; 'min-integrity': string; 'trusted-users': string[] } };
+    steps: Array<{ name: string; run: string }>;
+  };
+  const download = frontmatter.steps.find(step => step.name === 'Download recent Copilot workflow logs')!;
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'copilot-token-inputs-'));
+    fs.mkdirSync(path.join(tempDir, 'bin'));
+    fs.writeFileSync(path.join(tempDir, 'bin/gh'), [
+      '#!/bin/bash',
+      'printf "%s\\n" "$*" >> "$TEST_DIR/calls"',
+      'if [[ " $* " == *" --tool-graph "* ]]; then exit "${TEST_GRAPH_EXIT:-0}"; fi',
+      'if [[ " $* " != *" --artifacts usage,agent "* ]]; then',
+      '  echo \'{"runs":[]}\'',
+      'else',
+      '  printf "%s" "$LOGS_JSON"',
+      'fi',
+      'exit "${TEST_LOGS_EXIT:-0}"',
+      '',
+    ].join('\n'), { mode: 0o755 });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function runDownload(logs: string, logsExit = 0, graphExit = 0) {
+    return spawnSync('/bin/bash', ['-e', '-c', download.run.split('/tmp/gh-aw/token-audit').join(`${tempDir}/audit`)], {
+      env: {
+        PATH: `${tempDir}/bin:/usr/bin:/bin`,
+        TEST_DIR: tempDir,
+        LOGS_JSON: logs,
+        TEST_LOGS_EXIT: String(logsExit),
+        TEST_GRAPH_EXIT: String(graphExit),
+      },
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
+  }
+
+  it('trusts the report bot without lowering integrity for other issue authors', () => {
+    expect(frontmatter.tools.github).toEqual({
+      toolsets: ['issues'],
+      'min-integrity': 'approved',
+      'trusted-users': ['github-actions[bot]'],
+    });
+    const lock = fs.readFileSync(path.join(workflowsDir, 'copilot-token-optimizer.lock.yml'), 'utf-8');
+    expect(lock).toContain('"min-integrity": "approved"');
+    expect(lock).toContain('GH_AW_TRUSTED_USERS_EXTRA: github-actions[bot]');
+    expect(lock).toContain('"trusted-users": ${GH_AW_GUARD_TRUSTED_USERS}');
+    expect(lock).toContain('"blocked-users": ${GH_AW_GUARD_BLOCKED_USERS}');
+    expect(lock).toContain('"write-sink"');
+  });
+
+  it('compiles the authored log collection step without changing its behavior', () => {
+    const compiled = yaml.load(fs.readFileSync(
+      path.join(workflowsDir, 'copilot-token-optimizer.lock.yml'), 'utf-8',
+    )) as { jobs: { agent: { steps: Array<{ name?: string; run?: string }> } } };
+    const step = compiled.jobs.agent.steps.find(step => step.name === download.name);
+    expect(step?.run?.trim()).toBe(download.run.trim());
+  });
+
+  it('uses authenticated, paginated MCP reads rather than an empty pre-agent exclusion fallback', () => {
+    expect(source).toContain('GitHub MCP `list_issues`');
+    expect(source).toContain('`issue_read` with `method: "get"`');
+    expect(source).toContain('`labels: ["copilot-token-optimization"]`');
+    expect(source).toContain('`fields: ["number", "title", "user", "labels"]`');
+    expect(source).toContain('`pageInfo.endCursor` with `after`');
+    expect(source).toContain('If any page fails or is integrity-filtered, report the missing data and stop');
+    expect(source).not.toContain('gh issue list');
+    expect(source).not.toContain('already-optimized.txt');
+    expect(source).not.toContain('stop without calling any safe-output tools');
+    expect(source).toContain('Call `noop`');
+    expect(source).toContain('rank by reported AIC instead');
+  });
+
+  it('collects usage metadata alongside transcripts and retains the full run JSON', () => {
+    const logs = JSON.stringify({
+      runs: [{ database_id: 43695868328, workflow_name: 'Smoke Copilot', token_usage: 1000 }],
+      summary: { run_count: 1 },
+    });
+    const result = runDownload(logs);
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Downloaded 1 Copilot workflow runs');
+    expect(fs.readFileSync(path.join(tempDir, 'audit/copilot-logs.json'), 'utf-8').trim()).toBe(logs);
+    const calls = fs.readFileSync(path.join(tempDir, 'calls'), 'utf-8').trim().split('\n');
+    expect(calls).toHaveLength(2);
+    expect(calls.every(call => call.includes('--artifacts usage,agent'))).toBe(true);
+    expect(calls[0]).toContain('--json --verbose');
+  });
+
+  it('retains valid partial summaries when optional graph generation fails', () => {
+    const result = runDownload('{"runs":[{"database_id":1}]}', 1, 1);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('partial results');
+    expect(result.stdout).toContain('continuing with transcripts');
+    expect(result.stdout).toContain('Downloaded 1 Copilot workflow runs');
+  });
+
+  it.each(['{"runs":[]}', ''])('handles genuinely empty output %j', logs => {
+    const result = runDownload(logs);
+    expect(result.status).toBe(0);
+    expect(JSON.parse(fs.readFileSync(path.join(tempDir, 'audit/copilot-logs.json'), 'utf-8')).runs).toEqual([]);
+  });
+
+  it.each(['{"runs":[]}', ''])('does not disguise a failed collection as empty output %j', logs => {
+    expect(runDownload(logs, 1).status).toBe(1);
+  });
+
+  it.each(['not json', '{"summary":{}}', '{"runs":null}', '{"runs":{}}'])(
+    'rejects malformed run data %s instead of reporting zero runs', logs => {
+      expect(runDownload(logs).status).not.toBe(0);
+    },
+  );
+});
+
 describe.each(retryWorkflows)('%s workflow', workflow => {
   const lockPath = path.join(workflowsDir, `${workflow}.lock.yml`);
   it('pins the CLI install and reviewed checksum instead of resolving mutable compatibility defaults', () => {
