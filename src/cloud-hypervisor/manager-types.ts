@@ -55,7 +55,7 @@ export interface CloudHypervisorWorkloadIdentity {
  *
  * `workDir` is created root-owned mode 0700 (it holds `docker-compose.yml`
  * with plaintext secrets — see `validateAndPrepareWorkDir` in
- * `src/config-writer.ts`), so a non-root process can never traverse into
+ * `src/config-writer-ownership.ts`), so a non-root process can never traverse into
  * it no matter how a leaf directory underneath it is chowned. Since this
  * backend has no jailer to `chroot()` the launched process (which would
  * make host-side ancestor permissions irrelevant), Cloud Hypervisor must
