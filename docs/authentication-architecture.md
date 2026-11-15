@@ -10,7 +10,7 @@ All LLM providers use the same credential-isolation architecture. API keys are h
 
 | Port  | Provider           | Auth header                     |
 |-------|--------------------|---------------------------------|
-| 10000 | OpenAI             | `Authorization: Bearer` (static/Azure/GCP), or AWS SigV4 |
+| 10000 | OpenAI             | `Authorization: Bearer` (static/Azure OIDC/GCP/OpenAI WIF), `api-key` (Azure BYOK via Copilot), or AWS SigV4 |
 | 10001 | Anthropic (Claude) | `x-api-key` (static) or `Authorization: Bearer` (OIDC/WIF) |
 | 10002 | GitHub Copilot     | `Authorization: Bearer` or `token`, or AWS SigV4 |
 | 10003 | Google Gemini      | `x-goog-api-key` (static) or `Authorization: Bearer` (GCP WIF) |
@@ -158,7 +158,8 @@ Simplified illustration of the request-handling logic (the real implementation l
 // Stripped headers — never forwarded from client (containers/api-proxy/proxy-utils.js)
 const STRIPPED_HEADERS = new Set([
   'host', 'authorization', 'proxy-authorization',
-  'x-api-key', 'x-goog-api-key', 'forwarded', 'via',
+  'x-api-key', 'api-key', 'x-goog-api-key', 'forwarded', 'via',
+  'x-awf-caller',
 ]);
 // Header names starting with 'x-forwarded-' are also stripped.
 

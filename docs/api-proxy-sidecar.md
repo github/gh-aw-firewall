@@ -642,7 +642,7 @@ OpenAI API
 ### 3. Header injection
 
 The Node.js proxy automatically:
-- **Strips** any client-supplied `Authorization`, `x-api-key`, `Proxy-Authorization`, and `X-Forwarded-*` headers
+- **Strips** any client-supplied `Authorization`, `x-api-key`, `api-key`, `x-goog-api-key`, `Proxy-Authorization`, `Forwarded`, `Via`, `x-awf-caller`, and `X-Forwarded-*` headers
 - **Injects** the correct authentication headers:
   - **OpenAI**: `Authorization: Bearer $OPENAI_API_KEY`
   - **Anthropic**: `x-api-key: $ANTHROPIC_API_KEY` and `anthropic-version: 2023-06-01` (if not already set by the client)
