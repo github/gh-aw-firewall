@@ -270,7 +270,8 @@ describe('effective AI-credit tariff precedence and provenance', () => {
   });
 
   it.each([
-    ['openrouter', 'openai/gpt-5.5-pro', 'models.dev'],
+    ['openrouter', 'openai/gpt-5.4-mini', 'models.dev'],
+    ['openrouter', 'openai/gpt-5.5-pro', 'configured_default'],
     ['openai', 'gpt-5.5-pro', 'configured_default'],
     ['copilot', 'auto', 'dynamic_selector_fallback'],
     ['copilot', 'unlisted-model', 'configured_default'],

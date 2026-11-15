@@ -166,7 +166,7 @@ async function main() {
     ['copilot', 'gpt-5-mini', fixtureSources ? 75 : 25],
     ['openai', 'gpt-5-mini', 25],
     ['openai', 'gpt-5.4', 250],
-    ['openrouter', 'openai/gpt-5.4', 250],
+    ['openrouter', 'openai/gpt-5.4-mini', 75],
     ['openrouter', 'perceptron/perceptron-mk1', 15],
     ['openrouter', 'openai/gpt-4o-2024-05-13', 500],
     ['openrouter', 'google/gemma-4-31b-it:free', 0],
@@ -179,6 +179,8 @@ async function main() {
       assert.equal(guard.getAiCreditsBlockState().maxExceeded, false);
     }
   }
+  reset();
+  assertEstimated('openai/gpt-5.4', { provider: 'openrouter' });
   reset();
   process.env.AWF_MAX_AI_CREDITS = '500';
   chargeHttpAndWebSocket('copilot', 'gpt-5.4', 250);
