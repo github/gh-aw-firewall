@@ -227,8 +227,8 @@ async function main() {
     assert.equal(usage.ai_credits_pricing_catalog_version, bundledPricing.catalogRevision);
   }
   for (const [model, tokens, credits] of [
-    ['openai/gpt-6.1-sol', 272001, 54.4002],
-    ['anthropic/claude-haiku-5.5', 100001, 1.00001],
+    ['openai/gpt-5.4-mini', 272001, 20.400075],
+    ['google/gemini-3.5-flash', 100001, 15.00015],
   ]) {
     reset();
     chargeHttpAndWebSocket('openrouter', model, credits, tokens);
