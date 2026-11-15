@@ -125,6 +125,100 @@ function dependencies(
 }
 
 describe('Cloud Hypervisor preflight (foundation only)', () => {
+  it.each(['common', 'primary', 'development'] as const)(
+    'preserves the complete %s preflight check sequence',
+    async (profile) => {
+      const steps: string[] = [];
+      const report = new HostPreflightReporter('bounded-runtime');
+      const attempt = report.attempt.bind(report);
+      const notRequired = report.notRequired.bind(report);
+      jest.spyOn(report, 'attempt').mockImplementation((id) => {
+        steps.push(id);
+        attempt(id);
+      });
+      jest.spyOn(report, 'notRequired').mockImplementation((id) => {
+        steps.push(`${id}:not-required`);
+        notRequired(id);
+      });
+      const common = profile === 'common';
+      const development = profile === 'development';
+      if (development) {
+        process.env.AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS = '1';
+      }
+      const deps = dependencies({ hostPreflightReporter: report });
+      const options = config(development ? {
+        developmentAllowUnattestedArtifacts: true,
+        sha256: {
+          cloudHypervisor: digest, virtiofsd: digest, kernel: digest, rootfs: digest, supervisor: digest,
+        },
+      } : {});
+      if (common) await runCloudHypervisorCommonPreflight(options, deps);
+      else await runCloudHypervisorPreflight(options, deps);
+
+      expect(steps).toEqual([
+        'operator-identity', 'artifact-configuration', 'cloud-hypervisor-trust', 'virtiofsd-trust',
+        'tool-getent', 'tool-getfacl', 'tool-groupdel', 'tool-id', 'tool-ip', 'tool-nft',
+        'tool-sysctl', 'tool-flock', 'tool-mke2fs', 'tool-debugfs', 'tool-e2fsck',
+        'tool-rsync', 'tool-mount', 'tool-umount', 'tool-setfacl', 'tool-setpriv',
+        'tool-useradd', 'tool-userdel',
+        'kernel-trust', common ? 'rootfs-trust:not-required' : 'rootfs-trust', 'supervisor-trust',
+        ...(development ? [] : ['manifest-trust', 'bundle-trust']),
+        common || development ? 'sbom-trust:not-required' : 'sbom-trust',
+        'artifact-snapshot',
+        ...(development ? [] : ['tool-gh', 'manifest-attestation', 'manifest-contents']),
+        'sbom-digest:not-required', 'sbom-contents:not-required',
+        'cloud-hypervisor-digest', 'virtiofsd-digest',
+        'cloud-hypervisor-version', 'virtiofsd-version',
+        'kernel-digest', common ? 'rootfs-digest:not-required' : 'rootfs-digest', 'supervisor-digest',
+        'platform', 'architecture', 'kvm-access', 'kvm-group', 'host-policy',
+        'tool-docker', 'docker-infrastructure',
+      ]);
+      expect(deps.removeArtifactSnapshot).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['common', 'primary'] as const)(
+    'does not reach host fallback or version probes after a %s attestation failure',
+    async (profile) => {
+      const failure = new Error('attestation rejected');
+      const deps = dependencies({
+        platform: 'darwin',
+        verifyManifestAttestation: jest.fn().mockRejectedValue(failure),
+      });
+      const run = profile === 'common' ? runCloudHypervisorCommonPreflight : runCloudHypervisorPreflight;
+      await expect(run(config(), deps)).rejects.toBe(failure);
+      expect(deps.readFile).not.toHaveBeenCalled();
+      expect(deps.sha256).not.toHaveBeenCalled();
+      expect(deps.runVersion).not.toHaveBeenCalled();
+      expect(deps.resolveKvmGid).not.toHaveBeenCalled();
+      expect(deps.assertHostPolicy).not.toHaveBeenCalled();
+      expect(deps.assertDockerInfrastructure).not.toHaveBeenCalled();
+      expect(deps.removeArtifactSnapshot).toHaveBeenCalledTimes(1);
+      expect(deps.removeArtifactSnapshot).toHaveBeenCalledWith(
+        `${CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT}/${profile === 'common' ? 'run-common' : 'run-test'}`,
+      );
+    },
+  );
+
+  it.each(['common', 'primary'] as const)(
+    'verifies the final %s artifact digest before classifying host fallback',
+    async (profile) => {
+      const report = new HostPreflightReporter('bounded-runtime');
+      const attempt = jest.spyOn(report, 'attempt');
+      const deps = dependencies({
+        hostPreflightReporter: report,
+        platform: 'darwin',
+        sha256: jest.fn(async file => file.endsWith('/awf-supervisor') ? 'f'.repeat(64) : digest),
+      });
+      const run = profile === 'common' ? runCloudHypervisorCommonPreflight : runCloudHypervisorPreflight;
+      await expect(run(config(), deps)).rejects.toThrow(/guest supervisor SHA-256 mismatch/);
+      expect(attempt).not.toHaveBeenCalledWith('platform');
+      expect(deps.assertHostPolicy).not.toHaveBeenCalled();
+      expect(deps.assertDockerInfrastructure).not.toHaveBeenCalled();
+      expect(deps.removeArtifactSnapshot).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it('retains the resolved physical id path for downstream identity and cleanup tools', async () => {
     const physicalId = '/usr/lib/cargo/bin/coreutils/id';
     const deps = dependencies({
