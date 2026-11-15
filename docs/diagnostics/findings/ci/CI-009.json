@@ -21,7 +21,7 @@
   "rootCause": "Package retrieval from a slow mirror consumed most of one shared 40-minute budget (the originating PR measured a 36-minute build-tools layer), so the remaining image builds were cancelled. Sharding gives each independent set of images its own budget and runner; it does not make the upstream mirror faster, and no hosted run has yet shown the 60-minute budgets are sufficient under a slow mirror.",
   "probe": {
     "command": "grep -n -e 'scan: pr-' -e 'timeout:' -e 'images:' .github/workflows/supply-chain-scan.yml",
-    "expect": "Classify the failing Scan / <shard> job's step first: image build, cache export, Grype scan, or cancellation at the job limit. A current workflow lists pr-toolchain, pr-agent and pr-services with a 60-minute timeout. A cancelled build step with no Grype finding points to the slow-mirror cause; a Grype finding is a real vulnerability and is a different cause. Absent step timing from existing run metadata is unknown.",
+    "expect": "The command checks workflow topology only: current source lists pr-toolchain, pr-agent and pr-services with a 60-minute timeout. From existing run metadata and bounded build-log timing evidence, confirm cancellation at the job limit and distinguish package retrieval, compilation, cache export and Grype execution within the combined build-and-scan step. Match the slow-mirror cause only when apt index or package-download timings show that retrieval consumed most of the shared 40-minute budget. Cancellation without a Grype finding alone is insufficient; absent timing or cancellation-reason evidence leaves the cause unknown.",
     "readOnly": true,
     "secretSafe": true
   },
