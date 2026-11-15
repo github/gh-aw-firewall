@@ -69,7 +69,7 @@ describe('API Proxy Sidecar', () => {
         `http://host.docker.internal:11434/v1/models || true)" = 403`,
         {
           configFile,
-          buildLocal: true,
+          buildLocal: false,
           keepContainers: true,
           logLevel: 'debug',
           timeout: 300000,
@@ -117,7 +117,7 @@ describe('API Proxy Sidecar', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 300000,
         env: {
@@ -137,7 +137,7 @@ describe('API Proxy Sidecar', () => {
       {
         allowDomains: ['api.openai.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -157,7 +157,7 @@ describe('API Proxy Sidecar', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -176,7 +176,7 @@ describe('API Proxy Sidecar', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -195,7 +195,7 @@ describe('API Proxy Sidecar', () => {
       {
         allowDomains: ['api.openai.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -216,7 +216,7 @@ describe('API Proxy Sidecar', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -241,7 +241,7 @@ describe('API Proxy Sidecar', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -264,7 +264,7 @@ describe('API Proxy Sidecar', () => {
       {
         allowDomains: ['api.githubcopilot.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -284,7 +284,7 @@ describe('API Proxy Sidecar', () => {
       {
         allowDomains: ['api.githubcopilot.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -303,7 +303,7 @@ describe('API Proxy Sidecar', () => {
       {
         allowDomains: ['api.githubcopilot.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -323,7 +323,7 @@ describe('API Proxy Sidecar', () => {
       {
         allowDomains: ['api.githubcopilot.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -346,7 +346,7 @@ describe('API Proxy Sidecar', () => {
       {
         allowDomains: ['api.githubcopilot.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -369,7 +369,7 @@ describe('API Proxy Sidecar', () => {
       {
         allowDomains: ['api.githubcopilot.com'],
         enableApiProxy: false,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {

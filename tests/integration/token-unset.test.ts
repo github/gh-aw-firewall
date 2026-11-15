@@ -49,7 +49,7 @@ describe('Token Isolation from Agent Environment', () => {
 
     const result = await runner.run(command, {
       allowDomains: ['example.com'],
-      buildLocal: true,
+      buildLocal: false,
       logLevel: 'debug',
       timeout: 60000,
       env: {
@@ -88,7 +88,7 @@ describe('Token Isolation from Agent Environment', () => {
 
     const result = await runner.run(command, {
       allowDomains: ['example.com'],
-      buildLocal: true,
+      buildLocal: false,
       logLevel: 'debug',
       timeout: 60000,
       env: {
@@ -127,7 +127,7 @@ describe('Token Isolation from Agent Environment', () => {
 
     const result = await runner.run(command, {
       allowDomains: ['example.com'],
-      buildLocal: true,
+      buildLocal: false,
       logLevel: 'debug',
       timeout: 60000,
       env: {
@@ -176,7 +176,7 @@ describe('Token Isolation from Agent Environment', () => {
 
     const result = await runner.run(command, {
       allowDomains: ['example.com'],
-      buildLocal: true,
+      buildLocal: false,
       logLevel: 'debug',
       timeout: 60000,
       env: {
@@ -221,7 +221,7 @@ describe('Token Isolation from Agent Environment', () => {
 
     const result = await runner.run(command, {
       allowDomains: ['example.com'],
-      buildLocal: true,
+      buildLocal: false,
       logLevel: 'debug',
       timeout: 60000,
       env: {

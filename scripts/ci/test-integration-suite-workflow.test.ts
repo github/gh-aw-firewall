@@ -61,8 +61,18 @@ describe('integration suite workflow', () => {
     ]);
     expect(workflow.jobs['build-images'].needs).toBeUndefined();
     for (const [id, job] of Object.entries(workflow.jobs)) {
-      if (id !== 'build-images') expect(job.needs).toBe('build-images');
-      expect(job.if).toBe("github.event_name != 'pull_request' || github.event.label.name == 'ready-for-aw'");
+      if (id !== 'build-images') {
+        expect(job.needs).toBe('build-images');
+        expect(job.if).toBe(
+          "always() && (github.event_name != 'pull_request' || github.event.label.name == 'ready-for-aw')",
+        );
+        const failure = step(id, 'Fail if integration images were not built');
+        expect(failure.if).toBe("always() && needs.build-images.result != 'success'");
+        expect(failure.run).toContain('exit 1');
+        expect(job.steps.indexOf(failure)).toBe(0);
+      } else {
+        expect(job.if).toBe("github.event_name != 'pull_request' || github.event.label.name == 'ready-for-aw'");
+      }
       expect(job['runs-on']).toBe('ubuntu-latest');
       expect(job['timeout-minutes']).toBe(45);
     }
@@ -88,13 +98,17 @@ describe('integration suite workflow', () => {
       .filter(entry => entry.run?.includes('docker buildx build'))).toEqual([build]);
   });
 
-  it('saves both local tags in a single short-lived, already-compressed artifact', () => {
+  it('saves all shared source-built tags in a single short-lived, already-compressed artifact', () => {
     const steps = workflow.jobs['build-images'].steps;
     const save = step('build-images', 'Save integration images');
     const upload = step('build-images', 'Upload integration images');
     expect(steps.indexOf(step('build-images', 'Build local containers'))).toBeLessThan(steps.indexOf(save));
     expect(steps.indexOf(save)).toBeLessThan(steps.indexOf(upload));
-    expect(save.run).toContain('docker save ghcr.io/github/gh-aw-firewall/squid:latest ghcr.io/github/gh-aw-firewall/agent:latest');
+    expect(save.run).toContain(
+      'docker save ghcr.io/github/gh-aw-firewall/squid:latest \\\n' +
+      '  ghcr.io/github/gh-aw-firewall/agent:latest \\\n' +
+      '  ghcr.io/github/gh-aw-firewall/api-proxy:latest',
+    );
     expect(save.shell).toBe('bash');
     expect(save.run).toContain('gzip -1');
     expect(save.run).toContain('test -s "$RUNNER_TEMP/integration-images/images.tar.gz"');
@@ -122,7 +136,10 @@ describe('integration suite workflow', () => {
     expect(steps.indexOf(download)).toBeLessThan(steps.indexOf(load));
     expect(load.shell).toBe('bash');
     expect(load.run).toContain('gunzip -c "$RUNNER_TEMP/integration-images/images.tar.gz" | docker load');
-    expect(load.run).toContain('docker image inspect ghcr.io/github/gh-aw-firewall/squid:latest ghcr.io/github/gh-aw-firewall/agent:latest');
+    expect(load.run).toContain(
+      'docker image inspect ghcr.io/github/gh-aw-firewall/squid:latest ' +
+      'ghcr.io/github/gh-aw-firewall/agent:latest ghcr.io/github/gh-aw-firewall/api-proxy:latest',
+    );
     expect(load.run).toContain('docker images');
     expect(steps.indexOf(load)).toBeLessThan(steps.indexOf(step(job, 'Pre-test cleanup')));
     const test = steps.find(entry => entry.run?.includes('--testPathPatterns'))!;
@@ -165,6 +182,19 @@ describe('integration suite workflow', () => {
     expect(new Set(scripts).size).toBe(1);
   });
 
+  it('uses the shared source-built images instead of rebuilding selected suites', () => {
+    for (const file of [
+      'one-shot-tokens.test.ts',
+      'token-unset.test.ts',
+      'api-proxy.test.ts',
+      'api-proxy-observability.test.ts',
+      'api-proxy-rate-limit.test.ts',
+    ]) {
+      const source = fs.readFileSync(path.join(root, 'tests/integration', file), 'utf8');
+      expect(source).not.toContain('buildLocal: true');
+    }
+  });
+
   it('keeps every inline shell script syntactically valid', () => {
     for (const job of Object.values(workflow.jobs)) {
       for (const entry of job.steps.filter(entry => entry.run)) {
@@ -176,9 +206,9 @@ describe('integration suite workflow', () => {
   });
 
   it.each([
-    { exportCache: 'false', failures: 0, expectedBuilds: 2, status: 0 },
-    { exportCache: 'true', failures: 0, expectedBuilds: 2, status: 0 },
-    { exportCache: 'false', failures: 2, expectedBuilds: 4, status: 0 },
+    { exportCache: 'false', failures: 0, expectedBuilds: 3, status: 0 },
+    { exportCache: 'true', failures: 0, expectedBuilds: 3, status: 0 },
+    { exportCache: 'false', failures: 2, expectedBuilds: 5, status: 0 },
     { exportCache: 'false', failures: 3, expectedBuilds: 3, status: 1 },
   ])('builds images with bounded retries, pipeline failure propagation, and cache summaries: %j', scenario => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'integration-workflow-'));
@@ -213,7 +243,8 @@ describe('integration suite workflow', () => {
       const builds = lines.filter(line => line.startsWith('buildx build'));
       expect(builds).toHaveLength(scenario.expectedBuilds);
       for (const build of builds) {
-        const image = build.endsWith('containers/squid/') ? 'squid' : 'agent';
+        const image = build.includes('containers/squid/') ? 'squid' :
+          build.includes('containers/agent/') ? 'agent' : 'api-proxy';
         expect(build).toContain('--load');
         expect(build).toContain('--progress=plain');
         expect(build).toContain(`--cache-from type=gha,version=2,scope=it-${image}`);
@@ -225,7 +256,7 @@ describe('integration suite workflow', () => {
         }
       }
       if (scenario.status === 0) {
-        expect(builds[builds.length - 1]).toContain('containers/agent/');
+        expect(builds[builds.length - 1]).toContain('containers/api-proxy/');
       }
       expect(lines.filter(line => line.startsWith('sleep'))).toEqual(
         scenario.failures === 0 ? [] : ['sleep 10', 'sleep 20'],
