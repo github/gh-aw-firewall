@@ -110,7 +110,7 @@ export async function checkArtifactBinaryTrust(
 export async function createPreflightArtifactSnapshot(
   report: HostPreflightReporter,
   dependencies: CloudHypervisorPreflightDependencies,
-  config: ArtifactConfig & { virtiofsdBinary: string; tools: CloudHypervisorHostToolPaths },
+  config: ArtifactConfig & { virtiofsdBinary: string; tools: Pick<CloudHypervisorHostToolPaths, 'rsync'> },
 ): Promise<CloudHypervisorCommonArtifactSnapshot> {
   const developmentBypass = config.developmentAllowUnattestedArtifacts === true;
   await report.check('kernel-trust', () => assertTrustedRegularFile(

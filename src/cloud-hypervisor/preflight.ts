@@ -278,9 +278,9 @@ async function runPreflight(
   };
   const artifactConfig = { ...config, commonOnly };
   const virtiofsdBinary = await checkArtifactBinaryTrust(report, dependencies, artifactConfig);
-  const tools = await resolvePreflightHostTools(report, dependencies);
+  const hostTools = await resolvePreflightHostTools(report, dependencies);
   const snapshot = await createPreflightArtifactSnapshot(
-    report, dependencies, { ...artifactConfig, virtiofsdBinary, tools },
+    report, dependencies, { ...artifactConfig, virtiofsdBinary, tools: hostTools },
   );
   try {
     const artifactDigests = await verifyPreflightArtifactBinaries(
@@ -291,7 +291,9 @@ async function runPreflight(
 
     // Artifact trust must be established before any host-capability error can
     // trigger the supported fallback to Docker.
-    const { kvmGid, cgroupVersion } = await checkPreflightHostPolicy(report, dependencies, tools);
+    const { dockerBinaryPath, kvmGid, cgroupVersion } =
+      await checkPreflightHostPolicy(report, dependencies);
+    const tools: CloudHypervisorHostToolPaths = { ...hostTools, docker: dockerBinaryPath };
 
     const commonResult: CloudHypervisorCommonPreflightResult = {
       version,

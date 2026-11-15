@@ -7,7 +7,9 @@ import {
 import { resolveTrustedHostTool } from './artifact-trust';
 import type { CloudHypervisorHostToolPaths, CloudHypervisorPreflightDependencies } from './preflight';
 
-const CLOUD_HYPERVISOR_HOST_TOOLS: (keyof CloudHypervisorHostToolPaths)[] = [
+type CloudHypervisorNonDockerHostToolPaths = Omit<CloudHypervisorHostToolPaths, 'docker'>;
+
+const CLOUD_HYPERVISOR_HOST_TOOLS: (keyof CloudHypervisorNonDockerHostToolPaths)[] = [
   'getent', 'getfacl', 'groupdel', 'id', 'ip', 'nft', 'sysctl', 'flock', 'mke2fs', 'debugfs', 'e2fsck',
   'rsync', 'mount', 'umount', 'setfacl', 'setpriv', 'useradd', 'userdel',
 ];
@@ -81,8 +83,8 @@ export const defaultHostPolicyDependencies: Pick<CloudHypervisorPreflightDepende
 export async function resolvePreflightHostTools(
   report: HostPreflightReporter,
   dependencies: CloudHypervisorPreflightDependencies,
-): Promise<Record<keyof CloudHypervisorHostToolPaths, string>> {
-  const tools = {} as Record<keyof CloudHypervisorHostToolPaths, string>;
+): Promise<CloudHypervisorNonDockerHostToolPaths> {
+  const tools: Partial<Record<keyof CloudHypervisorNonDockerHostToolPaths, string>> = {};
   for (const tool of CLOUD_HYPERVISOR_HOST_TOOLS) {
     try {
       tools[tool] = await report.check(`tool-${tool}`, () => dependencies.assertToolAvailable(tool));
@@ -93,14 +95,13 @@ export async function resolvePreflightHostTools(
       ), hostPreflightReason(error));
     }
   }
-  return tools;
+  return tools as CloudHypervisorNonDockerHostToolPaths;
 }
 
 export async function checkPreflightHostPolicy(
   report: HostPreflightReporter,
   dependencies: CloudHypervisorPreflightDependencies,
-  tools: Record<keyof CloudHypervisorHostToolPaths, string>,
-): Promise<{ kvmGid: number; cgroupVersion: 2 }> {
+): Promise<{ dockerBinaryPath: string; kvmGid: number; cgroupVersion: 2 }> {
   await report.check('platform', () => {
     if (dependencies.platform !== 'linux') {
       throw markHostPreflightError(new CloudHypervisorUnsupportedHostError(
@@ -145,7 +146,6 @@ export async function checkPreflightHostPolicy(
       `${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  tools.docker = dockerBinaryPath;
   await report.check('docker-infrastructure', () => dependencies.assertDockerInfrastructure(dockerBinaryPath, report));
-  return { kvmGid, cgroupVersion };
+  return { dockerBinaryPath, kvmGid, cgroupVersion };
 }

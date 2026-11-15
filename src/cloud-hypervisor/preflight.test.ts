@@ -227,6 +227,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     });
     const result = await runCloudHypervisorPreflight(config(), deps);
     expect(result.tools.id).toBe(physicalId);
+    expect(result.tools.docker).toBe('/usr/bin/docker');
   });
 
   it.each(['common', 'primary'] as const)('completes readiness after successful %s preflight', async (profile) => {
