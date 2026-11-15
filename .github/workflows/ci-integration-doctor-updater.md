@@ -90,8 +90,12 @@ Save each reviewed candidate's receipt immediately to
 `/tmp/gh-aw/cache-memory/diagnosis/receipts.json`, preserving previous receipts
 and the candidate's exact `updated_at`. Use the shared
 `{number, updatedAt, disposition, evidence}` shape with specific code/test
-citations; never bulk-classify from titles. Keep missing evidence pending, and
-never mark a newly staged proposal as already published.
+citations; never bulk-classify from titles. For a verified proposal being staged,
+save `publication-pending` with the verified evidence and proposal identity; on a
+later run, check publication and replace it with `proposed` plus the public URL
+only when confirmed. An unpublished proposal remains pending without being an
+evidence gap. Keep missing evidence pending, and never mark a newly staged
+proposal as already published.
 
 Spend at most 15 minutes on intake and supplemental research, then stop
 expanding scope. Reserve the remaining budget for one bounded correction or

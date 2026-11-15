@@ -66,6 +66,8 @@ describe('shared diagnosis-maintenance contract', () => {
     expect(shared).toContain('name: diagnosis-intake');
     expect(shared).toContain('receipts.json');
     expect(shared).toContain('needs-evidence');
+    expect(shared).toContain('publication-pending');
+    expect(shared).toContain('not an\nevidence gap');
     expect(shared).toContain('npm run diagnostics:freshness');
     expect(shared).toContain('reviewQueue.firstTime');
     expect(shared).toContain('reviewQueue.deferred');
@@ -221,6 +223,9 @@ describe('shared diagnosis-maintenance contract', () => {
       'preserving previous receipts',
       "candidate's exact `updated_at`",
       '{number, updatedAt, disposition, evidence}',
+      '`publication-pending`',
+      'replace it with `proposed` plus the public URL',
+      'without being an\nevidence gap',
       'never bulk-classify from titles',
       'never mark a newly staged proposal as already published',
       'Spend at most 15 minutes on intake and supplemental research',

@@ -64,6 +64,28 @@ describe('diagnosis merged intake', () => {
     expect(result.pending.map(({ number }) => number)).toEqual([2, 3]);
   });
 
+  it('keeps verified unpublished proposals pending without classifying them as evidence gaps', async () => {
+    const state = checkpoint();
+    state.pending = [candidate(1)];
+    const receipts: Receipt[] = [{
+      number: 1, updatedAt: candidate(1).updated_at, disposition: 'publication-pending',
+      evidence: 'CI-001 and current contract tests verified; proposal staged',
+    }];
+
+    const result = await collectIntake(state, receipts, async () => [], now);
+
+    expect(result.pending).toEqual([candidate(1)]);
+    expect(result.reviewQueue.firstTime).toEqual([candidate(1)]);
+    expect(result.reviewQueue.deferred).toEqual([]);
+    expect(result.reviewQueue.deferredCount).toBe(0);
+
+    const published = await collectIntake(result, [{
+      ...receipts[0], disposition: 'proposed',
+      evidence: 'CI-001 and current contract tests verified; https://github.com/org/repo/pull/42',
+    }], async () => [], now);
+    expect(published.pending).toEqual([]);
+  });
+
   it('prioritizes first-time reviews and rotates at most ten deferred candidates', async () => {
     const state = checkpoint();
     const deferred = Array.from({ length: 15 }, (_, i) => candidate(i + 3));
@@ -258,10 +280,14 @@ describe('diagnosis merged intake', () => {
       const valid: Receipt = {
         number: 1, updatedAt: now, disposition: 'covered', evidence: 'CI-001 and current test',
       };
-      fs.writeFileSync(file, JSON.stringify([valid, {
+      const publicationPending: Receipt = {
+        number: 2, updatedAt: now, disposition: 'publication-pending',
+        evidence: 'CI-001 and current contract test; proposal staged',
+      };
+      fs.writeFileSync(file, JSON.stringify([valid, publicationPending, {
         number: 2, updatedAt: 'not-a-date', disposition: 'covered', evidence: 'invalid timestamp',
       }]));
-      expect(readReceipts(file)).toEqual([valid]);
+      expect(readReceipts(file)).toEqual([valid, publicationPending]);
       fs.writeFileSync(file, JSON.stringify({ invalid: true }));
       expect(readReceipts(file)).toEqual([]);
       expect(fs.readFileSync(file, 'utf8')).toBe('{"invalid":true}');
