@@ -18,8 +18,8 @@
  * - Non-sensitive variables are unaffected
  * - Behavior works in both container mode and chroot mode
  *
- * IMPORTANT: These tests require buildLocal: true because the one-shot-token
- * library is compiled during the Docker image build.
+ * The shared source-built agent image includes the compiled one-shot-token
+ * library.
  */
 
 /// <reference path="../jest-custom-matchers.d.ts" />
@@ -55,7 +55,7 @@ describe('One-Shot Token Protection', () => {
           allowDomains: ['localhost'],
           logLevel: 'debug',
           timeout: 480000,
-          buildLocal: true,
+          buildLocal: false,
           env: {
             GITHUB_TOKEN: 'ghp_test_token_12345',
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',
@@ -82,7 +82,7 @@ describe('One-Shot Token Protection', () => {
           allowDomains: ['localhost'],
           logLevel: 'debug',
           timeout: 240000,
-          buildLocal: true,
+          buildLocal: false,
           env: {
             COPILOT_GITHUB_TOKEN: 'copilot_test_token_67890',
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',
@@ -111,7 +111,7 @@ describe('One-Shot Token Protection', () => {
           allowDomains: ['localhost'],
           logLevel: 'debug',
           timeout: 240000,
-          buildLocal: true,
+          buildLocal: false,
           env: {
             OPENAI_API_KEY: 'sk-test-openai-key',
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',
@@ -147,7 +147,7 @@ describe('One-Shot Token Protection', () => {
           allowDomains: ['localhost'],
           logLevel: 'debug',
           timeout: 240000,
-          buildLocal: true,
+          buildLocal: false,
           env: {
             GITHUB_TOKEN: 'ghp_multi_token_1',
             OPENAI_API_KEY: 'sk-multi-key-2',
@@ -179,7 +179,7 @@ describe('One-Shot Token Protection', () => {
           allowDomains: ['localhost'],
           logLevel: 'debug',
           timeout: 240000,
-          buildLocal: true,
+          buildLocal: false,
           env: {
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',
           },
@@ -219,7 +219,7 @@ PYEOF
           allowDomains: ['localhost'],
           logLevel: 'debug',
           timeout: 240000,
-          buildLocal: true,
+          buildLocal: false,
           env: {
             GITHUB_TOKEN: 'ghp_python_test_token',
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',
@@ -257,7 +257,7 @@ PYEOF
           allowDomains: ['localhost'],
           logLevel: 'debug',
           timeout: 240000,
-          buildLocal: true,
+          buildLocal: false,
           env: {
             GITHUB_TOKEN: 'ghp_environ_check',
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',
@@ -286,7 +286,7 @@ PYEOF
           allowDomains: ['localhost'],
           logLevel: 'debug',
           timeout: 240000,
-          buildLocal: true,
+          buildLocal: false,
           env: {
             GITHUB_TOKEN: 'ghp_chroot_token_12345',
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',
@@ -313,7 +313,7 @@ PYEOF
           allowDomains: ['localhost'],
           logLevel: 'debug',
           timeout: 240000,
-          buildLocal: true,
+          buildLocal: false,
           env: {
             COPILOT_GITHUB_TOKEN: 'copilot_chroot_token_67890',
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',
@@ -344,7 +344,7 @@ PYEOF
           allowDomains: ['localhost'],
           logLevel: 'debug',
           timeout: 240000,
-          buildLocal: true,
+          buildLocal: false,
           env: {
             GITHUB_TOKEN: 'ghp_chroot_python_token',
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',
@@ -373,7 +373,7 @@ PYEOF
           allowDomains: ['localhost'],
           logLevel: 'debug',
           timeout: 240000,
-          buildLocal: true,
+          buildLocal: false,
           env: {
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',
           },
@@ -409,7 +409,7 @@ PYEOF
           allowDomains: ['localhost'],
           logLevel: 'debug',
           timeout: 240000,
-          buildLocal: true,
+          buildLocal: false,
           env: {
             GITHUB_TOKEN: 'ghp_chroot_multi_1',
             OPENAI_API_KEY: 'sk-chroot-multi-2',
@@ -440,7 +440,7 @@ PYEOF
           allowDomains: ['localhost'],
           logLevel: 'debug',
           timeout: 240000,
-          buildLocal: true,
+          buildLocal: false,
           env: {
             GITHUB_TOKEN: '',
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',
@@ -468,7 +468,7 @@ PYEOF
           allowDomains: ['localhost'],
           logLevel: 'debug',
           timeout: 240000,
-          buildLocal: true,
+          buildLocal: false,
         }
       );
 
@@ -492,7 +492,7 @@ PYEOF
           allowDomains: ['localhost'],
           logLevel: 'debug',
           timeout: 240000,
-          buildLocal: true,
+          buildLocal: false,
           env: {
             GITHUB_TOKEN: 'ghp_test-with-special_chars@#$%',
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',

@@ -43,7 +43,7 @@ describe('API Proxy Rate Limiting', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         // No rateLimitRpm, rateLimitRph, or rateLimitBytesPm — unlimited by default
         logLevel: 'debug',
         timeout: 120000,
@@ -73,7 +73,7 @@ describe('API Proxy Rate Limiting', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         rateLimitRpm: 2,
         logLevel: 'debug',
         timeout: 120000,
@@ -99,7 +99,7 @@ describe('API Proxy Rate Limiting', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         rateLimitRpm: 1,
         logLevel: 'debug',
         timeout: 120000,
@@ -126,7 +126,7 @@ describe('API Proxy Rate Limiting', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         rateLimitRpm: 1,
         logLevel: 'debug',
         timeout: 120000,
@@ -162,7 +162,7 @@ describe('API Proxy Rate Limiting', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         noRateLimit: true,
         logLevel: 'debug',
         timeout: 120000,
@@ -187,7 +187,7 @@ describe('API Proxy Rate Limiting', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         rateLimitRpm: 5,
         logLevel: 'debug',
         timeout: 120000,
@@ -220,7 +220,7 @@ describe('API Proxy Rate Limiting', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         rateLimitRpm: 1,
         logLevel: 'debug',
         timeout: 120000,
