@@ -84,6 +84,7 @@ describe('copilot token optimizer inputs', () => {
     expect(source).toContain('GitHub MCP `list_issues`');
     expect(source).toContain('`issue_read` with `method: "get"`');
     expect(source).toContain('`labels: ["copilot-token-optimization"]`');
+    expect(source).toContain('`fields: ["number", "title", "user", "labels"]`');
     expect(source).toContain('`pageInfo.endCursor` with `after`');
     expect(source).toContain('If any page fails or is integrity-filtered, report the missing data and stop');
     expect(source).not.toContain('gh issue list');

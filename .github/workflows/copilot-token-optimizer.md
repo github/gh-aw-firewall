@@ -108,7 +108,7 @@ Read the full issue body to extract per-workflow statistics.
 
 ## Step 2: Identify the Most Token-Intensive Workflow
 
-Use GitHub MCP `list_issues` with `labels: ["copilot-token-optimization"]`, `state: "OPEN"`, `fields: ["number", "title"]`, and `perPage: 50`. Follow `pageInfo.endCursor` with `after` until `hasNextPage` is false. Extract the workflow name after ` — ` in each title to build the exclusion list. If any page fails or is integrity-filtered, report the missing data and stop rather than treating the exclusion list as empty.
+Use GitHub MCP `list_issues` with `labels: ["copilot-token-optimization"]`, `state: "OPEN"`, `fields: ["number", "title", "user", "labels"]`, and `perPage: 50`. Include author and labels so trusted-user promotion is applied before integrity filtering. Follow `pageInfo.endCursor` with `after` until `hasNextPage` is false. Extract the workflow name after ` — ` in each title to build the exclusion list. If any page fails or is integrity-filtered, report the missing data and stop rather than treating the exclusion list as empty.
 
 From the report's **Workflow Summary** table, rank all workflows by:
 1. Highest estimated cost (primary sort)
