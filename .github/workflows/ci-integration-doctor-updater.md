@@ -78,6 +78,14 @@ credential or transport: record the exact evidence gap as `needs-evidence`.
 Start with `reviewQueue.firstTime`, then `reviewQueue.deferred` within the shared
 limits of 50 total and at most 10 deferred reviews. These are ceilings, not a
 target to finish before publishing. Do not review the full `pending` backlog.
+Before fetching PR evidence, declare this run's selected batch of PR numbers
+within those limits and the time budget. Select at least one candidate when
+either review queue is nonempty. Candidates outside that batch are
+carry-forward backlog, not incomplete work for this run. Keep them pending and
+report them as unreviewed; never count them as reviewed, discard them or advance
+cursors manually. Do not shrink the selected batch after encountering an
+evidence gap.
+
 Save each reviewed candidate's receipt immediately to
 `/tmp/gh-aw/cache-memory/diagnosis/receipts.json`, preserving previous receipts
 and the candidate's exact `updated_at`. Use the shared
@@ -93,8 +101,18 @@ Run `npm run diagnostics:freshness` early. Before proposing record edits, run
 `npm run diagnostics:check`; leave generated prompt/agent files to trusted
 reviewers and include only allowed files in the PR.
 Report reviewed, needs-evidence and unreviewed counts separately, with cursors
-and backlog. If any batch or required source remains unreviewed, preserve the
-receipts and call `report-incomplete` with the exact gap and next safe step;
+and backlog. Judge completion against the selected batch and required
+freshness/source checks, not the entire `pending` backlog. A fully reviewed
+batch with saved receipts and completed validation may produce one bounded
+proposal, or `noop` when no correction is needed, even while carry-forward
+backlog remains. Scope the completion claim to that batch, not the full intake
+or historical catchup. A fully verified proposal awaiting safe-output
+publication is not itself an evidence gap; keep its candidate pending until a
+later run verifies publication.
+
+If a selected candidate remains unreviewed or `needs-evidence`, or a required
+source/check is incomplete, preserve the receipts and
+call `report-incomplete` with the exact gap and next safe step;
 never substitute `noop` merely because time ran out.
 
 Separate source fixes from immutable released assets; record exact compiler,
@@ -115,5 +133,6 @@ human review; uncertain changes instead go in one deduplicated evidence issue.
 Use GFM headings starting at `###`. Report coverage/cursors/backlog, each
 finding's status/version/probe/action, current-main implementation/tests,
 provenance URLs, review evidence, validation and real acceptance gaps. Credit
-human reviewers/mergers using automation. Never auto-merge. Complete reviews
-with no correction call `noop`; unfinished coverage uses `report-incomplete`.
+human reviewers/mergers using automation. Never auto-merge. Complete selected
+batches with no correction call `noop`; unfinished selected-batch coverage or
+required checks use `report-incomplete`, not carry-forward backlog alone.

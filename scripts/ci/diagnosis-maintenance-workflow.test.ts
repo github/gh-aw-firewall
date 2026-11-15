@@ -237,6 +237,43 @@ describe('shared diagnosis-maintenance contract', () => {
     }
   });
 
+  it('distinguishes a completed CI review batch from carry-forward backlog', () => {
+    const source = read('.github/workflows/ci-integration-doctor-updater.md');
+    for (const fragment of [
+      "Before fetching PR evidence, declare this run's selected batch of PR numbers",
+      'within those limits and the time budget',
+      'Select at least one candidate when\neither review queue is nonempty',
+      'carry-forward backlog, not incomplete work for this run',
+      'Keep them pending and\nreport them as unreviewed',
+      'never count them as reviewed, discard them or advance\ncursors manually',
+      'not the entire `pending` backlog',
+      'batch with saved receipts and completed validation',
+      'proposal, or `noop` when no correction is needed',
+      'Scope the completion claim to that batch, not the full intake',
+      'keep its candidate pending until a\nlater run verifies publication',
+      'not carry-forward backlog alone',
+    ]) {
+      expect(source).toContain(fragment);
+    }
+    expect(source).not.toContain('If any batch or required source remains unreviewed');
+    expect(source).not.toContain('unfinished coverage uses `report-incomplete`');
+  });
+
+  it('still reports incomplete CI batches and missing required evidence honestly', () => {
+    const source = read('.github/workflows/ci-integration-doctor-updater.md');
+    for (const fragment of [
+      'Do not shrink the selected batch after encountering an\nevidence gap',
+      'If a selected candidate remains unreviewed or `needs-evidence`',
+      'or a required\nsource/check is incomplete',
+      'call `report-incomplete` with the exact gap',
+      'never substitute `noop` merely because time ran out',
+      'do not retry through another\ncredential or transport',
+      'never mark a newly staged proposal as already published',
+    ]) {
+      expect(source).toContain(fragment);
+    }
+  });
+
   it('checks deadline freshness and generated parity without enabling writes', () => {
     const workflow = read('.github/workflows/diagnosis-freshness.yml');
     expect(workflow).toContain('diagnostics:validate && npm run diagnostics:check');
