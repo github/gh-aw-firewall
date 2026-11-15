@@ -693,6 +693,12 @@ describe('validateArgs', () => {
     ])('should preserve safe file-input command arguments in %j', (...args) => {
       expect(validateArgs(args).valid).toBe(true);
     });
+
+    it('should handle bounded long short-flag clusters without losing file operands', () => {
+      const cluster = `-${'p'.repeat(256 * 1024 - 1)}`;
+      expect(validateArgs(['gist', 'create', cluster, '-']).valid).toBe(true);
+      expect(validateArgs(['gist', 'create', cluster, 'security.js']).valid).toBe(false);
+    });
   });
 
   describe('allowlist completeness', () => {

@@ -395,25 +395,27 @@ function validatePositionalFileInputArgs(args) {
       continue;
     }
     const long = arg.startsWith('--');
-    const equals = arg.indexOf('=');
-    const flag = long ? (equals < 0 ? arg : arg.slice(0, equals)) : arg.slice(0, 2);
-    let value = long ? (equals < 0 ? undefined : arg.slice(equals + 1)) : arg.slice(2) || undefined;
-    if (booleanFlags.has(flag)) {
-      // Expand short boolean clusters without losing attached flag values.
-      if (!long && value && !value.startsWith('=')) {
-        tokens[index] = `-${value}`;
-        index -= 1;
+    const equals = long ? arg.indexOf('=') : -1;
+    // Walk short clusters once; value-taking flags consume the remainder.
+    for (let offset = 1; offset < arg.length; offset += 1) {
+      const flag = long ? (equals < 0 ? arg : arg.slice(0, equals)) : `-${arg[offset]}`;
+      if (booleanFlags.has(flag)) {
+        if (long || arg[offset + 1] === '=') break;
+        continue;
       }
-      continue;
-    }
-    if (!valueFlags.has(flag)) {
-      return { valid: false, error: `Flag '${flag}' is not permitted for ${group} ${command}` };
-    }
-    if (!long && value?.startsWith('=')) value = value.slice(1);
-    if (value === undefined) value = tokens[++index];
-    if (value === undefined) return { valid: false, error: `${flag} requires a value` };
-    if ((flag === '-F' || flag === '--notes-file') && value !== '-') {
-      return { valid: false, error: `${flag} permits only stdin` };
+      if (!valueFlags.has(flag)) {
+        return { valid: false, error: `Flag '${flag}' is not permitted for ${group} ${command}` };
+      }
+      let value = long
+        ? (equals < 0 ? undefined : arg.slice(equals + 1))
+        : arg.slice(offset + 1) || undefined;
+      if (!long && value?.startsWith('=')) value = value.slice(1);
+      if (value === undefined) value = tokens[++index];
+      if (value === undefined) return { valid: false, error: `${flag} requires a value` };
+      if ((flag === '-F' || flag === '--notes-file') && value !== '-') {
+        return { valid: false, error: `${flag} permits only stdin` };
+      }
+      break;
     }
   }
   if (gist ? positionals.some((arg) => arg !== '-') : positionals.length > 1) {
