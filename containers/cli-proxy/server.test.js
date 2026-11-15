@@ -192,6 +192,24 @@ process.stdout.write('inert gh fixture\\n');
       expect(fs.readFileSync(recordPath, 'utf8')).toBe(before);
     });
 
+    it.each([
+      ['gist', 'create', '/app/security.js'],
+      ['gist', 'new', '--', 'security.js'],
+      ['gist', 'edit', 'abc123', '--add', '/app/security.js'],
+      ['gist', 'edit', 'abc123', '--filename', 'x', '/app/security.js'],
+      ['release', 'upload', 'v1', '-'],
+      ['release', 'create', 'v1', 'security.js#label'],
+      ['release', 'new', 'v1', '-dFsecurity.js'],
+      ['release', 'edit', 'v1', '-F', '/app/security.js'],
+      ['issue', 'comment', '1', '-eF/app/security.js'],
+      ['api', '-iFbody=@/app/security.js', 'repos/owner/repo'],
+    ])('never dispatches positional or shorthand file inputs %j', async (...args) => {
+      const before = fs.readFileSync(recordPath, 'utf8');
+      const response = await postExec({ args });
+      expect(response.statusCode).toBe(403);
+      expect(fs.readFileSync(recordPath, 'utf8')).toBe(before);
+    });
+
     it.each(allowedInvocations.map((args) => [args]))('dispatches allowed argv unchanged %j', async (args) => {
       fs.writeFileSync(recordPath, '');
       expect(await postExec({ args })).toEqual({
@@ -236,6 +254,8 @@ describe('gh command-discovery contract (isolated help only)', () => {
   });
 
   it.each([
+    [['gist', 'new'], 'gist create'],
+    [['release', 'new'], 'release create'],
     [['co'], 'pr checkout'],
     [['pr', 'co'], 'pr checkout'],
     [['cs'], 'codespace'],
@@ -607,6 +627,131 @@ describe('validateArgs', () => {
       expect(validateArgs(['api', '-F', 'body=@/proc/self/environ']).valid).toBe(false);
       expect(validateArgs(['pr', 'create', '--body-file', '-']).valid).toBe(true);
       expect(validateArgs(['pr', 'create', '--body-file', '/proc/self/environ']).valid).toBe(false);
+    });
+
+    it.each([
+      ['gist', 'create', '/proc/self/environ'],
+      ['gist', 'new', 'security.js'],
+      ['gist', 'create', '-', '../secret'],
+      ['gist', 'create', '--', '--secret'],
+      ['gist', 'create', '-p', 'security.js'],
+      ['gist', 'create', '--public=false', 'security.js'],
+      ['gist', 'create', '-pd', 'description', 'security.js'],
+      ['gist', '--desc', 'description', 'create', 'security.js'],
+      ['gist', 'create', '--desc', '--', 'security.js'],
+      ['gist', 'create', '--help=false', 'security.js'],
+      ['gist', 'edit', 'abc123', '--filename', 'x', '/proc/self/environ'],
+      ['gist', 'edit', 'abc123', '--add', '/proc/self/environ'],
+      ['gist', 'edit', 'abc123', '-afoo'],
+      ['gist', 'edit', 'abc123', '-a=foo'],
+      ['gist', 'edit', 'abc123', '--add=foo'],
+      ['gist', 'edit', 'abc123', '-d', 'desc', '-afoo', '--', 'security.js'],
+      ['gist', '--desc', 'description', 'edit', 'abc123', '--add', 'foo'],
+      ['gist', 'edit', 'abc123', '--', 'security.js'],
+      ['gist', 'edit', 'abc123', '-', '-'],
+      ['release', 'upload', 'v1', '/proc/self/environ'],
+      ['release', 'upload', 'v1', '*.js#label'],
+      ['release', 'upload', 'v1', '-'],
+      ['release', 'upload', '--clobber', 'v1', 'security.js'],
+      ['release', 'create', 'v1', 'security.js'],
+      ['release', 'new', 'v1', 'security.js'],
+      ['release', 'create', '--draft', 'v1', 'security.js'],
+      ['release', 'create', 'v1', '--', '-'],
+      ['release', 'create', 'v1', '-F', 'security.js'],
+      ['release', 'create', 'v1', '-Fsecurity.js'],
+      ['release', 'create', 'v1', '-F=security.js'],
+      ['release', 'create', 'v1', '--notes-file=security.js'],
+      ['release', 'create', 'v1', '-dFsecurity.js'],
+      ['release', 'create', 'v1', '-dF', 'security.js'],
+      ['release', 'edit', 'v1', '-F', 'security.js'],
+      ['release', 'edit', 'v1', '-Fsecurity.js'],
+      ['release', 'edit', 'v1', '-F=security.js'],
+      ['release', 'edit', 'v1', '--unknown', '-n', '-F', 'security.js'],
+      ['release', '--repo', 'owner/repo', 'edit', 'v1', '-Fsecurity.js'],
+      ['issue', 'comment', '1', '-F', 'security.js'],
+      ['issue', 'comment', '1', '-eFsecurity.js'],
+      ['pr', 'create', '-dF=security.js'],
+      ['pr', 'new', '-dF', 'security.js'],
+      ['pr', 'review', '1', '-aFsecurity.js'],
+      ['discussion', 'edit', '1', '-Fsecurity.js'],
+      ['api', '-iFbody=@security.js', 'repos/owner/repo'],
+      ['api', '-iF', 'body=@security.js', 'repos/owner/repo'],
+      ['api', '-iF=body=@security.js', 'repos/owner/repo'],
+      ['api', '--field=body=@security.js', 'repos/owner/repo'],
+      ['workflow', 'run', 'ci.yml', '-Fbody=@security.js'],
+      ['workflow', 'run', 'ci.yml', '--field', 'body=@security.js'],
+      ['release', 'create', '--notes', '--', 'v1', 'security.js'],
+      ['release', 'create', '--notes=', 'v1', 'security.js'],
+      ['release', 'create', '--latest', 'false', 'security.js'],
+      ['release', 'create', 'v1', '--unknown', 'security.js'],
+      ['-R', 'owner/repo', 'release', 'create', 'v1', 'security.js'],
+      ['release', '-Rowner/repo', 'upload', 'v1', 'security.js'],
+      ['release', '--repo=owner/repo', 'new', 'v1', 'security.js'],
+      ['--repo', 'release', 'release', 'create', 'v1', 'security.js'],
+      ['release', '--repo', 'create', 'create', 'v1', 'security.js'],
+      ['release', '--repo', 'new', 'new', 'v1', 'security.js'],
+    ])('should deny local file inputs in %j', (...args) => {
+      expect(validateArgs(args).valid).toBe(false);
+    });
+
+    it.each([
+      ['gist', 'create'],
+      ['gist', 'create', '-'],
+      ['gist', 'new', '--', '-'],
+      ['gist', 'create', '-', '--desc', 'description', '--filename', 'file.txt'],
+      ['gist', 'create', '-pd', 'description', '-ffile.txt', '-'],
+      ['gist', '--desc', 'description', 'create', '-'],
+      ['gist', 'edit', 'abc123', '--desc', 'description'],
+      ['gist', 'edit', 'abc123', '--filename', 'x', '-'],
+      ['gist', 'edit', 'abc123', '--add', 'x', '-'],
+      ['gist', 'edit', 'abc123', '-ax', '--', '-'],
+      ['gist', '--desc', 'description', 'edit', 'abc123', '--add', 'foo', '-'],
+      ['gist', 'edit', 'abc123', '--remove', 'x'],
+      ['gist', 'edit', 'abc123', '--add='],
+      ['release', 'create', 'v1'],
+      ['release', 'new', '--', 'v1'],
+      ['release', 'create', 'v1', '--notes-file', '-'],
+      ['release', 'create', 'v1', '-F-'],
+      ['release', 'create', 'v1', '-dF-'],
+      ['release', 'create', 'v1', '-dF=-'],
+      ['release', 'edit', 'v1', '-F=-'],
+      ['release', 'edit', 'v1', '-nFsecurity.js'],
+      ['issue', 'comment', '1', '-eF-'],
+      ['issue', 'comment', '1', '-bFsecurity.js'],
+      ['issue', 'comment', '1', '--body', '-Fsecurity.js'],
+      ['pr', 'review', '1', '-aF=-'],
+      ['api', '-iFbody=@-', 'repos/owner/repo'],
+      ['api', '-F', 'body=literal', 'repos/owner/repo'],
+      ['api', '-F', 'body=literal=@security.js', 'repos/owner/repo'],
+      ['api', '--header', '-Fbody=@security.js', 'repos/owner/repo'],
+      ['api', '-f', 'body=@security.js', 'repos/owner/repo'],
+      ['workflow', 'run', 'ci.yml', '--field=body=@-'],
+      ['workflow', 'run', 'ci.yml', '-Fbody=literal'],
+      ['release', 'create', 'v1', '-nFsecurity.js'],
+      ['release', 'create', 'v1', '--notes='],
+      ['release', 'create', 'v1', '-d=false'],
+      ['release', 'create', '-dtTitle', 'v1', '-n', 'notes'],
+      ['release', 'create', '--latest=false', 'v1', '--generate-notes'],
+      ['release', 'create', '--title=v1', 'v1', '--target', 'main'],
+      ['-R', 'owner/repo', 'release', 'create', 'v1', '--notes', 'notes'],
+      ['release', '-Rowner/repo', 'create', '--notes=notes', 'v1'],
+      ['release', '--repo=owner/repo', 'new', 'v1', '-F', '-'],
+      ['release', '-R=owner/repo', 'create', 'v1'],
+      ['--repo', 'release', 'release', 'create', 'v1'],
+      ['release', '--repo', 'create', 'create', 'v1'],
+      ['release', '--repo', 'new', 'new', 'v1'],
+      ['release', 'upload', '--help'],
+    ])('should preserve safe file-input command arguments in %j', (...args) => {
+      expect(validateArgs(args).valid).toBe(true);
+    });
+
+    it('should handle bounded long short-flag clusters without losing file operands', () => {
+      const cluster = `-${'p'.repeat(256 * 1024 - 1)}`;
+      expect(validateArgs(['gist', 'create', cluster, '-']).valid).toBe(true);
+      expect(validateArgs(['gist', 'create', cluster, 'security.js']).valid).toBe(false);
+      const reviewCluster = `-${'a'.repeat(256 * 1024 - 2)}F`;
+      expect(validateArgs(['pr', 'review', '1', reviewCluster, '-']).valid).toBe(true);
+      expect(validateArgs(['pr', 'review', '1', reviewCluster, 'security.js']).valid).toBe(false);
     });
   });
 
