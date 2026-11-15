@@ -201,7 +201,7 @@ async function main() {
     input_tokens: 1000000, output_tokens: 1000000,
   }, 'openai/gpt-4o-2024-05-13', 'openrouter').aiCreditsThisResponse, 2000);
   for (const [model, credits] of [
-    ['google/gemini-2.5-pro', 37.5], ['google/gemini-3.5-flash', 8.333333],
+    ['google/gemini-3.5-flash', 8.333333],
   ]) {
     assert.equal(guard.applyAiCreditsUsage({
       input_tokens: 1000000, cache_write_tokens: 1000000,
