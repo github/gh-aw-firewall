@@ -18,16 +18,7 @@ import {
 import { writeSensitivePathAudit } from './sensitive-path-audit';
 import { resolveApiProxyUpstreams } from './services/api-proxy-env-config';
 import { copilotBrokerSensitiveValues, resolveCopilotBrokerUpstreams } from './copilot-token-broker';
-
-/** Resolved network topology passed between setup phases. */
-export interface NetworkConfig {
-  subnet: string;
-  squidIp: string;
-  agentIp: string;
-  proxyIp?: string;
-  dohProxyIp?: string;
-  cliProxyIp?: string;
-}
+import type { NetworkConfig } from './services/squid-service';
 
 /**
  * Phase 7 — Writes audit artifacts to the audit directory.
