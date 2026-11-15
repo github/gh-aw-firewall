@@ -166,7 +166,7 @@ async function main() {
     ['copilot', 'gpt-5-mini', fixtureSources ? 75 : 25],
     ['openai', 'gpt-5-mini', 25],
     ['openai', 'gpt-5.4', 250],
-    ['openrouter', 'openai/gpt-5.4', 250],
+    ['openrouter', 'openai/gpt-5.4-mini', 75],
     ['openrouter', 'perceptron/perceptron-mk1', 15],
     ['openrouter', 'openai/gpt-4o-2024-05-13', 500],
     ['openrouter', 'google/gemma-4-31b-it:free', 0],
@@ -179,6 +179,8 @@ async function main() {
       assert.equal(guard.getAiCreditsBlockState().maxExceeded, false);
     }
   }
+  reset();
+  assertEstimated('openai/gpt-5.4', { provider: 'openrouter' });
   reset();
   process.env.AWF_MAX_AI_CREDITS = '500';
   chargeHttpAndWebSocket('copilot', 'gpt-5.4', 250);
@@ -199,7 +201,7 @@ async function main() {
     input_tokens: 1000000, output_tokens: 1000000,
   }, 'openai/gpt-4o-2024-05-13', 'openrouter').aiCreditsThisResponse, 2000);
   for (const [model, credits] of [
-    ['google/gemini-2.5-pro', 37.5], ['google/gemini-3.5-flash', 8.333333],
+    ['google/gemini-3.5-flash', 8.333333],
   ]) {
     assert.equal(guard.applyAiCreditsUsage({
       input_tokens: 1000000, cache_write_tokens: 1000000,
@@ -225,8 +227,8 @@ async function main() {
     assert.equal(usage.ai_credits_pricing_catalog_version, bundledPricing.catalogRevision);
   }
   for (const [model, tokens, credits] of [
-    ['openai/gpt-6.1-sol', 272001, 54.4002],
-    ['anthropic/claude-haiku-5.5', 100001, 1.00001],
+    ['openai/gpt-5.4-mini', 272001, 20.400075],
+    ['google/gemini-3.5-flash', 100001, 15.00015],
   ]) {
     reset();
     chargeHttpAndWebSocket('openrouter', model, credits, tokens);

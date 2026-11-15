@@ -6,7 +6,7 @@ const { join } = require('node:path');
 const { identity } = require('./identity');
 const { validate } = require('./contracts');
 
-const IMPORTER_VERSION = '2';
+const IMPORTER_VERSION = '3';
 const metadata = require('./imported/legacy-models-dev.metadata.json');
 // Retain the original exported names for callers of the pinned import API.
 const BUNDLED_GIT_BLOB = metadata.revision;
@@ -106,10 +106,12 @@ function importLegacySnapshot(bytes, metadata) {
       const record = {
         schemaVersion: 1, identity: modelIdentity,
         lifecycle: { status: 'active' }, modelType: 'other',
-        importedPricing: {
-          sourceNamespace: modelIdentity.provider,
-          currency: 'USD', unit: 'USD_PER_1M_TOKENS', components, provenance,
-        },
+        ...(!Object.hasOwn(entry.pricing, 'overrides') || entry.pricing.overrides === null ||
+          (Array.isArray(entry.pricing.overrides) && entry.pricing.overrides.length === 0)
+          ? { importedPricing: {
+            sourceNamespace: modelIdentity.provider,
+            currency: 'USD', unit: 'USD_PER_1M_TOKENS', components, provenance,
+          } } : {}),
         provenance,
       };
       if (validate('model', record).length) throw new Error('Invalid normalized model');
