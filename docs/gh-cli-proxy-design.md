@@ -211,6 +211,11 @@ Content-Type: application/json
 
 Requests containing additional fields are rejected. Browser, editor, pager, alternate-host,
 and file-input escape paths are disabled or constrained before `gh` is started.
+Positional files for `gist create` (including `gist new`) are restricted to stdin (`-`).
+Release assets for `release upload` and `release create` (including `release new`)
+are rejected because these operands read local files, not stdin. Release creation
+without assets remains supported, with notes-file inputs restricted to stdin.
+These commands reject unknown flags so their values cannot hide file operands.
 
 Response (streamed via chunked transfer encoding):
 

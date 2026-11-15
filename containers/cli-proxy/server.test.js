@@ -192,6 +192,19 @@ process.stdout.write('inert gh fixture\\n');
       expect(fs.readFileSync(recordPath, 'utf8')).toBe(before);
     });
 
+    it.each([
+      ['gist', 'create', '/app/security.js'],
+      ['gist', 'new', '--', 'security.js'],
+      ['release', 'upload', 'v1', '-'],
+      ['release', 'create', 'v1', 'security.js#label'],
+      ['release', 'new', 'v1', '-dFsecurity.js'],
+    ])('never dispatches positional or shorthand file inputs %j', async (...args) => {
+      const before = fs.readFileSync(recordPath, 'utf8');
+      const response = await postExec({ args });
+      expect(response.statusCode).toBe(403);
+      expect(fs.readFileSync(recordPath, 'utf8')).toBe(before);
+    });
+
     it.each(allowedInvocations.map((args) => [args]))('dispatches allowed argv unchanged %j', async (args) => {
       fs.writeFileSync(recordPath, '');
       expect(await postExec({ args })).toEqual({
@@ -236,6 +249,8 @@ describe('gh command-discovery contract (isolated help only)', () => {
   });
 
   it.each([
+    [['gist', 'new'], 'gist create'],
+    [['release', 'new'], 'release create'],
     [['co'], 'pr checkout'],
     [['pr', 'co'], 'pr checkout'],
     [['cs'], 'codespace'],
@@ -607,6 +622,76 @@ describe('validateArgs', () => {
       expect(validateArgs(['api', '-F', 'body=@/proc/self/environ']).valid).toBe(false);
       expect(validateArgs(['pr', 'create', '--body-file', '-']).valid).toBe(true);
       expect(validateArgs(['pr', 'create', '--body-file', '/proc/self/environ']).valid).toBe(false);
+    });
+
+    it.each([
+      ['gist', 'create', '/proc/self/environ'],
+      ['gist', 'new', 'security.js'],
+      ['gist', 'create', '-', '../secret'],
+      ['gist', 'create', '--', '--secret'],
+      ['gist', 'create', '-p', 'security.js'],
+      ['gist', 'create', '--public=false', 'security.js'],
+      ['gist', 'create', '-pd', 'description', 'security.js'],
+      ['gist', '--desc', 'description', 'create', 'security.js'],
+      ['gist', 'create', '--desc', '--', 'security.js'],
+      ['gist', 'create', '--help=false', 'security.js'],
+      ['release', 'upload', 'v1', '/proc/self/environ'],
+      ['release', 'upload', 'v1', '*.js#label'],
+      ['release', 'upload', 'v1', '-'],
+      ['release', 'upload', '--clobber', 'v1', 'security.js'],
+      ['release', 'create', 'v1', 'security.js'],
+      ['release', 'new', 'v1', 'security.js'],
+      ['release', 'create', '--draft', 'v1', 'security.js'],
+      ['release', 'create', 'v1', '--', '-'],
+      ['release', 'create', 'v1', '-F', 'security.js'],
+      ['release', 'create', 'v1', '-Fsecurity.js'],
+      ['release', 'create', 'v1', '-F=security.js'],
+      ['release', 'create', 'v1', '--notes-file=security.js'],
+      ['release', 'create', 'v1', '-dFsecurity.js'],
+      ['release', 'create', 'v1', '-dF', 'security.js'],
+      ['release', 'create', '--notes', '--', 'v1', 'security.js'],
+      ['release', 'create', '--notes=', 'v1', 'security.js'],
+      ['release', 'create', '--latest', 'false', 'security.js'],
+      ['release', 'create', 'v1', '--unknown', 'security.js'],
+      ['-R', 'owner/repo', 'release', 'create', 'v1', 'security.js'],
+      ['release', '-Rowner/repo', 'upload', 'v1', 'security.js'],
+      ['release', '--repo=owner/repo', 'new', 'v1', 'security.js'],
+      ['--repo', 'release', 'release', 'create', 'v1', 'security.js'],
+      ['release', '--repo', 'create', 'create', 'v1', 'security.js'],
+      ['release', '--repo', 'new', 'new', 'v1', 'security.js'],
+    ])('should deny local file inputs in %j', (...args) => {
+      expect(validateArgs(args).valid).toBe(false);
+    });
+
+    it.each([
+      ['gist', 'create'],
+      ['gist', 'create', '-'],
+      ['gist', 'new', '--', '-'],
+      ['gist', 'create', '-', '--desc', 'description', '--filename', 'file.txt'],
+      ['gist', 'create', '-pd', 'description', '-ffile.txt', '-'],
+      ['gist', '--desc', 'description', 'create', '-'],
+      ['release', 'create', 'v1'],
+      ['release', 'new', '--', 'v1'],
+      ['release', 'create', 'v1', '--notes-file', '-'],
+      ['release', 'create', 'v1', '-F-'],
+      ['release', 'create', 'v1', '-dF-'],
+      ['release', 'create', 'v1', '-dF=-'],
+      ['release', 'create', 'v1', '-nFsecurity.js'],
+      ['release', 'create', 'v1', '--notes='],
+      ['release', 'create', 'v1', '-d=false'],
+      ['release', 'create', '-dtTitle', 'v1', '-n', 'notes'],
+      ['release', 'create', '--latest=false', 'v1', '--generate-notes'],
+      ['release', 'create', '--title=v1', 'v1', '--target', 'main'],
+      ['-R', 'owner/repo', 'release', 'create', 'v1', '--notes', 'notes'],
+      ['release', '-Rowner/repo', 'create', '--notes=notes', 'v1'],
+      ['release', '--repo=owner/repo', 'new', 'v1', '-F', '-'],
+      ['release', '-R=owner/repo', 'create', 'v1'],
+      ['--repo', 'release', 'release', 'create', 'v1'],
+      ['release', '--repo', 'create', 'create', 'v1'],
+      ['release', '--repo', 'new', 'new', 'v1'],
+      ['release', 'upload', '--help'],
+    ])('should preserve safe file-input command arguments in %j', (...args) => {
+      expect(validateArgs(args).valid).toBe(true);
     });
   });
 

@@ -96,18 +96,28 @@ function findCommandIndex(args, booleanFlags) {
   return -1;
 }
 
-function resolveCommandPath(args) {
+function findCommandIndices(args) {
   const rootIndex = findCommandIndex(args, ROOT_DISCOVERY_BOOLEANS);
   if (rootIndex < 0) return [];
-  const root = args[rootIndex];
-  if (ROOT_COMMAND_ALIASES.has(root)) return ROOT_COMMAND_ALIASES.get(root);
 
   // Cobra removes the selected command, then searches the entire remaining
   // vector again using that group's flags (including flags before the root).
   const remaining = args.filter((_arg, index) => index !== rootIndex);
   const groupIndex = findCommandIndex(remaining, GROUP_DISCOVERY_BOOLEANS);
-  let command = groupIndex < 0 ? undefined : remaining[groupIndex];
+  return [
+    rootIndex,
+    groupIndex < 0 ? -1 : groupIndex + (groupIndex >= rootIndex ? 1 : 0),
+  ];
+}
+
+function resolveCommandPath(args) {
+  const [rootIndex, commandIndex] = findCommandIndices(args);
+  if (rootIndex === undefined) return [];
+  const root = args[rootIndex];
+  if (ROOT_COMMAND_ALIASES.has(root)) return ROOT_COMMAND_ALIASES.get(root);
+  let command = args[commandIndex];
   if (root === 'pr' && command === 'co') command = 'checkout';
+  if ((root === 'gist' || root === 'release') && command === 'new') command = 'create';
   return [root, command];
 }
 
@@ -346,6 +356,72 @@ function validateExecRequest(body, enclaveMode) {
   return { valid: true };
 }
 
+function validatePositionalFileInputArgs(args) {
+  const [group, command] = resolveCommandPath(args);
+  const gist = group === 'gist' && command === 'create';
+  const release = group === 'release' && (command === 'create' || command === 'upload');
+  if (!gist && !release) return { valid: true };
+
+  const valueFlags = new Set(gist
+    ? ['--desc', '-d', '--filename', '-f']
+    : ['--repo', '-R']);
+  const booleanFlags = new Set(['--help', '-h']);
+  if (gist) {
+    booleanFlags.add('--public').add('-p');
+  } else if (command === 'upload') {
+    booleanFlags.add('--clobber');
+  } else {
+    for (const flag of [
+      '--discussion-category', '--notes', '-n', '--notes-file', '-F',
+      '--notes-start-tag', '--target', '--title', '-t',
+    ]) valueFlags.add(flag);
+    for (const flag of [
+      '--draft', '-d', '--fail-on-no-commits', '--generate-notes', '--latest',
+      '--notes-from-tag', '--prerelease', '-p', '--verify-tag',
+    ]) booleanFlags.add(flag);
+  }
+
+  const commandIndices = findCommandIndices(args);
+  const tokens = args.filter((_arg, index) => !commandIndices.includes(index));
+  const positionals = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const arg = tokens[index];
+    if (arg === '--') {
+      positionals.push(...tokens.slice(index + 1));
+      break;
+    }
+    if (arg === '-' || !arg.startsWith('-')) {
+      positionals.push(arg);
+      continue;
+    }
+    const long = arg.startsWith('--');
+    const equals = arg.indexOf('=');
+    const flag = long ? (equals < 0 ? arg : arg.slice(0, equals)) : arg.slice(0, 2);
+    let value = long ? (equals < 0 ? undefined : arg.slice(equals + 1)) : arg.slice(2) || undefined;
+    if (booleanFlags.has(flag)) {
+      // Expand short boolean clusters without losing attached flag values.
+      if (!long && value && !value.startsWith('=')) {
+        tokens[index] = `-${value}`;
+        index -= 1;
+      }
+      continue;
+    }
+    if (!valueFlags.has(flag)) {
+      return { valid: false, error: `Flag '${flag}' is not permitted for ${group} ${command}` };
+    }
+    if (!long && value?.startsWith('=')) value = value.slice(1);
+    if (value === undefined) value = tokens[++index];
+    if (value === undefined) return { valid: false, error: `${flag} requires a value` };
+    if ((flag === '-F' || flag === '--notes-file') && value !== '-') {
+      return { valid: false, error: `${flag} permits only stdin` };
+    }
+  }
+  if (gist ? positionals.some((arg) => arg !== '-') : positionals.length > 1) {
+    return { valid: false, error: `Positional file inputs are not permitted for ${group} ${command}` };
+  }
+  return { valid: true };
+}
+
 function validateFileInputArgs(args) {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -376,7 +452,7 @@ function validateFileInputArgs(args) {
       return { valid: false, error: 'Field file values permit only stdin' };
     }
   }
-  return { valid: true };
+  return validatePositionalFileInputArgs(args);
 }
 
 /**
