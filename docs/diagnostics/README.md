@@ -275,6 +275,7 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | CI-006 | ci | Claude enclave agent exits 1 before initialization with an invalid launch option | fixed | [`findings/ci/CI-006.json`](./findings/ci/CI-006.json) |
 | CI-007 | ci | Prestarted enclave gateway cannot resolve the private enclave service after network attachment | fixed | [`findings/ci/CI-007.json`](./findings/ci/CI-007.json) |
 | CI-008 | ci | Agentic workflow fails in pre-agent setup before the engine starts | fixed | [`findings/ci/CI-008.json`](./findings/ci/CI-008.json) |
+| CI-009 | ci | Supply-chain PR-image scan is cancelled at its job timeout during a slow package-mirror build | workaround | [`findings/ci/CI-009.json`](./findings/ci/CI-009.json) |
 | SEC-001 | security | Suspected isolation or credential-boundary regression must go to security review, not a bypass | needs-evidence | [`findings/security/SEC-001.json`](./findings/security/SEC-001.json) |
 
 ### Symptom lookup
@@ -353,6 +354,9 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | Smoke workflow exhausts its execution timeout during a cold local Docker image build | CI-008 | ci | fixed |
 | AWF invocation combines a compiler-pinned image manifest with --build-local | CI-008 | ci | fixed |
 | Maintenance workflow npm ci fails certificate verification against a blocked package mirror | CI-008 | ci | fixed |
+| Supply Chain Scan image-scans job cancelled after exhausting its 40-minute timeout | CI-009 | ci | workaround |
+| PR-image scan stops during a container image build rather than at a Grype High/Critical finding | CI-009 | ci | workaround |
+| Slow apt index or package downloads dominate a build-tools image layer | CI-009 | ci | workaround |
 | The agent container can reach a domain that is not allowlisted | SEC-001 | security | needs-evidence |
 | A provider credential is observable inside the agent environment while the api-proxy is enabled | SEC-001 | security | needs-evidence |
 | Egress succeeds without a corresponding Squid access-log entry | SEC-001 | security | needs-evidence |
