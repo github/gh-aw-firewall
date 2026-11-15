@@ -1,0 +1,43 @@
+{
+  "$schema": "../../schema.json",
+  "id": "B37",
+  "boundary": "runner",
+  "title": "No-sudo self-hosted VM blocked by gh-aw compiler and setup commands",
+  "symptoms": [
+    "sudo -n fails removing root-owned /tmp/gh-aw during setup or cleanup",
+    "Copilot or threat-detect installer calls sudo because the compiled command lacks --rootless",
+    "MCP gateway or safeoutputs container cannot read runner-owned mode 0600 config"
+  ],
+  "conditions": [
+    "Shared self-hosted Linux VM without passwordless sudo; not ARC/DinD and runner.topology is unset",
+    "Concurrent runners have separate work directories but share /tmp/gh-aw",
+    "Compiled install_copilot_cli.sh or install_threat_detect_binary.sh commands lack --rootless",
+    "Reported with gh-aw 1.0.1 and AWF v0.29.0; AWF already preserves the runner primary GID"
+  ],
+  "affects": {
+    "runner": "self-hosted",
+    "runtime": "runc|chroot",
+    "provider": "any",
+    "authMode": "any"
+  },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "unresolved",
+  "rootCause": "gh-aw compiler/setup-owned gaps, not AWF runtime: the reported compiler emits --rootless only for ARC/DinD; setup cleanup uses sudo -n on root-owned /tmp/gh-aw; the separately launched safeoutputs container omits --user. The v1.0.1 gateway generator already emits --user ${MCP_GATEWAY_UID}:${MCP_GATEWAY_GID}, so the reported gateway command needs reconciliation with the original lock and compiler metadata. Upstream tracking: github/gh-aw#75439, github/gh-aw#75440, github/gh-aw#75441, github/gh-aw#75442.",
+  "probe": {
+    "command": "for installer in install_copilot_cli.sh install_threat_detect_binary.sh; do printf '%s total/rootless:\\n' \"$installer\"; grep -h -F -- \"$installer\" .github/workflows/*.lock.yml | awk 'BEGIN { total = 0; rootless = 0 } { total++; if (index($0, \"--rootless\")) rootless++ } END { print total, rootless }'; done",
+    "expect": "For each installer, compare total matching command lines with those carrying --rootless. A smaller rootless count identifies commands to inspect on a no-sudo runner, not proof of a cleanup or container-identity defect. Only names and counts are printed; no files are changed. The 2026-11-08 scan reported 81 Copilot and 17 threat-detect installs with zero --rootless matches; counts are snapshot evidence, not invariants.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Track the durable gh-aw compiler/setup fixes in github/gh-aw#75439, github/gh-aw#75440, github/gh-aw#75441 and github/gh-aw#75442; upgrading AWF alone does not resolve these gaps. Only if the operator can edit compiled commands, use --rootless for both installers and the runner UID/GID for the confirmed safeoutputs identity omission. Retain mode 0600 config permissions. Private runtime roots and cleanup require run-scoped concurrency isolation, not merely a renamed directory or removed sudo call. Do not add passwordless sudo or widen permissions.",
+  "references": [
+    { "kind": "issue", "ref": "https://github.com/github/gh-aw-firewall/issues/11130", "title": "Self-hosted VM without sudo still needs four post-compile workarounds" },
+    { "kind": "issue", "ref": "https://github.com/github/gh-aw/issues/75439", "title": "MCP container identity and owner-only config access" },
+    { "kind": "issue", "ref": "https://github.com/github/gh-aw/issues/75440", "title": "Rootless threat-detect installation on native self-hosted runners" },
+    { "kind": "issue", "ref": "https://github.com/github/gh-aw/issues/75441", "title": "Private runtime root and run-scoped cleanup without sudo" },
+    { "kind": "issue", "ref": "https://github.com/github/gh-aw/issues/75442", "title": "No-sudo Copilot installation in agent and detection jobs" },
+    { "kind": "doc", "ref": "docs/arc-dind.md", "title": "ARC/DinD topology differs from native self-hosted runners" }
+  ],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-03-31"
+}

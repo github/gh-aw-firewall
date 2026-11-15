@@ -25,6 +25,9 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 | uv Permission denied under UV_CACHE_DIR | B36 | runner | fixed |
 | uv Permission denied under UV_PYTHON_INSTALL_DIR | B36 | runner | fixed |
 | The agent repeatedly chooses its own uv cache directory | B36 | runner | fixed |
+| sudo -n fails removing root-owned /tmp/gh-aw during setup or cleanup | B37 | runner | unresolved |
+| Copilot or threat-detect installer calls sudo because the compiled command lacks --rootless | B37 | runner | unresolved |
+| MCP gateway or safeoutputs container cannot read runner-owned mode 0600 config | B37 | runner | unresolved |
 | OCI runtime create failed | RT-001 | runtime | needs-evidence |
 | unknown capability reported by the container runtime at start | RT-001 | runtime | needs-evidence |
 | unsupported mount reported by the container runtime at start | RT-001 | runtime | needs-evidence |
@@ -149,6 +152,19 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 - **Safe probe:** `printf '%s\n' "${UV_CACHE_DIR:-unset}" "${UV_PYTHON_INSTALL_DIR:-unset}"` → On unpatched AWF, the variables point beneath RUNNER_TEMP outside the mounted gh-aw subtree; on patched AWF they are unset unless explicitly overridden. When unset on Linux without XDG overrides, UV_CACHE_DIR defaults to $HOME/.cache/uv and UV_PYTHON_INSTALL_DIR defaults to $HOME/.local/share/uv/python. No files are written.
 - **Action:** Upgrade AWF to include github/gh-aw-firewall#9705. AWF drops unmounted absolute paths beneath RUNNER_TEMP when forwarding host variables; explicit --env values still override the filter. Keep these cache directories unwritable so setup-uv cannot save agent-written files into the repository-wide Actions cache. Disabling setup-uv caching is tracked on the gh-aw compiler side.
 - **Provenance:** issue: setup-uv cache paths are unwritable inside AWF (https://github.com/github/gh-aw-firewall/issues/9701) · pull-request: Drop unmounted RUNNER_TEMP paths from --env-all (https://github.com/github/gh-aw-firewall/pull/9705) · code: Filter unmounted runner-temp environment paths (src/services/agent-environment/env-passthrough.ts) · test: Covers setup-uv paths and --env-all filtering (src/services/agent-environment/env-passthrough.test.ts)
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
+
+### B37 — No-sudo self-hosted VM blocked by gh-aw compiler and setup commands
+
+- **Boundary:** runner · **Status:** unresolved
+- **Affects:** runner=self-hosted, runtime=runc|chroot, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** sudo -n fails removing root-owned /tmp/gh-aw during setup or cleanup · Copilot or threat-detect installer calls sudo because the compiled command lacks --rootless · MCP gateway or safeoutputs container cannot read runner-owned mode 0600 config
+- **Discriminating conditions:** Shared self-hosted Linux VM without passwordless sudo; not ARC/DinD and runner.topology is unset · Concurrent runners have separate work directories but share /tmp/gh-aw · Compiled install_copilot_cli.sh or install_threat_detect_binary.sh commands lack --rootless · Reported with gh-aw 1.0.1 and AWF v0.29.0; AWF already preserves the runner primary GID
+- **Root cause:** gh-aw compiler/setup-owned gaps, not AWF runtime: the reported compiler emits --rootless only for ARC/DinD; setup cleanup uses sudo -n on root-owned /tmp/gh-aw; the separately launched safeoutputs container omits --user. The v1.0.1 gateway generator already emits --user ${MCP_GATEWAY_UID}:${MCP_GATEWAY_GID}, so the reported gateway command needs reconciliation with the original lock and compiler metadata. Upstream tracking: github/gh-aw#75439, github/gh-aw#75440, github/gh-aw#75441, github/gh-aw#75442.
+- **Safe probe:** `for installer in install_copilot_cli.sh install_threat_detect_binary.sh; do printf '%s total/rootless:\n' "$installer"; grep -h -F -- "$installer" .github/workflows/*.lock.yml | awk 'BEGIN { total = 0; rootless = 0 } { total++; if (index($0, "--rootless")) rootless++ } END { print total, rootless }'; done` → For each installer, compare total matching command lines with those carrying --rootless. A smaller rootless count identifies commands to inspect on a no-sudo runner, not proof of a cleanup or container-identity defect. Only names and counts are printed; no files are changed. The 2026-11-08 scan reported 81 Copilot and 17 threat-detect installs with zero --rootless matches; counts are snapshot evidence, not invariants.
+- **Action:** Track the durable gh-aw compiler/setup fixes in github/gh-aw#75439, github/gh-aw#75440, github/gh-aw#75441 and github/gh-aw#75442; upgrading AWF alone does not resolve these gaps. Only if the operator can edit compiled commands, use --rootless for both installers and the runner UID/GID for the confirmed safeoutputs identity omission. Retain mode 0600 config permissions. Private runtime roots and cleanup require run-scoped concurrency isolation, not merely a renamed directory or removed sudo call. Do not add passwordless sudo or widen permissions.
+- **Provenance:** issue: Self-hosted VM without sudo still needs four post-compile workarounds (https://github.com/github/gh-aw-firewall/issues/11130) · issue: MCP container identity and owner-only config access (https://github.com/github/gh-aw/issues/75439) · issue: Rootless threat-detect installation on native self-hosted runners (https://github.com/github/gh-aw/issues/75440) · issue: Private runtime root and run-scoped cleanup without sudo (https://github.com/github/gh-aw/issues/75441) · issue: No-sudo Copilot installation in agent and detection jobs (https://github.com/github/gh-aw/issues/75442) · doc: ARC/DinD topology differs from native self-hosted runners (docs/arc-dind.md)
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
 
 ## Boundary: runtime

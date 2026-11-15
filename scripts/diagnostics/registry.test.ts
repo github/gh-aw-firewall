@@ -1,5 +1,7 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 
 import {
   BOUNDARIES,
@@ -73,6 +75,58 @@ describe('diagnosis registry', () => {
       expect(finding.probe.readOnly).toBe(true);
       expect(finding.probe.secretSafe).toBe(true);
       expect(finding.probe.command).not.toMatch(/--env-all|printenv|Authorization:/i);
+    }
+  });
+
+  it('keeps B37 unresolved and distinguishes confirmed safeoutputs identity from the gateway report', () => {
+    const finding = loaded.find((entry) => entry.finding.id === 'B37')!.finding;
+    expect(finding.status).toBe('unresolved');
+    expect(finding.versions).toEqual({ introduced: 'unknown', fixed: 'unknown' });
+    expect(finding.affects).toEqual({
+      runner: 'self-hosted', runtime: 'runc|chroot', provider: 'any', authMode: 'any',
+    });
+    expect(finding.rootCause).toContain('safeoutputs container omits --user');
+    expect(finding.rootCause).toContain('gateway generator already emits --user');
+    expect(finding.action).toContain('Do not add passwordless sudo or widen permissions');
+    for (const number of [75439, 75440, 75441, 75442]) {
+      expect(finding.references.map(({ ref }) => ref))
+        .toContain(`https://github.com/github/gh-aw/issues/${number}`);
+    }
+    expect(finding.probe.command).toContain('install_copilot_cli.sh');
+    expect(finding.probe.command).toContain('install_threat_detect_binary.sh');
+    expect(finding.probe.command).toContain('--rootless');
+  });
+
+  it.each([
+    {
+      name: 'mixed rootless and privileged installers',
+      locks: [
+        'run: install_copilot_cli.sh 1.0.103\nrun: install_threat_detect_binary.sh --rootless\n',
+        'run: install_copilot_cli.sh --rootless 1.0.103\nrun: install_threat_detect_binary.sh\n',
+      ],
+      counts: 'install_copilot_cli.sh total/rootless:\n2 1\ninstall_threat_detect_binary.sh total/rootless:\n2 1\n',
+    },
+    {
+      name: 'no matching installers',
+      locks: ['run: echo unrelated\n'],
+      counts: 'install_copilot_cli.sh total/rootless:\n0 0\ninstall_threat_detect_binary.sh total/rootless:\n0 0\n',
+    },
+  ])('counts B37 installer commands without printing lock contents: $name', ({ locks, counts }) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'b37-probe-'));
+    try {
+      const workflows = path.join(root, '.github', 'workflows');
+      fs.mkdirSync(workflows, { recursive: true });
+      locks.forEach((content, index) => {
+        fs.writeFileSync(path.join(workflows, `fixture-${index}.lock.yml`), content);
+      });
+      const finding = loaded.find((entry) => entry.finding.id === 'B37')!.finding;
+      expect(execFileSync('sh', ['-c', finding.probe.command], { cwd: root, encoding: 'utf8' }))
+        .toBe(counts);
+      locks.forEach((content, index) => {
+        expect(fs.readFileSync(path.join(workflows, `fixture-${index}.lock.yml`), 'utf8')).toBe(content);
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
@@ -332,6 +386,30 @@ describe('diagnosis routing fixtures', () => {
       name: 'uv Python-install permission failure',
       query: { text: 'uv Permission denied under UV_PYTHON_INSTALL_DIR' },
       expected: 'B36',
+    },
+    {
+      name: 'no-sudo self-hosted setup cleanup',
+      query: {
+        text: 'sudo -n fails removing root-owned /tmp/gh-aw during setup or cleanup',
+        runner: 'self-hosted', runtime: 'runc',
+      },
+      expected: 'B37',
+    },
+    {
+      name: 'no-sudo self-hosted installers',
+      query: {
+        text: 'Copilot or threat-detect installer calls sudo because the compiled command lacks --rootless',
+        runner: 'self-hosted', runtime: 'chroot',
+      },
+      expected: 'B37',
+    },
+    {
+      name: 'owner-only self-hosted MCP config',
+      query: {
+        text: 'MCP gateway or safeoutputs container cannot read runner-owned mode 0600 config',
+        runner: 'self-hosted',
+      },
+      expected: 'B37',
     },
   ];
 

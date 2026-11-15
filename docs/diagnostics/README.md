@@ -253,6 +253,7 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | A29 | runner | ARC/DinD api-proxy token-usage log not found at /tmp/gh-aw | workaround | [`findings/runner/A29.json`](./findings/runner/A29.json) |
 | A4 | runner | capsh, /bin/bash, or node missing inside the DinD chroot | workaround | [`findings/runner/A4.json`](./findings/runner/A4.json) |
 | B36 | runner | setup-uv paths under RUNNER_TEMP are unwritable with --env-all | fixed | [`findings/runner/B36.json`](./findings/runner/B36.json) |
+| B37 | runner | No-sudo self-hosted VM blocked by gh-aw compiler and setup commands | unresolved | [`findings/runner/B37.json`](./findings/runner/B37.json) |
 | RT-001 | runtime | Alternative container runtime rejects the AWF agent container configuration | needs-evidence | [`findings/runtime/RT-001.json`](./findings/runtime/RT-001.json) |
 | RT-002 | runtime | Cloud Hypervisor enclave storage inherits shared mount propagation | fixed | [`findings/runtime/RT-002.json`](./findings/runtime/RT-002.json) |
 | RT-003 | runtime | Shared enclave rootfs exceeds the host verification storage ceiling | fixed | [`findings/runtime/RT-003.json`](./findings/runtime/RT-003.json) |
@@ -296,6 +297,9 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | uv Permission denied under UV_CACHE_DIR | B36 | runner | fixed |
 | uv Permission denied under UV_PYTHON_INSTALL_DIR | B36 | runner | fixed |
 | The agent repeatedly chooses its own uv cache directory | B36 | runner | fixed |
+| sudo -n fails removing root-owned /tmp/gh-aw during setup or cleanup | B37 | runner | unresolved |
+| Copilot or threat-detect installer calls sudo because the compiled command lacks --rootless | B37 | runner | unresolved |
+| MCP gateway or safeoutputs container cannot read runner-owned mode 0600 config | B37 | runner | unresolved |
 | OCI runtime create failed | RT-001 | runtime | needs-evidence |
 | unknown capability reported by the container runtime at start | RT-001 | runtime | needs-evidence |
 | unsupported mount reported by the container runtime at start | RT-001 | runtime | needs-evidence |
