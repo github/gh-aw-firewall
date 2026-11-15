@@ -142,6 +142,11 @@ Reuse these instead of duplicating their commands:
 | Enclave regression stops at gateway attachment before the agent starts | CI-007 | ci | fixed |
 | Smoke enclave job times out because the gateway cannot resolve awf-enclave-mcp | CI-007 | ci | fixed |
 | Host preflight gateway-attachment fails at network-membership | CI-007 | ci | fixed |
+| Agentic workflow reports an engine crash or incomplete result although the agent never started | CI-008 | ci | fixed |
+| Install GitHub Copilot CLI step fails after repeated HTTP 504 responses while downloading the checksum manifest | CI-008 | ci | fixed |
+| Smoke workflow exhausts its execution timeout during a cold local Docker image build | CI-008 | ci | fixed |
+| AWF invocation combines a compiler-pinned image manifest with --build-local | CI-008 | ci | fixed |
+| Maintenance workflow npm ci fails certificate verification against a blocked package mirror | CI-008 | ci | fixed |
 | The agent container can reach a domain that is not allowlisted | SEC-001 | security | needs-evidence |
 | A provider credential is observable inside the agent environment while the api-proxy is enabled | SEC-001 | security | needs-evidence |
 | Egress succeeds without a corresponding Squid access-log entry | SEC-001 | security | needs-evidence |
@@ -500,6 +505,20 @@ Reuse these instead of duplicating their commands:
 - **Action:** Use AWF source that validates exact control-network membership and an IPv4 server address, then rewrites the gateway hosts entry in place, keeping identity checks and disconnect-on-failure. Do not widen the network, skip membership validation or extend timeouts. Hosted acceptance remains separate.
 - **Related:** CI-002
 - **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11393 · pull-request: https://github.com/github/gh-aw-firewall/pull/11472 · code: src/enclave/gateway.ts · test: src/enclave/gateway.test.ts
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-02-12
+
+### CI-008 — Agentic workflow fails in pre-agent setup before the engine starts
+
+- **Boundary:** ci · **Status:** fixed
+- **Affects:** runner=github-hosted, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Agentic workflow reports an engine crash or incomplete result although the agent never started · Install GitHub Copilot CLI step fails after repeated HTTP 504 responses while downloading the checksum manifest · Smoke workflow exhausts its execution timeout during a cold local Docker image build · AWF invocation combines a compiler-pinned image manifest with --build-local · Maintenance workflow npm ci fails certificate verification against a blocked package mirror
+- **Discriminating conditions:** The failure occurs in a setup step (installer download, local image build, dependency install, awf image selection) before the timed engine execution; the agent exit code is absent rather than nonzero · Cold local image builds share the engine execution budget when image preparation is not a separate step · Maintenance workflows listed in publishedAwfWorkflowLockFiles must keep the compiler-selected AWF binary and digest-pinned images; local validation workflows keep --build-local · Only curl download failures of the Copilot installer are retried; checksum, version and installation errors fail immediately · A job-level timeout, an installer 504 and a blocked package host are different causes that share the symptom of no agent output
+- **Root cause:** Setup work was coupled to the timed agent execution or to an incompatible AWF image mode. Smoke workflows now prepare run-tagged local images in a separate 35-minute step and select them with --image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG:?}" --skip-pull; maintenance workflows in the published-release list preserve the compiler-pinned binary and images instead of --build-local; the Copilot installer is retried up to three times on curl download failures only; and the Test Quality Improver prepares root dependencies from the public registry before sandbox startup.
+- **Safe probe:** `grep -n -e '--build-local' -e 'install_awf_binary' -e 'Build local AWF smoke images' .github/workflows/<workflow>.lock.yml` → Classify the failing step first: installer download, local image preparation, dependency install, or awf image selection. A published-release maintenance workflow should show install_awf_binary and no --build-local; a prepared-image smoke workflow should show a separate Build local AWF smoke images step before execution. Match the failing run's step name from existing run metadata; absent evidence of the failing step is unknown.
+- **Action:** Use source whose lock was regenerated and post-processed so the affected workflow is in the correct group (published release, prepared smoke images, or retried installer). Fix the classified setup step; do not widen the network allowlist, loosen checksum or version pins, add --build-local to a published-release workflow, or raise the execution timeout to absorb image builds. Hosted acceptance remains separate.
+- **Related:** CI-001
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11317 · pull-request: https://github.com/github/gh-aw-firewall/pull/11318 · pull-request: https://github.com/github/gh-aw-firewall/pull/11314 · pull-request: https://github.com/github/gh-aw-firewall/pull/11311 · pull-request: https://github.com/github/gh-aw-firewall/pull/11383 · pull-request: https://github.com/github/gh-aw-firewall/pull/11473 · pull-request: https://github.com/github/gh-aw-firewall/pull/11569 · pull-request: https://github.com/github/gh-aw-firewall/pull/11326 · code: scripts/ci/build-smoke-images.sh · code: scripts/ci/workflow-patches/network-and-install.ts · code: scripts/ci/workflow-patches/engine-lifecycle.ts · test: scripts/ci/smoke-image-preparation.test.ts · test: scripts/ci/copilot-token-optimizer-workflow.test.ts · test: scripts/ci/apply-general-workflow-patches.test.ts · test: scripts/ci/refactoring-scanner-workflow.test.ts · test: scripts/ci/test-quality-improver-workflow.test.ts
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-02-12
 
 ## Boundary: security
