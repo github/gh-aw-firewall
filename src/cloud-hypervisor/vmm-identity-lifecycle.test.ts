@@ -950,6 +950,9 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     const second = createAccountName();
     expect(first).toMatch(/^awfvmm-[a-f0-9]{20}$/);
     expect(second).not.toBe(first);
-    expect(first).not.toContain(String(process.pid));
+    // Random hex can contain the PID digits by chance; assert only that the suffix is not PID-derived.
+    const suffix = first.slice('awfvmm-'.length);
+    expect(suffix).not.toBe(String(process.pid).padStart(20, '0'));
+    expect(suffix).not.toBe(process.pid.toString(16).padStart(20, '0'));
   });
 });
