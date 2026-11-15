@@ -85,8 +85,12 @@ describe('diagnosis registry', () => {
     expect(finding.affects).toEqual({
       runner: 'self-hosted', runtime: 'runc|chroot', provider: 'any', authMode: 'any',
     });
-    expect(finding.rootCause).toContain('safeoutputs container omits --user');
+    expect(finding.rootCause).toContain('fixes the confirmed safeoutputs child-container identity omission');
     expect(finding.rootCause).toContain('gateway generator already emits --user');
+    expect(finding.rootCause).toContain('leaves legacy /tmp/gh-aw cleanup');
+    expect(finding.action).toContain('runner.installation: rootless');
+    expect(finding.action).toContain('falls back to rootless installation');
+    expect(finding.action).toContain('full per-run private runtime-root isolation');
     expect(finding.action).toContain('Do not add passwordless sudo or widen permissions');
     for (const number of [75439, 75440, 75441, 75442]) {
       expect(finding.references.map(({ ref }) => ref))
