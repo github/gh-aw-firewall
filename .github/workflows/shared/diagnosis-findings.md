@@ -81,6 +81,9 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 | Smoke workflow exhausts its execution timeout during a cold local Docker image build | CI-008 | ci | fixed |
 | AWF invocation combines a compiler-pinned image manifest with --build-local | CI-008 | ci | fixed |
 | Maintenance workflow npm ci fails certificate verification against a blocked package mirror | CI-008 | ci | fixed |
+| Supply Chain Scan image-scans job cancelled after exhausting its 40-minute timeout | CI-009 | ci | workaround |
+| PR-image scan stops during a container image build rather than at a Grype High/Critical finding | CI-009 | ci | workaround |
+| Slow apt index or package downloads dominate a build-tools image layer | CI-009 | ci | workaround |
 | The agent container can reach a domain that is not allowlisted | SEC-001 | security | needs-evidence |
 | A provider credential is observable inside the agent environment while the api-proxy is enabled | SEC-001 | security | needs-evidence |
 | Egress succeeds without a corresponding Squid access-log entry | SEC-001 | security | needs-evidence |
@@ -466,6 +469,20 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 - **Action:** Use source whose lock was regenerated and post-processed so the affected workflow is in the correct group (published release, prepared smoke images, or retried installer). Fix the classified setup step; do not widen the network allowlist, loosen checksum or version pins, add --build-local to a published-release workflow, or raise the execution timeout to absorb image builds. Hosted acceptance remains separate.
 - **Related:** CI-001
 - **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11317 · pull-request: https://github.com/github/gh-aw-firewall/pull/11318 · pull-request: https://github.com/github/gh-aw-firewall/pull/11314 · pull-request: https://github.com/github/gh-aw-firewall/pull/11311 · pull-request: https://github.com/github/gh-aw-firewall/pull/11383 · pull-request: https://github.com/github/gh-aw-firewall/pull/11473 · pull-request: https://github.com/github/gh-aw-firewall/pull/11569 · pull-request: https://github.com/github/gh-aw-firewall/pull/11326 · code: scripts/ci/build-smoke-images.sh · code: scripts/ci/workflow-patches/network-and-install.ts · code: scripts/ci/workflow-patches/engine-lifecycle.ts · test: scripts/ci/smoke-image-preparation.test.ts · test: scripts/ci/copilot-token-optimizer-workflow.test.ts · test: scripts/ci/apply-general-workflow-patches.test.ts · test: scripts/ci/refactoring-scanner-workflow.test.ts · test: scripts/ci/test-quality-improver-workflow.test.ts
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-02-12
+
+### CI-009 — Supply-chain PR-image scan is cancelled at its job timeout during a slow package-mirror build
+
+- **Boundary:** ci · **Status:** workaround
+- **Affects:** runner=github-hosted, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Supply Chain Scan image-scans job cancelled after exhausting its 40-minute timeout · PR-image scan stops during a container image build rather than at a Grype High/Critical finding · Slow apt index or package downloads dominate a build-tools image layer
+- **Discriminating conditions:** The failure is a job-level timeout or cancellation in a PR-image scan job, not a scanner finding: the build-tools build may complete and Grype may run before the job is cancelled during the next image build · Older workflow code built all nine PR images sequentially in one job sharing a single 40-minute budget · Current code runs three PR-image shards (build-tools + enclave-agent, agent, and six service images), each with a 60-minute budget; published-image CVE and license scans keep 40 minutes · enclave-agent must share a shard with build-tools because it consumes the exact locally built base image · A slow mirror, a cache-export failure and a blocking High/Critical vulnerability are different causes that must be classified from the failing step
+- **Root cause:** Package retrieval from a slow mirror consumed most of one shared 40-minute budget (the originating PR measured a 36-minute build-tools layer), so the remaining image builds were cancelled. Sharding gives each independent set of images its own budget and runner; it does not make the upstream mirror faster, and no hosted run has yet shown the 60-minute budgets are sufficient under a slow mirror.
+- **Safe probe:** `grep -n -e 'scan: pr-' -e 'timeout:' -e 'images:' .github/workflows/supply-chain-scan.yml` → The command checks workflow topology only: current source lists pr-toolchain, pr-agent and pr-services with a 60-minute timeout. From existing run metadata and bounded build-log timing evidence, confirm cancellation at the job limit and distinguish package retrieval, compilation, cache export and Grype execution within the combined build-and-scan step. Match the slow-mirror cause only when apt index or package-download timings show that retrieval consumed most of the shared 40-minute budget. Cancellation without a Grype finding alone is insufficient; absent timing or cancellation-reason evidence leaves the cause unknown.
+- **Action:** Use source with the sharded PR-image matrix. Fix the classified step; do not disable or downgrade the blocking High/Critical gate, merge shards in a way that separates enclave-agent from build-tools, ignore cache-export failures, or raise one shared timeout to absorb all builds. Hosted acceptance remains separate; a repeat timeout at 60 minutes is new evidence, not covered by this finding.
+- **Related:** CI-008
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11399 · code: .github/workflows/supply-chain-scan.yml · test: scripts/ci/docker-registry-ci.test.ts · doc: docs/INTEGRATION-TESTS.md#ci-image-retrieval
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-02-12
 
 ## Boundary: security
