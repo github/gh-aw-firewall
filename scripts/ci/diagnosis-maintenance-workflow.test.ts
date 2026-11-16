@@ -137,6 +137,61 @@ describe('shared diagnosis-maintenance contract', () => {
     const lock = read('.github/workflows/runtime-enclave-doctor-updater.lock.yml');
     expect(lock).toContain('GH_AW_GITHUB_REPOS: \'["github/gh-aw-firewall"]\'');
     expect(lock).toContain("GH_AW_GITHUB_MIN_INTEGRITY: 'unapproved'");
+    expect(lock).toContain('DIFC_PROXY_POLICY: \'{"allow-only":{"min-integrity":"unapproved","repos":["github/gh-aw-firewall"]}}\'');
+    const compiled = yaml.load(lock) as {
+      jobs: { agent: { steps: Array<{ name: string; run?: string }> } };
+    };
+    const gateway = compiled.jobs.agent.steps.find(step => step.name === 'Start MCP Gateway')!;
+    const githubConfig = gateway.run!.match(/"github": (\{[\s\S]*?\n\s*\}),\n\s*"safeoutputs":/)![1];
+    const github = JSON.parse(githubConfig.replace(/\$\{GH_AW_GUARD_[A-Z_]+\}/g, '[]')) as {
+      env: Record<string, string>;
+      'guard-policies': unknown;
+    };
+    expect(github['guard-policies']).toMatchObject({
+      'allow-only': { 'min-integrity': 'unapproved', repos: ['github/gh-aw-firewall'] },
+    });
+    expect(github.env.GITHUB_READ_ONLY).toBe('1');
+    expect(gateway.run).toContain('"blocked-users": ${GH_AW_GUARD_BLOCKED_USERS}');
+    expect(gateway.run).toContain('"write-sink": {');
+    const manifest = JSON.parse(lock.split('\n')[1].slice('# gh-aw-manifest: '.length));
+    expect(manifest.threat_detection.mode).toBe('enabled');
+  });
+
+  it('probes runtime PR-content access once and stops on integrity denials without bypasses', () => {
+    const source = read('.github/workflows/runtime-enclave-doctor-updater.md');
+    const probe = JSON.parse(source.match(/```json\n(.+)\n```/)![1]);
+    expect(probe).toEqual({
+      method: 'get_files', owner: 'github', repo: 'gh-aw-firewall', pullNumber: 11239, perPage: 5,
+    });
+    for (const fragment of [
+      'Before reviewing candidates, make this single GitHub MCP access probe',
+      'not review completion',
+      'stop PR-content reads for the run',
+      'do not retry other PRs,\nmethods or page sizes to resolve the denial',
+      'only for an attempted candidate, leaving unattempted candidates unreviewed',
+      'Call `report-incomplete` with the exact failed tool arguments',
+      'the compiled gateway version and policy',
+      'Do not claim that\nunattempted reads were individually denied',
+    ]) {
+      expect(source).toContain(fragment);
+    }
+  });
+
+  it('bootstraps the known pending runtime PR within the existing review cap', () => {
+    const source = read('.github/workflows/runtime-enclave-doctor-updater.md');
+    for (const fragment of [
+      'bootstrap PR #11665 on each run until its latest',
+      '`updated_at` has a completed receipt',
+      '`pull_request_read` with `method: get` for #11665',
+      'use only its `number` and\n`updated_at` to match a receipt',
+      'Do not classify it from PR metadata or body',
+      'add a missing candidate to the selected\nfirst-time batch',
+      'Count this bootstrap candidate within the existing 50-review cap',
+      'prioritizing it before the ordinary first-time queue',
+      'do not increase the cap or manually edit intake checkpoints',
+    ]) {
+      expect(source).toContain(fragment);
+    }
   });
 
   it('bounds runtime diff retrieval while retaining complete evidence requirements', () => {
