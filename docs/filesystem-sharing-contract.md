@@ -109,6 +109,7 @@ the mechanism; Compose rows are produced by `src/compose-generator.ts` and its
 | --- | --- | --- | --- | --- | --- | --- |
 | compose/default | &lt;FIXTURE&gt;/work/squid-logs | squid-proxy → /var/log/squid | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | proxy configuration / logs; Compose bind/volume |
 | compose/default | /tmp/gh-aw | agent → /tmp/gh-aw | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | /tmp/gh-aw | agent → /host/tmp/gh-aw | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/default | &lt;FIXTURE&gt;/workspace | agent → &lt;FIXTURE&gt;/workspace | existing DAC/modes preserved | rw | host-owned / not removed | workload workspace; Compose bind/volume |
 | compose/default | &lt;FIXTURE&gt;/work/agent-logs | agent → &lt;HOME&gt;/.copilot/logs | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
 | compose/default | &lt;FIXTURE&gt;/work/agent-session-state | agent → &lt;HOME&gt;/.copilot/session-state | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
@@ -124,7 +125,6 @@ the mechanism; Compose rows are produced by `src/compose-generator.ts` and its
 | compose/default | /dev | agent → /host/dev | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/default | /dev/null | agent → /host/dev/null | existing DAC/modes preserved | rw | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
 | compose/default | &lt;FIXTURE&gt;/workspace | agent → /host&lt;FIXTURE&gt;/workspace | existing DAC/modes preserved | rw | host-owned / not removed | workload workspace; Compose bind/volume |
-| compose/default | /tmp/gh-aw | agent → /host/tmp/gh-aw | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/default | &lt;FIXTURE&gt;/work-chroot-home | agent → /host&lt;HOME&gt; | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | component runtime input / tool state; Compose bind/volume |
 | compose/default | &lt;HOME&gt;/.copilot | agent → /host&lt;HOME&gt;/.copilot | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/default | &lt;FIXTURE&gt;/work/agent-session-state | agent → /host&lt;HOME&gt;/.copilot/session-state | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
@@ -219,6 +219,7 @@ the mechanism; Compose rows are produced by `src/compose-generator.ts` and its
 | compose/default | &lt;FIXTURE&gt;/work/init-signal | iptables-init → /tmp/awf-init | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | init handshake channel; Compose bind/volume |
 | compose/api-proxy | &lt;FIXTURE&gt;/work/squid-logs | squid-proxy → /var/log/squid | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | proxy configuration / logs; Compose bind/volume |
 | compose/api-proxy | /tmp/gh-aw | agent → /tmp/gh-aw | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /tmp/gh-aw | agent → /host/tmp/gh-aw | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/api-proxy | &lt;FIXTURE&gt;/workspace | agent → &lt;FIXTURE&gt;/workspace | existing DAC/modes preserved | rw | host-owned / not removed | workload workspace; Compose bind/volume |
 | compose/api-proxy | &lt;FIXTURE&gt;/work/agent-logs | agent → &lt;HOME&gt;/.copilot/logs | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
 | compose/api-proxy | &lt;FIXTURE&gt;/work/agent-session-state | agent → &lt;HOME&gt;/.copilot/session-state | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
@@ -235,7 +236,6 @@ the mechanism; Compose rows are produced by `src/compose-generator.ts` and its
 | compose/api-proxy | /dev | agent → /host/dev | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/api-proxy | /dev/null | agent → /host/dev/null | existing DAC/modes preserved | rw | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
 | compose/api-proxy | &lt;FIXTURE&gt;/workspace | agent → /host&lt;FIXTURE&gt;/workspace | existing DAC/modes preserved | rw | host-owned / not removed | workload workspace; Compose bind/volume |
-| compose/api-proxy | /tmp/gh-aw | agent → /host/tmp/gh-aw | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/api-proxy | &lt;FIXTURE&gt;/work-chroot-home | agent → /host&lt;HOME&gt; | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | component runtime input / tool state; Compose bind/volume |
 | compose/api-proxy | &lt;HOME&gt;/.copilot | agent → /host&lt;HOME&gt;/.copilot | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/api-proxy | &lt;FIXTURE&gt;/work/agent-session-state | agent → /host&lt;HOME&gt;/.copilot/session-state | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
@@ -331,6 +331,7 @@ the mechanism; Compose rows are produced by `src/compose-generator.ts` and its
 | compose/api-proxy | &lt;FIXTURE&gt;/work/api-proxy-logs | api-proxy → /var/log/api-proxy | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | component runtime input / tool state; Compose bind/volume |
 | compose/allowWrite-empty | &lt;FIXTURE&gt;/work/squid-logs | squid-proxy → /var/log/squid | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | proxy configuration / logs; Compose bind/volume |
 | compose/allowWrite-empty | /tmp/gh-aw | agent → /tmp/gh-aw | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /tmp/gh-aw | agent → /host/tmp/gh-aw | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/allowWrite-empty | &lt;FIXTURE&gt;/workspace | agent → &lt;FIXTURE&gt;/workspace | existing DAC/modes preserved | ro | host-owned / not removed | workload workspace; Compose bind/volume |
 | compose/allowWrite-empty | &lt;FIXTURE&gt;/work/agent-logs | agent → &lt;HOME&gt;/.copilot/logs | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
 | compose/allowWrite-empty | &lt;FIXTURE&gt;/work/agent-session-state | agent → &lt;HOME&gt;/.copilot/session-state | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
@@ -346,7 +347,6 @@ the mechanism; Compose rows are produced by `src/compose-generator.ts` and its
 | compose/allowWrite-empty | /dev | agent → /host/dev | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/allowWrite-empty | /dev/null | agent → /host/dev/null | existing DAC/modes preserved | rw | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
 | compose/allowWrite-empty | &lt;FIXTURE&gt;/workspace | agent → /host&lt;FIXTURE&gt;/workspace | existing DAC/modes preserved | ro | host-owned / not removed | workload workspace; Compose bind/volume |
-| compose/allowWrite-empty | /tmp/gh-aw | agent → /host/tmp/gh-aw | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/allowWrite-empty | &lt;FIXTURE&gt;/work-chroot-home | agent → /host&lt;HOME&gt; | AWF setup; see lifecycle table | ro | per-run cleanup / optional preservation | component runtime input / tool state; Compose bind/volume |
 | compose/allowWrite-empty | &lt;HOME&gt;/.copilot | agent → /host&lt;HOME&gt;/.copilot | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/allowWrite-empty | &lt;FIXTURE&gt;/work/agent-session-state | agent → /host&lt;HOME&gt;/.copilot/session-state | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
@@ -441,6 +441,7 @@ the mechanism; Compose rows are produced by `src/compose-generator.ts` and its
 | compose/allowWrite-empty | &lt;FIXTURE&gt;/work/init-signal | iptables-init → /tmp/awf-init | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | init handshake channel; Compose bind/volume |
 | compose/enclaves-enabled | &lt;FIXTURE&gt;/work/squid-logs | squid-proxy → /var/log/squid | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | proxy configuration / logs; Compose bind/volume |
 | compose/enclaves-enabled | /tmp/gh-aw | agent → /tmp/gh-aw | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/enclaves-enabled | /tmp/gh-aw | agent → /host/tmp/gh-aw | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/enclaves-enabled | &lt;FIXTURE&gt;/workspace | agent → &lt;FIXTURE&gt;/workspace | existing DAC/modes preserved | rw | host-owned / not removed | workload workspace; Compose bind/volume |
 | compose/enclaves-enabled | &lt;FIXTURE&gt;/work/agent-logs | agent → &lt;HOME&gt;/.copilot/logs | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
 | compose/enclaves-enabled | &lt;FIXTURE&gt;/work/agent-session-state | agent → &lt;HOME&gt;/.copilot/session-state | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
@@ -456,7 +457,6 @@ the mechanism; Compose rows are produced by `src/compose-generator.ts` and its
 | compose/enclaves-enabled | /dev | agent → /host/dev | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/enclaves-enabled | /dev/null | agent → /host/dev/null | existing DAC/modes preserved | rw | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
 | compose/enclaves-enabled | &lt;FIXTURE&gt;/workspace | agent → /host&lt;FIXTURE&gt;/workspace | existing DAC/modes preserved | rw | host-owned / not removed | workload workspace; Compose bind/volume |
-| compose/enclaves-enabled | /tmp/gh-aw | agent → /host/tmp/gh-aw | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/enclaves-enabled | &lt;FIXTURE&gt;/work-chroot-home | agent → /host&lt;HOME&gt; | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | component runtime input / tool state; Compose bind/volume |
 | compose/enclaves-enabled | &lt;HOME&gt;/.copilot | agent → /host&lt;HOME&gt;/.copilot | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/enclaves-enabled | &lt;FIXTURE&gt;/work/agent-session-state | agent → /host&lt;HOME&gt;/.copilot/session-state | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |

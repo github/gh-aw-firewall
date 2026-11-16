@@ -12,6 +12,30 @@ jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaM
 const { getConfig } = useAgentVolumesTestConfig();
 
 describe('agent service', () => {
+  it.each([undefined, '/host', '/tmp/gh-aw', '/tmp'])(
+    'masks automatic-handoff credentials and resolves writable descendants with prefix %s',
+    (dockerHostPathPrefix) => {
+      fs.mkdirSync('/tmp/gh-aw', { recursive: true });
+      const root = fs.mkdtempSync('/tmp/gh-aw/foundry-auto-');
+      const envFile = path.join(root, 'foundry.env');
+      fs.writeFileSync(envFile, 'FOUNDRY_API_KEY=synthetic-secret\n');
+      try {
+        const volumes = generateDockerCompose({
+          ...getConfig(), enableApiProxy: true, envFile, dockerHostPathPrefix,
+          filesystemAllowWrite: [root],
+        }, mockNetworkConfig).services.agent.volumes as string[];
+        expect(volumes).toContain(`/dev/null:${envFile}:ro`);
+        expect(volumes).toContain(`/dev/null:/host${envFile}:ro`);
+        const source = dockerHostPathPrefix && dockerHostPathPrefix !== '/tmp'
+          ? `${dockerHostPathPrefix}${root}` : root;
+        expect(volumes).toContain(`${source}:${root}:rw`);
+        expect(volumes).toContain(`${source}:/host${root}:rw`);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('masks a Foundry credential env file in an explicitly shared temporary directory', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'foundry-env-file-'));
     const envFile = path.join(root, 'foundry.env');

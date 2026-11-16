@@ -14,7 +14,7 @@ import { buildHomeMounts } from './home-strategy';
 import { generateHostsFileMount } from './hosts-file';
 import { buildSslMounts } from './ssl-mounts';
 import { buildSystemMounts } from './system-mounts';
-import { buildCustomVolumeMounts, buildWorkspaceMounts } from './workspace-mounts';
+import { buildCustomVolumeMounts, buildTemporaryHandoffMounts, buildWorkspaceMounts } from './workspace-mounts';
 import { applyFilesystemWritePolicy, resolveComposeFilesystemAllowWrite } from './filesystem-write-policy';
 import type { LocalSourceResolver } from './mount-topology';
 import type { NestedMountpointOptions } from './nested-mountpoints';
@@ -100,18 +100,20 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   logger.debug('Using selective mounting for security (credential files hidden)');
 
   const localCustomMounts = buildCustomVolumeMounts(config.volumeMounts, undefined, { quiet: true });
-  const localSourceRoots = new Map(
-    customMounts.map((spec, index) => [spec, localCustomMounts[index]?.split(':')[0] ?? '']),
-  );
-  // Same pairing, keyed by source root, so topology passes can map a daemon-side
-  // custom-mount source back to the runner path (or refuse to, and fail closed).
-  const customSourceRoots = new Map(
-    customMounts.map((spec, index) => [
-      spec.split(':')[0] ?? '',
-      localCustomMounts[index]?.split(':')[0] ?? '',
+  const localSourceRoots = new Map([
+    ...buildTemporaryHandoffMounts(config.dockerHostPathPrefix)
+      .map((spec): [string, string] => [spec, '/tmp/gh-aw']),
+    ...customMounts.map((spec, index): [string, string] =>
+      [spec, localCustomMounts[index]?.split(':')[0] ?? '']),
+  ]);
+  // The same provenance is needed by credential masking and topology passes,
+  // not just write policy: automatic handoffs are already daemon-translated too.
+  const runnerSourceRoots = new Map(
+    [...localSourceRoots].map(([spec, localRoot]) => [
+      spec.split(':')[0] ?? '', localRoot,
     ]),
   );
-  const localSourceResolver = createLocalSourceResolver(customSourceRoots, config.dockerHostPathPrefix);
+  const localSourceResolver = createLocalSourceResolver(runnerSourceRoots, config.dockerHostPathPrefix);
   const envFileValues = config.enableApiProxy && config.envFile ? readEnvFile(config.envFile) : {};
   const foundryEnvFile = [FOUNDRY_ENV.KEY, FOUNDRY_ENV.ENTRA_TOKEN]
     .some((key) => Object.prototype.hasOwnProperty.call(envFileValues, key))

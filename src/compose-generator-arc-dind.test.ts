@@ -335,8 +335,9 @@ describe('generateDockerCompose: sysroot-stage service (runner.topology = arc-di
       ),
     ).toBe(false);
 
-    // Should still have /tmp:/tmp, /sys, /dev, sysroot volume
-    expect(volumes).toContain('/tmp:/tmp:rw');
+    // Keep the narrow handoff, /sys, /dev, and sysroot, not host /tmp.
+    expect(volumes).toContain('/tmp/gh-aw:/tmp/gh-aw:rw');
+    expect(volumes).not.toContain('/tmp:/tmp:rw');
     expect(volumes).toContain('/sys:/host/sys:ro');
     expect(volumes).toContain('/dev:/host/dev:ro');
     expect(volumes).toContain('sysroot:/host:rw');

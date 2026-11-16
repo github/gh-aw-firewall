@@ -178,7 +178,21 @@ describe('agent service', () => {
 
     expect(volumes).toContain('/tmp/gh-aw/tmp/gh-aw:/host/tmp/gh-aw:rw');
     expect(volumes).not.toContain('/tmp/gh-aw:/host/tmp/gh-aw:rw');
+    expect(volumes).toContain('/tmp/gh-aw/tmp/gh-aw:/tmp/gh-aw:rw');
+    expect(volumes).not.toContain('/tmp/gh-aw:/tmp/gh-aw:rw');
+    expect(volumes.filter((volume) => volume.split(':')[1] === '/host/tmp/gh-aw')).toHaveLength(1);
   });
+
+  it.each(['/tmp/gh-aw', '/tmp/gh-aw/'])(
+    'keeps automatic handoffs narrow when %s is the daemon runner-root prefix',
+    (dockerHostPathPrefix) => {
+      const volumes = generateDockerCompose({ ...getConfig(), dockerHostPathPrefix }, mockNetworkConfig)
+        .services.agent.volumes as string[];
+      expect(volumes).toContain('/tmp/gh-aw/tmp/gh-aw:/tmp/gh-aw:rw');
+      expect(volumes).toContain('/tmp/gh-aw/tmp/gh-aw:/host/tmp/gh-aw:rw');
+      expect(volumes.some((volume) => volume.startsWith('/tmp/gh-aw:'))).toBe(false);
+    },
+  );
 
   it('should mount chroot binaries source path at /host/tmp/awf-runner-bin', () => {
     const configWithBinariesOverlay = {

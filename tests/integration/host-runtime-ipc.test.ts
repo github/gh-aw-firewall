@@ -73,9 +73,20 @@ describe('host CoreCLR IPC isolation', () => {
       subnet: '172.30.0.0/24', agentIp: '172.30.0.20', squidIp: '172.30.0.10',
     }, undefined, undefined, { effectiveHome: home }).services.agent;
 
+    // Keep the live handoff fixture local: Docker must not create root-owned
+    // mask mountpoints in the runner's real /tmp/gh-aw during this test.
+    const handoffRoot = path.join(directory, 'gh-aw');
+    const volumes = (service.volumes || []).map((volume) =>
+      volume.startsWith('/tmp/gh-aw:') ? volume.replace('/tmp/gh-aw:', `${handoffRoot}:`) : volume);
+    for (const tmpfs of service.tmpfs || []) {
+      const target = tmpfs.split(':')[0].replace(/^\/host(?=\/)/, '');
+      if (target.startsWith('/tmp/gh-aw/')) {
+        fs.mkdirSync(path.join(handoffRoot, path.posix.relative('/tmp/gh-aw', target)), { recursive: true });
+      }
+    }
     const entrypoint = path.resolve(__dirname, '../../containers/agent/entrypoint.sh');
     const args = ['run', '--rm', '--network', 'none'];
-    for (const volume of service.volumes || []) {
+    for (const volume of volumes) {
       const source = volume.split(':')[0];
       if (source.startsWith(`${directory}/`) && !fs.existsSync(source)) {
         fs.mkdirSync(source, { recursive: true });
@@ -84,7 +95,7 @@ describe('host CoreCLR IPC isolation', () => {
     }
     // Mirror AWF's home preparation so Docker never creates root-owned
     // placeholders inside the fixture's writable empty-home bind.
-    for (const volume of service.volumes || []) {
+    for (const volume of volumes) {
       const [source, target] = volume.split(':');
       if (!target.startsWith(`/host${home}/`)) continue;
       const relative = path.posix.relative(`/host${home}`, target);

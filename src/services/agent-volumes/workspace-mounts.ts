@@ -21,11 +21,23 @@ interface WorkspaceMountsParams {
   initSignalDir: string;
 }
 
+export function buildTemporaryHandoffMounts(dockerHostPathPrefix?: string): string[] {
+  // These are runner-side paths, even when /tmp/gh-aw is also the daemon's
+  // runner-root prefix. Translate now so the final pass cannot mistake this
+  // narrow handoff for an already-staged daemon path.
+  return applyHostPathPrefixToVolumes([
+    '/tmp/gh-aw:/tmp/gh-aw:rw',
+    '/tmp/gh-aw:/host/tmp/gh-aw:rw',
+  ], dockerHostPathPrefix, {
+    translateAlreadyPrefixedPaths: !isSharedDockerHostPathPrefix(dockerHostPathPrefix),
+  });
+}
+
 export function buildWorkspaceMounts(params: WorkspaceMountsParams): string[] {
   const { config, projectRoot, effectiveHome, workspaceDir, agentLogsPath, sessionStatePath, initSignalDir } = params;
 
   const mounts: string[] = [
-    '/tmp/gh-aw:/tmp/gh-aw:rw',
+    ...buildTemporaryHandoffMounts(config.dockerHostPathPrefix),
     `${workspaceDir}:${workspaceDir}:rw`,
     `${agentLogsPath}:${effectiveHome}/.copilot/logs:rw`,
     `${sessionStatePath}:${effectiveHome}/.copilot/session-state:rw`,

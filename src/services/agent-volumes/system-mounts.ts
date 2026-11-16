@@ -26,7 +26,6 @@ export function buildSystemMounts(
     ...systemDirMounts,
     '/dev/null:/host/dev/null:rw',
     `${workspaceDir}:/host${workspaceDir}:rw`,
-    '/tmp/gh-aw:/host/tmp/gh-aw:rw',
   ];
 
   const normalizedBinariesPath = normalizeChrootBinariesSourcePath(chrootBinariesSourcePath);
