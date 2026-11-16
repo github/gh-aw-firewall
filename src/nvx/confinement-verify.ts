@@ -307,6 +307,8 @@ function verifyStatus(
   }
 }
 
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
 export function parseStatus(contents: string): Record<string, string> {
   const result: Record<string, string> = {};
   for (const line of contents.split('\n')) {
@@ -317,6 +319,8 @@ export function parseStatus(contents: string): Record<string, string> {
   return result;
 }
 
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
 export function parseProcessStartTime(contents: string): string {
   const close = contents.lastIndexOf(')');
   const fields = contents.slice(close + 2).split(' ');
@@ -325,34 +329,46 @@ export function parseProcessStartTime(contents: string): string {
   return value;
 }
 
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
 export function parseUnifiedCgroup(contents: string): string {
   const matches = contents.split('\n').filter((line) => line.startsWith('0::'));
   if (matches.length !== 1) throw new Error('NVX process is not in one unified cgroup');
   return matches[0].slice(3);
 }
 
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
 export function parseNamespaceLink(value: string, label: string): string {
   const match = /^mnt:\[(\d+)\]$/.exec(value) ?? /^net:\[(\d+)\]$/.exec(value);
   if (!match) throw new Error(`NVX ${label} namespace link is malformed: ${value}`);
   return match[1];
 }
 
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
 export function parseNumericEntries(values: readonly string[], label: string): number[] {
   if (values.length < 1) throw new Error(`NVX ${label} list is empty`);
   return values.map((value) => parseSingleNumber(value, label)).sort((a, b) => a - b);
 }
 
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
 export function parseNumericLines(contents: string, label: string): number[] {
   return contents.split('\n').filter(Boolean)
     .map((value) => parseSingleNumber(value, label))
     .sort((a, b) => a - b);
 }
 
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
 export function parseNumericFields(contents: string, label: string): number[] {
   if (!contents.trim()) return [];
   return contents.trim().split(/\s+/).map((value) => parseSingleNumber(value, label));
 }
 
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
 export function parseSingleNumber(value: string | undefined, label: string): number {
   if (!value || !/^\d+$/.test(value)) throw new Error(`NVX ${label} is malformed`);
   const parsed = Number(value);
