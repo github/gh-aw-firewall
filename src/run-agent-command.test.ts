@@ -293,7 +293,7 @@ describe('runAgentCommand', () => {
     }
   });
 
-  it('continues draining raw output after console backpressure', async () => {
+  it('continues capturing output independently after console backpressure', async () => {
     const stdout = new PassThrough();
     const stderr = new PassThrough();
     let endedStreams = 0;
@@ -329,22 +329,67 @@ describe('runAgentCommand', () => {
 
     try {
       setImmediate(() => {
-        stdout.write(Buffer.from('first'));
-        stdout.end(Buffer.from('second'));
+        stdout.write(Buffer.from('first\n'));
+        stdout.end(Buffer.from('second\n'));
         stderr.end();
       });
 
       const result = await runAgentCommand(getDir(), ['github.com'], undefined, undefined, undefined, capture);
 
       expect(result.exitCode).toBe(0);
-      expect(capture.recordOutput).toHaveBeenCalledWith(1, 'stdout', Buffer.from('first'));
-      expect(capture.recordOutput).toHaveBeenCalledWith(1, 'stdout', Buffer.from('second'));
+      expect(capture.recordOutput).toHaveBeenCalledWith(1, 'stdout', Buffer.from('first\n'));
+      expect(capture.recordOutput).toHaveBeenCalledWith(1, 'stdout', Buffer.from('second\n'));
       expect(capture.recordPresentationFailure).toHaveBeenCalledWith('stdout', 'backpressure');
       expect(capture.finishAttempt).toHaveBeenCalledWith(1, {
         exitCode: 0,
         outcome: 'exited',
         logsDrained: true,
       });
+    } finally {
+      stdoutWrite.mockRestore();
+      stderrWrite.mockRestore();
+    }
+  });
+
+  it('resumes uncaptured output forwarding after console backpressure drains', async () => {
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    let endedStreams = 0;
+    let resolveLogs: ((value: { stdout: Buffer; stderr: Buffer; exitCode: number }) => void) | undefined;
+    const logsProcess = Object.assign(
+      new Promise<{ stdout: Buffer; stderr: Buffer; exitCode: number }>(resolve => { resolveLogs = resolve; }),
+      { stdout, stderr },
+    );
+    const finishLogs = (): void => {
+      if (++endedStreams === 2) resolveLogs?.({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0 });
+    };
+    stdout.on('end', finishLogs);
+    stderr.on('end', finishLogs);
+    mockExecaFn
+      .mockReturnValueOnce(logsProcess as any)
+      .mockResolvedValueOnce({ stdout: '0', stderr: '', exitCode: 0 } as any);
+    let stdoutWriteCount = 0;
+    const stdoutWrite = jest.spyOn(process.stdout, 'write').mockImplementation((_chunk, callback) => {
+      invokeWriteCallback(callback);
+      return ++stdoutWriteCount > 1;
+    });
+    const stderrWrite = jest.spyOn(process.stderr, 'write').mockImplementation((_chunk, callback) => {
+      invokeWriteCallback(callback);
+      return true;
+    });
+
+    try {
+      setImmediate(() => {
+        stdout.write(Buffer.from('first\n'));
+        stdout.end(Buffer.from('second\n'));
+        stderr.end();
+        setImmediate(() => process.stdout.emit('drain'));
+      });
+
+      const result = await runAgentCommand(getDir(), ['github.com']);
+
+      expect(result.exitCode).toBe(0);
+      expect(stdoutWriteCount).toBe(2);
     } finally {
       stdoutWrite.mockRestore();
       stderrWrite.mockRestore();

@@ -87,8 +87,8 @@ describe('agent service', () => {
 
     expect(volumes).not.toContain('/tmp:/host/tmp:rw');
     expect(agent.tmpfs).toEqual(expect.arrayContaining([
-      '/tmp:rw,nosuid,nodev,size=2097152k',
-      '/host/tmp:rw,nosuid,nodev,size=2097152k',
+      '/tmp:rw,exec,nosuid,nodev,size=2097152k',
+      '/host/tmp:rw,exec,nosuid,nodev,size=2097152k',
     ]));
   });
 

@@ -116,8 +116,8 @@ describe('agent service', () => {
         // Each mount must have a size limit.
         expect(mount).toMatch(/size=\d+[mk]/);
       });
-      expect(tmpfs).toContain('/tmp:rw,nosuid,nodev,size=2097152k');
-      expect(tmpfs).toContain('/host/tmp:rw,nosuid,nodev,size=2097152k');
+      expect(tmpfs).toContain('/tmp:rw,exec,nosuid,nodev,size=2097152k');
+      expect(tmpfs).toContain('/host/tmp:rw,exec,nosuid,nodev,size=2097152k');
       for (const mount of tmpfs.filter((entry: string) =>
         !entry.startsWith('/tmp:') && !entry.startsWith('/host/tmp:')
       )) {
@@ -150,8 +150,8 @@ describe('agent service', () => {
 
       expect(tmpfs).toHaveLength(dockerSensitiveTmpfs(getConfig().workDir).length + 3);
       expect(tmpfs).toEqual(expect.arrayContaining(dockerSensitiveTmpfs(getConfig().workDir)));
-      expect(tmpfs).toContain('/tmp:rw,nosuid,nodev,size=2097152k');
-      expect(tmpfs).toContain('/host/tmp:rw,nosuid,nodev,size=2097152k');
+      expect(tmpfs).toContain('/tmp:rw,exec,nosuid,nodev,size=2097152k');
+      expect(tmpfs).toContain('/host/tmp:rw,exec,nosuid,nodev,size=2097152k');
       // Writable /dev/shm for POSIX semaphores (chroot makes /host/dev read-only)
       expect(tmpfs.some((t: string) => t.startsWith('/host/dev/shm:'))).toBe(true);
     });

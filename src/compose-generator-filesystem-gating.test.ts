@@ -58,8 +58,8 @@ describe('generateDockerCompose: filesystem.allowWrite runtime gating', () => {
       expect(volumes).not.toContain('/tmp:/tmp:rw');
       expect(generateDockerCompose(composeConfig, mockNetworkConfig).services.agent.tmpfs)
         .toEqual(expect.arrayContaining([
-          '/tmp:rw,nosuid,nodev,size=2097152k',
-          '/host/tmp:rw,nosuid,nodev,size=2097152k',
+          '/tmp:rw,exec,nosuid,nodev,size=2097152k',
+          '/host/tmp:rw,exec,nosuid,nodev,size=2097152k',
         ]));
 
       // And a guest path with no backing writable host mount still fails

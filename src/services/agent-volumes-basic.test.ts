@@ -61,8 +61,8 @@ describe('agent service', () => {
     expect(volumes).not.toContain('/:/host:rw');
     expect(volumes).not.toContain('/tmp:/tmp:rw');
     expect(agent.tmpfs).toEqual(expect.arrayContaining([
-      '/tmp:rw,nosuid,nodev,size=2097152k',
-      '/host/tmp:rw,nosuid,nodev,size=2097152k',
+      '/tmp:rw,exec,nosuid,nodev,size=2097152k',
+      '/host/tmp:rw,exec,nosuid,nodev,size=2097152k',
     ]));
     expect(volumes.some((v: string) => v.includes('agent-logs'))).toBe(true);
     // Should include home directory mount
