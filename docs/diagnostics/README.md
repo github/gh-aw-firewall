@@ -263,6 +263,8 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | NET-003 | network | Custom provider upstream port is lost or rejected by Squid | fixed | [`findings/network/NET-003.json`](./findings/network/NET-003.json) |
 | NET-004 | network | Proxy-unaware HTTPS client sends raw TLS to the forward proxy | workaround | [`findings/network/NET-004.json`](./findings/network/NET-004.json) |
 | NET-005 | network | Published host-service port is rejected after Docker DNAT despite --allow-host-service-ports | fixed | [`findings/network/NET-005.json`](./findings/network/NET-005.json) |
+| NET-006 | network | awf-net subnet collides with host or cluster DNS resolver or routes | workaround | [`findings/network/NET-006.json`](./findings/network/NET-006.json) |
+| NET-007 | network | Compose refuses to start because a leftover awf-net belongs to another project | fixed | [`findings/network/NET-007.json`](./findings/network/NET-007.json) |
 | AUTH-001 | auth | Enterprise or Business Copilot target rejects the Authorization header prefix | fixed | [`findings/auth/AUTH-001.json`](./findings/auth/AUTH-001.json) |
 | AUTH-002 | auth | API-proxy OIDC mode is configured but the Actions token request variables are missing | workaround | [`findings/auth/AUTH-002.json`](./findings/auth/AUTH-002.json) |
 | AUTH-003 | auth | gh-aw-launched HTTP MCP GitHub server fails the OIDC boundary check | workaround | [`findings/auth/AUTH-003.json`](./findings/auth/AUTH-003.json) |
@@ -324,6 +326,11 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | Raw ClientHello reaches Squid instead of an HTTP CONNECT request | NET-004 | network | workaround |
 | Connection to a host-published service (for example Redis or PostgreSQL) through the host gateway is rejected or times out | NET-005 | network | fixed |
 | The port is listed in --allow-host-service-ports but a connectivity check still fails | NET-005 | network | fixed |
+| Every CONNECT fails with 503 HIER_NONE after startup on OpenShift or ARO | NET-006 | network | workaround |
+| The awf-net subnet contains the DNS resolver(s) | NET-006 | network | workaround |
+| The awf-net subnet overlaps existing host route(s) | NET-006 | network | workaround |
+| a network with name awf-net exists but was not created for project "awf-<timestamp>" | NET-007 | network | fixed |
+| Compose fails before the agent or Squid starts, after a previous run was killed or timed out | NET-007 | network | fixed |
 | 400 Bad Request: Authorization header is badly formatted | AUTH-001 | auth | fixed |
 | Copilot requests fail immediately against api.enterprise.githubcopilot.com or api.business.githubcopilot.com | AUTH-001 | auth | fixed |
 | api-proxy reports that no OIDC token could be minted | AUTH-002 | auth | workaround |

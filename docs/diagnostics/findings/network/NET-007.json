@@ -1,0 +1,44 @@
+{
+  "$schema": "../../schema.json",
+  "id": "NET-007",
+  "boundary": "network",
+  "title": "Compose refuses to start because a leftover awf-net belongs to another project",
+  "symptoms": [
+    "a network with name awf-net exists but was not created for project \"awf-<timestamp>\"",
+    "Compose fails before the agent or Squid starts, after a previous run was killed or timed out"
+  ],
+  "conditions": [
+    "A previous AWF run was killed or timed out before its awf-net network was removed",
+    "The leftover network carries a different or no com.docker.compose.project label than the current run",
+    "The generated compose file declares a pinned, non-external network name (host-iptables external mode is not affected)"
+  ],
+  "affects": {
+    "runner": "any",
+    "runtime": "any",
+    "provider": "any",
+    "authMode": "any"
+  },
+  "versions": {
+    "introduced": "unknown",
+    "fixed": "unknown"
+  },
+  "status": "fixed",
+  "rootCause": "Compose does not scope fixed network names per project, so an orphaned awf-net from an earlier run is treated as foreign and refused. AWF attempts to reclaim the network before compose up and retries after detaching stale endpoints it can identify from the network's Compose project label. If that label is absent, stale endpoints carrying the old project label may not be identified or detached, so reclaim and automatic recovery are not guaranteed.",
+  "probe": {
+    "command": "docker network inspect awf-net --format '{{index .Labels \"com.docker.compose.project\"}} {{len .Containers}}'",
+    "expect": "Shows the owning compose project label and attached container count. A label that differs from the current run's project with no live containers identifies an orphan that the reclaim path should remove. This read reveals no container environment or credentials.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "AWF attempts to reclaim an orphaned awf-net before startup. Do not assume automatic recovery when the network has no Compose project label or reclaim logs removal/detach warnings: inspect attached containers, disconnect or remove only confirmed stale endpoints, and re-run. For a labeled network whose stale endpoints can be identified, reclamation should proceed automatically. Do not change the network name to a broad wildcard or disable the reclaim.",
+  "references": [
+    { "kind": "issue", "ref": "https://github.com/github/gh-aw-firewall/issues/7809", "title": "awf-net Docker network collision breaks container startup" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/7817", "title": "Reclaim orphaned fixed-name Docker networks before compose up" },
+    { "kind": "code", "ref": "src/compose-network-conflicts.ts", "title": "removeConflictingComposeNetworks() orphan reclaim" },
+    { "kind": "code", "ref": "src/container-startup.ts", "title": "Reclaim call before compose up" },
+    { "kind": "test", "ref": "src/compose-network-conflicts.test.ts", "title": "Orphaned and unlabelled network reclaim tests" }
+  ],
+  "related": ["NET-006"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-11-16"
+}
