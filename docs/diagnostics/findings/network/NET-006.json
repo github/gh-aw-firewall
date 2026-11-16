@@ -1,0 +1,45 @@
+{
+  "$schema": "../../schema.json",
+  "id": "NET-006",
+  "boundary": "network",
+  "title": "awf-net subnet collides with host or cluster DNS resolver or routes",
+  "symptoms": [
+    "Every CONNECT fails with 503 HIER_NONE after startup on OpenShift or ARO",
+    "The awf-net subnet contains the DNS resolver(s)",
+    "The awf-net subnet overlaps existing host route(s)"
+  ],
+  "conditions": [
+    "The default awf-net subnet 172.30.0.0/24 sits inside a cluster service CIDR (for example 172.30.0.0/16) whose CoreDNS ClusterIP is 172.30.0.10, the address AWF assigns to Squid",
+    "A nameserver from --dns-servers or the host resolv.conf falls inside the awf-net subnet, or a non-Docker host route overlaps it",
+    "Routes owned by Docker bridges (br-, docker, veth, awf, fw-bridge) are ignored by the collision check; the default route is ignored"
+  ],
+  "affects": {
+    "runner": "any",
+    "runtime": "runc|chroot",
+    "provider": "any",
+    "authMode": "any"
+  },
+  "versions": {
+    "introduced": "unknown",
+    "fixed": "unknown"
+  },
+  "status": "workaround",
+  "rootCause": "The awf-net subnet and Squid address were hardcoded to 172.30.0.0/24 and 172.30.0.10. Squid templated its DNS nameserver from the host resolver, so a resolver inside the subnet made Squid query its own peer address and every CONNECT failed. Relocation via --network-subnet and a fail-loud startup check remove the silent breakage.",
+  "probe": {
+    "command": "grep -n nameserver /etc/resolv.conf && docker network inspect awf-net --format '{{json .IPAM.Config}}'",
+    "expect": "Compare the nameserver addresses and any awf-net subnet with the chosen --network-subnet. A nameserver inside the subnet reproduces the collision; a clean result rules it out. This probe reads only resolver and network metadata.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Relocate the network to a free RFC1918 block with --network-subnet (config key network.subnet), for example --network-subnet 10.88.0.0/24, and re-run. Do not disable the collision check or switch off DNS filtering. The check reports a collision as a startup error, so an error is the expected signal rather than a defect in the current code.",
+  "references": [
+    { "kind": "issue", "ref": "https://github.com/github/gh-aw-firewall/issues/8390", "title": "awf-net hardcoded subnet collides with OpenShift service CIDR, breaking Squid DNS" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/8398", "title": "Add --network-subnet to relocate awf-net off colliding host/cluster subnets" },
+    { "kind": "code", "ref": "src/network-subnet.ts", "title": "assertNetworkSubnetUsable() resolver and route collision check" },
+    { "kind": "code", "ref": "src/commands/validators/network-options.ts", "title": "Startup call site for the subnet check" },
+    { "kind": "test", "ref": "src/network-subnet.test.ts", "title": "Subnet collision and override tests" }
+  ],
+  "related": ["NET-002", "NET-001"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-11-16"
+}
