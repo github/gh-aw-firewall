@@ -67,6 +67,7 @@ for scenario in recover deny; do
   done
   test "$ready" = 1
   "$host_docker" cp "$fixture:/evidence/task.json" "$guest/task.json"
+  "$host_docker" cp "$fixture:/evidence/initial-request.json" "$guest/initial-request.json"
   "$host_docker" network disconnect none "$fixture"
   compose="$trusted/awf/docker-compose.yml"
   status=0

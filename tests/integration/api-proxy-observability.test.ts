@@ -33,7 +33,7 @@ describe('API Proxy Observability', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -57,7 +57,7 @@ describe('API Proxy Observability', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -79,7 +79,7 @@ describe('API Proxy Observability', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -107,7 +107,7 @@ describe('API Proxy Observability', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -127,7 +127,7 @@ describe('API Proxy Observability', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         rateLimitRpm: 100,
         logLevel: 'debug',
         timeout: 120000,
@@ -147,7 +147,7 @@ describe('API Proxy Observability', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -167,7 +167,7 @@ describe('API Proxy Observability', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -198,7 +198,7 @@ describe('API Proxy Observability', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -229,7 +229,7 @@ describe('API Proxy Observability', () => {
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
-        buildLocal: true,
+        buildLocal: false,
         logLevel: 'debug',
         timeout: 120000,
         env: {

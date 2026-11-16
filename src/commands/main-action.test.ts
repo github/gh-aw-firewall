@@ -5,6 +5,7 @@ import { constants as fsConstants } from 'fs';
 jest.mock('fs', () => require('./main-action-fs-mock.test-utils').mainActionFsMockFactory());
 
 import { createMainAction, testHelpers } from './main-action';
+import { buildCleanupFn } from './main-action-cleanup';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').loggerMockFactory());
@@ -1663,7 +1664,7 @@ describe('createMainAction', () => {
     });
 
     it('buildCleanupFn runs cleanup using provided state getters', async () => {
-      const performCleanup = testHelpers.buildCleanupFn(
+      const performCleanup = buildCleanupFn(
         MAIN_ACTION_STUB_CONFIG,
         () => true,
         () => true,
@@ -1726,7 +1727,7 @@ describe('createMainAction', () => {
     });
 
     it('buildCleanupFn tears down only once across repeated calls', async () => {
-      const performCleanup = testHelpers.buildCleanupFn(
+      const performCleanup = buildCleanupFn(
         MAIN_ACTION_STUB_CONFIG,
         () => true,
         () => true,
@@ -1808,6 +1809,39 @@ describe('createMainAction', () => {
         { encoding: 'utf8' },
       );
       expect(mockFchmodSync).toHaveBeenLastCalledWith(42, 0o644);
+    });
+
+    it('warns when the incomplete audit marker cannot be written', async () => {
+      mockedDockerManager.preserveIptablesAudit.mockReturnValueOnce(false);
+      mockOpenSync.mockImplementationOnce(() => {
+        throw new Error('marker write failed');
+      });
+      const config = {
+        ...MAIN_ACTION_STUB_CONFIG,
+        enclaves: {
+          enabled: true,
+          executors: {
+            script: { enabled: false },
+            agent: {
+              enabled: true,
+              github: { cli: 'issues-read-v1' },
+            },
+          },
+        },
+      } as unknown as import('../types').WrapperConfig;
+      const performCleanup = testHelpers.buildCleanupFn(
+        config,
+        () => true,
+        () => false,
+      );
+
+      await performCleanup();
+
+      expect(mockedLogger.warn).toHaveBeenCalledWith(
+        'Failed to write the incomplete enclave audit marker.',
+        expect.objectContaining({ message: 'marker write failed' }),
+      );
+      expect(mockedDockerManager.stopContainers).toHaveBeenCalled();
     });
   });
 });

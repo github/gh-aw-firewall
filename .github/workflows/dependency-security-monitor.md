@@ -35,8 +35,7 @@ sandbox:
 network:
   allowed:
     - node
-    # The repo's .npmrc and package-lock.json pin the Azure Artifacts npm mirror
-    - ms-feed-25.pkgs.visualstudio.com
+    - packagefeedproxy.microsoft.io
 
 safe-outputs:
   threat-detection:
@@ -78,7 +77,7 @@ Proactively monitor dependencies for security vulnerabilities, create actionable
 
 Run `npm audit` to identify known security vulnerabilities in dependencies. Always query the
 canonical npm advisory database with `--registry=https://registry.npmjs.org/` — the repository's
-`.npmrc` points at an Azure Artifacts mirror, which is only used for package installs:
+`.npmrc` points at the Microsoft-approved feed, which is used for package installs:
 
 ```bash
 # Run npm audit and capture JSON output for analysis
@@ -183,10 +182,10 @@ Run the following to identify available updates:
 
 ```bash
 # Check for outdated packages
-npm outdated --registry=https://registry.npmjs.org/ --json 2>/dev/null || true
+npm outdated --json 2>/dev/null || true
 
 # List direct dependencies only
-npm outdated --registry=https://registry.npmjs.org/ --depth=0 2>/dev/null || true
+npm outdated --depth=0 2>/dev/null || true
 ```
 
 ### 3.2 Apply Safe Updates

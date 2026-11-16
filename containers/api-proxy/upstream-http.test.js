@@ -1,4 +1,8 @@
 const { EventEmitter } = require('events');
+jest.mock('./credential-protection', () => ({
+  ...jest.requireActual('./credential-protection'),
+  protectUpstreamResponse: source => source,
+}));
 const {
   createSendUpstreamRequest,
   MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS,

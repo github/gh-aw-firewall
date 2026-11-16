@@ -150,9 +150,9 @@ export interface RateLimitOptions {
    * When true, the api-proxy injects advisory messages into the next eligible
    * outbound request at 80%, 90%, 95%, and 99% of configured budgets/deadlines.
    * Messages are not an interruption or guarantee of completion. When false
-   * (the default), no steering messages are injected.
-   *
-   * @default false
+   * or unset, no steering messages are injected. The CLI sets this to true
+   * unless `apiProxy.steering.budget: false`, `apiProxy.enableTokenSteering:
+   * false`, or `--no-steering-budget` turns budget steering off.
    */
   enableTokenSteering?: boolean;
 }

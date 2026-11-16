@@ -159,7 +159,7 @@ describe('generateSslBumpSection', () => {
   it('rejects newline injection in URL patterns via assertSafeForSquidConfig', () => {
     expect(() =>
       generateSslBumpSection(caFiles, sslDbPath, true, false, ['safe\nevil_directive'])
-    ).toThrow();
+    ).toThrow(/^SECURITY: Domain or pattern contains characters unsafe for Squid config/);
   });
 
   it('includes step ACL declarations for SslBump phases', () => {

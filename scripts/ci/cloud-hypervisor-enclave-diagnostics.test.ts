@@ -772,7 +772,7 @@ describe('public enclave conformance diagnostic retention', () => {
     });
     expect(() => diagnostics.collect(context, { status: 'failed' })).toThrow();
     // Harnesses catch this with a constant error, then still remove private logs.
-    for (const name of ['cloud-hypervisor-enclave-live-smoke.js', 'cloud-hypervisor-enclave-environment-probe.js']) {
+    for (const name of ['enclave-smoke/runner.js', 'cloud-hypervisor-enclave-environment-probe.js']) {
       const source = fs.readFileSync(path.join(__dirname, name), 'utf8');
       const retain = source.indexOf('conformanceDiagnostics.collect(');
       expect(retain).toBeGreaterThan(source.indexOf('await stopAwf(') < 0

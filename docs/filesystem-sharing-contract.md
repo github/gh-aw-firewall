@@ -64,6 +64,11 @@ Direct-path binds may also exist before chroot; treat each row separately.
 
 ### Source ownership and lifecycle (not derivable from mount plans)
 
+The Cloud Hypervisor enclave smoke entry point re-exports its helpers from
+`scripts/ci/enclave-smoke/`: guest probes, VM identity/residue checks and crash
+recovery are separate modules. These checks retain the verification scope
+and limitations above.
+
 | Source | Creation / final ownership and modes | Cleanup |
 | --- | --- | --- |
 | Existing workspace, system dirs, custom binds, `/dev`, `/sys`, sockets | Existing ownership/modes/ACLs preserved unless an explicitly documented setup or entrypoint operation changes them. `mkdir` mode is limited by umask; existing paths are not retroactively given a requested creation mode. Docker daemon may create missing bind sources in its *own* filesystem view on ARC/DinD. | Host-owned; not removed by AWF |

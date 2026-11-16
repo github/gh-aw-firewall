@@ -76,23 +76,7 @@ steps:
   - name: Prepare locked root test dependencies
     run: |
       set -euo pipefail
-      lock_backup="$(mktemp "${RUNNER_TEMP}/test-quality-package-lock.XXXXXX")"
-      cp package-lock.json "$lock_backup"
-      trap 'cp "$lock_backup" package-lock.json; rm -f "$lock_backup"' EXIT
-      node <<'NODE'
-      const fs = require('fs');
-      const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
-      for (const entry of Object.values(lock.packages)) {
-        if (typeof entry.resolved === 'string') {
-          entry.resolved = entry.resolved.replace(
-            /^https:\/\/ms-feed-\d+\.pkgs\.visualstudio\.com\/1es-public\/_packaging\/npm-public\/npm\/registry\//,
-            'https://registry.npmjs.org/',
-          );
-        }
-      }
-      fs.writeFileSync('package-lock.json', JSON.stringify(lock, null, 2) + '\n');
-      NODE
-      npm ci --ignore-scripts --registry=https://registry.npmjs.org --no-audit --no-fund
+      npm ci --ignore-scripts --registry=https://packagefeedproxy.microsoft.io/npm/ --no-audit --no-fund
 ---
 
 # Test Quality Improver

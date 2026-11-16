@@ -23,6 +23,9 @@ concurrency:
   group: nvx-phase-4-real-canary
   cancel-in-progress: false
 
+env:
+  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
+
 jobs:
   canary:
     if: inputs.confirm_live_canary

@@ -1,207 +1,32 @@
-// All regex constants, sentinel strings, and replacement payloads used by the
-// smoke-workflow post-processing pipeline.  Exporting from a single module lets
-// the test file import them directly instead of duplicating them.
-
-// Matches the install step with captured indentation:
-// - "Install awf binary" or "Install AWF binary" step at any indent level
-// - run command invoking install_awf_binary.sh with a version
-// - optional generated env block between the step name and run command
-// - path may or may not be double-quoted (newer gh-aw compilers quote it)
-// - the version may be followed by trailing flags (e.g. --rootless) that newer
-//   gh-aw compilers append; tolerate anything up to the end of the line
-export const installStepRegex =
-  /^(\s*)- name: Install [Aa][Ww][Ff] binary\n(?:\1  env:\n(?:\1    [^\n]+\n)+)?\1  run: bash "?(?:\/opt\/gh-aw|\$\{RUNNER_TEMP\}\/gh-aw)\/actions\/install_awf_binary\.sh"? v[0-9.]+[^\n]*\n/m;
-export const installStepRegexGlobal = new RegExp(installStepRegex.source, 'gm');
-
-// Matches the generated ripgrep installer step with or without the timeout
-// wrapper added by post-processing.
-// The setup action falls back to a quiet apt-get update, which can otherwise hang
-// for hours when a hosted runner's package mirror stops responding.
-export const ripgrepInstallStepRegex =
-  /^(\s+)- name: Install ripgrep\n(?:\1  timeout-minutes: 5\n)?\1  run: (?:timeout --foreground --kill-after=10s 4m )?bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/install_ripgrep\.sh"\n/gm;
-
-// Matches the generated Cloud Hypervisor bundle setup step so selected smoke
-// workflows can retry transient release-asset download resets. The second
-// alternative intentionally matches the already-wrapped block so the patch is
-// idempotent across postprocess runs. The lookahead requires a subsequent step
-// because the multiline wrapped block is consumed up to the next sibling step.
-export const cloudHypervisorBundleStepRegex =
-  /^(\s+)- name: Download and verify cloud-hypervisor bundle\n\1  id: cloud-hypervisor-bundle\n\1  env:\n\1    GH_AW_AWF_VERSION: ([^\n]+)\n\1  run: (?:bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/cloud_hypervisor_setup_bundle\.sh"|\|\n(?:\1    .*\n)+?(?=\1- name: ))/gm;
-
-// Collapse duplicate "Setup Node.js" steps: buildLocalInstallSteps injects a
-// Setup Node.js step but some workflows already emit an identical one immediately
-// before the install step.  The backreference only matches byte-identical blocks.
-export const duplicateSetupNodeRegex =
-  /^( {6}- name: Setup Node\.js\n {8}uses: actions\/setup-node@[0-9a-f]+ # v[0-9.]+\n {8}with:\n {10}node-version: '[^']*'\n {10}package-manager-cache: false\n)\1/m;
-
-// Remove sparse-checkout from the agent job's checkout step so the full repo
-// is available for npm ci / npm run build. The compiler generates sparse-checkout
-// for .github and .agents only, but we need src/, package.json, tsconfig.json etc.
-// Match the sparse-checkout block (key + indented content lines) and the depth line.
-export const sparseCheckoutRegex = /^(\s+)sparse-checkout: \|\n(?:\1  .+\n)+/gm;
-export const shallowDepthRegex = /^(\s+)depth: 1\n/gm;
-
-// Replace --image-tag <version> --skip-pull with --build-local so smoke tests
-// use locally-built container images instead of pre-built GHCR images.
-export const imageTagRegex = /--image-tag\s+[0-9.]+\s+--skip-pull/g;
-
-// When no --image-tag is present, the compiler still emits --skip-pull alone.
-// Replace standalone --skip-pull with --build-local.
-export const standaloneSkipPullRegex = /--skip-pull(?:\s+--build-local)?/g;
-export const localAwfImageDownloadRegex =
-  /\s+ghcr\.io\/github\/gh-aw-firewall\/(?:agent|api-proxy|squid|enclave-(?:agent|mcp-server)):[0-9.]+(?:@sha256:[a-f0-9]{64})?/g;
-
-export function assertCloudHypervisorSmokePrimaryRuntime(content: string): string {
-  if (
-    !content.includes('--container-runtime cloud-hypervisor')
-    || content.includes('--container-runtime docker')
-  ) {
-    throw new Error('Cloud Hypervisor enclave smoke must select the Cloud Hypervisor primary runtime');
-  }
-  return content;
-}
-
-const cloudHypervisorDigestArgs =
-  ' --cloud-hypervisor-binary-sha256 "$(jq -er \'.artifacts.cloudHypervisor.sha256\' "${GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST}")"' +
-  ' --cloud-hypervisor-virtiofsd-sha256 "$(jq -er \'.artifacts.virtiofsd.sha256\' "${GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST}")"' +
-  ' --cloud-hypervisor-kernel-sha256 "$(jq -er \'.artifacts.kernel.sha256\' "${GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST}")"' +
-  ' --cloud-hypervisor-rootfs-sha256 "$(jq -er \'.artifacts.rootfs.sha256\' "${GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST}")"' +
-  ' --cloud-hypervisor-supervisor-sha256 "$(jq -er \'.artifacts.supervisor.sha256\' "${GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST}")"';
-
-export function patchLocalBuildCloudHypervisorArtifacts(content: string): string {
-  let patched = content;
-
-  if (!patched.includes('--cloud-hypervisor-mount-policy workspace-and-tool-cache')) {
-    patched = patched.replace(
-      '--cloud-hypervisor-preview ',
-      '--cloud-hypervisor-preview --cloud-hypervisor-mount-policy workspace-and-tool-cache ',
-    );
-  }
-  if (!patched.includes('--cloud-hypervisor-development-allow-unattested-artifacts')) {
-    patched = patched.replace(
-      '--cloud-hypervisor-preview ',
-      '--cloud-hypervisor-preview --cloud-hypervisor-development-allow-unattested-artifacts ',
-    );
-  }
-  if (!patched.includes('--cloud-hypervisor-binary-sha256')) {
-    patched = patched.replace(
-      ' --cloud-hypervisor-supervisor "${GH_AW_CLOUD_HYPERVISOR_SUPERVISOR}"',
-      ' --cloud-hypervisor-supervisor "${GH_AW_CLOUD_HYPERVISOR_SUPERVISOR}"' +
-        cloudHypervisorDigestArgs,
-    );
-  }
-  if (!patched.includes('AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS: "1"')) {
-    patched = patched.replace(
-      '        env:\n          AWF_REFLECT_ENABLED: 1\n',
-      '        env:\n' +
-        '          AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS: "1"\n' +
-        '          AWF_REFLECT_ENABLED: 1\n',
-    );
-  }
-
-  return patched;
-}
-
-// Inject --session-state-dir into AWF invocations so Copilot CLI session-state
-// (events.jsonl) is written to a predictable host path that artifact upload can
-// read. A global regex is used because some lock files contain two agent jobs.
-//
-// Two invocation shapes are supported:
-//   1. Legacy: logging directories passed as CLI flags (`--audit-dir ...`).
-//   2. Current: logging directories passed via the generated awf-config.json
-//      (`awf --config "${RUNNER_TEMP}/gh-aw/awf-config.json" ...`). gh-aw moved
-//      auditDir into `logging.auditDir` there, which silently broke the legacy
-//      pattern and left the Copilot step summary without a conversation.
-export const sessionStateDirInjectionRegex =
-  /--audit-dir \/tmp\/gh-aw\/sandbox\/firewall\/audit(?! --session-state-dir)/g;
-export const sessionStateDirConfigInjectionRegex =
-  /awf --config "\$\{RUNNER_TEMP\}\/gh-aw\/awf-config\.json"(?! --session-state-dir)/g;
-export const SESSION_STATE_DIR = '/tmp/gh-aw/sandbox/agent/session-state';
-export const legacyApiProxyLogsDirRegex =
-  /\/tmp\/gh-aw\/sandbox\/firewall\/logs\/api-proxy(?!-logs)/g;
-
-// Work around gh-aw compiler bug (gh-aw#26565) where Copilot model selection is
-// emitted at the step level for BYOK smoke workflows. Normalize every compiled
-// step-level COPILOT_MODEL expression back to `${{ env.COPILOT_MODEL }}`.
-export const copilotModelOverrideRegex =
-  /^(\s*COPILOT_MODEL:\s*)\$\{\{\s*(?:vars\.GH_AW_MODEL_AGENT_COPILOT\s*\|\|\s*)?(?:vars\.GH_AW_DEFAULT_MODEL_COPILOT\s*\|\|\s*)?(?:env\.COPILOT_MODEL|''|'[^']*')\s*\}\}[ \t]*$/gm;
-
-export function removeCopilotGithubCliPermission(workflow: string): string {
-  return workflow.replace(" --allow-tool '\\''shell(github:*)'\\''", '');
-}
-
-// Matches the "Copy Copilot CLI to daemon-visible path" step that the gh-aw
-// compiler emits for every firewall + arc-dind workflow regardless of the
-// configured engine (gh-aw bug, github/gh-aw-firewall#7505). The step runs
-// `command -v copilot` without a fallback and then `cp`s the result, so it
-// fails the job for non-Copilot engines where the Copilot CLI is not installed.
-export const copilotCliDaemonCopyStepRegex =
-  /^(\s+)- name: Copy Copilot CLI to daemon-visible path\n\1  run: \|\n\1    mkdir -p "\$\{RUNNER_TEMP\}\/gh-aw\/bin"\n\1    COPILOT_SRC="\$\(command -v copilot\)"\n\1    cp "\$COPILOT_SRC" "\$\{RUNNER_TEMP\}\/gh-aw\/bin\/copilot"\n\1    chmod \+x "\$\{RUNNER_TEMP\}\/gh-aw\/bin\/copilot"\n/gm;
-
-// Idempotency guard: present once the copy step has been rewritten by AWF
-// postprocessing.
-export const copilotCliDaemonCopyStepSentinel =
-  '# AWF postprocess: Copilot CLI copy gated on compiled engine';
-
-// Reads the compiled engine id out of a lock file. The compiler emits
-// `GH_AW_ENGINE_ID: "<id>"` in job/step env blocks; shell exports of
-// GH_AW_ENGINE do not persist across Actions steps, so the engine must be
-// resolved at postprocess time rather than at runtime.
-export const compiledEngineIdRegex = /^\s*GH_AW_ENGINE_ID:\s*"([^"]+)"\s*$/m;
-
-// Remove the "Setup Scripts" step from update_cache_memory jobs.
-// This step downloads the private github/gh-aw action but is never used in
-// update_cache_memory (no subsequent steps reference /opt/gh-aw/actions/).
-// With permissions: {} on these jobs, downloading the private action fails
-// with 401 Unauthorized.
-export const updateCacheSetupScriptRegex =
-  /^(\s+)- name: Setup Scripts\n\1  uses: github\/gh-aw\/actions\/setup@v[\d.]+\n\1  with:\n\1    destination: \/opt\/gh-aw\/actions\n(\1- name: Download cache-memory artifact)/gm;
-
-// Cache-memory security hardening patterns (issue: execute-bit persistence and
-// instruction-injection across cache restore cycles).
-//
-// 1. setupCacheMemoryStepRegex: matches the "Setup cache-memory git repository"
-//    step so we can inject a sanitize step immediately after it.
-// 2. stripExecBitsStepSentinel: idempotency guard — skip injection if this
-//    step name already appears right after the setup step.
-// 3. cacheMemoryCommitStepRegex: matches the "Commit cache-memory changes" step
-//    so we can inject a scan step immediately before it.
-// 4. scanInjectionStepSentinel: idempotency guard for the scan step.
-// 5. cacheMemoryDateStepRegex: matches the "Create cache-memory directory" step
-//    followed by the "Cache cache-memory file share data" cache action so we
-//    can inject a date computation step and add a TTL to the restore-keys.
-export const setupCacheMemoryStepRegex =
-  /^(\s+)- name: Setup cache-memory git repository\n(?:\1\s[^\n]*\n)*?\1  run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/setup_cache_memory_git\.sh"\n/m;
-export const stripExecBitsStepSentinel = '- name: Strip execute bits from cache-memory files';
-export const cacheMemoryCommitStepRegex =
-  /^(\s+)- name: Commit cache-memory changes\n(?:\1\s[^\n]*\n)*?\1  run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/commit_cache_memory_git\.sh"\n/m;
-export const scanInjectionStepSentinel = '- name: Scan cache-memory for instruction-injection content';
-// Matches the "Create cache-memory directory" run step (just before the cache
-// action) so we can inject the date-key computation step between them.
-// Handles two step names:
-//   "Cache cache-memory file share data" — combined actions/cache
-//   "Restore cache-memory file share data" — split actions/cache/restore + save
-export const createCacheDirStepRegex =
-  /^(\s+)(- name: Create cache-memory directory\n\1  run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/create_cache_memory_dir\.sh"\n)(\1- name: (?:Cache|Restore) cache-memory file share data\n)/m;
-export const cacheDateStepSentinel = '- name: Compute cache-memory TTL date key';
-// Matches cache-memory key lines so we can insert the date env var for TTL.
-// Handles both forms:
-//   key: memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ github.run_id }}
-//   key: memory-none-nopolicy-issue-duplication-detector-${{ github.run_id }}
-export const cacheMemoryKeyLineRegex =
-  /(key: memory-none-nopolicy-(?:\$\{\{ env\.GH_AW_WORKFLOW_ID_SANITIZED \}\}|[a-z0-9-]+)-)\$\{\{ github\.run_id \}\}/g;
-// Matches the restore-keys prefix line for cache-memory so we can insert the
-// date env var between the workflow-ID segment and the trailing dash.
-export const cacheRestoreKeyPrefixRegex =
-  /(memory-none-nopolicy-(?:\$\{\{ env\.GH_AW_WORKFLOW_ID_SANITIZED \}\}|[a-z0-9-]+)-)(\n)/g;
-export const cacheDateRestoreKeySentinel = 'env.CACHE_MEMORY_DATE }}';
-
-// Fix for issue-duplication-detector.lock.yml: make the conclusion job's
-// concurrency group per-issue instead of per-workflow.
-export const issueDuplicationConclusionConcurrencyRegex =
-  /([ ]+group: "gh-aw-conclusion-issue-duplication-detector)("\n[ ]+cancel-in-progress: false)/;
-export const issueDuplicationConclusionConcurrencySentinel =
-  'gh-aw-conclusion-issue-duplication-detector-${{ github.event.issue.number';
+// Backwards-compatible facade. General patterns live with their domain;
+// Codex-only patterns remain here for apply-codex-workflow-patches.
+export {
+  installStepRegex, installStepRegexGlobal, ripgrepInstallStepRegex,
+  cloudHypervisorBundleStepRegex, duplicateSetupNodeRegex,
+  sparseCheckoutRegex, shallowDepthRegex, imageTagRegex,
+  standaloneSkipPullRegex, localAwfImageDownloadRegex,
+  assertCloudHypervisorSmokePrimaryRuntime, patchLocalBuildCloudHypervisorArtifacts,
+} from './workflow-patches/network-and-install-patterns';
+export {
+  sessionStateDirInjectionRegex, sessionStateDirConfigInjectionRegex,
+  SESSION_STATE_DIR, ENABLE_SESSION_STATE_ARTIFACTS_ENV, legacyApiProxyLogsDirRegex,
+} from './workflow-patches/session-state';
+export {
+  copilotModelOverrideRegex, removeCopilotGithubCliPermission,
+  copilotCliDaemonCopyStepRegex, copilotCliDaemonCopyStepSentinel,
+  compiledEngineIdRegex,
+} from './workflow-patches/engine-lifecycle-patterns';
+export {
+  updateCacheSetupScriptRegex, setupCacheMemoryStepRegex,
+  stripExecBitsStepSentinel, cacheMemoryCommitStepRegex,
+  scanInjectionStepSentinel, createCacheDirStepRegex,
+  cacheDateStepSentinel, cacheMemoryKeyLineRegex,
+  cacheRestoreKeyPrefixRegex, cacheDateRestoreKeySentinel,
+} from './workflow-patches/cache-memory-patterns';
+export {
+  issueDuplicationConclusionConcurrencyRegex,
+  issueDuplicationConclusionConcurrencySentinel,
+} from './workflow-patches/concurrency';
 
 // Replace the xpia.md cat command with a safe inline security policy.
 // Matches both path forms used across gh-aw versions:
@@ -210,14 +35,12 @@ export const issueDuplicationConclusionConcurrencySentinel =
 // The optional capture group `( >> "$GH_AW_PROMPT")` handles both styles.
 export const xpiaCatRegex =
   /^(\s+)cat "(?:\$\{RUNNER_TEMP\}|\/opt)\/gh-aw\/prompts\/xpia\.md"( >> "\$GH_AW_PROMPT")?\n/m;
-
 // Matches an already-replaced GH_AW_XPIA_SAFE_EOF heredoc block so this script
 // is idempotent — re-running it after SAFE_XPIA_CONTENT changes will update the
 // content in-place rather than requiring a full recompile from the .md source.
 // Captures: (1) leading indent, (2) optional ' >> "$GH_AW_PROMPT"' suffix.
 export const xpiaSafeBlockRegex =
   /^(\s+)cat << 'GH_AW_XPIA_SAFE_EOF'( >> "\$GH_AW_PROMPT")?\n[\s\S]*?\n\1GH_AW_XPIA_SAFE_EOF\n/m;
-
 // Safe inline replacement for xpia.md content.
 // Preserves the security intent (XPIA prevention + sandbox boundary enforcement)
 // without using terms that trigger OpenAI's cyber_policy_violation filter.

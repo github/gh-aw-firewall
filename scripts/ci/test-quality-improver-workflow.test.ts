@@ -64,7 +64,7 @@ describe('test quality improver file protection', () => {
       expect(source).toContain('do not reinstall them inside the agent sandbox');
     });
 
-    it.each([0, 1])('preserves locked packages and restores the lockfile when npm exits %s', (exitCode) => {
+    it.each([0, 1])('installs from the approved feed without rewriting the lockfile when npm exits %s', (exitCode) => {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-quality-dependencies-'));
       try {
         const original = JSON.stringify({
@@ -73,17 +73,17 @@ describe('test quality improver file protection', () => {
             '': { name: 'fixture', version: '1.0.0' },
             'node_modules/example': {
               version: '1.2.3',
-              resolved: 'https://ms-feed-25.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/example/-/example-1.2.3.tgz',
+              resolved: 'https://packagefeedproxy.microsoft.io/npm/example/-/example-1.2.3.tgz',
               integrity: 'sha512-fixture',
             },
             'node_modules/@scope/example': {
               version: '2.0.0',
-              resolved: 'https://ms-feed-12.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@scope/example/-/example-2.0.0.tgz',
+              resolved: 'https://packagefeedproxy.microsoft.io/npm/@scope/example/-/example-2.0.0.tgz',
               integrity: 'sha512-scoped-fixture',
             },
             'node_modules/public': {
               version: '3.0.0',
-              resolved: 'https://registry.npmjs.org/public/-/public-3.0.0.tgz',
+              resolved: 'https://packagefeedproxy.microsoft.io/npm/public/-/public-3.0.0.tgz',
             },
             'node_modules/custom': {
               version: '4.0.0',
@@ -107,24 +107,9 @@ describe('test quality improver file protection', () => {
         });
         expect(result.error).toBeUndefined();
         expect(result.status).toBe(exitCode);
-        expect(JSON.parse(fs.readFileSync(path.join(dir, 'installed-lock.json'), 'utf8'))).toEqual({
-          ...JSON.parse(original),
-          packages: {
-            ...JSON.parse(original).packages,
-            'node_modules/example': {
-              version: '1.2.3',
-              resolved: 'https://registry.npmjs.org/example/-/example-1.2.3.tgz',
-              integrity: 'sha512-fixture',
-            },
-            'node_modules/@scope/example': {
-              version: '2.0.0',
-              resolved: 'https://registry.npmjs.org/@scope/example/-/example-2.0.0.tgz',
-              integrity: 'sha512-scoped-fixture',
-            },
-          },
-        });
+        expect(fs.readFileSync(path.join(dir, 'installed-lock.json'), 'utf8')).toBe(original);
         expect(JSON.parse(fs.readFileSync(path.join(dir, 'npm-args.json'), 'utf8'))).toEqual([
-          'ci', '--ignore-scripts', '--registry=https://registry.npmjs.org', '--no-audit', '--no-fund',
+          'ci', '--ignore-scripts', '--registry=https://packagefeedproxy.microsoft.io/npm/', '--no-audit', '--no-fund',
         ]);
         expect(fs.readFileSync(path.join(dir, 'package-lock.json'), 'utf8')).toBe(original);
         expect(fs.readdirSync(dir).filter(file => file.startsWith('test-quality-package-lock.'))).toEqual([]);

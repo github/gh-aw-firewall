@@ -21,6 +21,22 @@ describe('cli-options program', () => {
     program.setOptionValueWithSource('cloudHypervisorMountPolicy', undefined, 'default');
     program.setOptionValueWithSource('cloudHypervisorScratchMib', undefined, 'default');
     program.setOptionValueWithSource('cloudHypervisorEnclaveDebugPublic', undefined, 'default');
+    program.setOptionValueWithSource('steeringBudget', undefined, 'default');
+    program.setOptionValueWithSource('enableTokenSteering', undefined, 'default');
+  });
+
+  it('parses budget steering flags and the --enable-token-steering alias', () => {
+    program.parse(['node', 'awf', '--', 'true'], { from: 'node' });
+    expect(program.opts().steeringBudget).toBeUndefined();
+    expect(program.opts().enableTokenSteering).toBeUndefined();
+    program.parse(['node', 'awf', '--steering-budget', '--', 'true'], { from: 'node' });
+    expect(program.opts().steeringBudget).toBe(true);
+    program.parse(['node', 'awf', '--no-steering-budget', '--', 'true'], { from: 'node' });
+    expect(program.opts().steeringBudget).toBe(false);
+    program.setOptionValueWithSource('steeringBudget', undefined, 'default');
+    program.parse(['node', 'awf', '--enable-token-steering', '--', 'true'], { from: 'node' });
+    expect(program.opts().enableTokenSteering).toBe(true);
+    expect(program.opts().steeringBudget).toBeUndefined();
   });
 
   it('exposes the expected metadata', () => {
@@ -28,10 +44,13 @@ describe('cli-options program', () => {
     expect(program.description()).toContain('firewall');
   });
 
-  it.each(['-1', '0', '0.5', '100'])('parses --max-ai-credits %s', (value) => {
-    program.parse(['node', 'awf', '--max-ai-credits', value, '--', 'true'], { from: 'node' });
-    expect(program.opts().maxAiCredits).toBe(value);
-  });
+  it.each(['-1', '0', '0.5', '100', '20K', '100M', '20k', '100m'])(
+    'parses --max-ai-credits %s',
+    (value) => {
+      program.parse(['node', 'awf', '--max-ai-credits', value, '--', 'true'], { from: 'node' });
+      expect(program.opts().maxAiCredits).toBe(value);
+    },
+  );
 
   it('accumulates repeated --env values via the collect callback', () => {
     program.parse(

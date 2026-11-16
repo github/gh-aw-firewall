@@ -3,7 +3,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { WrapperConfig } from '../types';
 import {
+  assertRoutingStateNotExportedToGuest,
   cleanupRoutingState,
+  MODEL_ROUTING_BACKEND_PARITY_URL,
   pathsOverlap,
   routingBootstrapTestHelpers,
   RoutingFailureExitError,
@@ -40,6 +42,12 @@ function makeConfig(workDir: string, conversationFile: string): WrapperConfig {
   };
 }
 
+// The routing root is derived from the work directory basename, so a
+// per-test unique basename keeps parallel suites from sharing it.
+function workDirFor(tempDir: string): string {
+  return path.join(tempDir, `work-${path.basename(tempDir)}`);
+}
+
 function writeConversation(filename: string): void {
   fs.writeFileSync(filename, JSON.stringify([
     { role: 'user', parts: [{ text: 'please fix the tests' }] },
@@ -66,7 +74,7 @@ describe('routing bootstrap', () => {
   });
 
   it('does not stage routing without both opt-in and a routing request', () => {
-    const config = makeConfig(path.join(tempDir, 'work'), path.join(tempDir, 'missing.json'));
+    const config = makeConfig(workDirFor(tempDir), path.join(tempDir, 'missing.json'));
     for (const optIn of [undefined, false]) {
       config.experimentalModelRouting = optIn;
       expect(stageRoutingConversation(config)).toBeUndefined();
@@ -81,7 +89,7 @@ describe('routing bootstrap', () => {
   it('validates and stages one private conversation copy with rewritten config', () => {
     const conversationFile = path.join(tempDir, 'conversation.json');
     writeConversation(conversationFile);
-    const config = makeConfig(path.join(tempDir, 'work'), conversationFile);
+    const config = makeConfig(workDirFor(tempDir), conversationFile);
 
     const state = stageRoutingConversation(config)!;
 
@@ -101,7 +109,7 @@ describe('routing bootstrap', () => {
   it('refuses oversized and invalid conversations with public messages', () => {
     const conversationFile = path.join(tempDir, 'conversation.json');
     fs.writeFileSync(conversationFile, '{');
-    const config = makeConfig(path.join(tempDir, 'work'), conversationFile);
+    const config = makeConfig(workDirFor(tempDir), conversationFile);
 
     expect(() => stageRoutingConversation(config)).toThrow('The routing conversation is invalid');
 
@@ -112,7 +120,7 @@ describe('routing bootstrap', () => {
   it('refuses an unpinned default router image before staging', () => {
     const conversationFile = path.join(tempDir, 'conversation.json');
     writeConversation(conversationFile);
-    const config = makeConfig(path.join(tempDir, 'work'), conversationFile);
+    const config = makeConfig(workDirFor(tempDir), conversationFile);
     delete config.images;
 
     expect(() => stageRoutingConversation(config)).toThrow(
@@ -124,7 +132,7 @@ describe('routing bootstrap', () => {
   it('accepts a router built from the checkout with --build-local without a digest pin', () => {
     const conversationFile = path.join(tempDir, 'conversation.json');
     writeConversation(conversationFile);
-    const config = { ...makeConfig(path.join(tempDir, 'work'), conversationFile), buildLocal: true };
+    const config = { ...makeConfig(workDirFor(tempDir), conversationFile), buildLocal: true };
     delete config.images;
 
     const state = stageRoutingConversation(config)!;
@@ -136,12 +144,88 @@ describe('routing bootstrap', () => {
   it('refuses routing with preserved containers before staging', () => {
     const conversationFile = path.join(tempDir, 'conversation.json');
     writeConversation(conversationFile);
-    const config = { ...makeConfig(path.join(tempDir, 'work'), conversationFile), keepContainers: true };
+    const config = { ...makeConfig(workDirFor(tempDir), conversationFile), keepContainers: true };
 
     expect(() => stageRoutingConversation(config)).toThrow(
       'Model routing is not supported with --keep-containers',
     );
     expect(config.modelRoutingBootstrap).toBeUndefined();
+  });
+
+  it.each([undefined, '', 'runc', 'cloud-hypervisor'])('admits routing with the %p container runtime', runtime => {
+    const conversationFile = path.join(tempDir, 'conversation.json');
+    writeConversation(conversationFile);
+    const config = { ...makeConfig(workDirFor(tempDir), conversationFile), containerRuntime: runtime };
+
+    const state = stageRoutingConversation(config)!;
+
+    expect(config.modelRoutingBootstrap).toBe(state);
+    cleanupRoutingState(config);
+  });
+
+  it.each(['nvx', 'sbx', 'gvisor', 'runsc', 'kata'])(
+    'rejects routing with the unsupported %s runtime before staging, naming it and linking backend parity',
+    runtime => {
+      const conversationFile = path.join(tempDir, 'conversation.json');
+      writeConversation(conversationFile);
+      const config = { ...makeConfig(workDirFor(tempDir), conversationFile), containerRuntime: runtime };
+
+      expect(() => stageRoutingConversation(config)).toThrow(
+        `Model routing is not supported with the "${runtime}" container runtime`,
+      );
+      expect(() => stageRoutingConversation(config)).toThrow(MODEL_ROUTING_BACKEND_PARITY_URL);
+      expect(MODEL_ROUTING_BACKEND_PARITY_URL).toBe('https://github.com/github/gh-aw-firewall/issues/10335');
+      expect(config.modelRoutingBootstrap).toBeUndefined();
+      expect(fs.existsSync(routingBootstrapTestHelpers.routingRootForWorkDir(config.workDir))).toBe(false);
+    },
+  );
+
+  it('keeps the remaining host restrictions for cloud-hypervisor routing', () => {
+    const conversationFile = path.join(tempDir, 'conversation.json');
+    writeConversation(conversationFile);
+    const base = {
+      ...makeConfig(workDirFor(tempDir), conversationFile),
+      containerRuntime: 'cloud-hypervisor',
+    };
+
+    expect(() => stageRoutingConversation({ ...base, keepContainers: true }))
+      .toThrow('Model routing is not supported with --keep-containers');
+    expect(() => stageRoutingConversation({ ...base, enableApiProxy: false }))
+      .toThrow('Model routing requires apiProxy.enabled');
+    expect(() => stageRoutingConversation({ ...base, enableDind: true }))
+      .toThrow('Model routing is not supported with Docker-in-Docker');
+    expect(() => stageRoutingConversation({ ...base, dockerHostPathPrefix: '/host' }))
+      .toThrow('Model routing is not supported with split runner/Docker filesystems');
+    expect(() => stageRoutingConversation({ ...base, images: undefined }))
+      .toThrow('Model routing requires container.images.router to be pinned by digest');
+  });
+
+  it('rejects guest exports that would expose private routing state', () => {
+    const conversationFile = path.join(tempDir, 'conversation.json');
+    writeConversation(conversationFile);
+    const config = {
+      ...makeConfig(workDirFor(tempDir), conversationFile),
+      containerRuntime: 'cloud-hypervisor',
+    };
+    expect(() => assertRoutingStateNotExportedToGuest(config, [
+      { tag: 'workspace', source: os.homedir() },
+    ])).not.toThrow();
+
+    const state = stageRoutingConversation(config)!;
+    try {
+      for (const source of [os.homedir(), state.root, state.inputDir, state.outputDir]) {
+        expect(() => assertRoutingStateNotExportedToGuest(config, [
+          { tag: 'workspace', source: tempDir },
+          { tag: 'tmp-gh-aw', source },
+        ])).toThrow('Model routing private state overlaps guest export "tmp-gh-aw"');
+      }
+      expect(() => assertRoutingStateNotExportedToGuest(config, [
+        { tag: 'workspace', source: tempDir },
+        { tag: 'sibling', source: `${state.root}-sibling` },
+      ])).not.toThrow();
+    } finally {
+      cleanupRoutingState(config);
+    }
   });
 
   it('waits for a valid selection and reports routing failures with exit 78', async () => {

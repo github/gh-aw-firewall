@@ -8,6 +8,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const yaml = require('js-yaml');
 const { readReport, collect } = require('./collect.cjs');
+const { failureId } = require('./grade.cjs');
 
 const root = path.resolve(__dirname, '../../..');
 
@@ -54,12 +55,18 @@ test('host orchestration cannot pass a noop CLI or forged agent marker and freez
   const scripts = path.join(checkout, 'scripts/ci/reflect-smoke');
   for (const entry of [temp, bin, scripts, path.join(checkout, 'dist'),
     path.join(checkout, '.awf-reflect-tools')]) fs.mkdirSync(entry, { recursive: true });
-  for (const file of ['guest.sh', 'collect.cjs', 'grade.cjs']) {
+  for (const file of ['guest.sh', 'collect.cjs', 'grade.cjs', 'diagnostics.cjs']) {
     fs.copyFileSync(path.join(__dirname, file), path.join(scripts, file));
   }
   const calls = path.join(dir, 'calls.jsonl');
   const sha = 'a'.repeat(40);
   executable(path.join(bin, 'git'), `console.log('${sha}');`);
+  executable(path.join(bin, 'timeout'), `
+    const result = require('child_process').spawnSync(process.argv[5], process.argv.slice(6), {
+      stdio: 'inherit', env: process.env, timeout: 10000
+    });
+    process.exit(result.status ?? 1);
+  `);
   executable(path.join(bin, 'docker'), `
     const fs = require('fs');
     const args = process.argv.slice(2);
@@ -67,7 +74,7 @@ test('host orchestration cannot pass a noop CLI or forged agent marker and freez
     if (args[0] === 'image') console.log('sha256:fixture');
     if (args[0] === 'inspect') console.log('true');
     if (args[0] === 'cp') {
-      fs.writeFileSync(args[2], args[1].endsWith('task.json') ? '{}' :
+      fs.writeFileSync(args[2], /(?:task|initial-request)\\.json$/.test(args[1]) ? '{}' :
         JSON.stringify({ version: 1, complete: true, events: [], upstream: [] }));
     }
   `);
@@ -122,6 +129,13 @@ test('host orchestration cannot pass a noop CLI or forged agent marker and freez
     assert.equal(record.args[record.args.indexOf('--agent-timeout') + 1], '6');
   }
   const dockerCalls = records.filter(record => record.tool === 'docker');
+  for (const scenario of ['recover', 'deny']) {
+    for (const file of ['task.json', 'initial-request.json']) {
+      assert.equal(dockerCalls.filter(record => record.args[0] === 'cp' &&
+        record.args[1] === `awf-reflect-codex-${scenario}-123-1:/evidence/${file}` &&
+        record.args[2] === path.join(temp, `reflect-private-codex/guest-${scenario}/${file}`)).length, 1);
+    }
+  }
   assert.equal(dockerCalls.filter(record => record.args[0] === 'stop').length, 2);
   const removals = dockerCalls.filter(record => record.args[0] === 'rm');
   assert.equal(removals.length, 2);
@@ -183,7 +197,12 @@ for (const agent of ['copilot', 'claude', 'codex']) {
     assert.equal(fs.existsSync(path.join(dir, 'decoy.log')), false);
     const prompt = call.args.find(arg => arg.includes('Perform the task'));
     assert.ok(prompt.includes('http://isolated-fixture:8080/reflect'));
-    assert.ok(prompt.includes('First submit its request unchanged'));
+    assert.ok(prompt.includes("--data-binary @initial-request.json 'http://isolated-fixture:8080/responses'"));
+    assert.ok(prompt.includes('ONLY task.json.request, not the task envelope'));
+    assert.ok(prompt.includes('do_not_repeat forbids repeating the rejected request unchanged'));
+    assert.ok(prompt.includes('change only reasoning.effort'));
+    assert.ok(prompt.includes('stop without another target POST'));
+    assert.ok(prompt.includes('not proof of a permanent model-policy denial'));
     assert.ok(!prompt.includes('"effort":"low"') && !prompt.includes('"effort":"high"'));
     assert.equal(fs.existsSync(path.join(dir, 'report.json')), false, 'Noop CLI must not create success');
     if (agent === 'codex') {
@@ -212,5 +231,53 @@ test('collector rejects missing, symlink, oversized and non-JSON reports without
   assert.equal(collect(path.join(dir, 'missing-evidence'), report, 0, output), false);
   const summary = fs.readFileSync(output, 'utf8');
   assert.equal(JSON.parse(summary).status, 'fail');
+  assert.equal(JSON.parse(summary).failedAssertion, null);
   assert.ok(!summary.includes('PRIVATE-UNTRUSTED-TEXT'));
+});
+
+test('public failure evidence is bounded and cannot echo arbitrary values or forged assertion IDs', t => {
+  const dir = directory(t);
+  const secret = 'PRIVATE-PROMPT-TOKEN-HEADER-TRANSCRIPT';
+  const event = { sequence: secret, method: secret, path: secret, status: secret,
+    error: secret, body: { model: secret, input: secret, reasoning: { effort: secret }, extra: secret },
+    headers: { authorization: secret }, reflection: { recent: { decisions: [
+      { reason: secret }, ...Array.from({ length: 100 }, () => ({ reason: 'policy_denied' })),
+    ] } } };
+  const state = { version: 1, scenario: 'recover', complete: true, model: secret, nonce: secret,
+    effort: secret, result: secret, events: Array(100).fill(event), upstream: Array(100).fill(event) };
+  const evidence = path.join(dir, 'evidence.json');
+  const report = path.join(dir, 'report.json');
+  const output = path.join(dir, 'summary.json');
+  fs.writeFileSync(evidence, JSON.stringify(state));
+  fs.writeFileSync(report, JSON.stringify({ status: secret, result: secret }));
+  assert.equal(collect(evidence, report, 0, output), false);
+  const text = fs.readFileSync(output, 'utf8');
+  const summary = JSON.parse(text);
+  assert.equal(summary.failedAssertion, 'request_count');
+  assert.equal(summary.trace.length, 13);
+  assert.equal(summary.upstream.length, 13);
+  assert.equal(summary.trace[0].sequence, null);
+  assert.equal(summary.trace[0].status, null);
+  assert.equal(summary.trace[0].reason, null);
+  assert.deepEqual(summary.trace[0].diagnosticReasons, ['policy_denied']);
+  assert.ok(Object.values(summary.trace[0].requestShape).every(value => typeof value === 'boolean'));
+  assert.ok(!text.includes(secret));
+  assert.ok(text.length < 25000);
+  const cli = spawnSync(process.execPath, [path.join(__dirname, 'grade.cjs'), evidence, report, '0'],
+    { encoding: 'utf8' });
+  assert.equal(cli.status, 1);
+  assert.equal(cli.stderr.trim(), 'Reflect smoke failed: request_count');
+  assert.ok(!`${cli.stdout}${cli.stderr}`.includes(secret));
+  assert.equal(failureId(Object.assign(new Error(secret), { code: 'initial_request_exact' })), null);
+  assert.equal(collect(evidence, report, secret, output), false);
+  const badExit = fs.readFileSync(output, 'utf8');
+  assert.equal(JSON.parse(badExit).agentExit, null);
+  assert.equal(JSON.parse(badExit).failedAssertion, 'agent_exit');
+  assert.ok(!badExit.includes(secret));
+  fs.writeFileSync(report, secret);
+  assert.equal(collect(evidence, report, 0, output), false);
+  const badReport = fs.readFileSync(output, 'utf8');
+  assert.equal(JSON.parse(badReport).stage, 'read_report');
+  assert.equal(JSON.parse(badReport).failedAssertion, null);
+  assert.ok(!badReport.includes(secret));
 });

@@ -130,10 +130,12 @@ post-steps:
 
 # Smoke Test: Copilot Engine Validation
 
-The host preparation step builds the checked-out Squid, agent, and API proxy
-images with a separate 35-minute budget. Repository post-processing selects
-those run-specific local images with `--skip-pull`, leaving the 15-minute agent
-execution budget for startup and the smoke checks rather than cold builds.
+The host preparation step builds the checked-out Squid, agent, API proxy, and
+router images with a separate 35-minute budget. Repository post-processing
+selects run-specific local images with `--skip-pull`. Model routing uses
+local-build mode with the warmed Docker build cache so its router is built from
+the checkout rather than trusted via a mutable tag. This leaves the 15-minute
+agent execution budget for startup and smoke checks rather than cold builds.
 
 **CRITICAL: On pull_request triggers, call `add_comment` first. Keep all outputs extremely short, using single lines where possible.**
 

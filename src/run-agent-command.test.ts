@@ -228,6 +228,71 @@ describe('runAgentCommand', () => {
     }
   });
 
+  it('redacts captured credentials and stops the agent', async () => {
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    let endedStreams = 0;
+    let resolveLogs: ((value: { stdout: Buffer; stderr: Buffer; exitCode: number }) => void) | undefined;
+    const logsProcess = Object.assign(
+      new Promise<{ stdout: Buffer; stderr: Buffer; exitCode: number }>(resolve => { resolveLogs = resolve; }),
+      { stdout, stderr },
+    );
+    const finishLogs = (): void => {
+      if (++endedStreams === 2) resolveLogs?.({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0 });
+    };
+    stdout.on('end', finishLogs);
+    stderr.on('end', finishLogs);
+    mockExecaFn
+      .mockReturnValueOnce(logsProcess as any)
+      .mockResolvedValueOnce({ stdout: '0', stderr: '', exitCode: 0 } as any);
+    const capture = {
+      invocationId: 'redacted-capture',
+      beginAttempt: jest.fn(),
+      recordOutput: jest.fn(),
+      recordPresentationFailure: jest.fn(),
+      finishAttempt: jest.fn(),
+      finishCommand: jest.fn(),
+      waitForCommandCompletion: jest.fn().mockResolvedValue(undefined),
+      setTeardown: jest.fn(),
+      close: jest.fn(),
+    } as ProtectedCommandOutputCapture;
+    const stdoutWrite = jest.spyOn(process.stdout, 'write').mockImplementation((_chunk, callback) => {
+      invokeWriteCallback(callback);
+      return true;
+    });
+    const stderrWrite = jest.spyOn(process.stderr, 'write').mockImplementation((_chunk, callback) => {
+      invokeWriteCallback(callback);
+      return true;
+    });
+    const token = `ghp_${'a'.repeat(24)}`;
+
+    try {
+      setImmediate(() => {
+        stdout.end(Buffer.from(`token=${token}\n`));
+        stderr.end();
+      });
+
+      await runAgentCommand(getDir(), ['github.com'], undefined, undefined, undefined, capture);
+
+      const capturedOutput = Buffer.concat(jest.mocked(capture.recordOutput).mock.calls.map(([, , chunk]) =>
+        Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+      ));
+      expect(capturedOutput.toString()).toContain('[REDACTED_CREDENTIAL]');
+      expect(capturedOutput.toString()).not.toContain(token);
+      expect(Buffer.concat(stdoutWrite.mock.calls.map(([chunk]) =>
+        Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))
+      )).toString()).not.toContain(token);
+      expect(mockExecaFn).toHaveBeenCalledWith(
+        'docker',
+        ['stop', '-t', '10', 'awf-agent'],
+        expect.objectContaining({ reject: false }),
+      );
+    } finally {
+      stdoutWrite.mockRestore();
+      stderrWrite.mockRestore();
+    }
+  });
+
   it('continues draining raw output after console backpressure', async () => {
     const stdout = new PassThrough();
     const stderr = new PassThrough();

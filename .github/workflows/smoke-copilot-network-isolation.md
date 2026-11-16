@@ -20,6 +20,7 @@ engine:
   id: copilot
   version: 1.0.101
   checksums-sha256: 018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be
+  model: claude-haiku-4.5
   args:
     - --allow-url=api.github.com
     - --allow-url=example.com
@@ -31,8 +32,7 @@ tools:
   bash:
     - curl
     - echo
-  github:
-    toolsets: [pull_requests]
+  github: false
 safe-outputs:
   threat-detection:
     enabled: false
@@ -70,20 +70,6 @@ steps:
   - name: Build local AWF smoke images
     timeout-minutes: 35
     run: bash "${RUNNER_TEMP}/awf-smoke/build-smoke-images.sh"
-  - name: Pre-compute smoke test data
-    run: |
-      echo "::group::Fetching last 2 merged PRs"
-      PR_DATA=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 2 \
-        --json number,title,author,mergedAt \
-        --jq '.[] | "PR #\(.number): \(.title) (by @\(.author.login), merged \(.mergedAt))"')
-      echo "$PR_DATA"
-      echo "::endgroup::"
-
-      # Write results to file for agent context
-      mkdir -p /tmp/gh-aw/agent
-      echo "$PR_DATA" > /tmp/gh-aw/agent/smoke-pr-data.txt
-    env:
-      GH_TOKEN: ${{ github.token }}
 post-steps:
   - name: Validate egress verdict and safe outputs
     env:
@@ -121,90 +107,30 @@ post-steps:
       echo "Safe output validation passed"
 ---
 
-# Smoke Test: Copilot Network Isolation Egress Enforcement
+# Smoke Test: Copilot Network Isolation
 
-This smoke test runs the Copilot engine under the AWF **network-isolation
-topology** (`sandbox.agent.sudo: false`, `isolation: true`) and confirms the
-Docker-network egress model still enforces the domain allowlist from **inside**
-the sandbox.
-
-**CRITICAL REQUIREMENT: You MUST call `add_comment` on pull_request triggers.
-This is the primary success criterion. Do this FIRST after running the two
-egress checks below.**
-
-**Keep all outputs extremely short and concise. Use single-line responses where
-possible. No verbose explanations. Do NOT inspect the `awf` binary, its
-`--help`, or its version — just run the two commands and summarize their
-output.**
-
-## Egress Checks (run these yourself with bash)
-
-Run both commands using the `bash` tool. They execute inside the isolated
-sandbox, so they exercise the real egress enforcement path.
-
-### 1. Allowed domain is reachable
-
-`github.com` is on the allowlist, so this request should succeed with an HTTP
-status code:
+Run both egress checks in one `bash` call inside the isolated sandbox:
 
 ```bash
-curl -sS -o /dev/null -w "allowed=%{http_code}\n" --max-time 15 https://api.github.com/zen
+if curl -sS -o /dev/null -w "allowed=%{http_code}\n" --max-time 15 https://api.github.com/zen; then allow=pass; else allow=fail; fi
+if curl -sS -o /dev/null -w "denied=%{http_code}\n" --max-time 15 https://example.com; then deny=fail; else deny=pass; fi
+echo "EGRESS_RESULT allow=$allow deny=$deny"
 ```
 
-✅ if it prints `allowed=200` (or any HTTP status), ❌ if it errors / times out.
+An HTTP response from `api.github.com` means `allow=pass`; a failed request means
+`allow=fail`. A failed request to non-allowlisted `example.com` means
+`deny=pass`; a successful request means `deny=fail`. Report the observed results,
+not assumed results.
 
-### 2. Non-allowed domain is blocked
+## Output
 
-`example.com` is **not** on the allowlist, so this request should fail
-(non-zero exit / connection error / proxy denial):
+Include the exact `EGRESS_RESULT allow=<pass|fail> deny=<pass|fail>` line in
+every safe-output body.
 
-```bash
-curl -sS -o /dev/null -w "denied=%{http_code}\n" --max-time 15 https://example.com && \
-  echo "UNEXPECTED: example.com was reachable" || \
-  echo "OK: example.com was blocked"
-```
-
-✅ if it prints `OK: example.com was blocked`, ❌ if it prints `UNEXPECTED`.
-
-## Record the machine-readable verdict
-
-After running BOTH checks, decide the outcome of each:
-
-- `allow=pass` if test 1 printed an HTTP status (curl exit 0); otherwise `allow=fail`.
-- `deny=pass` if test 2 printed `OK: example.com was blocked`; otherwise `deny=fail`.
-
-You MUST include this exact machine-readable line (its own line, verbatim
-format) inside the body of the safe output you emit below — the post-step
-parses it and fails the workflow unless both are `pass`:
-
-```
-EGRESS_RESULT allow=<pass|fail> deny=<pass|fail>
-```
-
-Report the real observed results — do not hard-code `pass`.
-
-## Pre-Fetched PR Data
-
-```
-(see `/tmp/gh-aw/agent/smoke-pr-data.txt`)
-```
-
-## Output (MANDATORY)
-
-**If triggered by a pull request** (check: `${{ github.event_name }}` equals
-"pull_request"), you MUST call `add_comment` to post a **very brief** comment
-(max 5-10 lines) on the current pull request with:
-- The `EGRESS_RESULT allow=<pass|fail> deny=<pass|fail>` line (verbatim)
-- ✅ or ❌ for the allowed-domain check (test 1)
-- ✅ or ❌ for the blocked-domain check (test 2)
-- Overall status: PASS (both checks as expected) or FAIL
-- Mention the pull request author
-
-If all tests pass on a pull request trigger:
-- Use the `add_labels` safe-output tool to add the label
-  `smoke-copilot-network-isolation` to the pull request
-
-**If triggered by workflow_dispatch or schedule** (no PR context), call `noop`
-with a concise PASS/FAIL summary that also includes the
-`EGRESS_RESULT allow=<pass|fail> deny=<pass|fail>` line (verbatim).
-Do NOT attempt to add pull request comments or labels when there is no pull request.
+- On a `pull_request` trigger, call `add_comment` with a brief summary, both
+  check results, and the overall PASS/FAIL. If both checks pass, also call
+  `add_labels` for `smoke-copilot-network-isolation`. Issue both calls in the
+  same response (parallel tool calls where supported). Never call `noop` on a
+  PR trigger.
+- On `workflow_dispatch` or `schedule`, call `noop` with a concise PASS/FAIL
+  summary. Do not attempt PR comments or labels without a PR.

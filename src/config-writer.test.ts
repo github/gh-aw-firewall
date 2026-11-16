@@ -10,7 +10,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import execa from 'execa';
-import { writeConfigs } from './config-writer';
+import { writeConfigs, configWriterTestHelpers } from './config-writer';
+import { validateAndPrepareWorkDir } from './config-writer-ownership';
+import { writeAuditArtifacts } from './config-writer-audit';
 import { generateDockerCompose, redactDockerComposeSecrets } from './compose-generator';
 import type { DockerComposeConfig } from './types';
 import { isOpenSslAvailable } from './ssl-bump';
@@ -39,6 +41,15 @@ describe('writeConfigs', () => {
     cleanupConfigWriterTempDir(tempDir);
     Object.defineProperty(process, 'getuid', { value: originalGetuid, configurable: true });
     process.env = originalEnv;
+  });
+
+  it('preserves the test helper facade after extracting ownership and audit modules', () => {
+    expect(configWriterTestHelpers).toEqual({
+      validateAndPrepareWorkDir,
+      copySeccompProfile: expect.any(Function),
+      initializeSslBump: expect.any(Function),
+      writeAuditArtifacts,
+    });
   });
 
   describe('SSL Bump preflight guard', () => {
@@ -102,8 +113,10 @@ describe('writeConfigs', () => {
       expect(generatePolicyManifest.mock.calls[0][0].apiProxyUpstreams).toBeUndefined();
     });
 
-    it('redacts secret-derived upstream hosts from the policy audit artifact', async () => {
-      const { generatePolicyManifest } = jest.requireMock('./squid-config');
+    it('redacts secret-derived upstream hosts from audit artifacts without changing runtime config', async () => {
+      const { generateSquidConfig, generatePolicyManifest } = jest.requireMock('./squid-config');
+      const squidConfig = 'acl upstream dstdomain private.example';
+      generateSquidConfig.mockReturnValueOnce(squidConfig);
       generatePolicyManifest.mockReturnValueOnce({ upstream: 'private.example', port: 8443 });
       await writeConfigs(buildWriteConfig(tempDir, {
         enableApiProxy: true,
@@ -113,6 +126,10 @@ describe('writeConfigs', () => {
       const manifest = fs.readFileSync(path.join(tempDir, 'audit', 'policy-manifest.json'), 'utf8');
       expect(manifest).not.toContain('private.example');
       expect(manifest).toContain('[REDACTED]');
+      const auditSquid = fs.readFileSync(path.join(tempDir, 'audit', 'squid.conf'), 'utf8');
+      expect(auditSquid).not.toContain('private.example');
+      expect(auditSquid).toContain('[REDACTED]');
+      expect(fs.readFileSync(path.join(tempDir, 'squid.conf'), 'utf8')).toBe(squidConfig);
     });
 
     it('relocates the awf-net subnet and sidecar IPs passed to compose generation', async () => {

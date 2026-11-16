@@ -210,8 +210,39 @@ Each release includes:
 
 ### Bootstrap authentication and compatibility
 
-The installer and setup action require GitHub build-provenance attestations
-for the payload and release metadata. They constrain verification to
+The supported ordinary CLI installation contract has two explicit trust paths:
+
+- **Reviewed manifest pin (recommended for automation):** obtain the installer
+  from a reviewed immutable source revision, then run
+  `bash ./install.sh vX.Y.Z --checksums-sha256 <reviewed-manifest-sha256> --rootless`.
+  The version must be explicit (positional argument or `AWF_VERSION`); a pin
+  cannot be used with automatic latest-release discovery. The installer first
+  verifies the exact bytes of `checksums.txt` against that independent SHA256,
+  then requires exactly one valid checksum for the selected bundle/native binary
+  and verifies its bytes before installation. It makes no attestation lookups,
+  downloads no release identity or privileged helper, and requires no `gh` or
+  GitHub authentication. `--rootless` installs to `$HOME/.local/bin`; omit it and
+  use sudo for `/usr/local/bin`. `AWF_FORCE_BINARY=1` selects a native binary.
+- **Attested discovery:** without a manifest pin, the installer retains online
+  verification of the signed release identity, manifest and selected payload.
+  Any required verification failure is fatal; it never falls back to the pinned
+  path after a failed attestation. Legacy releases missing identity/provenance
+  remain unsupported on this path, but may be installed with a reviewed pin.
+
+A reviewed pin authenticates exact bytes, **not fresh producer/build provenance
+at install time**. The trusted configuration must bind repository, release tag
+and manifest digest together. Supplying another tag's digest defeats that
+reviewed binding; the installer cannot independently discover a caller's intent.
+Compromise of the trusted installer, pin source, verifier or runtime defeats
+their guarantees. Pins do not establish freshness or revoke previously reviewed
+releases automatically. Neither a checksum fetched alongside a payload nor a
+failed attestation is an independent trust anchor.
+
+#### Trusted release-pin review
+
+Before approving a new version/digest pair, reviewers authenticate the release
+identity, manifest and intended payloads with a trusted verifier. The existing
+attestation policy constrains verification to
 `github/gh-aw-firewall`, signer workflow `.github/workflows/release.yml`,
 the GitHub Actions OIDC issuer, and GitHub-hosted runners. Attestations must
 be published before uploading the corresponding release assets.
@@ -221,33 +252,82 @@ then checks out the new tag. Its certificate's source ref is therefore the
 dispatch branch, **not** the checkout tag: adding
 `--source-ref refs/tags/<version>` would reject these real releases.
 Instead, the separately attested `release-identity.txt` contains exactly
-`<checksums SHA256>  refs/tags/<version>`. Consumers verify its provenance,
+`<checksums SHA256>  refs/tags/<version>`. During pin review, verify its provenance,
 require the requested tag and checksums digest to match, and verify the
-checksums' and payload's provenance before installation. The setup action
+checksums' and intended payloads' provenance and checksums. For example, run
+the following for each of `release-identity.txt`, `checksums.txt`, and each
+payload being approved, from a private directory containing those release assets:
+
+```bash
+gh attestation verify "$asset" --hostname github.com \
+  --repo github/gh-aw-firewall \
+  --signer-workflow github/gh-aw-firewall/.github/workflows/release.yml \
+  --cert-oidc-issuer https://token.actions.githubusercontent.com \
+  --deny-self-hosted-runners
+```
+
+Record the verified version/digest pair in reviewed, immutable consumer
+configuration (for example a commit-pinned setup action), along with review
+evidence. Do not generate a trusted pin automatically from an unauthenticated
+release download. Repeating these online provenance checks on every ordinary
+CLI install is unnecessary once that reviewed pair is the trust anchor.
+
+The release provenance bundle packages the same signed multi-subject statement
+used by the online lookups. A reviewer may instead use bundle-based verification
+with a trusted verifier and trusted roots, enforcing the same requested-tag
+binding, subject digests, signer/repository/issuer restrictions and runner policy.
+The bundle alone is not a trusted digest and publishing it does not automatically
+make verification offline; the verifier and trust-root configuration must support
+that mode.
+
+#### Privileged provisioning and setup action
+
+`--install-enclave-storage-helper` is a separate, explicit opt-in requiring sudo,
+a trusted authenticated `gh`, and online identity/manifest/CLI/helper attestation
+checks even when `--checksums-sha256` is supplied. It cannot be combined with
+`--rootless`. Helper checksum, version, host-admission and narrow sudo policy
+checks remain unchanged. A listed helper's download or authentication failure
+is fatal, not an ordinary-CLI fallback. Ordinary CLI installation neither
+installs nor removes an existing helper or sudo policy.
+
+The AWF composite setup action is unchanged: it still requires attestations
+and signed release identity rather than accepting a manifest pin. It
 also authenticates and checksum-checks `containers.txt` before reading
 image digests, requires all runtime image pins, and never falls back to
 mutable tags when a manifest or digest-pinned pull fails. Existing enclave
 artifact verification and acceptance checks remain additional requirements.
 
-The release provenance bundle packages the same signed multi-subject statement
-used by the online attestation lookups. A consumer may use it to avoid repeated
-online lookups only when its verifier supports bundle-based verification and
-continues enforcing the independently pinned manifest digest, requested-tag
-binding, all required subject digests, signer/repository/issuer restrictions,
-and runner policy. The bundle is an input for that consumer-side change, not a
-replacement for those checks; the current installer contract and verification
-order are unchanged by publishing it.
-
-Legacy releases without these attestations and identity file intentionally
-fail closed. Select a release published with this protocol; do not bypass
-verification or silently fall back to checksum-only installation.
 The signed tag binding prevents cross-release substitution but does not
 establish freshness of the unauthenticated `latest` API response. Pin an
 explicit known release version when rollback resistance is needed.
 
+#### gh-aw adoption
+
+The downstream `actions/setup/sh/install_awf_binary.sh` can adopt this contract
+for ordinary CLI installation, including helper-capable releases: keep its
+independently reviewed version/manifest pin, but remove the version-based
+requirement for runtime identity/manifest/CLI attestation lookups. Prefer
+invoking this installer, vendored from a reviewed immutable AWF revision, with
+`--checksums-sha256` and `--rootless`, rather than maintaining another downloader
+and verifier. Alternatively, an existing consumer may implement the same
+manifest-first, exact-single-payload checksum contract. Never fetch and execute
+a mutable installer as part of this migration.
+
+Preserve gh-aw's runner-specific private runtime temp directory, cleanup,
+absolute Node wrapper and `GITHUB_PATH` handling where needed; those are runner
+integration, not release authentication. Review the installer revision, Node
+requirements and install layout when switching implementations. Keep privileged
+helper provisioning separate with its stronger verification policy, and do not
+relax container/VM artifact verification as part of ordinary CLI adoption.
+Downstream regression tests should cover installation with no GitHub credentials
+or attestation API access, missing identity metadata, manifest/payload mismatch,
+ambiguous checksum entries, and failed privileged-helper attestations. This
+upstream change defines the adoption contract; it does not change gh-aw's files.
+
 **Initial trust is a prerequisite, not something the installer can create.**
 Obtain and review the installer (or pin the setup action to a reviewed commit)
-through an independently authenticated channel. Obtain `gh` with
+through an independently authenticated channel. For attested installs or pin
+review, obtain `gh` with
 `attestation verify --signer-workflow` support, and any Node.js runtime used
 for the bundle, through a trusted package/image distribution or another
 authenticated bootstrap. Configure GitHub authentication for `gh`

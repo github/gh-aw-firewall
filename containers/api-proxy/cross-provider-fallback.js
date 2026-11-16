@@ -23,6 +23,7 @@
 const { parseBodyAsObject } = require('./body-utils');
 const { buildUpstreamPath } = require('./proxy-utils');
 const { buildRequestHeaders } = require('./request-headers');
+const { rememberInjectedCredentials } = require('./credential-protection');
 const {
   translateCopilotWireApi,
   translateResponsesRequest,
@@ -276,9 +277,11 @@ async function buildCrossProviderRequest({
   const needsIdentityEncoding = kind !== 'passthrough' || !!codexCompatibility ||
     (wireApiCompatibility && !wireApiCompatibility.passthrough);
 
+  const injectHeaders = await adapter.getAuthHeaders(req) || {};
+  rememberInjectedCredentials(req, injectHeaders);
   const filteredReq = { headers: filterHeadersForTarget(req.headers, endpoint.endsWith('/messages')) };
   const headers = buildRequestHeaders(body, -1, filteredReq, {
-    injectHeaders: await adapter.getAuthHeaders(req) || {},
+    injectHeaders,
     provider: targetProvider,
     targetHost,
     requestId,

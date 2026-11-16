@@ -1,5 +1,7 @@
 import * as http from 'http';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 import execa from 'execa';
 import { EventEmitter } from 'events';
 import {
@@ -47,6 +49,13 @@ function env(endpoint = 'http://127.0.0.1:8080/mcp/awf-enclave'): NodeJS.Process
     AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: endpoint,
     MCP_GATEWAY_API_KEY: 'g'.repeat(48),
   };
+}
+
+function controlNetworkContainers(serverAddress = '172.30.0.2/24'): string {
+  return JSON.stringify({
+    first: { Name: 'awf-enclave-mcp-server', IPv4Address: serverAddress },
+    second: { Name: 'awmg-mcpg', IPv4Address: '172.30.0.3/24' },
+  });
 }
 
 function routedTool(tool: Record<string, unknown>): Record<string, unknown> {
@@ -386,11 +395,9 @@ describe('enclave mcpg handoff', () => {
       .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
       .mockResolvedValueOnce({
         exitCode: 0,
-        stdout: JSON.stringify({
-          first: { Name: 'awf-enclave-mcp-server' },
-          second: { Name: 'awmg-mcpg' },
-        }),
-      });
+        stdout: controlNetworkContainers(),
+      })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
     await connectEnclaveGateway(config(), env());
     expect(mockExeca).toHaveBeenNthCalledWith(
       2,
@@ -398,6 +405,70 @@ describe('enclave mcpg handoff', () => {
       ['network', 'connect', 'awf-enclave-mcp-control', 'awmg-mcpg'],
       expect.objectContaining({ reject: false }),
     );
+    expect(mockExeca).toHaveBeenNthCalledWith(
+      4,
+      'docker',
+      [
+        'exec',
+        '--user',
+        '0',
+        'awmg-mcpg',
+        '/bin/sh',
+        '-c',
+        'hosts=$(sed -e "/[[:space:]]$2[[:space:]]/d" -e "/[[:space:]]$2$/d" /etc/hosts) '
+          + '&& printf "%s\\n%s %s\\n" "$hosts" "$1" "$2" > /etc/hosts',
+        'awf-enclave-hosts',
+        '172.30.0.2',
+        'awf-enclave-mcp',
+      ],
+      expect.objectContaining({ reject: false }),
+    );
+  });
+
+  it.each([
+    ['copilot', 'docker'], ['codex', 'docker'], ['claude', 'docker'],
+    ['copilot', 'cloud-hypervisor'], ['codex', 'cloud-hypervisor'], ['claude', 'cloud-hypervisor'],
+  ] as const)('updates gateway hosts without replacing its inode for %s / %s', async (engine, runtime) => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-gateway-hosts-'));
+    const hostsPath = path.join(directory, 'hosts');
+    const mountedPath = path.join(directory, 'mounted-hosts');
+    const original = '127.0.0.1 localhost\n172.30.0.4 unrelated awf-enclave-mcp-other\n';
+    fs.writeFileSync(hostsPath, `${original}172.30.0.99 awf-enclave-mcp\n`
+      + '172.30.0.98 awf-enclave-mcp old-alias\n'
+      + '172.30.0.97\tawf-enclave-mcp\told-alias\n');
+    fs.linkSync(hostsPath, mountedPath);
+    const inode = fs.statSync(hostsPath).ino;
+    const realExeca = jest.requireActual<typeof execa>('execa');
+    const wrapper = {
+      ...config(),
+      enclaves: normalizeEnclavesConfig([
+        { agent: { engine, model: 'test-model' }, runtime, repos: [repository] },
+      ]),
+    };
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        mockExeca
+          .mockResolvedValueOnce({
+            exitCode: 0,
+            stdout: JSON.stringify({
+              Name: '/awmg-mcpg',
+              State: { Running: true },
+              HostConfig: { NetworkMode: 'bridge' },
+              Config: { Labels: { [ENCLAVE_MCP_GATEWAY_RUN_LABEL]: 'test-run-identity' } },
+            }),
+          })
+          .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+          .mockResolvedValueOnce({ exitCode: 0, stdout: controlNetworkContainers(), stderr: '' })
+          .mockImplementationOnce((_file, args: string[]) => realExeca('/bin/sh', [
+            '-c', args[6].split('/etc/hosts').join('"$3"'), ...args.slice(7), hostsPath,
+          ], { env: { PATH: process.env.PATH }, extendEnv: false, reject: false, timeout: 1000 }));
+        await connectEnclaveGateway(wrapper, env());
+        expect(fs.statSync(hostsPath).ino).toBe(inode);
+        expect(fs.readFileSync(mountedPath, 'utf8')).toBe(`${original}172.30.0.2 awf-enclave-mcp\n`);
+      }
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('fails closed on gateway identity mismatch', async () => {
@@ -441,6 +512,11 @@ describe('enclave mcpg handoff', () => {
     [{ exitCode: 0, stdout: '{', stderr: '' }, /membership could not be inspected/],
     [{
       exitCode: 0,
+      stdout: controlNetworkContainers('not-an-ip'),
+      stderr: '',
+    }, /server address could not be verified/],
+    [{
+      exitCode: 0,
       stdout: JSON.stringify({
         first: { Name: 'awf-enclave-mcp-server' },
         second: { Name: 'awmg-mcpg' },
@@ -465,6 +541,31 @@ describe('enclave mcpg handoff', () => {
     await expect(connectEnclaveGateway(config(), env())).rejects.toThrow(expected);
     expect(mockExeca).toHaveBeenNthCalledWith(
       4,
+      'docker',
+      ['network', 'disconnect', '-f', 'awf-enclave-mcp-control', 'awmg-mcpg'],
+      expect.objectContaining({ reject: false }),
+    );
+  });
+
+  it('fails closed when the gateway cannot map the enclave service address', async () => {
+    mockExeca
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          Name: '/awmg-mcpg',
+          State: { Running: true },
+          HostConfig: { NetworkMode: 'bridge' },
+          Config: { Labels: { [ENCLAVE_MCP_GATEWAY_RUN_LABEL]: 'test-run-identity' } },
+        }),
+      })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: controlNetworkContainers(), stderr: '' })
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'not writable' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+    await expect(connectEnclaveGateway(config(), env()))
+      .rejects.toThrow(/Failed to configure private enclave service resolution/);
+    expect(mockExeca).toHaveBeenNthCalledWith(
+      5,
       'docker',
       ['network', 'disconnect', '-f', 'awf-enclave-mcp-control', 'awmg-mcpg'],
       expect.objectContaining({ reject: false }),

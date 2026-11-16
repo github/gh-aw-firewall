@@ -70,7 +70,7 @@ describe('generateUpstreamProxySection', () => {
   it('rejects newline injection in proxy host via assertSafeForSquidConfig', () => {
     expect(() =>
       generateUpstreamProxySection({ host: 'proxy.corp.com\nevil', port: 3128 })
-    ).toThrow();
+    ).toThrow(/^SECURITY: Domain or pattern contains characters unsafe for Squid config/);
   });
 
   it('rejects newline injection in noProxy domain', () => {
@@ -80,6 +80,6 @@ describe('generateUpstreamProxySection', () => {
         port: 3128,
         noProxy: ['legit.com\nevil_directive'],
       })
-    ).toThrow();
+    ).toThrow(/^SECURITY: Domain or pattern contains characters unsafe for Squid config/);
   });
 });

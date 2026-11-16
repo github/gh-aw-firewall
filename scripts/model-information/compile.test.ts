@@ -268,9 +268,12 @@ describe('maintained model compilation', () => {
         authority: 'policy', confidence: 'policy_fallback', channel: 'native-api',
         sourceProvenance: require('../../shared/model-information/sources/pricing-reference.json').provenance,
       });
+      const importedModels = require('../../shared/model-information/imported/legacy-models-dev.snapshot.v1.json').models;
       expect(Object.keys(active.imported.openrouter)).toHaveLength(
-        require('../../shared/model-information/imported/legacy-models-dev.snapshot.v1.json').accepted,
+        importedModels.filter((model: { importedPricing?: unknown }) => model.importedPricing).length,
       );
+      expect(active.imported.openrouter).not.toHaveProperty('deepseek/deepseek-v4.1-flash-1017');
+      expect(active.imported.openrouter).not.toHaveProperty('minimax/minimax-m3.1-flash');
       expect(require('../../containers/api-proxy/ai-credits-pricing')['gpt-5-codex-mini'].input).toBe(0.25);
       expect(execFileSync(process.execPath, [tempCompiler, '--check'], { cwd: temp, encoding: 'utf8' }))
         .toContain('Checked');
@@ -420,6 +423,10 @@ describe('maintained model compilation', () => {
         components: { input: { price: '1.5000000000000000000000000001',
           provenance: successor.provenance } },
       });
+      const consumer = JSON.parse(fs.readFileSync(
+        path.join(directory, 'shared/model-information/pricing-consumer.v1.generated.json'), 'utf8'));
+      expect(consumer.maintained.find((entry: { identity: { key: string } }) =>
+        entry.identity.key === model.identity.key).tariffs).toEqual(model.tariffs);
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
@@ -714,7 +721,7 @@ describe('maintained model compilation', () => {
         'model-eligibility.js', 'harness-observation.js', 'model-information.eligibility.generated.json',
         'provider-pricing-overlays.js',
         'guards/retired-model-guard.js', 'guards/model-policy-guard.js', 'guards/guard-utils.js',
-        'logging.js', 'trusted-service.js', 'body-utils.js']) {
+        'logging.js', 'trusted-service.js', 'body-utils.js', 'credential-protection.js']) {
         fs.copyFileSync(path.join(root, 'containers/api-proxy', file), path.join(temp, file));
       }
       fs.cpSync(path.join(root, 'containers/api-proxy/catalogue-contract'),

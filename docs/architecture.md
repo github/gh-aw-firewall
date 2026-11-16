@@ -51,7 +51,10 @@ The firewall uses a containerized architecture with Squid proxy for L7 (HTTP/HTT
 - All configs are written to a temporary work directory (default: `/tmp/awf-<timestamp>`)
 
 ### 3. Docker Management
-- **`src/container-lifecycle.ts`**: Manages container startup and agent command execution using `execa`
+- **`src/container-lifecycle.ts`**: Backward-compatible re-export facade for the lifecycle modules
+- **`src/container-startup.ts`**: Manages Compose startup, readiness checks, and retries
+- **`src/agent-run.ts`**: Orchestrates agent execution, log streaming, exit waiting, and gVisor recovery
+- **`src/squid-block-report.ts`**: Flushes and reads Squid logs, then reports blocked domains
 - **`src/container-cleanup.ts`**: Handles container teardown, log collection, and cleanup
 - **`src/host-env.ts`**: Host environment utilities (UID/GID mapping, env passthrough, filesystem helpers)
 - **`src/services/`**: Service classes for each container (Squid, agent, API proxy, CLI proxy, DoH proxy)
@@ -74,7 +77,7 @@ The firewall uses a containerized architecture with Squid proxy for L7 (HTTP/HTT
 
 ### Squid Container (`containers/squid/`)
 - Based on `alpine:3.24` with Squid installed from Alpine packages
-- Mounts dynamically-generated `squid.conf` from work directory
+- Receives the generated `squid.conf` as the base64 `AWF_SQUID_CONFIG_B64` environment variable (not a bind mount), decoded by the container entrypoint
 - Exposes port 3128 for proxy traffic
 - Logs to shared volume `squid-logs:/var/log/squid`
 - **Network:** Connected to `awf-net` at `172.30.0.10`
@@ -82,7 +85,7 @@ The firewall uses a containerized architecture with Squid proxy for L7 (HTTP/HTT
 
 ### Agent Execution Container (`containers/agent/`)
 - Based on `ubuntu:22.04` with iptables, curl, git, nodejs, npm
-- Mounts entire host filesystem at `/host` and user home directory for full access
+- Mounts only selected host paths: read-only system directories and `/etc` files under `/host`, the workspace, `/tmp`, an empty chroot home with allowlisted `$HOME` tool directories, and AWF's log/state directories. The real `$HOME` is not mounted; the Docker socket is hidden behind a `/dev/null` overlay unless `--enable-dind` is set (see [Selective Mounting](./selective-mounting.md) and [Sandbox Mount Policy](./mount-policy.md))
 - `NET_ADMIN` capability required for iptables setup during initialization
 - **Security:** `NET_ADMIN` is dropped via `capsh --drop=cap_net_admin` before executing user commands, preventing malicious code from modifying iptables rules
 - **Chroot Mode:** User commands run inside `chroot /host` for transparent host binary access. See [Chroot Mode](./chroot-mode.md) for details.
@@ -102,7 +105,7 @@ When the firewall is running with gVisor runtime, it implements automatic recove
 - **Retryable Exit Codes:** Exit codes 134 (abort) and 139 (segmentation fault) are treated as startup crashes
 - **Startup Window:** Only eligible exits from containers whose measured runtime is less than 30 seconds are retried; runtime is used as a heuristic for an initialization crash and does not prove that user code has not started
 - **Retry Limit:** The container will be restarted once (maximum 1 retry attempt per command execution)
-- **Implementation:** Located in `src/container-lifecycle.ts`
+- **Implementation:** Located in `src/agent-run.ts`
 
 This recovery mechanism retries likely transient initialization failures. If a retry occurs, the command's final exit code is taken from the restarted attempt.
 

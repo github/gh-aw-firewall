@@ -37,10 +37,10 @@ for an example and fail-closed input verification guidance.
 | --- | --- | --- | --- |
 | `system.directories.default` / `.sysroot` | allow (dirs) | compose (Docker + gVisor) | `system-mounts.ts` |
 | `system.etc` | allow (files) | compose (Docker + gVisor) | `etc-mounts.ts` |
-| `home.toolSubdirs` | allow (dirs) | compose + sbx + NVX; microVM workspace tests | `home-strategy.ts`, `sbx-manager.ts`, `nvx/guest-config-layer.ts`, `microvm/workspace.ts` |
-| `home.narrowPaths` | narrow allow override | compose + sbx + NVX; microVM workspace tests | `home-strategy.ts`, `sbx-manager.ts`, `nvx/guest-config-layer.ts`, `microvm/workspace.ts` |
+| `home.toolSubdirs` | allow (dirs) | compose + sbx + NVX; microVM workspace tests | `home-strategy.ts`, `sbx/sandbox-create.ts`, `nvx/guest-config-layer.ts`, `microvm/workspace.ts` |
+| `home.narrowPaths` | narrow allow override | compose + sbx + NVX; microVM workspace tests | `home-strategy.ts`, `sbx/sandbox-create.ts`, `nvx/guest-config-layer.ts`, `microvm/workspace.ts` |
 | `home.forbiddenSubdirs` | deny guard | compose + sbx + NVX | invariant tests, `nvx/guest-config-layer.ts`, `nvx/filesystem-builder.ts`, `nvx/live-mount-policy.ts` |
-| `credentials.entries` | deny (files/dirs) | compose + sbx + NVX; microVM workspace tests | `credential-hiding.ts`, `sbx-manager.ts`, `nvx/guest-config-layer.ts`, `nvx/filesystem-builder.ts`, `nvx/live-mount-policy.ts`, `microvm/workspace.ts` |
+| `credentials.entries` | deny (files/dirs) | compose + sbx + NVX; microVM workspace tests | `credential-hiding.ts`, `sbx/credential-scrub.ts`, `nvx/guest-config-layer.ts`, `nvx/filesystem-builder.ts`, `nvx/live-mount-policy.ts`, `microvm/workspace.ts` |
 
 In compose, `~/.gemini` is mounted only when a Gemini or Google API key is
 configured; the other `toolSubdirs` are always bound (with `.local` replaced by
@@ -62,11 +62,13 @@ image and is not driven by this config at all.
 ## Host work-directory permissions
 
 The host work directory (`--work-dir`) holds generated configuration, including
-`docker-compose.yml`, which can contain credentials. When the initial
-runner/daemon filesystem probe creates a missing work directory, it requests
-mode `0700` for that directory and any missing parents. Under `umask 022` or
-`000`, these new directories remain `0700`, including when Docker is
-unreachable.
+`docker-compose.yml`, which can contain credentials. When AWF creates a missing
+work directory, it requests mode `0700` for that directory and any missing
+parents. This happens in the runner/daemon filesystem probe (run when no
+`--docker-host-path-prefix` is set, before configuration setup) and again
+in configuration setup ([`validateAndPrepareWorkDir`](../src/config-writer-ownership.ts)).
+Under `umask 022` or `000`, these new directories remain `0700`, including when
+Docker is unreachable.
 
 The probe does not chmod existing directories. Subsequent configuration
 validation still rejects work directories with group or other access,

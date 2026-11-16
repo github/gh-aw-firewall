@@ -32,6 +32,9 @@ safe-outputs:
     title-prefix: "\u26a1 Claude Token Optimization"
     labels: [claude-token-optimization]
     close-older-issues: true
+  noop:
+    max: 1
+    report-as-issue: false
 timeout-minutes: 15
 sandbox:
   agent:
@@ -179,15 +182,17 @@ You are an AI agent that reads the latest Claude token usage report and produces
 
 **IMPORTANT:** Stay focused on the task. Follow these steps in order. Do not read or explore unrelated workflow files. You may use: (1) the pre-downloaded run data at `/tmp/gh-aw/token-audit/`, (2) the latest token usage report issue if one exists, and (3) the staged target workflow file at `/tmp/gh-aw/token-audit/target-workflow.md`.
 
+Every successful run must end with exactly one terminal safe output: create the optimization issue when recommendations are ready, or call `noop` with a brief explanation when no issue should be created. Never finish with only a text response or log message.
+
 The pre-agent step already selected the top workflow candidate as `$TOP_WORKFLOW` and resolved its source path as `$WORKFLOW_FILE`. Read `/tmp/gh-aw/token-audit/target-workflow.md` directly. Do **not** search `.github/workflows` for the workflow file again.
 
-If `$TOP_WORKFLOW` is empty or `$TARGET_NOT_FOUND` is `1`, log that no eligible workflow file could be staged, exit immediately, and do not call any safe-output tools.
+If `$TOP_WORKFLOW` is empty or `$TARGET_NOT_FOUND` is `1`, log that no eligible workflow file could be staged, then call `noop` with that explanation instead of creating an issue.
 
 ## Step 1: Find the Latest Token Usage Report
 
 Use `gh issue list --repo "$GITHUB_REPOSITORY" --label claude-token-usage-report --state all --limit 1 --json number,title,body,createdAt,url` to fetch the most recent Claude token usage report issue.
 
-If no report exists, do **not** create an issue. Simply log a message noting that no token usage report was found and that the `claude-token-usage-analyzer` workflow should run first. Then stop without calling any safe-output tools.
+If no report exists, do **not** create an optimization issue. Log that no token usage report was found and that the `claude-token-usage-analyzer` workflow should run first, then call `noop` with that explanation.
 
 Read the full issue body to extract per-workflow statistics.
 

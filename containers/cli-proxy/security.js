@@ -65,6 +65,62 @@ const DENIED_COMMAND_PATHS = new Set([
   'repo sync',
 ]);
 
+// Built-in/default aliases of policy-controlled commands in the pinned gh CLI.
+// User aliases are not loaded: the sidecar owns its private GH_CONFIG_DIR.
+const ROOT_COMMAND_ALIASES = new Map([
+  ['co', ['pr', 'checkout']],
+  ['cs', ['codespace']],
+  ['ext', ['extension']],
+  ['extensions', ['extension']],
+]);
+const ROOT_DISCOVERY_BOOLEANS = new Set(['--help', '--version']);
+const GROUP_DISCOVERY_BOOLEANS = new Set(['--help']);
+
+function findCommandIndex(args, booleanFlags) {
+  // Match Cobra's stripFlags command discovery, not final leaf flag parsing.
+  // Unknown long/single-short flags consume a separate value; attached and
+  // equals forms do not. In particular, -h is not registered during discovery.
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--') break;
+    if (arg !== '' && !arg.startsWith('-')) return index;
+    if (
+      arg.startsWith('-')
+      && !arg.includes('=')
+      && (arg.startsWith('--') || Buffer.byteLength(arg, 'utf8') === 2)
+      && !booleanFlags.has(arg)
+    ) {
+      index += 1;
+    }
+  }
+  return -1;
+}
+
+function findCommandIndices(args) {
+  const rootIndex = findCommandIndex(args, ROOT_DISCOVERY_BOOLEANS);
+  if (rootIndex < 0) return [];
+
+  // Cobra removes the selected command, then searches the entire remaining
+  // vector again using that group's flags (including flags before the root).
+  const remaining = args.filter((_arg, index) => index !== rootIndex);
+  const groupIndex = findCommandIndex(remaining, GROUP_DISCOVERY_BOOLEANS);
+  return [
+    rootIndex,
+    groupIndex < 0 ? -1 : groupIndex + (groupIndex >= rootIndex ? 1 : 0),
+  ];
+}
+
+function resolveCommandPath(args) {
+  const [rootIndex, commandIndex] = findCommandIndices(args);
+  if (rootIndex === undefined) return [];
+  const root = args[rootIndex];
+  if (ROOT_COMMAND_ALIASES.has(root)) return ROOT_COMMAND_ALIASES.get(root);
+  let command = args[commandIndex];
+  if (root === 'pr' && command === 'co') command = 'checkout';
+  if ((root === 'gist' || root === 'release') && command === 'new') command = 'create';
+  return [root, command];
+}
+
 const ENCLAVE_ISSUE_PATH = /^\/?repos\/([a-z0-9_.-]+)\/([a-z0-9_.-]+)\/issues(?:\/([1-9][0-9]*)(\/comments)?)?$/;
 const ENCLAVE_QUERY = /^[A-Za-z0-9_.~%=&+,:*@-]*$/;
 const ENCLAVE_BOOLEAN_FLAGS = new Set(['--include', '--silent']);
@@ -300,6 +356,177 @@ function validateExecRequest(body, enclaveMode) {
   return { valid: true };
 }
 
+function validatePositionalFileInputArgs(args) {
+  const [group, command] = resolveCommandPath(args);
+  const gist = group === 'gist' && (command === 'create' || command === 'edit');
+  const release = group === 'release' && (command === 'create' || command === 'upload');
+  if (!gist && !release) return { valid: true };
+
+  const valueFlags = new Set(gist
+    ? ['--desc', '-d', '--filename', '-f']
+    : ['--repo', '-R']);
+  const booleanFlags = new Set(['--help', '-h']);
+  if (gist && command === 'edit') {
+    valueFlags.add('--add').add('-a').add('--remove').add('-r');
+  } else if (gist) {
+    booleanFlags.add('--public').add('-p');
+  } else if (command === 'upload') {
+    booleanFlags.add('--clobber');
+  } else {
+    for (const flag of [
+      '--discussion-category', '--notes', '-n', '--notes-file', '-F',
+      '--notes-start-tag', '--target', '--title', '-t',
+    ]) valueFlags.add(flag);
+    for (const flag of [
+      '--draft', '-d', '--fail-on-no-commits', '--generate-notes', '--latest',
+      '--notes-from-tag', '--prerelease', '-p', '--verify-tag',
+    ]) booleanFlags.add(flag);
+  }
+
+  const commandIndices = findCommandIndices(args);
+  const tokens = args.filter((_arg, index) => !commandIndices.includes(index));
+  const positionals = [];
+  let gistAdd = false;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const arg = tokens[index];
+    if (arg === '--') {
+      positionals.push(...tokens.slice(index + 1));
+      break;
+    }
+    if (arg === '-' || !arg.startsWith('-')) {
+      positionals.push(arg);
+      continue;
+    }
+    const long = arg.startsWith('--');
+    const equals = long ? arg.indexOf('=') : -1;
+    // Walk short clusters once; value-taking flags consume the remainder.
+    for (let offset = 1; offset < arg.length; offset += 1) {
+      const flag = long ? (equals < 0 ? arg : arg.slice(0, equals)) : `-${arg[offset]}`;
+      if (booleanFlags.has(flag)) {
+        if (long || arg[offset + 1] === '=') break;
+        continue;
+      }
+      if (!valueFlags.has(flag)) {
+        return { valid: false, error: `Flag '${flag}' is not permitted for ${group} ${command}` };
+      }
+      let value = long
+        ? (equals < 0 ? undefined : arg.slice(equals + 1))
+        : arg.slice(offset + 1) || undefined;
+      if (!long && value?.startsWith('=')) value = value.slice(1);
+      if (value === undefined) value = tokens[++index];
+      if (value === undefined) return { valid: false, error: `${flag} requires a value` };
+      if ((flag === '-F' || flag === '--notes-file') && value !== '-') {
+        return { valid: false, error: `${flag} permits only stdin` };
+      }
+      if ((flag === '--add' || flag === '-a') && value !== '') gistAdd = true;
+      break;
+    }
+  }
+  const invalidPositionals = gist && command === 'create'
+    ? positionals.some((arg) => arg !== '-')
+    : gist
+      ? positionals.length > 2
+        || (positionals.length === 2 && positionals[1] !== '-')
+        || (gistAdd && positionals[1] !== '-')
+      : positionals.length > 1;
+  if (invalidPositionals) {
+    return { valid: false, error: `Positional file inputs are not permitted for ${group} ${command}` };
+  }
+  return { valid: true };
+}
+
+// Short flags that consume values on commands where -F reads a file or field.
+const SHORT_VALUE_FLAGS = new Map([
+  ['api', 'FHqXpft'],
+  ['workflow run', 'FfrR'],
+  ['issue create', 'FablmptTR'],
+  ['issue edit', 'FbmtR'],
+  ['issue comment', 'FbR'],
+  ['pr create', 'FaBbHlmprTtR'],
+  ['pr edit', 'FBbmtR'],
+  ['pr comment', 'FbR'],
+  ['pr review', 'FbR'],
+  ['pr merge', 'FAbtR'],
+  ['pr revert', 'FbtR'],
+  ['discussion create', 'FbcltR'],
+  ['discussion edit', 'FbctR'],
+  ['discussion comment', 'FbR'],
+  ['release create', 'FntR'],
+  ['release edit', 'FntR'],
+]);
+const LONG_VALUE_FLAGS = new Set([
+  '--add-assignee', '--add-blocked-by', '--add-blocking', '--add-label',
+  '--add-project', '--add-reviewer', '--add-sub-issue', '--assignee', '--attach',
+  '--author-email', '--base', '--blocked-by', '--blocking', '--body', '--body-file',
+  '--cache', '--category', '--discussion-category', '--field', '--header', '--head',
+  '--input', '--jq', '--label', '--match-head-commit', '--method', '--milestone',
+  '--notes', '--notes-file', '--notes-start-tag', '--parent', '--preview', '--project',
+  '--raw-field', '--recover', '--ref', '--remove-assignee', '--remove-blocked-by',
+  '--remove-blocking', '--remove-label', '--remove-project', '--remove-reviewer',
+  '--remove-sub-issue', '--repo', '--reviewer', '--subject', '--tag', '--target',
+  '--template', '--title', '--type',
+]);
+const LONG_BOOLEAN_FLAGS = new Set([
+  '--admin', '--allow-escape-sequences', '--auto', '--create-if-none', '--delete',
+  '--delete-branch', '--delete-last', '--disable-auto', '--draft', '--dry-run',
+  '--edit', '--edit-last', '--editor', '--fail-on-no-commits', '--fill',
+  '--fill-first', '--fill-verbose', '--generate-notes', '--help', '--include',
+  '--json', '--latest', '--merge', '--no-maintainer-edit', '--notes-from-tag',
+  '--paginate', '--prerelease', '--rebase', '--remove-milestone', '--remove-parent',
+  '--remove-type', '--request-changes', '--approve', '--comment', '--silent',
+  '--slurp', '--squash', '--verbose', '--verify-tag', '--web', '--yes',
+]);
+
+function validateShortFileInputArgs(args) {
+  const [group, command] = resolveCommandPath(args);
+  const path = group === 'api' ? group : `${group} ${command === 'new' ? 'create' : command}`;
+  const valueFlags = SHORT_VALUE_FLAGS.get(path);
+  if (!valueFlags) return { valid: true };
+  const field = path === 'api' || path === 'workflow run';
+  const commandIndices = findCommandIndices(args);
+  const tokens = args.filter((_arg, index) => (
+    index !== commandIndices[0] && (group === 'api' || index !== commandIndices[1])
+  ));
+  const validateValue = (value) => {
+    if (field) {
+      const equals = value.indexOf('=');
+      const content = equals < 0 ? '' : value.slice(equals + 1);
+      return !content.startsWith('@') || content === '@-';
+    }
+    return value === '-';
+  };
+  for (let index = 0; index < tokens.length; index += 1) {
+    const arg = tokens[index];
+    if (arg === '--') break;
+    if (arg.startsWith('--')) {
+      const equals = arg.indexOf('=');
+      const flag = equals < 0 ? arg : arg.slice(0, equals);
+      if (LONG_VALUE_FLAGS.has(flag)) {
+        const value = equals < 0 ? tokens[++index] : arg.slice(equals + 1);
+        if (field && flag === '--field' && value !== undefined && !validateValue(value)) {
+          return { valid: false, error: '--field file values permit only stdin' };
+        }
+      } else if (!LONG_BOOLEAN_FLAGS.has(flag)) {
+        return { valid: false, error: `Flag '${flag}' is not permitted for ${path}` };
+      }
+      continue;
+    }
+    if (!arg.startsWith('-') || arg === '-') continue;
+    for (let offset = 1; offset < arg.length; offset += 1) {
+      const flag = arg[offset];
+      if (!valueFlags.includes(flag)) continue;
+      let value = arg.slice(offset + 1);
+      if (value.startsWith('=')) value = value.slice(1);
+      else if (value === '') value = tokens[++index];
+      if (flag === 'F' && value !== undefined && !validateValue(value)) {
+        return { valid: false, error: '-F file values permit only stdin' };
+      }
+      break;
+    }
+  }
+  return { valid: true };
+}
+
 function validateFileInputArgs(args) {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -314,29 +541,15 @@ function validateFileInputArgs(args) {
     if (fileFlag && arg !== `${fileFlag}=-`) {
       return { valid: false, error: `${fileFlag} permits only stdin` };
     }
-    if (arg === '-F' || arg === '--field') {
-      const value = args[index + 1];
-      if (typeof value === 'string' && value.includes('=@') && !value.endsWith('=@-')) {
-        return { valid: false, error: `${arg} file values permit only stdin` };
-      }
-      index += 1;
-      continue;
-    }
-    if (
-      (arg.startsWith('-F') || arg.startsWith('--field='))
-      && arg.includes('=@')
-      && !arg.endsWith('=@-')
-    ) {
-      return { valid: false, error: 'Field file values permit only stdin' };
-    }
   }
-  return { valid: true };
+  const shortFlags = validateShortFileInputArgs(args);
+  return shortFlags.valid ? validatePositionalFileInputArgs(args) : shortFlags;
 }
 
 /**
  * Validates the gh CLI arguments.
  * Write control is handled by the DIFC guard policy — this server only
- * blocks meta-commands that modify gh CLI itself.
+ * blocks local helpers, meta-commands, and shim-bypassing commands.
  *
  * @param {string[]} args - The argument array (excluding 'gh' itself)
  * @returns {{ valid: boolean, error?: string }}
@@ -372,24 +585,7 @@ function validateArgs(args) {
   const fileInputValidation = validateFileInputArgs(args);
   if (!fileInputValidation.valid) return fileInputValidation;
 
-  // Find the subcommand by scanning through args, skipping flags and their values.
-  let subcommand = null;
-  let i = 0;
-  while (i < args.length) {
-    const arg = args[i];
-    if (arg.startsWith('-')) {
-      if (!arg.includes('=') && i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        // Flag with a separate value (e.g., --repo owner/repo): skip both
-        i += 2;
-      } else {
-        // Boolean flag or --flag=value form: skip just the flag
-        i += 1;
-      }
-    } else {
-      subcommand = arg;
-      break;
-    }
-  }
+  const [subcommand, command] = resolveCommandPath(args);
 
   // No subcommand means flags-only invocation (e.g., --version, --help) — allow
   if (!subcommand) {
@@ -400,7 +596,7 @@ function validateArgs(args) {
   if (ALWAYS_DENIED_SUBCOMMANDS.has(subcommand)) {
     return { valid: false, error: `Subcommand '${subcommand}' is not permitted` };
   }
-  const commandPath = [subcommand, args[i + 1]].filter(Boolean).join(' ');
+  const commandPath = [subcommand, command].filter(Boolean).join(' ');
   if (DENIED_COMMAND_PATHS.has(commandPath) || DENIED_COMMAND_PATHS.has(subcommand)) {
     return { valid: false, error: `Command '${commandPath}' is not permitted` };
   }

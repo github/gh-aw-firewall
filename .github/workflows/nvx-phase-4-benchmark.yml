@@ -50,6 +50,9 @@ concurrency:
   group: nvx-phase-4-promotion-campaign
   cancel-in-progress: false
 
+env:
+  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
+
 jobs:
   prepare:
     name: Validate and plan campaign

@@ -41,8 +41,10 @@ Other ARC/DinD settings (for example `network.isolation` and `dind.preStageDirs`
 threat-detect installation, not AWF runtime privileges. ARC/DinD uses rootless
 installation even when sudo is available; `privileged` is rejected for this
 topology. Rootless installers put binaries in the job-scoped
-`$RUNNER_TEMP/gh-aw/bin` directory, which AWF mounts read-only, rather than
-`~/.local/bin`.
+`$RUNNER_TEMP/gh-aw/bin` directory rather than `~/.local/bin`. The invoking
+workflow must expose that directory to the sandbox with an explicit read-only
+`--mount` of `$RUNNER_TEMP/gh-aw`; AWF's Compose volume builder does not add it
+automatically.
 
 On other topologies, omitting `runner.installation` selects privileged
 installation when running as root or when passwordless `sudo -n true` succeeds;

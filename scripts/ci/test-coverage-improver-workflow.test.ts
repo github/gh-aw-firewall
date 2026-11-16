@@ -78,14 +78,14 @@ describe('test coverage improver workflow token optimization config', () => {
     expect(lock).toContain('name: Verify injected context');
     expect(lock).toContain('target-test-file.txt');
     expect(lock).toContain('test-content.txt empty');
-    expect(lock).toContain("COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || vars.GH_AW_DEFAULT_MODEL_COPILOT || 'auto' }}");
+    expect(lock).toContain("COPILOT_MODEL: ${{ needs.activation.outputs.model-routing != 'true' && (vars.GH_AW_MODEL_AGENT_COPILOT || vars.GH_AW_DEFAULT_MODEL_COPILOT || 'auto') || '' }}");
     expect(lock).not.toContain('pull_requests');
     expect(lock).not.toContain("shell(cat:src/*.test.ts)");
     expect(lock).not.toContain("shell(npm run lint)");
     expect(lock).not.toContain("shell(npm run test)");
     expect(lock).toMatch(/github\/gh-aw(?:-actions\/|\/actions\/)setup@[a-f0-9]{40}/);
     expect(lock).not.toContain('github/gh-aw-actions/setup@v0.80.6');
-    expect(lock).toContain('ghcr.io/github/github-mcp-server:v2.0.3');
+    expect(lock).toContain('ghcr.io/github/github-mcp-server:v2.1.0');
 
     expect(lock).not.toContain("shell(cat:src/docker-manager.ts)");
     expect(lock).not.toContain("shell(cat:src/cli.ts)");

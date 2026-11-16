@@ -7,6 +7,10 @@
  */
 
 const http = require('http');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
 const {
   validateArgs,
   validateEnclaveArgs,
@@ -21,6 +25,88 @@ const {
 } = require('./security');
 const { runGhCommand } = require('./gh-runner');
 const { requestHandler } = require('./server');
+const ghExecutable = process.env.AWF_TEST_GH_CLI || 'gh';
+const pinnedGhVersion = fs.readFileSync(path.join(__dirname, 'Dockerfile'), 'utf8')
+  .match(/^ARG GH_VERSION=(\S+)$/m)?.[1];
+
+const deniedCommandSpellings = [
+  ['pr', 'checkout'],
+  ['pr', 'co'],
+  ['co'],
+  ['repo', 'clone'],
+  ['repo', 'fork'],
+  ['repo', 'sync'],
+  ['gist', 'clone'],
+  ['codespace'],
+  ['cs'],
+  ['alias'],
+  ['auth'],
+  ['browse'],
+  ['config'],
+  ['extension'],
+  ['extensions'],
+  ['ext'],
+];
+const discoveryFlags = [
+  ['-R', 'owner/repo'],
+  ['--repo', 'owner/repo'],
+  ['--repo=owner/repo'],
+  ['-Rowner/repo'],
+  ['-R=owner/repo'],
+  ['--help'],
+  ['--help=false'],
+];
+const deniedInvocations = deniedCommandSpellings.flatMap((command) => [
+  [...command, '42'],
+  ...discoveryFlags.flatMap((flags) => [
+    [...flags, ...command, '42'],
+    [command[0], ...flags, ...command.slice(1), '42'],
+    [...command, ...flags, '42'],
+  ]),
+]);
+deniedInvocations.push(
+  ['pr', '-é', 'checkout', '42'],
+  ['repo', '-é', 'clone', 'owner/repo'],
+  ['pr', '--help=false', '-R', 'checkout', 'co', '42'],
+  ['--repo', 'co', 'pr', 'checkout', '42'],
+  ['pr', 'checkout', '--', 'co'],
+  ['pr', '-R', '--', 'co', '42'],
+  ['repo', '--clone=false', 'fork', 'owner/repo'],
+  ['repo', '--force=false', 'sync', 'owner/repo'],
+  ['pr', '--detach=false', 'checkout', '42'],
+);
+const allowedInvocations = [
+  [],
+  ['--version'],
+  ['--help'],
+  ['pr', 'list', '--json', 'number,title'],
+  ['pr', '--repo', 'owner/repo', 'view', '42'],
+  ['-Rowner/repo', 'pr', 'list'],
+  ['--repo=owner/repo', 'pr', 'view', '42'],
+  ['pr', 'view', 'co'],
+  ['pr', 'view', 'checkout'],
+  ['repo', 'view', 'clone'],
+  ['repo', 'list', 'fork'],
+  ['gist', 'view', 'clone'],
+  ['--repo', 'co', 'pr', 'view', '42'],
+  ['pr', '--repo', 'checkout', 'view', '42'],
+  ['pr', '--repo=checkout', 'view', '42'],
+  ['pr', '-Rcheckout', 'view', '42'],
+  ['pr', '-R=co', 'view', '42'],
+  ['pr', 'create', '--title', 'checkout', '--body', 'co'],
+  ['api', '--method', 'GET', 'repos/owner/repo'],
+  ['pr', '--repo', '--help', 'view', '42'],
+  // Cobra stops command discovery at --, not just flag parsing.
+  ['--', 'co', '42'],
+  ['pr', '--', 'checkout', '42'],
+  ['repo', '--', 'clone', 'owner/repo'],
+  ['pr', 'view', '--', 'checkout'],
+  // Unknown separate flags consume a value during discovery, even if the
+  // leaf would have parsed that flag as boolean. gh rejects these itself.
+  ['pr', '-f', 'checkout'],
+  ['repo', '--clone', 'fork'],
+  ['-h', 'pr', 'checkout'],
+];
 
 function postExec(payload) {
   return new Promise((resolve, reject) => {
@@ -67,6 +153,156 @@ describe('POST /exec request boundary', () => {
       body: { error: 'Request contains an unsupported field' },
     });
   });
+
+  describe('command policy before subprocess dispatch', () => {
+    let fixtureDir;
+    let recordPath;
+    let originalEnv;
+
+    beforeAll(() => {
+      originalEnv = process.env;
+      fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-gh-policy-'));
+      recordPath = path.join(fixtureDir, 'argv.jsonl');
+      fs.writeFileSync(recordPath, '');
+      fs.writeFileSync(path.join(fixtureDir, 'gh'), `#!${process.execPath}
+'use strict';
+const fs = require('fs');
+fs.appendFileSync(${JSON.stringify(recordPath)}, JSON.stringify(process.argv.slice(2)) + '\\n');
+process.stdout.write('inert gh fixture\\n');
+`, { mode: 0o755 });
+      process.env = {
+        PATH: fixtureDir,
+        HOME: fixtureDir,
+        GH_CONFIG_DIR: fixtureDir,
+        GH_TOKEN: 'dummy',
+        GH_HOST: '127.0.0.1:1',
+      };
+    });
+
+    afterAll(() => {
+      process.env = originalEnv;
+      fs.rmSync(fixtureDir, { recursive: true, force: true });
+    });
+
+    it.each(deniedInvocations.map((args) => [args]))('never dispatches denied argv %j', async (args) => {
+      const before = fs.readFileSync(recordPath, 'utf8');
+      const response = await postExec({ args });
+      expect(response.statusCode).toBe(403);
+      expect(response.body.error).toContain('not permitted');
+      expect(fs.readFileSync(recordPath, 'utf8')).toBe(before);
+    });
+
+    it.each([
+      ['gist', 'create', '/app/security.js'],
+      ['gist', 'new', '--', 'security.js'],
+      ['gist', 'edit', 'abc123', '--add', '/app/security.js'],
+      ['gist', 'edit', 'abc123', '--filename', 'x', '/app/security.js'],
+      ['release', 'upload', 'v1', '-'],
+      ['release', 'create', 'v1', 'security.js#label'],
+      ['release', 'new', 'v1', '-dFsecurity.js'],
+      ['release', 'edit', 'v1', '-F', '/app/security.js'],
+      ['issue', 'comment', '1', '-eF/app/security.js'],
+      ['api', '-iFbody=@/app/security.js', 'repos/owner/repo'],
+    ])('never dispatches positional or shorthand file inputs %j', async (...args) => {
+      const before = fs.readFileSync(recordPath, 'utf8');
+      const response = await postExec({ args });
+      expect(response.statusCode).toBe(403);
+      expect(fs.readFileSync(recordPath, 'utf8')).toBe(before);
+    });
+
+    it.each(allowedInvocations.map((args) => [args]))('dispatches allowed argv unchanged %j', async (args) => {
+      fs.writeFileSync(recordPath, '');
+      expect(await postExec({ args })).toEqual({
+        statusCode: 200,
+        body: { stdout: 'inert gh fixture\n', stderr: '', exitCode: 0 },
+      });
+      expect(fs.readFileSync(recordPath, 'utf8')).toBe(`${JSON.stringify(args)}\n`);
+    });
+  });
+});
+
+describe('gh command-discovery contract (isolated help only)', () => {
+  let directory;
+  let env;
+
+  beforeAll(() => {
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-gh-discovery-'));
+    env = {
+      PATH: process.env.PATH,
+      HOME: directory,
+      GH_CONFIG_DIR: directory,
+      GH_TOKEN: 'dummy',
+      GH_ENTERPRISE_TOKEN: 'dummy',
+      GH_HOST: '127.0.0.1:1',
+      GH_PROMPT_DISABLED: '1',
+      GH_PAGER: 'cat',
+      GH_BROWSER: 'false',
+      GH_EDITOR: 'false',
+    };
+  });
+
+  afterAll(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  it('uses the gh version pinned by the sidecar Dockerfile', () => {
+    expect(pinnedGhVersion).toBeDefined();
+    const result = spawnSync(ghExecutable, ['--version'], {
+      cwd: directory, env, encoding: 'utf8', timeout: 5000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stdout.split(/\r?\n/, 1)[0]).toContain(`gh version ${pinnedGhVersion} `);
+  });
+
+  it.each([
+    [['gist', 'new'], 'gist create'],
+    [['release', 'new'], 'release create'],
+    [['co'], 'pr checkout'],
+    [['pr', 'co'], 'pr checkout'],
+    [['cs'], 'codespace'],
+    [['ext'], 'extension'],
+    [['extensions'], 'extension'],
+    ...discoveryFlags.flatMap((flags) => [
+      [[...flags, 'pr', 'co'], 'pr checkout'],
+      [['pr', ...flags, 'co'], 'pr checkout'],
+    ]),
+    [['pr', '--repo', 'checkout', 'view'], 'pr view'],
+    [['--repo', 'co', 'pr', 'view'], 'pr view'],
+    [['repo', '--clone=false', 'fork'], 'repo fork'],
+    [['repo', '--force=false', 'sync'], 'repo sync'],
+    [['pr', '--detach=false', 'checkout'], 'pr checkout'],
+  ])('resolves %j to %s without executing the operation', (args, command) => {
+    const result = spawnSync(ghExecutable, [...args, '--help'], {
+      cwd: directory, env, encoding: 'utf8', timeout: 5000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toContain(`USAGE\n  gh ${command} `);
+  });
+
+  it('discovers a denied command after a multibyte short-looking token', () => {
+    const result = spawnSync(ghExecutable, ['pr', '-é', 'checkout', '--help'], {
+      cwd: directory, env, encoding: 'utf8', timeout: 5000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Usage:  gh pr checkout ');
+  });
+
+  it.each([
+    ['--', 'pr', 'checkout'],
+    ['pr', '--', 'checkout'],
+    ['pr', '-f', 'checkout'],
+    ['repo', '--clone', 'fork'],
+  ])('does not select a leaf from %j', (...args) => {
+    const result = spawnSync(ghExecutable, [...args, '--help'], {
+      cwd: directory, env, encoding: 'utf8', timeout: 5000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('unknown');
+    expect(validateArgs(args).valid).toBe(true);
+  });
 });
 
 describe('validateExecRequest', () => {
@@ -90,6 +326,32 @@ describe('validateExecRequest', () => {
 });
 
 describe('validateArgs', () => {
+  it.each(deniedInvocations.map((args) => [args]))('rejects denied command semantics %j', (args) => {
+    expect(validateArgs(args).valid).toBe(false);
+  });
+
+  it.each(allowedInvocations.map((args) => [args]))('preserves accepted argv %j', (args) => {
+    expect(validateArgs(args)).toEqual({ valid: true });
+  });
+
+  it('keeps enclave mode on its separate issues-read-v1 grammar', () => {
+    const original = process.env;
+    process.env = { ...original, AWF_CLI_PROXY_MODE: 'enclave' };
+    try {
+      expect(validateArgs(['api', 'repos/octo/private/issues'])).toEqual({ valid: true });
+      for (const args of [
+        ['pr', 'list'],
+        ['co', '42'],
+        ['pr', '-Rowner/repo', 'co', '42'],
+        ['api', '--method=POST', 'repos/octo/private/issues'],
+      ]) {
+        expect(validateArgs(args).valid).toBe(false);
+      }
+    } finally {
+      process.env = original;
+    }
+  });
+
   describe('input validation', () => {
     it('should reject non-array args', () => {
       const result = validateArgs('pr list');
@@ -365,6 +627,131 @@ describe('validateArgs', () => {
       expect(validateArgs(['api', '-F', 'body=@/proc/self/environ']).valid).toBe(false);
       expect(validateArgs(['pr', 'create', '--body-file', '-']).valid).toBe(true);
       expect(validateArgs(['pr', 'create', '--body-file', '/proc/self/environ']).valid).toBe(false);
+    });
+
+    it.each([
+      ['gist', 'create', '/proc/self/environ'],
+      ['gist', 'new', 'security.js'],
+      ['gist', 'create', '-', '../secret'],
+      ['gist', 'create', '--', '--secret'],
+      ['gist', 'create', '-p', 'security.js'],
+      ['gist', 'create', '--public=false', 'security.js'],
+      ['gist', 'create', '-pd', 'description', 'security.js'],
+      ['gist', '--desc', 'description', 'create', 'security.js'],
+      ['gist', 'create', '--desc', '--', 'security.js'],
+      ['gist', 'create', '--help=false', 'security.js'],
+      ['gist', 'edit', 'abc123', '--filename', 'x', '/proc/self/environ'],
+      ['gist', 'edit', 'abc123', '--add', '/proc/self/environ'],
+      ['gist', 'edit', 'abc123', '-afoo'],
+      ['gist', 'edit', 'abc123', '-a=foo'],
+      ['gist', 'edit', 'abc123', '--add=foo'],
+      ['gist', 'edit', 'abc123', '-d', 'desc', '-afoo', '--', 'security.js'],
+      ['gist', '--desc', 'description', 'edit', 'abc123', '--add', 'foo'],
+      ['gist', 'edit', 'abc123', '--', 'security.js'],
+      ['gist', 'edit', 'abc123', '-', '-'],
+      ['release', 'upload', 'v1', '/proc/self/environ'],
+      ['release', 'upload', 'v1', '*.js#label'],
+      ['release', 'upload', 'v1', '-'],
+      ['release', 'upload', '--clobber', 'v1', 'security.js'],
+      ['release', 'create', 'v1', 'security.js'],
+      ['release', 'new', 'v1', 'security.js'],
+      ['release', 'create', '--draft', 'v1', 'security.js'],
+      ['release', 'create', 'v1', '--', '-'],
+      ['release', 'create', 'v1', '-F', 'security.js'],
+      ['release', 'create', 'v1', '-Fsecurity.js'],
+      ['release', 'create', 'v1', '-F=security.js'],
+      ['release', 'create', 'v1', '--notes-file=security.js'],
+      ['release', 'create', 'v1', '-dFsecurity.js'],
+      ['release', 'create', 'v1', '-dF', 'security.js'],
+      ['release', 'edit', 'v1', '-F', 'security.js'],
+      ['release', 'edit', 'v1', '-Fsecurity.js'],
+      ['release', 'edit', 'v1', '-F=security.js'],
+      ['release', 'edit', 'v1', '--unknown', '-n', '-F', 'security.js'],
+      ['release', '--repo', 'owner/repo', 'edit', 'v1', '-Fsecurity.js'],
+      ['issue', 'comment', '1', '-F', 'security.js'],
+      ['issue', 'comment', '1', '-eFsecurity.js'],
+      ['pr', 'create', '-dF=security.js'],
+      ['pr', 'new', '-dF', 'security.js'],
+      ['pr', 'review', '1', '-aFsecurity.js'],
+      ['discussion', 'edit', '1', '-Fsecurity.js'],
+      ['api', '-iFbody=@security.js', 'repos/owner/repo'],
+      ['api', '-iF', 'body=@security.js', 'repos/owner/repo'],
+      ['api', '-iF=body=@security.js', 'repos/owner/repo'],
+      ['api', '--field=body=@security.js', 'repos/owner/repo'],
+      ['workflow', 'run', 'ci.yml', '-Fbody=@security.js'],
+      ['workflow', 'run', 'ci.yml', '--field', 'body=@security.js'],
+      ['release', 'create', '--notes', '--', 'v1', 'security.js'],
+      ['release', 'create', '--notes=', 'v1', 'security.js'],
+      ['release', 'create', '--latest', 'false', 'security.js'],
+      ['release', 'create', 'v1', '--unknown', 'security.js'],
+      ['-R', 'owner/repo', 'release', 'create', 'v1', 'security.js'],
+      ['release', '-Rowner/repo', 'upload', 'v1', 'security.js'],
+      ['release', '--repo=owner/repo', 'new', 'v1', 'security.js'],
+      ['--repo', 'release', 'release', 'create', 'v1', 'security.js'],
+      ['release', '--repo', 'create', 'create', 'v1', 'security.js'],
+      ['release', '--repo', 'new', 'new', 'v1', 'security.js'],
+    ])('should deny local file inputs in %j', (...args) => {
+      expect(validateArgs(args).valid).toBe(false);
+    });
+
+    it.each([
+      ['gist', 'create'],
+      ['gist', 'create', '-'],
+      ['gist', 'new', '--', '-'],
+      ['gist', 'create', '-', '--desc', 'description', '--filename', 'file.txt'],
+      ['gist', 'create', '-pd', 'description', '-ffile.txt', '-'],
+      ['gist', '--desc', 'description', 'create', '-'],
+      ['gist', 'edit', 'abc123', '--desc', 'description'],
+      ['gist', 'edit', 'abc123', '--filename', 'x', '-'],
+      ['gist', 'edit', 'abc123', '--add', 'x', '-'],
+      ['gist', 'edit', 'abc123', '-ax', '--', '-'],
+      ['gist', '--desc', 'description', 'edit', 'abc123', '--add', 'foo', '-'],
+      ['gist', 'edit', 'abc123', '--remove', 'x'],
+      ['gist', 'edit', 'abc123', '--add='],
+      ['release', 'create', 'v1'],
+      ['release', 'new', '--', 'v1'],
+      ['release', 'create', 'v1', '--notes-file', '-'],
+      ['release', 'create', 'v1', '-F-'],
+      ['release', 'create', 'v1', '-dF-'],
+      ['release', 'create', 'v1', '-dF=-'],
+      ['release', 'edit', 'v1', '-F=-'],
+      ['release', 'edit', 'v1', '-nFsecurity.js'],
+      ['issue', 'comment', '1', '-eF-'],
+      ['issue', 'comment', '1', '-bFsecurity.js'],
+      ['issue', 'comment', '1', '--body', '-Fsecurity.js'],
+      ['pr', 'review', '1', '-aF=-'],
+      ['api', '-iFbody=@-', 'repos/owner/repo'],
+      ['api', '-F', 'body=literal', 'repos/owner/repo'],
+      ['api', '-F', 'body=literal=@security.js', 'repos/owner/repo'],
+      ['api', '--header', '-Fbody=@security.js', 'repos/owner/repo'],
+      ['api', '-f', 'body=@security.js', 'repos/owner/repo'],
+      ['workflow', 'run', 'ci.yml', '--field=body=@-'],
+      ['workflow', 'run', 'ci.yml', '-Fbody=literal'],
+      ['release', 'create', 'v1', '-nFsecurity.js'],
+      ['release', 'create', 'v1', '--notes='],
+      ['release', 'create', 'v1', '-d=false'],
+      ['release', 'create', '-dtTitle', 'v1', '-n', 'notes'],
+      ['release', 'create', '--latest=false', 'v1', '--generate-notes'],
+      ['release', 'create', '--title=v1', 'v1', '--target', 'main'],
+      ['-R', 'owner/repo', 'release', 'create', 'v1', '--notes', 'notes'],
+      ['release', '-Rowner/repo', 'create', '--notes=notes', 'v1'],
+      ['release', '--repo=owner/repo', 'new', 'v1', '-F', '-'],
+      ['release', '-R=owner/repo', 'create', 'v1'],
+      ['--repo', 'release', 'release', 'create', 'v1'],
+      ['release', '--repo', 'create', 'create', 'v1'],
+      ['release', '--repo', 'new', 'new', 'v1'],
+      ['release', 'upload', '--help'],
+    ])('should preserve safe file-input command arguments in %j', (...args) => {
+      expect(validateArgs(args).valid).toBe(true);
+    });
+
+    it('should handle bounded long short-flag clusters without losing file operands', () => {
+      const cluster = `-${'p'.repeat(256 * 1024 - 1)}`;
+      expect(validateArgs(['gist', 'create', cluster, '-']).valid).toBe(true);
+      expect(validateArgs(['gist', 'create', cluster, 'security.js']).valid).toBe(false);
+      const reviewCluster = `-${'a'.repeat(256 * 1024 - 2)}F`;
+      expect(validateArgs(['pr', 'review', '1', reviewCluster, '-']).valid).toBe(true);
+      expect(validateArgs(['pr', 'review', '1', reviewCluster, 'security.js']).valid).toBe(false);
     });
   });
 

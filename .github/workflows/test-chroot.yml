@@ -12,6 +12,9 @@ on:
 permissions:
   contents: read
 
+env:
+  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
+
 jobs:
   test-chroot-browser:
     name: Test Chroot Browser (${{ matrix.os }})

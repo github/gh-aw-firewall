@@ -104,6 +104,48 @@ function assertRoutingRootDoesNotOverlapAgentMounts(config: WrapperConfig, root:
   }
 }
 
+/**
+ * Primary-agent model routing backend capability contract (github/gh-aw-firewall#10335).
+ *
+ * Routing state stays on the host: the API proxy and private router run as
+ * Compose infrastructure on the `awf-routing` bridge, and the workload reaches
+ * only the API proxy. Docker's default runc agent and the Cloud Hypervisor
+ * microVM reuse that host path. Every other runtime (NVX, sbx, gVisor, other
+ * OCI runtimes) is rejected before any workload starts until its path is
+ * validated.
+ */
+export const MODEL_ROUTING_BACKEND_PARITY_URL = 'https://github.com/github/gh-aw-firewall/issues/10335';
+
+function assertRoutingRuntimeSupported(config: WrapperConfig): void {
+  const runtime = config.containerRuntime?.trim() || 'runc';
+  if (runtime === 'runc' && runtimeUsesComposeAgent(config.containerRuntime)) return;
+  if (config.containerRuntime === 'cloud-hypervisor') return;
+  throw new Error(
+    `Model routing is not supported with the "${runtime}" container runtime; ` +
+    'primary-agent model routing supports the default runc Docker runtime and cloud-hypervisor. ' +
+    `See ${MODEL_ROUTING_BACKEND_PARITY_URL}`,
+  );
+}
+
+/**
+ * Rejects a Cloud Hypervisor guest export that would make the private routing
+ * conversation or result files visible to the guest. Runs against the resolved
+ * export sources before any microVM is created.
+ */
+export function assertRoutingStateNotExportedToGuest(
+  config: WrapperConfig,
+  directoryExports: readonly { readonly tag: string; readonly source: string }[],
+): void {
+  const state = config.modelRoutingBootstrap;
+  if (!state) return;
+  const resolvedRoot = normalizeForOverlap(state.root);
+  for (const entry of directoryExports) {
+    if (pathsOverlap(resolvedRoot, normalizeForOverlap(entry.source))) {
+      throw new Error(`Model routing private state overlaps guest export "${entry.tag}"`);
+    }
+  }
+}
+
 function assertRoutingHostSupported(config: WrapperConfig): void {
   if (process.platform !== 'linux') {
     throw new Error('Model routing requires a Linux host');
@@ -120,13 +162,7 @@ function assertRoutingHostSupported(config: WrapperConfig): void {
   if (config.dockerHostPathPrefix) {
     throw new Error('Model routing is not supported with split runner/Docker filesystems');
   }
-  if (!runtimeUsesComposeAgent(config.containerRuntime)) {
-    throw new Error('Model routing requires a Docker Compose managed agent');
-  }
-  const runtime = config.containerRuntime?.trim();
-  if (runtime && runtime !== 'runc') {
-    throw new Error('Model routing requires the default runc container runtime');
-  }
+  assertRoutingRuntimeSupported(config);
   const exposingMount = findDockerSocketExposingMount(config);
   if (exposingMount) {
     throw new Error('Model routing is not supported when the agent can access the Docker socket');

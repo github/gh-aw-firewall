@@ -26,7 +26,7 @@ awf --env-file /tmp/runtime-paths.env -e MY_VAR=override 'command'
 
 When using `sudo -E`, these host variables are automatically passed: `GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_PERSONAL_ACCESS_TOKEN`, `USER`, `TERM`, `HOME`, `XDG_CONFIG_HOME`.
 
-GitHub Actions supplies `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` when the job grants `id-token: write`. Never print or inspect either value. AWF excludes them from the agent environment. It forwards them directly to the API-proxy sidecar when `AWF_AUTH_TYPE=github-oidc`, and also when `GH_AW_OTLP_WORKLOAD_IDENTITY` is set to enable OIDC workload identity for the OTLP trace exporter (`src/services/api-proxy-env-config.ts`).
+GitHub Actions supplies `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` when the job grants `id-token: write`. Never print or inspect either value. AWF excludes them from the agent environment. It forwards them directly to the API-proxy sidecar when `AWF_AUTH_TYPE=github-oidc`, and also when `GH_AW_OTLP_WORKLOAD_IDENTITY` is set to enable OIDC workload identity for the OTLP trace exporter (`buildOtelEnv()` in `src/services/api-proxy-env-config.ts`).
 
 The following are always set/overridden: `PATH` (container values).
 
@@ -215,6 +215,19 @@ provider-specific placeholders and proxy URLs.
 The workflow-level `AGENT_API_KEY` secret declaration and mapping for the selected
 `engine.id` belong to the gh-aw compiler; this AWF alias does not change compiler
 validation or reusable workflow secret declarations.
+
+## Copilot tool images (API proxy)
+
+AWF runs Copilot in offline BYOK mode through the API proxy, including when
+using `COPILOT_GITHUB_TOKEN`. AWF defaults `COPILOT_PROVIDER_VISION=true` so
+images returned by tools (for example, viewing a PNG) reach vision-capable models.
+This setting requires **Copilot CLI 1.0.106 or later**; older versions do not
+support it. For gh-aw workflows, ensure the compiler's `DefaultCopilotVersion`
+or the workflow's Copilot version override selects 1.0.106 or later.
+
+An explicit value supplied through `--env`, `--env-file`, or `--env-all` takes
+precedence. For example, use `--env COPILOT_PROVIDER_VISION=false` to disable
+vision for a text-only provider.
 
 ## `COPILOT_GITHUB_TOKEN` and Classic PAT Compatibility
 

@@ -23,6 +23,9 @@ permissions:
   id-token: write   # Required for cosign keyless signing
   attestations: write # Required for release and Cloud Hypervisor artifact provenance
 
+env:
+  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
+
 jobs:
   bump-version:
     name: Bump Version

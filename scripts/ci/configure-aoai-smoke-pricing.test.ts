@@ -95,7 +95,8 @@ test('does not overwrite a pre-existing compiler catalog or partially mutate sta
 });
 
 test.each(['apikey', 'entra'])('postprocessing configures only the Azure %s smoke, idempotently', mode => {
-  const input = '          cp "${RUNNER_TEMP}/gh-aw/awf-config.json" /tmp/gh-aw/awf-config.json\n';
+  const input = '          cp "${RUNNER_TEMP}/gh-aw/awf-config.json" /tmp/gh-aw/awf-config.json\n' +
+    '          awf --config config.json --env-all --exclude-env ACTIONS_ID_TOKEN_REQUEST_TOKEN --exclude-env ACTIONS_ID_TOKEN_REQUEST_URL\n';
   const workflow = `/tmp/smoke-copilot-byok-aoai-${mode}.lock.yml`;
   const patched = applyGeneralWorkflowPatches(input, workflow).content;
   expect(patched).toContain('node "${GITHUB_WORKSPACE}/scripts/ci/configure-aoai-smoke-pricing.cjs"');

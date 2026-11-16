@@ -278,9 +278,11 @@ protected root and remain mount-isolated. New captures use the canonical two-ID
 layout, while retaining the existing `enclave-session.log` filename; do not infer
 a legacy artifact's run identity from a new-layout path.
 
-Docker's helper installation is version-matched through `install.sh`; run AWF
-as the ordinary host user with noninteractive authorization for that narrow
-helper, **not** by running the whole workflow under sudo. The helper controls
+Docker's helper installation is version-matched through `install.sh`; install
+or upgrade it with `bash ./install.sh vX.Y.Z --install-enclave-storage-helper`
+(ordinary CLI installation does not provision it). Run AWF as the ordinary
+host user with noninteractive authorization for that narrow helper, **not** by
+running the whole workflow under sudo. The helper controls
 only fixed-root invocation storage and file ownership, never arbitrary debug
 destinations or arbitrary host commands. Docker public retention adds bounded
 stdout/stderr files to the same verified aggregate invocation allocation; it

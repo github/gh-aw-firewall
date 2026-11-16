@@ -57,6 +57,7 @@ function fixture(options: { bundle?: boolean; identityTag?: string; containers?:
   })) fs.writeFileSync(path.join(assets, name), content);
   const scripts = {
     gh: `#!/bin/bash
+printf '%s\\n' "$*" >> "$CASE_DIR/gh-invocations.log"
 if [ "$3" = "--help" ]; then
   [ "\${GH_NO_SUPPORT:-}" != "1" ] || exit 1
   if [ "\${GH_MISSING_FLAG:-}" != "1" ]; then
@@ -91,13 +92,17 @@ while [ "$#" -gt 0 ]; do
 done
 asset="\${url##*/}"
 printf '%s\\n' "$asset" >> "$CASE_DIR/curl.log"
-if [ "$asset" = latest ]; then printf '{"tag_name": "%s"}\\n' "\${LATEST_TAG:-v1.2.3}"; exit; fi
+if [ "$asset" = latest ]; then
+  [ "\${CURL_LATEST_STATUS:-0}" = "0" ] || { echo "latest lookup failed" >&2; exit "$CURL_LATEST_STATUS"; }
+  printf '{"tag_name": "%s"}\\n' "\${LATEST_TAG:-v1.2.3}"
+  exit
+fi
 cp "$CASE_DIR/assets/$asset" "$output"
 `,
     file: '#!/bin/bash\necho "$1: ELF 64-bit LSB executable"\n',
     uname: '#!/bin/bash\nif [ "$1" = "-s" ]; then echo Linux; else echo x86_64; fi\n',
     docker: '#!/bin/bash\nprintf "%s\\n" "$*" >> "$CASE_DIR/docker.log"\nexit "${DOCKER_STATUS:-0}"\n',
-    node: '#!/bin/bash\necho v22.0.0\n',
+    node: '#!/bin/bash\n[ "\${NODE_STATUS:-0}" = "0" ] || exit "$NODE_STATUS"\necho v22.0.0\n',
     'helper-installer': `#!/bin/bash
 cat > "$CASE_DIR/helper-install-body"
 printf '%s\\n' "$*" >> "$CASE_DIR/helper-install.log"
@@ -114,7 +119,7 @@ printf "%s" "\${GH_TOKEN+x}" > ${JSON.stringify(path.join(directory, 'helper-hos
   return {
     directory,
     assets,
-    run(target: 'installer' | 'action' | 'pull', overrides: Record<string, string> = {}) {
+    run(target: 'installer' | 'action' | 'pull', overrides: Record<string, string> = {}, args: string[] = []) {
       if (overrides.UNSUPPORTED_STORAGE_HOST) {
         fs.writeFileSync(path.join(directory, 'unsupported-storage-host'), '');
       }
@@ -128,9 +133,9 @@ printf "%s" "\${GH_TOKEN+x}" > ${JSON.stringify(path.join(directory, 'helper-hos
             '"$CASE_DIR/bin/helper-host-check" "$TEMP_DIR/$helper"') +
           '\ncheck_sudo() { :; }\n' +
           // Keep all test artifacts in this project's scratch directory, never the OS temp area.
-          'INSTALL_DIR="$CASE_DIR/installed"\nmain "$INPUT_VERSION"\n'
+          'INSTALL_DIR="$CASE_DIR/installed"\nmain "$INPUT_VERSION" "$@"\n'
         : target === 'action' ? installAction : pullAction;
-      return spawnSync('bash', ['-c', script], {
+      return spawnSync('bash', ['-c', script, 'test', ...args], {
         cwd: directory,
         encoding: 'utf8',
         env: {
@@ -208,10 +213,114 @@ describe('release bootstrap authentication', () => {
       expect(calls[3]).toContain('containers.txt');
       expect(f.log('output')).toContain(`squid=sha256:${'a'.repeat(64)}`);
     } else {
-      expect(calls[3]).toContain('enclave-storage-helper.py');
-      expect(f.log('helper-install.log')).toContain('1.2.3');
-      expect(f.log('helper-host-check-token')).toBe('');
+      expect(calls).toHaveLength(3);
+      expect(f.log('curl.log')).not.toContain('enclave-storage-helper.py');
+      expect(f.log('helper-install.log')).toBe('');
     }
+  });
+
+  it.each([false, true])('installs a pinned CLI without gh or identity metadata (bundle=%s)', bundle => {
+    const f = fixture({ bundle });
+    const digest = hash(fs.readFileSync(path.join(f.assets, 'checksums.txt'), 'utf8'));
+    fs.unlinkSync(path.join(f.assets, 'release-identity.txt'));
+    const result = f.run('installer', { GH_NO_SUPPORT: '1' }, ['--checksums-sha256', digest.toUpperCase()]);
+    expect(result.status).toBe(0);
+    expect(f.log('gh-invocations.log')).toBe('');
+    expect(f.log('curl.log')).not.toMatch(/release-identity|enclave-storage-helper|latest/);
+    expect(fs.existsSync(path.join(f.directory, 'installed/awf'))).toBe(true);
+  });
+
+  it('supports rootless pinned installation into the user bin directory', () => {
+    const f = fixture({ bundle: true });
+    const digest = hash(fs.readFileSync(path.join(f.assets, 'checksums.txt'), 'utf8'));
+    const result = f.run('installer', { HOME: f.directory }, ['--checksums-sha256', digest, '--rootless']);
+    expect(result.status).toBe(0);
+    expect(fs.existsSync(path.join(f.directory, '.local/bin/awf'))).toBe(true);
+    expect(f.log('gh-invocations.log')).toBe('');
+  });
+
+  it.each([
+    ['--checksums-sha256'],
+    ['--checksums-sha256', 'not-a-digest'],
+    ['--checksums-sha256', 'a'.repeat(64), '--checksums-sha256', 'a'.repeat(64)],
+    ['--rootless', '--install-enclave-storage-helper'],
+    ['--unknown'],
+  ])('rejects invalid installer arguments before download: %j', (...args) => {
+    const f = fixture();
+    expect(f.run('installer', {}, args).status).not.toBe(0);
+    expect(f.log('curl.log')).toBe('');
+  });
+
+  it('requires an explicit version for a manifest pin instead of resolving latest', () => {
+    const f = fixture();
+    const result = f.run('installer', { INPUT_VERSION: '' }, ['--checksums-sha256', 'a'.repeat(64)]);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('explicit release version');
+    expect(f.log('curl.log')).toBe('');
+  });
+
+  it('reports latest release lookup failures instead of exiting before diagnostics', () => {
+    const f = fixture();
+    const result = f.run('installer', { INPUT_VERSION: '', CURL_LATEST_STATUS: '22' });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('latest lookup failed');
+    expect(result.stderr).toContain('Failed to fetch latest version from GitHub API');
+  });
+
+  it('falls back to the standalone binary when the Node.js shim fails', () => {
+    const f = fixture({ bundle: true });
+    const result = f.run('installer', { NODE_STATUS: '1' });
+    expect(result.status).toBe(0);
+    expect(f.log('curl.log')).toContain('awf-linux-x64');
+  });
+
+  it('accepts a pinned AWF_VERSION and a binary-mode checksum entry', () => {
+    const f = fixture();
+    const manifest = path.join(f.assets, 'checksums.txt');
+    fs.writeFileSync(manifest, fs.readFileSync(manifest, 'utf8').replace('  awf-linux-x64', ' *awf-linux-x64'));
+    const digest = hash(fs.readFileSync(manifest, 'utf8'));
+    expect(f.run('installer', { INPUT_VERSION: '', AWF_VERSION: tag },
+      ['--checksums-sha256', digest]).status).toBe(0);
+    expect(f.log('gh-invocations.log')).toBe('');
+    expect(f.log('curl.log')).not.toContain('latest');
+  });
+
+  it.each(['manifest', 'payload', 'duplicate', 'missing', 'malformed', 'suffix'])('fails closed on pinned %s corruption', failure => {
+    const f = fixture();
+    const manifest = path.join(f.assets, 'checksums.txt');
+    if (failure === 'duplicate') fs.appendFileSync(manifest, `${hash('test ELF payload\n')}  awf-linux-x64\n`);
+    if (failure === 'missing') fs.writeFileSync(manifest, `${hash('other')}  other\n`);
+    if (failure === 'malformed') fs.writeFileSync(manifest, 'invalid  awf-linux-x64\n');
+    if (failure === 'suffix') fs.writeFileSync(manifest, `${hash('test ELF payload\n')}  awf-linux-x64 backup\n`);
+    const digest = hash(fs.readFileSync(manifest, 'utf8'));
+    if (failure === 'manifest') {
+      const payload = 'substituted payload\n';
+      fs.writeFileSync(path.join(f.assets, 'awf-linux-x64'), payload);
+      fs.writeFileSync(manifest, `${hash(payload)}  awf-linux-x64\n`);
+    }
+    if (failure === 'payload') fs.appendFileSync(path.join(f.assets, 'awf-linux-x64'), 'changed\n');
+    const result = f.run('installer', {}, ['--checksums-sha256', digest]);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/verification failed|exactly one checksum|Invalid checksum/);
+    expect(fs.existsSync(path.join(f.directory, 'installed/awf'))).toBe(false);
+    expect(f.log('gh-invocations.log')).toBe('');
+    if (failure === 'manifest') expect(f.log('curl.log').trim()).toBe('checksums.txt');
+  });
+
+  it('keeps all provenance checks when a pinned install explicitly provisions the helper', () => {
+    const f = fixture();
+    const digest = hash(fs.readFileSync(path.join(f.assets, 'checksums.txt'), 'utf8'));
+    const result = f.run('installer', { GH_TOKEN: 'present' },
+      ['--checksums-sha256', digest, '--install-enclave-storage-helper']);
+    expect(result.status).toBe(0);
+    const calls = f.log('gh.log').trim().split('\n');
+    expect(calls).toHaveLength(4);
+    expect(calls[0]).toContain('release-identity.txt');
+    expect(calls[1]).toContain('checksums.txt');
+    expect(calls[2]).toContain('awf-linux-x64');
+    expect(calls[3]).toContain('enclave-storage-helper.py');
+    expect(f.log('helper-install.log')).toContain('1.2.3');
+    expect(f.log('helper-host-check-token')).toBe('');
   });
 
   it('authenticates the lightweight bundle before installation', () => {
@@ -222,7 +331,9 @@ describe('release bootstrap authentication', () => {
 
   it('authenticates the helper before privileged installation or publishing AWF', () => {
     const f = fixture();
-    expect(f.run('installer', { FAIL_ATTESTATION: 'enclave-storage-helper.py' }).status).not.toBe(0);
+    const digest = hash(fs.readFileSync(path.join(f.assets, 'checksums.txt'), 'utf8'));
+    expect(f.run('installer', { FAIL_ATTESTATION: 'enclave-storage-helper.py' },
+      ['--checksums-sha256', digest, '--install-enclave-storage-helper']).status).not.toBe(0);
     expect(f.log('helper-install.log')).toBe('');
     expect(fs.existsSync(path.join(f.directory, 'installed/awf'))).toBe(false);
   });
@@ -230,7 +341,7 @@ describe('release bootstrap authentication', () => {
   it('rejects helper checksum substitution before privileged installation', () => {
     const f = fixture();
     fs.appendFileSync(path.join(f.assets, 'enclave-storage-helper.py'), '# changed\n');
-    const result = f.run('installer');
+    const result = f.run('installer', {}, ['--install-enclave-storage-helper']);
     expect(result.status).not.toBe(0);
     expect(result.stderr + result.stdout).toContain('Checksum verification failed');
     expect(f.log('helper-install.log')).toBe('');
@@ -239,7 +350,7 @@ describe('release bootstrap authentication', () => {
 
   it('preserves authenticated legacy CLI installs without advertising helper support', () => {
     const f = fixture({ helper: false });
-    const result = f.run('installer');
+    const result = f.run('installer', {}, ['--install-enclave-storage-helper']);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('no unprivileged Docker enclave support');
     expect(f.log('curl.log')).not.toContain('enclave-storage-helper.py');
@@ -250,7 +361,7 @@ describe('release bootstrap authentication', () => {
   it('fails closed when the signed manifest lists an unavailable helper', () => {
     const f = fixture();
     fs.unlinkSync(path.join(f.assets, 'enclave-storage-helper.py'));
-    const result = f.run('installer');
+    const result = f.run('installer', {}, ['--install-enclave-storage-helper']);
     expect(result.status).not.toBe(0);
     expect(f.log('helper-install.log')).toBe('');
     expect(fs.existsSync(path.join(f.directory, 'installed/awf'))).toBe(false);
@@ -258,7 +369,7 @@ describe('release bootstrap authentication', () => {
 
   it('preserves ordinary CLI installs on unsupported storage hosts only after authenticating the helper', () => {
     const f = fixture();
-    const result = f.run('installer', { UNSUPPORTED_STORAGE_HOST: '1' });
+    const result = f.run('installer', { UNSUPPORTED_STORAGE_HOST: '1' }, ['--install-enclave-storage-helper']);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('not a supported privileged storage host');
     expect(f.log('gh.log')).toContain('enclave-storage-helper.py');
@@ -267,7 +378,7 @@ describe('release bootstrap authentication', () => {
     const bad = fixture();
     expect(bad.run('installer', {
       UNSUPPORTED_STORAGE_HOST: '1', FAIL_ATTESTATION: 'enclave-storage-helper.py',
-    }).status).not.toBe(0);
+    }, ['--install-enclave-storage-helper']).status).not.toBe(0);
   });
 
   it('packages, attests and uploads the version-matched narrow helper', () => {
@@ -285,24 +396,26 @@ describe('release bootstrap authentication', () => {
     expect(installer).toContain('"/usr/sbin/visudo", "-cf"');
   });
 
-  it('accepts supported gh help larger than the pipe buffer under pipefail', () => {
+  it.each(['installer', 'action'] as const)('%s accepts supported gh help larger than the pipe buffer under pipefail', target => {
     const f = fixture();
-    const result = f.run('action', { GH_LARGE_HELP: '1' });
+    const result = f.run(target, { GH_LARGE_HELP: '1' });
     expect(result.stderr + result.stdout).not.toContain('::error::');
     expect(result.status).toBe(0);
     expect(f.log('gh.log')).toContain('awf-linux-x64');
   });
 
-  it.each<Record<string, string>>([
-    { GH_MISSING_FLAG: '1' },
-    { GH_HELP_STATUS: '1' },
-  ])('rejects unsupported or failed gh help before downloading: %j', overrides => {
-    const f = fixture();
-    const result = f.run('action', overrides);
-    expect(result.status).not.toBe(0);
-    expect(result.stderr + result.stdout).toMatch(/trusted gh CLI/);
-    expect(f.log('curl.log')).toBe('');
-  });
+  for (const target of ['installer', 'action'] as const) {
+    it.each<Record<string, string>>([
+      { GH_MISSING_FLAG: '1' },
+      { GH_HELP_STATUS: '1' },
+    ])(`${target} rejects unsupported or failed gh help before downloading: %j`, overrides => {
+      const f = fixture();
+      const result = f.run(target, overrides);
+      expect(result.status).not.toBe(0);
+      expect(result.stderr + result.stdout).toMatch(/trusted gh CLI/);
+      expect(f.log('curl.log')).toBe('');
+    });
+  }
 
   it('rejects an unattested lightweight bundle', () => {
     const f = fixture({ bundle: true });

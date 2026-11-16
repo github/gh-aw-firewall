@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const dataBranch = 'catalogue-data';
 const pointerPath = 'channels/v1/current.json';
 const channelPath = version => `channels/v${version}/current.json`;
+const pricingChannelPath = version => `channels/pricing/v${version}/current.json`;
 // Keep the workflow filter and the out-of-order source check identical.
 const inputPaths = [
   'shared/model-information/**',
@@ -36,6 +37,11 @@ const payload = snapshot => ({
   schemaVersion: snapshot.schemaVersion, schemaHash: snapshot.schemaHash, models: snapshot.models,
 });
 const snapshotPath = (revision, version = 1) => `snapshots/v${version}/${revision}.json`;
+const pricingSnapshotPath = (revision, version = 1) => `snapshots/pricing/v${version}/${revision}.json`;
+const pricingPayload = snapshot => {
+  const { revision, ...value } = snapshot;
+  return value;
+};
 const isCommit = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
 const isDigest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 
@@ -57,20 +63,43 @@ function readSnapshot(bytes) {
   return snapshot;
 }
 
-function readPointer(bytes, version) {
+function readPointerAt(bytes, version, pathForRevision, versions) {
   const pointer = JSON.parse(bytes);
   if (Object.keys(pointer).sort().join() !==
       ['schemaVersion', 'revision', 'sourceCommit', 'snapshot', 'sha256'].sort().join() ||
-      ![1, 2].includes(pointer.schemaVersion) ||
+      !versions.includes(pointer.schemaVersion) ||
       (version !== undefined && pointer.schemaVersion !== version) || !isDigest(pointer.revision) ||
       !isDigest(pointer.sha256) || !isCommit(pointer.sourceCommit) ||
-      pointer.snapshot !== snapshotPath(pointer.revision, pointer.schemaVersion) || json(pointer) !== bytes.toString()) {
+      pointer.snapshot !== pathForRevision(pointer.revision, pointer.schemaVersion) || json(pointer) !== bytes.toString()) {
     throw new Error('Invalid current pointer');
   }
   return pointer;
 }
 
+function readPointer(bytes, version) {
+  return readPointerAt(bytes, version, snapshotPath, [1, 2]);
+}
+
+function readPricingPointer(bytes, version = 1) {
+  return readPointerAt(bytes, version, pricingSnapshotPath, [1]);
+}
+
+function readPricingSnapshotEnvelope(bytes) {
+  const snapshot = JSON.parse(bytes);
+  const fields = ['kind', 'schemaVersion', 'schemaHash', 'catalogRevision', 'revision',
+    'generatedAt', 'maintained', 'compatibility', 'imported'];
+  if (Object.keys(snapshot).sort().join() !== fields.sort().join() ||
+      snapshot.kind !== 'awf-pricing-consumer' || snapshot.schemaVersion !== 1 ||
+      !isDigest(snapshot.schemaHash) || !isDigest(snapshot.catalogRevision) ||
+      !isDigest(snapshot.revision) || digest(json(pricingPayload(snapshot))) !== snapshot.revision ||
+      json(snapshot) !== bytes.toString()) {
+    throw new Error('Invalid pricing publication envelope, canonical bytes or payload digest');
+  }
+  return snapshot;
+}
+
 module.exports = {
   dataBranch, pointerPath, channelPath, inputPaths, json, digest, payload, snapshotPath,
   isCommit, isDigest, readSnapshot, readPointer,
+  pricingChannelPath, pricingSnapshotPath, pricingPayload, readPricingPointer, readPricingSnapshotEnvelope,
 };

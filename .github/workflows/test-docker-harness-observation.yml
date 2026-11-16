@@ -21,6 +21,9 @@ concurrency:
   group: docker-harness-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
+
 jobs:
   native:
     name: Native Docker agent execution

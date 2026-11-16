@@ -117,6 +117,22 @@ describe('applyConfigFilePrecedence', () => {
     // Non-CLI flag should be overridable
     expect(capturedPredicate!('workDir')).toBe(false);
   });
+
+  it('treats --enable-token-steering on the CLI as setting steeringBudget', () => {
+    mockedConfigFile.loadAwfFileConfig.mockReturnValue({} as never);
+    mockedConfigMapper.mapAwfFileConfigToCliOptions.mockReturnValue({});
+
+    let capturedPredicate: ((name: string) => boolean) | undefined;
+    mockedConfigPrecedence.applyConfigOptionsInPlaceWithCliPrecedence.mockImplementation(
+      (_opts, _derived, predicate) => { capturedPredicate = predicate; }
+    );
+
+    const options: Record<string, unknown> = { config: '/path/to/config.yml' };
+    const getSource = jest.fn().mockImplementation((name) => name === 'enableTokenSteering' ? 'cli' : 'default');
+    applyConfigFilePrecedence(options, getSource);
+
+    expect(capturedPredicate!('steeringBudget')).toBe(true);
+  });
 });
 
 describe('resolveAllowedDomains', () => {

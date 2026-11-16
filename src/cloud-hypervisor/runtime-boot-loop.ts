@@ -17,6 +17,7 @@ import { planCloudHypervisorFilesystemWriteEnforcement } from './filesystem-writ
 import { requireCloudHypervisorConfig } from './runtime-validation';
 import { assertCloudHypervisorEnclaveLifecycleReady } from '../enclave/cloud-hypervisor-lifecycle';
 import { assertCloudHypervisorEnclaveExportsIsolated } from '../enclave/mount-policy';
+import { assertRoutingStateNotExportedToGuest } from '../routing/bootstrap';
 import { formatError } from './backend-utils';
 import {
   captureGuestNetworkStateForDiagnostics,
@@ -175,6 +176,7 @@ export async function runCloudHypervisorBootLoop({
     publish();
     const resolvedExports = await dependencies.resolveExports(cloudHypervisor.mountPolicy);
     assertCloudHypervisorEnclaveExportsIsolated(config, resolvedExports);
+    assertRoutingStateNotExportedToGuest(config, resolvedExports);
     // Planned before the boot loop so an invalid or unmatched
     // `filesystem.allowWrite` entry fails closed before virtiofsd, the VMM,
     // or the guest is launched, and so every boot attempt reuses one

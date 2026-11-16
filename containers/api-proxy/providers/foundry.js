@@ -2,6 +2,7 @@
 
 const { createBaseAdapterConfig, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { FOUNDRY_ENV } = require('../provider-env-constants');
+const { providerKeyHeaders } = require('./auth-headers');
 
 function createFoundryAdapter(env, deps = {}) {
   const { apiKey, rawTarget, basePath } = createBaseAdapterConfig(env, {
@@ -26,7 +27,7 @@ function createFoundryAdapter(env, deps = {}) {
     port: 10005,
     alwaysBind: false,
     isEnabled: () => configured,
-    getAuthHeaders: () => configured ? { 'api-key': apiKey } : {},
+    getAuthHeaders: () => configured ? providerKeyHeaders('api-key', apiKey) : {},
     bodyTransform: deps.bodyTransform || null,
     adapterMethods: createAdapterMethods({
       provider: 'foundry',

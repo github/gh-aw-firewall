@@ -219,6 +219,9 @@ remain `unknown` unless independently established.
 | CI-002 | Merged [#9488](https://github.com/github/gh-aw-firewall/pull/9488), gateway and GitHub-gateway tests plus integration contract: bounded retryable backend unavailability is not arbitrary protocol/auth failure. |
 | CI-003 | Merged [#11223](https://github.com/github/gh-aw-firewall/pull/11223), ordinary-workflow admission and runtime-validation regressions: regional OIDC endpoints and finite rejection reasons, without token probes. |
 | CI-004 | Merged [#11194](https://github.com/github/gh-aw-firewall/pull/11194), regression finalization gates and collector projection tests: validated invocation results are separate from post-success audit/cleanup failures, with audit retained outside the AWF work directory. |
+| CI-005 | Merged [#11158](https://github.com/github/gh-aw-firewall/pull/11158) / [#11191](https://github.com/github/gh-aw-firewall/pull/11191), regression evidence collector and host/guest harness tests: standalone completion-marker evidence and persisted Codex routing audit are independently classified. |
+| CI-006 | Merged [#11222](https://github.com/github/gh-aw-firewall/pull/11222), Claude unattended policy and enclave session-diagnostics tests: invalid startup options retain a finite classification in protected diagnostics without raw stderr. |
+| CI-008 | Merged [#11317](https://github.com/github/gh-aw-firewall/pull/11317) / [#11318](https://github.com/github/gh-aw-firewall/pull/11318) / [#11314](https://github.com/github/gh-aw-firewall/pull/11314), [#11311](https://github.com/github/gh-aw-firewall/pull/11311) / [#11383](https://github.com/github/gh-aw-firewall/pull/11383), [#11473](https://github.com/github/gh-aw-firewall/pull/11473) / [#11569](https://github.com/github/gh-aw-firewall/pull/11569), smoke image-preparation, installer-retry and published-release patch tests: pre-agent setup failures are classified by step (prepared images, installer download, published-release image mode) and are distinct from engine exit or provider failures. |
 | A4, RT-001, NET-002 | Corrected misleading probes: an Alpine probe container does not identify daemon libc; daemon default does not establish explicit runtime selection; chroot DNS and transient Squid failures need distinct checks. Current `config-sections.ts` uses a 10-second DNS timeout, not the 5 seconds in historical [#8171](https://github.com/github/gh-aw-firewall/pull/8171). |
 
 ## Agent entry point
@@ -250,6 +253,7 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | A29 | runner | ARC/DinD api-proxy token-usage log not found at /tmp/gh-aw | workaround | [`findings/runner/A29.json`](./findings/runner/A29.json) |
 | A4 | runner | capsh, /bin/bash, or node missing inside the DinD chroot | workaround | [`findings/runner/A4.json`](./findings/runner/A4.json) |
 | B36 | runner | setup-uv paths under RUNNER_TEMP are unwritable with --env-all | fixed | [`findings/runner/B36.json`](./findings/runner/B36.json) |
+| B37 | runner | No-sudo self-hosted VM blocked by gh-aw compiler and setup commands | unresolved | [`findings/runner/B37.json`](./findings/runner/B37.json) |
 | RT-001 | runtime | Alternative container runtime rejects the AWF agent container configuration | needs-evidence | [`findings/runtime/RT-001.json`](./findings/runtime/RT-001.json) |
 | RT-002 | runtime | Cloud Hypervisor enclave storage inherits shared mount propagation | fixed | [`findings/runtime/RT-002.json`](./findings/runtime/RT-002.json) |
 | RT-003 | runtime | Shared enclave rootfs exceeds the host verification storage ceiling | fixed | [`findings/runtime/RT-003.json`](./findings/runtime/RT-003.json) |
@@ -258,14 +262,21 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | NET-002 | network | DNS resolution fails because the resolver is not in the trusted DNS server list | workaround | [`findings/network/NET-002.json`](./findings/network/NET-002.json) |
 | NET-003 | network | Custom provider upstream port is lost or rejected by Squid | fixed | [`findings/network/NET-003.json`](./findings/network/NET-003.json) |
 | NET-004 | network | Proxy-unaware HTTPS client sends raw TLS to the forward proxy | workaround | [`findings/network/NET-004.json`](./findings/network/NET-004.json) |
+| NET-005 | network | Published host-service port is rejected after Docker DNAT despite --allow-host-service-ports | fixed | [`findings/network/NET-005.json`](./findings/network/NET-005.json) |
 | AUTH-001 | auth | Enterprise or Business Copilot target rejects the Authorization header prefix | fixed | [`findings/auth/AUTH-001.json`](./findings/auth/AUTH-001.json) |
 | AUTH-002 | auth | API-proxy OIDC mode is configured but the Actions token request variables are missing | workaround | [`findings/auth/AUTH-002.json`](./findings/auth/AUTH-002.json) |
 | AUTH-003 | auth | gh-aw-launched HTTP MCP GitHub server fails the OIDC boundary check | workaround | [`findings/auth/AUTH-003.json`](./findings/auth/AUTH-003.json) |
 | AUTH-004 | auth | Primary API-proxy OIDC initialization races Squid readiness | fixed | [`findings/auth/AUTH-004.json`](./findings/auth/AUTH-004.json) |
+| AUTH-005 | auth | API-proxy refuses an upstream response it cannot safely inspect for credential echoes | workaround | [`findings/auth/AUTH-005.json`](./findings/auth/AUTH-005.json) |
 | CI-001 | ci | gh-aw safe-output step fails because the emitted payload violates the declared contract | workaround | [`findings/ci/CI-001.json`](./findings/ci/CI-001.json) |
 | CI-002 | ci | Compiler-owned enclave gateway is unavailable or violates the handoff contract | workaround | [`findings/ci/CI-002.json`](./findings/ci/CI-002.json) |
 | CI-003 | ci | Cloud Hypervisor regression admission rejects a regional Actions OIDC endpoint | fixed | [`findings/ci/CI-003.json`](./findings/ci/CI-003.json) |
 | CI-004 | ci | Enclave regression fails after a successful invocation at a finalization gate | fixed | [`findings/ci/CI-004.json`](./findings/ci/CI-004.json) |
+| CI-005 | ci | Daily agent regression rejects an exit-0 run at a completion or routing evidence gate | fixed | [`findings/ci/CI-005.json`](./findings/ci/CI-005.json) |
+| CI-006 | ci | Claude enclave agent exits 1 before initialization with an invalid launch option | fixed | [`findings/ci/CI-006.json`](./findings/ci/CI-006.json) |
+| CI-007 | ci | Prestarted enclave gateway cannot resolve the private enclave service after network attachment | fixed | [`findings/ci/CI-007.json`](./findings/ci/CI-007.json) |
+| CI-008 | ci | Agentic workflow fails in pre-agent setup before the engine starts | fixed | [`findings/ci/CI-008.json`](./findings/ci/CI-008.json) |
+| CI-009 | ci | Supply-chain PR-image scan is cancelled at its job timeout during a slow package-mirror build | workaround | [`findings/ci/CI-009.json`](./findings/ci/CI-009.json) |
 | SEC-001 | security | Suspected isolation or credential-boundary regression must go to security review, not a bypass | needs-evidence | [`findings/security/SEC-001.json`](./findings/security/SEC-001.json) |
 
 ### Symptom lookup
@@ -288,6 +299,9 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | uv Permission denied under UV_CACHE_DIR | B36 | runner | fixed |
 | uv Permission denied under UV_PYTHON_INSTALL_DIR | B36 | runner | fixed |
 | The agent repeatedly chooses its own uv cache directory | B36 | runner | fixed |
+| sudo -n fails removing root-owned /tmp/gh-aw during setup or cleanup | B37 | runner | unresolved |
+| Copilot or threat-detect installer calls sudo because the compiled command lacks --rootless | B37 | runner | unresolved |
+| MCP gateway or safeoutputs container cannot read runner-owned mode 0600 config | B37 | runner | unresolved |
 | OCI runtime create failed | RT-001 | runtime | needs-evidence |
 | unknown capability reported by the container runtime at start | RT-001 | runtime | needs-evidence |
 | unsupported mount reported by the container runtime at start | RT-001 | runtime | needs-evidence |
@@ -308,6 +322,8 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | Trusted API-proxy custom-port request is rejected as an unsafe port | NET-003 | network | fixed |
 | TLS handshake fails when the client ignores HTTPS_PROXY | NET-004 | network | workaround |
 | Raw ClientHello reaches Squid instead of an HTTP CONNECT request | NET-004 | network | workaround |
+| Connection to a host-published service (for example Redis or PostgreSQL) through the host gateway is rejected or times out | NET-005 | network | fixed |
+| The port is listed in --allow-host-service-ports but a connectivity check still fails | NET-005 | network | fixed |
 | 400 Bad Request: Authorization header is badly formatted | AUTH-001 | auth | fixed |
 | Copilot requests fail immediately against api.enterprise.githubcopilot.com or api.business.githubcopilot.com | AUTH-001 | auth | fixed |
 | api-proxy reports that no OIDC token could be minted | AUTH-002 | auth | workaround |
@@ -318,6 +334,9 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | MCP GitHub tool calls fail while provider inference still works | AUTH-003 | auth | workaround |
 | Anthropic OIDC initialization fails until the API-proxy token retry | AUTH-004 | auth | fixed |
 | Agent exhausts early 503 retries while the API proxy has no token | AUTH-004 | auth | fixed |
+| Client receives 502 with error "Upstream response could not be safely inspected" | AUTH-005 | auth | workaround |
+| Client message "Unsupported upstream response content encoding" | AUTH-005 | auth | workaround |
+| Upstream response is aborted mid-stream with a request_error log event while the provider is healthy | AUTH-005 | auth | workaround |
 | safe output validation failed in the workflow run | CI-001 | ci | workaround |
 | The agent job succeeds but the safe-output collection step exits non-zero | CI-001 | ci | workaround |
 | create-pull-request rejected: file not in allowed-files | CI-001 | ci | workaround |
@@ -327,6 +346,21 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | Cloud Hypervisor regression profiles reject before broker startup | CI-003 | ci | fixed |
 | AWF_ENCLAVE_REGRESSION_FINALIZATION | CI-004 | ci | fixed |
 | Enclave agent regression fails although the invocation result validated | CI-004 | ci | fixed |
+| AWF-REGRESSION-COMPLETE not found although the agent exited 0 | CI-005 | ci | fixed |
+| Codex routing evidence rejected after successful inference | CI-005 | ci | fixed |
+| Claude enclave agent exit 1 before stream initialization | CI-006 | ci | fixed |
+| classification unknown-option or invalid-option-value in enclave startup diagnostics | CI-006 | ci | fixed |
+| Enclave regression stops at gateway attachment before the agent starts | CI-007 | ci | fixed |
+| Smoke enclave job times out because the gateway cannot resolve awf-enclave-mcp | CI-007 | ci | fixed |
+| Host preflight gateway-attachment fails at network-membership | CI-007 | ci | fixed |
+| Agentic workflow reports an engine crash or incomplete result although the agent never started | CI-008 | ci | fixed |
+| Install GitHub Copilot CLI step fails after repeated HTTP 504 responses while downloading the checksum manifest | CI-008 | ci | fixed |
+| Smoke workflow exhausts its execution timeout during a cold local Docker image build | CI-008 | ci | fixed |
+| AWF invocation combines a compiler-pinned image manifest with --build-local | CI-008 | ci | fixed |
+| Maintenance workflow npm ci fails certificate verification against a blocked package mirror | CI-008 | ci | fixed |
+| Supply Chain Scan image-scans job cancelled after exhausting its 40-minute timeout | CI-009 | ci | workaround |
+| PR-image scan stops during a container image build rather than at a Grype High/Critical finding | CI-009 | ci | workaround |
+| Slow apt index or package downloads dominate a build-tools image layer | CI-009 | ci | workaround |
 | The agent container can reach a domain that is not allowlisted | SEC-001 | security | needs-evidence |
 | A provider credential is observable inside the agent environment while the api-proxy is enabled | SEC-001 | security | needs-evidence |
 | Egress succeeds without a corresponding Squid access-log entry | SEC-001 | security | needs-evidence |

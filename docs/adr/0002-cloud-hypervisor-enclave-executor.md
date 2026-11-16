@@ -205,7 +205,7 @@ ancestor checks rather than accepting the broker's sticky `/var/tmp` ancestor.
 | Contract and rejection tests | `src/enclave/host-executor-protocol.test.ts` (drives the real client against the real server) |
 | Trusted one-shot VM executor | `src/cloud-hypervisor/host-enclave-executor.ts` |
 | Guest path compatibility | `guest/microvm-supervisor/resources_linux.go` |
-| Bounded output tests | `src/cloud-hypervisor/host-enclave-executor.test.ts` |
+| Bounded output tests | `src/cloud-hypervisor/host-enclave-executor.result-validation.test.ts` |
 
 **Transport.** Node.js exposes only `SOCK_STREAM` Unix sockets and no peer
 credentials. Each connection carries exactly one request frame (4-byte

@@ -68,7 +68,7 @@ describe('duplicate code detector workflow optimization config', () => {
     expect(lock).toContain('- name: Install jscpd');
     expect(lock).toContain('npm install -g jscpd@4.0.5 2>&1 | tail -3');
     expect(lock).toContain(
-      'Tools: create_issue(max:3), report_missing_tool, report_missing_data, noop(max:2)',
+      'Tools: create_issue(max:3), report_missing_tool, report_missing_data, report_incomplete, noop(max:2)',
     );
     expect(lock).toContain('\\"create_issue\\":{\\"expires\\":720,\\"labels\\":[\\"code-quality\\",\\"refactoring\\"],\\"max\\":3');
     expect(lock).toContain(

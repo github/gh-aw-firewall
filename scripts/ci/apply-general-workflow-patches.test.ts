@@ -34,6 +34,56 @@ function lockFileWithEngine(engineId: string): string {
   );
 }
 
+describe('approved npm feed workflow patches', () => {
+  const input = [
+    'env:',
+    '  EXISTING: value',
+    'jobs:',
+    '  agent:',
+    '    steps:',
+    '      - run: |',
+    '          echo "{\\"network\\":{\\"allowDomains\\":[\\"registry.npmjs.org\\",\\"github.com\\"]}}"',
+    '',
+  ].join('\n');
+
+  it('configures every job and permits the feed in npm-enabled sandboxes idempotently', () => {
+    const { content } = applyGeneralWorkflowPatches(input, '/tmp/example.lock.yml');
+    expect(content).toContain('env:\n  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/\n  EXISTING: value');
+    expect(content).toContain('\\"allowDomains\\":[\\"packagefeedproxy.microsoft.io\\",\\"registry.npmjs.org\\",\\"github.com\\"]');
+    expect(applyGeneralWorkflowPatches(content, '/tmp/example.lock.yml').content).toBe(content);
+  });
+
+  it('does not widen the network of sandboxes without npm access', () => {
+    const restricted = input.replace('\\"registry.npmjs.org\\",', '');
+    const { content } = applyGeneralWorkflowPatches(restricted, '/tmp/example.lock.yml');
+    expect(content).toContain('\\"allowDomains\\":[\\"github.com\\"]');
+  });
+
+  it('matches exact registry hosts instead of lookalike domains', () => {
+    const lookalikes = input.replace(
+      '\\"registry.npmjs.org\\",\\"github.com\\"',
+      '\\"registry.npmjs.org.attacker.example\\",\\"packagefeedproxy.microsoft.io.attacker.example\\"',
+    );
+    const { content: lookalikeContent } = applyGeneralWorkflowPatches(
+      lookalikes, '/tmp/example.lock.yml',
+    );
+    expect(lookalikeContent).toContain(
+      '\\"allowDomains\\":[\\"registry.npmjs.org.attacker.example\\",\\"packagefeedproxy.microsoft.io.attacker.example\\"]',
+    );
+
+    const falseApprovedFeed = input.replace(
+      '\\"registry.npmjs.org\\",\\"github.com\\"',
+      '\\"registry.npmjs.org\\",\\"packagefeedproxy.microsoft.io.attacker.example\\"',
+    );
+    const { content: feedContent } = applyGeneralWorkflowPatches(
+      falseApprovedFeed, '/tmp/example.lock.yml',
+    );
+    expect(feedContent).toContain(
+      '\\"allowDomains\\":[\\"packagefeedproxy.microsoft.io\\",\\"registry.npmjs.org\\",\\"packagefeedproxy.microsoft.io.attacker.example\\"]',
+    );
+  });
+});
+
 describe('Copilot session-state collection', () => {
   it('preserves the compiler-pinned copy helper', () => {
     expect(applyGeneralWorkflowPatches(
@@ -245,6 +295,7 @@ describe('applyGeneralWorkflowPatches Copilot CLI copy step gating', () => {
 describe('applyGeneralWorkflowPatches AOAI smoke GitHub MCP catalog', () => {
   const compilerOutput =
     '          cp "${RUNNER_TEMP}/gh-aw/awf-config.json" /tmp/gh-aw/awf-config.json\n' +
+    '          awf --config config.json --env-all --exclude-env ACTIONS_ID_TOKEN_REQUEST_TOKEN --exclude-env ACTIONS_ID_TOKEN_REQUEST_URL\n' +
     '              "github": {\n' +
     '                "env": {\n' +
     '                  "GITHUB_TOOLSETS": "pull_requests"\n' +
@@ -322,8 +373,10 @@ describe('applyGeneralWorkflowPatches published AWF maintenance workflows', () =
     'network-doctor-updater.lock.yml',
     'ci-integration-doctor-updater.lock.yml',
     'doc-maintainer.lock.yml',
+    'firewall-issue-dispatcher.lock.yml',
     'model-api-mapping-updater.lock.yml',
     'pr-sous-chef.lock.yml',
+    'refactoring-scanner.lock.yml',
     'mount-docs-maintainer.lock.yml',
     'schema-sync.lock.yml',
     'self-hosted-runner-doctor-updater.lock.yml',
@@ -339,6 +392,18 @@ describe('applyGeneralWorkflowPatches published AWF maintenance workflows', () =
     expect(content).toContain('--image-tag 0.28.2 --skip-pull');
     expect(content).not.toContain('--build-local');
     expect(log).toContain('  Preserved published AWF binary and images for maintenance workflow');
+  });
+
+  it('keeps the dispatcher lock compatible with its compiler-pinned image manifest', () => {
+    const lock = fs.readFileSync(
+      path.join(__dirname, '../../.github/workflows/firewall-issue-dispatcher.lock.yml'),
+      'utf8',
+    );
+
+    expect(lock).toContain('\\"images\\":');
+    expect(lock).toContain('install_awf_binary.sh" v');
+    expect(lock).not.toContain('--build-local');
+    expect(lock).not.toContain('Install awf binary (local)');
   });
 
   it('continues using local builds for validation workflows', () => {
@@ -533,6 +598,7 @@ describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
       '          AWF_REFLECT_ENABLED: 1',
       gatewayKey,
       '          RUNNER_TEMP: ${{ runner.temp }}',
+      '        run: awf --exclude-env MCP_GATEWAY_API_KEY --exclude-env MCP_GATEWAY_AGENT_ID',
       '      - name: Detect agent errors',
     ].join('\n');
 
@@ -542,6 +608,9 @@ describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
     );
 
     expect(content.split(gatewayKey).length - 1).toBe(1);
+    expect(content).toContain(
+      'run: awf --exclude-env GH_TOKEN --exclude-env MCP_GATEWAY_API_KEY --exclude-env MCP_GATEWAY_AGENT_ID'
+    );
     expect(log).toContain(
       '  Removed duplicate gateway API key entries from enclave smoke agent environment'
     );

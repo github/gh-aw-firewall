@@ -150,7 +150,7 @@ test('real WebSocket usage callback retains captured feed revision without extra
       awfCatalogue: pinned, awfRuntimePricing: {},
     };
     const socket = () => Object.assign(new EventEmitter(), {
-      write: jest.fn(), pipe: jest.fn(), destroy: jest.fn(), writable: true,
+      write: jest.fn(), pipe: jest.fn(destination => destination), destroy: jest.fn(), writable: true,
     });
     const trackWebSocketTokenUsage = jest.fn();
     createWebSocketTunnel({

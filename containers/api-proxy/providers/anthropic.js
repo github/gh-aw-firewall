@@ -24,6 +24,7 @@ const { createStandardProviderAdapter } = require('../adapter-factory');
 const { AnthropicOidcTokenProvider } = require('../anthropic-oidc-token-provider');
 const { ANTHROPIC_ENV } = require('../provider-env-constants');
 const { bearerAuthHeaders, providerKeyHeaders } = require('./auth-headers');
+const { markCredentialHeaders, getHeaderCredentials } = require('../credential-protection');
 const {
   parseClaudeHostedWebPolicy,
   makeClaudeHostedWebTransform,
@@ -219,7 +220,7 @@ function createAnthropicAdapter(env, deps = {}) {
       if (Object.keys(headers).length === 0) {
         return {};
       }
-      const mergedHeaders = { ...headers };
+      const mergedHeaders = markCredentialHeaders({ ...headers }, getHeaderCredentials(headers));
       const authBeta = mergedHeaders['anthropic-beta'];
       delete mergedHeaders['anthropic-beta'];
 

@@ -35,7 +35,7 @@ describe('agent Dockerfile security hardening', () => {
     'pins patched Undici with verified bytes throughout the %s npm installation', image => {
       const source = fs.readFileSync(path.resolve(__dirname, `../../containers/${image}/Dockerfile`), 'utf8');
       expect(source).not.toContain('undici-6.28.1');
-      expect(source).toContain('https://registry.npmjs.org/undici/-/undici-6.29.1.tgz');
+      expect(source).toContain('https://packagefeedproxy.microsoft.io/npm/undici/-/undici-6.29.1.tgz');
       expect(source).toContain('29c4b8e0b2d86cb8795571c1959012ce057a14ecfd34858335f47c31e770a04f  /tmp/undici-6.29.1.tgz');
       expect(source).toContain('tar -xzf /tmp/undici-6.29.1.tgz -C "$npm_dir/undici" --strip-components=1');
       expect(source).toContain('const expected={undici:"6.29.1"');

@@ -207,6 +207,13 @@ Compose mode. Sysroot-stage mode provides its own `/etc` contents.
 The generated hosts file is mounted by the volume builder for non-sysroot
 Compose runs; sysroot-stage mode uses the sysroot's `/etc/hosts`.
 
+When the runner tool cache resolves to an existing directory (from
+`config.runnerToolCachePath`, `RUNNER_TOOL_CACHE`, or `~/work/_tool`, in that
+order), it is also bound read-only at its host path under `/host`
+(`/host<toolcache>:ro`); see
+[`runner-tool-cache.ts`](../src/runner-tool-cache.ts) and
+[`home-strategy.ts`](../src/services/agent-volumes/home-strategy.ts).
+
 When `chroot.binariesSourcePath` is set in stdin config, AWF also mounts:
 
 | Host Path | Container Path | Purpose |
@@ -225,7 +232,7 @@ When `chroot.binariesSourcePath` is set in stdin config, AWF also mounts:
 | Empty chroot home (`<workDir>-chroot-home`) | `/host$HOME:rw` | Empty writable home; the real `$HOME` is **not** mounted |
 | `$HOME/<tool dir>` | `/host$HOME/<tool dir>:rw` | Allowlisted tool dirs (`.cache`, `.config`, `.local/{bin,lib,lib64,share,pipx}`, `.azure`, `.anthropic`, `.claude`, `.cargo`, `.rustup`, `.npm`, `.nvm`; `.gemini` only when a Gemini/Google API key is set) |
 | `$HOME/.copilot` | `/host$HOME/.copilot:rw` | Host bind only when the directory exists and is readable/writable; session-state and logs are separately overlaid from AWF's work directory |
-| `/tmp` | `/host/tmp:rw` | Temporary files |
+| `/tmp` | `/tmp:rw` and `/host/tmp:rw` | Temporary files (bound at both the direct and `/host` paths) |
 | `/dev/null` | `/host/dev/null:rw` | Lets chrooted tools write to `/dev/null` |
 
 Known credential files inside the mounted tool dirs are masked with

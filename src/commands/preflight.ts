@@ -31,6 +31,15 @@ type OptionSourceResolver = (optionName: string) => string | undefined;
 }
 
 /**
+ * CLI options that set the same value as the keyed option. When any alias is
+ * given on the command line, the config-file value for the keyed option is
+ * not applied.
+ */
+const CLI_OPTION_ALIASES: Record<string, string[]> = {
+  steeringBudget: ['enableTokenSteering'],
+};
+
+/**
  * Loads the AWF config file and applies its values to `options` in-place,
  * giving CLI flags precedence over config-file values.
  *
@@ -49,8 +58,11 @@ export function applyConfigFilePrecedence(
       options,
       fileDerivedOptions,
       // Commander marks explicit user flags with source "cli".
-      // We only apply config values when a flag was not explicitly provided.
-      (optionName: string) => getOptionValueSource(optionName) === 'cli'
+      // We only apply config values when a flag (or a CLI alias of it) was
+      // not explicitly provided.
+      (optionName: string) =>
+        [optionName, ...(CLI_OPTION_ALIASES[optionName] ?? [])]
+          .some(name => getOptionValueSource(name) === 'cli')
     );
   } catch (error) {
     logger.error(`Error loading --config: ${error instanceof Error ? error.message : String(error)}`);

@@ -9,9 +9,17 @@ interface WorkflowFrontmatter {
     id: string;
     version: string;
     'checksums-sha256': string;
+    model?: string;
   };
   tools?: {
     bash?: string[];
+    github?: false;
+  };
+  'safe-outputs'?: {
+    noop?: {
+      max?: number;
+      'report-as-issue'?: boolean;
+    };
   };
 }
 
@@ -49,6 +57,30 @@ const copilotInstallerWorkflows = [
 ];
 
 describe('smoke copilot workflow output requirements', () => {
+  it('claude-token-optimizer reports successful no-issue exits with noop', () => {
+    const source = fs.readFileSync(
+      path.join(workflowsDir, 'claude-token-optimizer.md'),
+      'utf-8',
+    );
+
+    expect(loadFrontmatter('claude-token-optimizer.md')['safe-outputs']?.noop).toEqual({
+      max: 1,
+      'report-as-issue': false,
+    });
+    expect(source).toContain(
+      'Every successful run must end with exactly one terminal safe output',
+    );
+    expect(source).toContain(
+      'If `$TOP_WORKFLOW` is empty or `$TARGET_NOT_FOUND` is `1`, log that no eligible workflow file could be staged, then call `noop`',
+    );
+    expect(source).toContain(
+      'If no report exists, do **not** create an optimization issue. Log that no token usage report was found',
+    );
+    expect(source).toContain(
+      'then call `noop` with that explanation.',
+    );
+  });
+
   it('runs token-usage verification only after the agent succeeds', () => {
     for (const file of ['smoke-copilot.md', 'smoke-copilot.lock.yml']) {
       const workflow = fs.readFileSync(path.join(workflowsDir, file), 'utf-8');
@@ -88,6 +120,7 @@ describe('smoke copilot workflow output requirements', () => {
   for (const workflow of copilotSmokeWorkflows) {
     it(`${workflow.name}: requires noop fallback when no pull request context exists`, () => {
       const source = fs.readFileSync(path.join(workflowsDir, workflow.file), 'utf-8');
+      const normalizedSource = source.replace(/\s+/g, ' ');
 
       if (workflow.file === 'smoke-copilot.md') {
         expect(source).toContain(
@@ -95,6 +128,20 @@ describe('smoke copilot workflow output requirements', () => {
         );
         expect(source).toContain(
           'Do not attempt pull request comments or labels when there is no pull request.',
+        );
+      } else if (workflow.file === 'smoke-copilot-network-isolation.md') {
+        expect(normalizedSource).toContain(
+          '- On a `pull_request` trigger, call `add_comment` with a brief summary, both check results, and the overall PASS/FAIL.',
+        );
+        expect(normalizedSource).toContain(
+          'If both checks pass, also call `add_labels` for `smoke-copilot-network-isolation`.',
+        );
+        expect(normalizedSource).toContain('Never call `noop` on a PR trigger.');
+        expect(normalizedSource).toContain(
+          '- On `workflow_dispatch` or `schedule`, call `noop` with a concise PASS/FAIL summary.',
+        );
+        expect(normalizedSource).toContain(
+          'Do not attempt PR comments or labels without a PR.',
         );
       } else {
         expect(source).toContain('**If triggered by a pull request**');
@@ -136,9 +183,20 @@ describe('smoke copilot workflow output requirements', () => {
       path.join(workflowsDir, 'smoke-copilot-network-isolation.lock.yml'),
       'utf-8'
     );
+    const source = fs.readFileSync(
+      path.join(workflowsDir, 'smoke-copilot-network-isolation.md'),
+      'utf-8'
+    );
 
     expect(frontmatter.tools?.bash).toEqual(expect.arrayContaining(['curl', 'echo']));
+    expect(frontmatter.tools?.github).toBe(false);
+    expect(frontmatter.engine?.model).toBe('claude-haiku-4.5');
     expect(lock).toContain("--allow-tool '\\''shell(curl:*)'\\''");
     expect(lock).toContain("--allow-tool '\\''shell(echo)'\\''");
+    expect(lock).not.toContain('ghcr.io/github/github-mcp-server');
+    expect(source).not.toContain('smoke-pr-data.txt');
+    const normalizedSource = source.replace(/\s+/g, ' ');
+    expect(normalizedSource).toContain('Issue both calls in the same response');
+    expect(normalizedSource).toContain('Never call `noop` on a PR trigger.');
   });
 });

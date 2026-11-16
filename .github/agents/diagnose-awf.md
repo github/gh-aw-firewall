@@ -94,6 +94,9 @@ Reuse these instead of duplicating their commands:
 | uv Permission denied under UV_CACHE_DIR | B36 | runner | fixed |
 | uv Permission denied under UV_PYTHON_INSTALL_DIR | B36 | runner | fixed |
 | The agent repeatedly chooses its own uv cache directory | B36 | runner | fixed |
+| sudo -n fails removing root-owned /tmp/gh-aw during setup or cleanup | B37 | runner | unresolved |
+| Copilot or threat-detect installer calls sudo because the compiled command lacks --rootless | B37 | runner | unresolved |
+| MCP gateway or safeoutputs container cannot read runner-owned mode 0600 config | B37 | runner | unresolved |
 | OCI runtime create failed | RT-001 | runtime | needs-evidence |
 | unknown capability reported by the container runtime at start | RT-001 | runtime | needs-evidence |
 | unsupported mount reported by the container runtime at start | RT-001 | runtime | needs-evidence |
@@ -114,6 +117,8 @@ Reuse these instead of duplicating their commands:
 | Trusted API-proxy custom-port request is rejected as an unsafe port | NET-003 | network | fixed |
 | TLS handshake fails when the client ignores HTTPS_PROXY | NET-004 | network | workaround |
 | Raw ClientHello reaches Squid instead of an HTTP CONNECT request | NET-004 | network | workaround |
+| Connection to a host-published service (for example Redis or PostgreSQL) through the host gateway is rejected or times out | NET-005 | network | fixed |
+| The port is listed in --allow-host-service-ports but a connectivity check still fails | NET-005 | network | fixed |
 | 400 Bad Request: Authorization header is badly formatted | AUTH-001 | auth | fixed |
 | Copilot requests fail immediately against api.enterprise.githubcopilot.com or api.business.githubcopilot.com | AUTH-001 | auth | fixed |
 | api-proxy reports that no OIDC token could be minted | AUTH-002 | auth | workaround |
@@ -124,6 +129,9 @@ Reuse these instead of duplicating their commands:
 | MCP GitHub tool calls fail while provider inference still works | AUTH-003 | auth | workaround |
 | Anthropic OIDC initialization fails until the API-proxy token retry | AUTH-004 | auth | fixed |
 | Agent exhausts early 503 retries while the API proxy has no token | AUTH-004 | auth | fixed |
+| Client receives 502 with error "Upstream response could not be safely inspected" | AUTH-005 | auth | workaround |
+| Client message "Unsupported upstream response content encoding" | AUTH-005 | auth | workaround |
+| Upstream response is aborted mid-stream with a request_error log event while the provider is healthy | AUTH-005 | auth | workaround |
 | safe output validation failed in the workflow run | CI-001 | ci | workaround |
 | The agent job succeeds but the safe-output collection step exits non-zero | CI-001 | ci | workaround |
 | create-pull-request rejected: file not in allowed-files | CI-001 | ci | workaround |
@@ -133,6 +141,21 @@ Reuse these instead of duplicating their commands:
 | Cloud Hypervisor regression profiles reject before broker startup | CI-003 | ci | fixed |
 | AWF_ENCLAVE_REGRESSION_FINALIZATION | CI-004 | ci | fixed |
 | Enclave agent regression fails although the invocation result validated | CI-004 | ci | fixed |
+| AWF-REGRESSION-COMPLETE not found although the agent exited 0 | CI-005 | ci | fixed |
+| Codex routing evidence rejected after successful inference | CI-005 | ci | fixed |
+| Claude enclave agent exit 1 before stream initialization | CI-006 | ci | fixed |
+| classification unknown-option or invalid-option-value in enclave startup diagnostics | CI-006 | ci | fixed |
+| Enclave regression stops at gateway attachment before the agent starts | CI-007 | ci | fixed |
+| Smoke enclave job times out because the gateway cannot resolve awf-enclave-mcp | CI-007 | ci | fixed |
+| Host preflight gateway-attachment fails at network-membership | CI-007 | ci | fixed |
+| Agentic workflow reports an engine crash or incomplete result although the agent never started | CI-008 | ci | fixed |
+| Install GitHub Copilot CLI step fails after repeated HTTP 504 responses while downloading the checksum manifest | CI-008 | ci | fixed |
+| Smoke workflow exhausts its execution timeout during a cold local Docker image build | CI-008 | ci | fixed |
+| AWF invocation combines a compiler-pinned image manifest with --build-local | CI-008 | ci | fixed |
+| Maintenance workflow npm ci fails certificate verification against a blocked package mirror | CI-008 | ci | fixed |
+| Supply Chain Scan image-scans job cancelled after exhausting its 40-minute timeout | CI-009 | ci | workaround |
+| PR-image scan stops during a container image build rather than at a Grype High/Critical finding | CI-009 | ci | workaround |
+| Slow apt index or package downloads dominate a build-tools image layer | CI-009 | ci | workaround |
 | The agent container can reach a domain that is not allowlisted | SEC-001 | security | needs-evidence |
 | A provider credential is observable inside the agent environment while the api-proxy is enabled | SEC-001 | security | needs-evidence |
 | Egress succeeds without a corresponding Squid access-log entry | SEC-001 | security | needs-evidence |
@@ -204,6 +227,19 @@ Reuse these instead of duplicating their commands:
 - **Safe probe:** `printf '%s\n' "${UV_CACHE_DIR:-unset}" "${UV_PYTHON_INSTALL_DIR:-unset}"` → On unpatched AWF, the variables point beneath RUNNER_TEMP outside the mounted gh-aw subtree; on patched AWF they are unset unless explicitly overridden. When unset on Linux without XDG overrides, UV_CACHE_DIR defaults to $HOME/.cache/uv and UV_PYTHON_INSTALL_DIR defaults to $HOME/.local/share/uv/python. No files are written.
 - **Action:** Upgrade AWF to include github/gh-aw-firewall#9705. AWF drops unmounted absolute paths beneath RUNNER_TEMP when forwarding host variables; explicit --env values still override the filter. Keep these cache directories unwritable so setup-uv cannot save agent-written files into the repository-wide Actions cache. Disabling setup-uv caching is tracked on the gh-aw compiler side.
 - **Provenance:** issue: setup-uv cache paths are unwritable inside AWF (https://github.com/github/gh-aw-firewall/issues/9701) · pull-request: Drop unmounted RUNNER_TEMP paths from --env-all (https://github.com/github/gh-aw-firewall/pull/9705) · code: Filter unmounted runner-temp environment paths (src/services/agent-environment/env-passthrough.ts) · test: Covers setup-uv paths and --env-all filtering (src/services/agent-environment/env-passthrough.test.ts)
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
+
+### B37 — No-sudo self-hosted VM blocked by gh-aw compiler and setup commands
+
+- **Boundary:** runner · **Status:** unresolved
+- **Affects:** runner=self-hosted, runtime=runc|chroot, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** sudo -n fails removing root-owned /tmp/gh-aw during setup or cleanup · Copilot or threat-detect installer calls sudo because the compiled command lacks --rootless · MCP gateway or safeoutputs container cannot read runner-owned mode 0600 config
+- **Discriminating conditions:** Shared self-hosted Linux VM without passwordless sudo; not ARC/DinD and runner.topology is unset · Concurrent runners have separate work directories but share /tmp/gh-aw · Compiled install_copilot_cli.sh or install_threat_detect_binary.sh commands lack --rootless · Reported with gh-aw 1.0.1 and AWF v0.29.0; AWF already preserves the runner primary GID
+- **Root cause:** These are gh-aw compiler/setup behaviors, not AWF runtime defects. Merged gh-aw#75443 fixes the confirmed safeoutputs child-container identity omission while preserving owner-only config permissions; #75445 adds runner.installation and #75446 adds automatic rootless fallback when passwordless sudo is unavailable. The reported gateway failure remains unverified because the v1.0.1 gateway generator already emits --user ${MCP_GATEWAY_UID}:${MCP_GATEWAY_GID}; reconcile it with the original lock and compiler metadata. Merged #75444 improves unprivileged cleanup but leaves legacy /tmp/gh-aw cleanup and full per-run private runtime-root isolation unresolved. Keep release bounds unknown.
+- **Safe probe:** `for installer in install_copilot_cli.sh install_threat_detect_binary.sh; do printf '%s total/rootless:\n' "$installer"; grep -h -F -- "$installer" .github/workflows/*.lock.yml | awk 'BEGIN { total = 0; rootless = 0 } { total++; if (index($0, "--rootless")) rootless++ } END { print total, rootless }'; done` → For each installer, compare total matching command lines with those carrying --rootless. A smaller rootless count identifies commands to inspect on a no-sudo runner, not proof of a cleanup or container-identity defect. Only names and counts are printed; no files are changed. The 2026-11-08 scan reported 81 Copilot and 17 threat-detect installs with zero --rootless matches; counts are snapshot evidence, not invariants.
+- **Action:** On gh-aw revisions containing PRs #75445 and #75446, set runner.installation: rootless when rootless installation is required; #75446 also falls back to rootless installation when passwordless sudo is unavailable. PR #75443 fixes the confirmed safeoutputs child identity omission; retain mode 0600 config permissions. These changes do not establish that shared /tmp/gh-aw cleanup or full per-run private runtime-root isolation is resolved: #75444 leaves legacy cleanup and runtime-path migration incomplete. Verify the compiled lock and compiler metadata, keep release bounds unknown, and reconcile any reported gateway identity failure with the original artifact because the v1.0.1 generator already emits --user. Do not add passwordless sudo or widen permissions, and do not treat a renamed shared directory as run-scoped isolation.
+- **Provenance:** issue: Self-hosted VM without sudo still needs four post-compile workarounds (https://github.com/github/gh-aw-firewall/issues/11130) · issue: MCP container identity and owner-only config access (https://github.com/github/gh-aw/issues/75439) · issue: Rootless threat-detect installation on native self-hosted runners (https://github.com/github/gh-aw/issues/75440) · issue: Private runtime root and run-scoped cleanup without sudo (https://github.com/github/gh-aw/issues/75441) · issue: No-sudo Copilot installation in agent and detection jobs (https://github.com/github/gh-aw/issues/75442) · pull-request: Use effective runner identity for safeoutputs child containers (https://github.com/github/gh-aw/pull/75443) · pull-request: Improve unprivileged cleanup; full runtime isolation remains incomplete (https://github.com/github/gh-aw/pull/75444) · pull-request: Add runner.installation rootless option (https://github.com/github/gh-aw/pull/75445) · pull-request: Automatically fall back to rootless installation without sudo (https://github.com/github/gh-aw/pull/75446) · doc: ARC/DinD topology differs from native self-hosted runners (docs/arc-dind.md)
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
 
 ## Boundary: runtime
@@ -305,7 +341,7 @@ Reuse these instead of duplicating their commands:
 - **Safe probe:** `grep -E '^(acl api_upstream_[0-9]+_(host|port)|http_access allow api_upstream_source)' path/to/squid.conf` → Compare the generated exact destination/port ACLs with the redacted operator configuration; inspect no provider credentials, raw URLs or request headers.
 - **Action:** Use source containing end-to-end scheme/port/base-path preservation and exact API-proxy-source host/port ACLs, then regenerate configuration. Keep Safe_ports, dangerous-port rejection, agent isolation, destination blocklists and DLP unchanged. A denial from an untrusted source or mismatched host/port is not this regression.
 - **Related:** NET-001
-- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/10776 · code: src/squid/api-proxy-upstreams.ts · test: src/squid/api-proxy-upstreams.test.ts · test: containers/api-proxy/server.target-ports.test.js · doc: docs/awf-config-spec.md
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/10776 · code: src/squid/api-proxy-upstreams.ts · test: src/squid/api-proxy-upstreams.test.ts · test: containers/api-proxy/server.target-ports.test.js · doc: docs/awf-config-spec.md · pull-request: Trusted LLM service routing keeps the sidecar upstream exact and proxy-only (https://github.com/github/gh-aw-firewall/pull/11345) · pull-request: Azure Foundry target shares the exact custom-port sidecar upstream path (https://github.com/github/gh-aw-firewall/pull/11363) · code: resolveApiProxyUpstreams() emits custom-port and trusted-service proxyOnly upstreams (src/services/api-proxy-env-config.ts) · test: Trusted service admits only the proxy source to the exact HTTPS service (src/trusted-service.test.ts)
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2026-12-09
 
 ### NET-004 — Proxy-unaware HTTPS client sends raw TLS to the forward proxy
@@ -321,6 +357,20 @@ Reuse these instead of duplicating their commands:
 - **Related:** NET-001, RT-001
 - **Provenance:** code: containers/agent/setup-iptables.sh · code: containers/agent/entrypoint.sh · code: src/services/agent-environment/core-environment.ts · doc: docs/troubleshooting.md
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2026-12-09
+
+### NET-005 — Published host-service port is rejected after Docker DNAT despite --allow-host-service-ports
+
+- **Boundary:** network · **Status:** fixed
+- **Affects:** runner=any, runtime=runc|chroot, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Connection to a host-published service (for example Redis or PostgreSQL) through the host gateway is rejected or times out · The port is listed in --allow-host-service-ports but a connectivity check still fails
+- **Discriminating conditions:** Host access is enabled and the service port is allowed for the AWF gateway · Docker translates the published port before the DOCKER-USER chain, so the filter sees the container address and port rather than the gateway tuple · Observed on Ubuntu 26.04 / Docker 29 runners; other Docker versions are unknown · A rejection of a port that is not allowed, or of a direct container address, is expected policy rather than this defect
+- **Root cause:** Gateway-destination ACCEPT rules matched the post-DNAT destination, so published-service traffic fell through to the default reject. Matching conntrack's original gateway IP and port restores access without allowing direct container destinations.
+- **Safe probe:** `grep -n -- '--ctorigdst' src/host-iptables-rules.ts` → Confirm the checked-out source adds a conntrack DNAT rule scoped to the original gateway IP and allowed port; compare with the redacted operator port list without sending traffic or dumping environments.
+- **Action:** Use source containing the original-gateway-tuple conntrack rule and re-run with the required ports in --allow-host-service-ports. Keep host access gateway-scoped and limited to the listed ports. A failure for a port outside the configured list is expected.
+- **Related:** NET-001
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11083 · code: src/host-iptables-rules.ts · test: src/host-iptables-host-access.test.ts · doc: docs/usage.md
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
 
 ## Boundary: auth
 
@@ -380,6 +430,20 @@ Reuse these instead of duplicating their commands:
 - **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/10495 · code: src/services/api-proxy-service-config.ts · test: src/services/api-proxy-service-config.test.ts · test: src/compose-generator.test.ts · doc: docs/auth-matrix.md
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2026-12-09
 
+### AUTH-005 — API-proxy refuses an upstream response it cannot safely inspect for credential echoes
+
+- **Boundary:** auth · **Status:** workaround
+- **Affects:** runner=any, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Client receives 502 with error "Upstream response could not be safely inspected" · Client message "Unsupported upstream response content encoding" · Upstream response is aborted mid-stream with a request_error log event while the provider is healthy
+- **Discriminating conditions:** The API proxy injected a credential into the request, so response masking is active · A body-bearing upstream response has a Content-Encoding other than identity, gzip, deflate or br, or a corrupt or truncated compressed body · This is a response-inspection failure, not a provider 401/403; do not rotate keys or change auth mode for it
+- **Root cause:** The API proxy masks any injected credential value an upstream echoes in response bodies, headers or errors. It must decode body-bearing compressed responses to do so, and it fails closed with 502 rather than forwarding bytes it cannot inspect. An unsupported encoding or a damaged compressed body therefore surfaces as a proxy error even though the provider authenticated the request. Bodyless responses are not decoded or encoding-validated.
+- **Safe probe:** `docker logs awf-api-proxy 2>&1 | grep -E 'request_error|Unsupported upstream response content encoding'` → Run while the containers are kept (--keep-containers). Matches show request_error events with credential-masked error text; compare the matched request's provider and path with the failing call. Do not print request headers, docker inspect output or the container environment.
+- **Action:** Retry the request; a truncated or corrupt compressed body is usually transient. For a persistent unsupported encoding on a body-bearing response, have the client send Accept-Encoding limited to identity, gzip, deflate or br (the proxy already narrows the header for most requests) or report the provider and endpoint. Never disable masking, expose provider keys to the agent, or treat the 502 as an authentication failure. A shipped release containing this behavior is not verified here.
+- **Related:** AUTH-002
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11471 · code: containers/api-proxy/credential-protection.js · code: containers/api-proxy/upstream-http.js · test: containers/api-proxy/server.credential-isolation.test.js · test: containers/api-proxy/credential-protection.test.js · doc: Upstream credential-echo masking (docs/api-proxy-sidecar.md)
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
+
 ## Boundary: ci
 
 ### CI-001 — gh-aw safe-output step fails because the emitted payload violates the declared contract
@@ -436,6 +500,76 @@ Reuse these instead of duplicating their commands:
 - **Related:** CI-002, CI-003
 - **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11194 · code: scripts/ci/run-enclave-agent-regression.js · code: scripts/ci/collect-enclave-smoke-debug.cjs · test: scripts/ci/collect-enclave-smoke-debug.test.ts · test: scripts/ci/enclave-agent-regression.test.ts · doc: docs/cloud-hypervisor-foundation.md
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2026-12-09
+
+### CI-005 — Daily agent regression rejects an exit-0 run at a completion or routing evidence gate
+
+- **Boundary:** ci · **Status:** fixed
+- **Affects:** runner=github-hosted, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** AWF-REGRESSION-COMPLETE not found although the agent exited 0 · Codex routing evidence rejected after successful inference
+- **Discriminating conditions:** The agent exit code is 0 but the host-side evidence gate (completion marker or Codex routing audit) fails · Older code required the marker on its own line without tolerating a preceding terminal control sequence, and required token-usage records that can be absent after successful inference · An old aggregate failure without marker-check.json or codex-routing.json status/diagnostics does not identify the failing gate
+- **Root cause:** Success evidence was coupled to terminal output formatting (a cursor-show sequence prefixed the marker line) and to token-usage records. The gates now require an exact standalone LF/CRLF marker line and, for Codex, a persisted api-proxy audit with an HTTP 2xx upstream status or WebSocket 101 handshake.
+- **Safe probe:** `jq -s '{marker: (.[0] | {proof, response, completion}), routing: (.[1] | {status, diagnostics, requests})}' path/to/protected/marker-check.json path/to/protected/codex-routing.json` → Read the bounded marker proof/response and completion classifications together with Codex routing status, diagnostics and projected requests. Raw private log bytes are not retained, so historical failures remain unknown.
+- **Action:** Use source that emits the marker on its own line and collects marker-check.json and the routing audit projection. Fix the classified gate; do not loosen exact marker, proof/response or nonzero-exit checks, and do not accept start/close events as routing success. Hosted acceptance remains separate.
+- **Related:** CI-004
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11158 · pull-request: https://github.com/github/gh-aw-firewall/pull/11191 · code: scripts/ci/collect-agent-regression-evidence.cjs · code: scripts/ci/run-agent-regression-guest.sh · test: scripts/ci/collect-agent-regression-evidence.test.ts · test: scripts/ci/agent-runtime-regression.test.ts
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2026-12-09
+
+### CI-006 — Claude enclave agent exits 1 before initialization with an invalid launch option
+
+- **Boundary:** ci · **Status:** fixed
+- **Affects:** runner=any, runtime=any, provider=anthropic, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Claude enclave agent exit 1 before stream initialization · classification unknown-option or invalid-option-value in enclave startup diagnostics
+- **Discriminating conditions:** The Claude enclave fails before initialization, not by timeout · Older code passed --permission-prompts auto, which Claude Code 2.1.280 rejects, and omitted unattended shell/file approvals · Only the bounded classification is retained; raw stderr, prompts and model output are not
+- **Root cause:** The launch policy used a permission-prompts value rejected by the installed Claude Code CLI and the production environment builder did not supply the fixed unattended approvals, so the process failed at argument parsing.
+- **Safe probe:** `jq '.session.claudeStartupFailure.classification // "unknown"' path/to/protected/diagnostics.json` → Read the finite Claude session classification (unknown-option, invalid-option-value, missing-option-value, invalid-settings, invalid-mcp-config or unknown). A classification identifies a configuration class, not the offending value; absence is unknown, not success.
+- **Action:** Use source whose trusted child-environment builder fixes the policy (host default; none with a closed Read/Write/Edit/Bash/Glob/Grep allowlist for unattended runs). Do not allow request-controlled policy or broad environment passthrough. Hosted acceptance remains separate.
+- **Related:** CI-004
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11222 · code: containers/enclave/agent-entrypoint.py · test: src/enclave/claude-unattended.test.ts · test: src/enclave/agent-entrypoint-diagnostics.test.ts
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2026-12-09
+
+### CI-007 — Prestarted enclave gateway cannot resolve the private enclave service after network attachment
+
+- **Boundary:** ci · **Status:** fixed
+- **Affects:** runner=any, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Enclave regression stops at gateway attachment before the agent starts · Smoke enclave job times out because the gateway cannot resolve awf-enclave-mcp · Host preflight gateway-attachment fails at network-membership
+- **Discriminating conditions:** The compiler-launched mcpg container started on Docker's default bridge and AWF later attached it to the private awf-enclave-mcp-control network · The gateway resolver does not use Docker's private-network service discovery, so AWF validates exact network membership and writes the awf-enclave-mcp alias into the gateway's /etc/hosts · Older code used sed -i, which renames over Docker's bind-mounted /etc/hosts and fails; the current code rewrites the existing inode · A failed mapping is fail-closed and detaches the gateway; it is distinct from a retryable 503 backend_unavailable
+- **Root cause:** The prestarted gateway's resolver cannot see the AWF-created private network alias, and the first hosts-file update could not replace Docker's bind-mounted /etc/hosts. Without the alias, initialize could not reach the enclave MCP server.
+- **Safe probe:** `jq '.diagnostic.enclaveStartup.hostPreflight' path/to/protected/startup.json` → Find the gateway-attachment preflight and the phase that failed (contract, identity, network-connect or network-membership). The protected record does not retain the raw error message; pair a network-membership failure with separate run-symptom or source evidence of the gateway-resolution failure. Network-membership failure alone is insufficient; an absent record is unknown, not success. Do not read container environments.
+- **Action:** Use AWF source that validates exact control-network membership and an IPv4 server address, then rewrites the gateway hosts entry in place, keeping identity checks and disconnect-on-failure. Do not widen the network, skip membership validation or extend timeouts. Hosted acceptance remains separate.
+- **Related:** CI-002
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11393 · pull-request: https://github.com/github/gh-aw-firewall/pull/11472 · code: src/enclave/gateway.ts · test: src/enclave/gateway.test.ts
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-02-12
+
+### CI-008 — Agentic workflow fails in pre-agent setup before the engine starts
+
+- **Boundary:** ci · **Status:** fixed
+- **Affects:** runner=github-hosted, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Agentic workflow reports an engine crash or incomplete result although the agent never started · Install GitHub Copilot CLI step fails after repeated HTTP 504 responses while downloading the checksum manifest · Smoke workflow exhausts its execution timeout during a cold local Docker image build · AWF invocation combines a compiler-pinned image manifest with --build-local · Maintenance workflow npm ci fails certificate verification against a blocked package mirror
+- **Discriminating conditions:** The failure occurs in a setup step (installer download, local image build, dependency install, awf image selection) before the timed engine execution; the agent exit code is absent rather than nonzero · Cold local image builds share the engine execution budget when image preparation is not a separate step · Maintenance workflows listed in publishedAwfWorkflowLockFiles must keep the compiler-selected AWF binary and digest-pinned images; local validation workflows keep --build-local · Only curl download failures of the Copilot installer are retried; checksum, version and installation errors fail immediately · A job-level timeout, an installer 504 and a blocked package host are different causes that share the symptom of no agent output
+- **Root cause:** Setup work was coupled to the timed agent execution or to an incompatible AWF image mode. Smoke workflows now prepare run-tagged local images in a separate 35-minute step and select them with --image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG:?}" --skip-pull; maintenance workflows in the published-release list preserve the compiler-pinned binary and images instead of --build-local; the Copilot installer is retried up to three times on curl download failures only; and the Test Quality Improver prepares root dependencies from the public registry before sandbox startup.
+- **Safe probe:** `grep -n -e '--build-local' -e 'install_awf_binary' -e 'Build local AWF smoke images' .github/workflows/<workflow>.lock.yml` → Classify the failing step first: installer download, local image preparation, dependency install, or awf image selection. A published-release maintenance workflow should show install_awf_binary and no --build-local; a prepared-image smoke workflow should show a separate Build local AWF smoke images step before execution. Match the failing run's step name from existing run metadata; absent evidence of the failing step is unknown.
+- **Action:** Use source whose lock was regenerated and post-processed so the affected workflow is in the correct group (published release, prepared smoke images, or retried installer). Fix the classified setup step; do not widen the network allowlist, loosen checksum or version pins, add --build-local to a published-release workflow, or raise the execution timeout to absorb image builds. Hosted acceptance remains separate.
+- **Related:** CI-001
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11317 · pull-request: https://github.com/github/gh-aw-firewall/pull/11318 · pull-request: https://github.com/github/gh-aw-firewall/pull/11314 · pull-request: https://github.com/github/gh-aw-firewall/pull/11311 · pull-request: https://github.com/github/gh-aw-firewall/pull/11383 · pull-request: https://github.com/github/gh-aw-firewall/pull/11473 · pull-request: https://github.com/github/gh-aw-firewall/pull/11569 · pull-request: https://github.com/github/gh-aw-firewall/pull/11326 · code: scripts/ci/build-smoke-images.sh · code: scripts/ci/workflow-patches/network-and-install.ts · code: scripts/ci/workflow-patches/engine-lifecycle.ts · test: scripts/ci/smoke-image-preparation.test.ts · test: scripts/ci/copilot-token-optimizer-workflow.test.ts · test: scripts/ci/apply-general-workflow-patches.test.ts · test: scripts/ci/refactoring-scanner-workflow.test.ts · test: scripts/ci/test-quality-improver-workflow.test.ts
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-02-12
+
+### CI-009 — Supply-chain PR-image scan is cancelled at its job timeout during a slow package-mirror build
+
+- **Boundary:** ci · **Status:** workaround
+- **Affects:** runner=github-hosted, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Supply Chain Scan image-scans job cancelled after exhausting its 40-minute timeout · PR-image scan stops during a container image build rather than at a Grype High/Critical finding · Slow apt index or package downloads dominate a build-tools image layer
+- **Discriminating conditions:** The failure is a job-level timeout or cancellation in a PR-image scan job, not a scanner finding: the build-tools build may complete and Grype may run before the job is cancelled during the next image build · Older workflow code built all nine PR images sequentially in one job sharing a single 40-minute budget · Current code runs three PR-image shards (build-tools + enclave-agent, agent, and six service images), each with a 60-minute budget; published-image CVE and license scans keep 40 minutes · enclave-agent must share a shard with build-tools because it consumes the exact locally built base image · A slow mirror, a cache-export failure and a blocking High/Critical vulnerability are different causes that must be classified from the failing step
+- **Root cause:** Package retrieval from a slow mirror consumed most of one shared 40-minute budget (the originating PR measured a 36-minute build-tools layer), so the remaining image builds were cancelled. Sharding gives each independent set of images its own budget and runner; it does not make the upstream mirror faster, and no hosted run has yet shown the 60-minute budgets are sufficient under a slow mirror.
+- **Safe probe:** `grep -n -e 'scan: pr-' -e 'timeout:' -e 'images:' .github/workflows/supply-chain-scan.yml` → The command checks workflow topology only: current source lists pr-toolchain, pr-agent and pr-services with a 60-minute timeout. From existing run metadata and bounded build-log timing evidence, confirm cancellation at the job limit and distinguish package retrieval, compilation, cache export and Grype execution within the combined build-and-scan step. Match the slow-mirror cause only when apt index or package-download timings show that retrieval consumed most of the shared 40-minute budget. Cancellation without a Grype finding alone is insufficient; absent timing or cancellation-reason evidence leaves the cause unknown.
+- **Action:** Use source with the sharded PR-image matrix. Fix the classified step; do not disable or downgrade the blocking High/Critical gate, merge shards in a way that separates enclave-agent from build-tools, ignore cache-export failures, or raise one shared timeout to absorb all builds. Hosted acceptance remains separate; a repeat timeout at 60 minutes is new evidence, not covered by this finding.
+- **Related:** CI-008
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11399 · code: .github/workflows/supply-chain-scan.yml · test: scripts/ci/docker-registry-ci.test.ts · doc: docs/INTEGRATION-TESTS.md#ci-image-retrieval
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-02-12
 
 ## Boundary: security
 

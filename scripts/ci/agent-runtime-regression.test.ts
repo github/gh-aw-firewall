@@ -134,12 +134,14 @@ describe('daily agent/runtime regression workflow', () => {
       expect(uploaded).toContain(`release/cloud-hypervisor-test-x86_64/${file}\n`);
     }
     const nvx = step('build-nvx', 'Build shared NVX guest distro with all three agents');
+    expect(nvx.run).toContain('docker create --env NPM_CONFIG_REGISTRY "$ALPINE_IMAGE"');
     expect(nvx.run).toContain('"@github/copilot@$1" "@openai/codex@$2" "@anthropic-ai/claude-code@$3"');
     expect(nvx.run).toContain('"$COPILOT_VERSION" "$CODEX_VERSION" "$CLAUDE_VERSION"');
     expect(workflow.env).toEqual({
       COPILOT_VERSION: '1.0.90',
       CODEX_VERSION: '0.159.3',
       CLAUDE_VERSION: '2.1.280',
+      NPM_CONFIG_REGISTRY: 'https://packagefeedproxy.microsoft.io/npm/',
     });
     const prepare = fs.readFileSync(path.join(__dirname, 'prepare-agent-regression-nvx.sh'), 'utf8');
     for (const pin of [NVX_RELEASE_TAG, NVX_COMMIT, NVX_OPENVMM_COMMIT, NVX_AGENT_REGRESSION_SIGNER_WORKFLOW]) {

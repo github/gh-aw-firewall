@@ -19,6 +19,9 @@ permissions:
   contents: write  # Required to push to benchmark-data branch
   issues: write
 
+env:
+  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
+
 jobs:
   benchmark:
     name: Run Performance Benchmarks

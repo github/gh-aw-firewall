@@ -1,9 +1,9 @@
 #!/bin/bash
-set -e
+set -e -o pipefail
 
 # Install script for awf (Agentic Workflow Firewall)
 # 
-# This script authenticates release provenance before installing the awf binary.
+# This script authenticates a pinned manifest or release provenance before installation.
 # Obtain this installer and the gh verifier through an independently trusted channel;
 # piping an unauthenticated HTTPS download into a shell cannot authenticate itself.
 #
@@ -14,20 +14,23 @@ set -e
 #   sudo --preserve-env=GH_TOKEN bash ./install.sh
 #   sudo --preserve-env=GH_TOKEN bash ./install.sh v1.0.0
 # Alternatively, set GITHUB_TOKEN and preserve that variable instead.
+# Reviewed pins avoid runtime attestation lookups for ordinary CLI installation:
+#   bash ./install.sh v1.0.0 --checksums-sha256 <trusted-manifest-digest> --rootless
+# Privileged helper provisioning requires --install-enclave-storage-helper and gh.
 #
 # Security features:
 #   - Uses curl -f to fail on HTTP errors (404, 403, etc.)
-#   - Requires GitHub artifact attestations from the release workflow
-#   - Authenticates the requested tag and checksums before checking the payload
+#   - Requires an independently trusted manifest digest or GitHub attestations
+#   - Authenticates checksums before checking the payload
 #   - Validates downloaded file is a valid ELF executable
 #   - Detects HTML error pages that may slip through
 #
 # Requirements:
 #   - curl
-#   - A trusted gh CLI with attestation verify support (and GitHub authentication)
+#   - A trusted gh CLI and authentication when using attestations
 #   - sha256sum
 #   - file
-#   - sudo/root access
+#   - sudo/root access (unless --rootless)
 #
 # Repository: https://github.com/github/gh-aw-firewall
 # Issue #107: https://github.com/github/gh-aw-firewall/issues/107
@@ -37,6 +40,57 @@ BINARY_NAME=""  # Set dynamically by check_platform
 INSTALL_DIR="/usr/local/bin"
 INSTALL_NAME="awf"
 USE_BUNDLE=false  # Set by check_node
+CHECKSUMS_SHA256=""
+INSTALL_HELPER=false
+ROOTLESS=false
+VERSION_ARG=""
+
+parse_arguments() {
+    local seen_digest=false
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --checksums-sha256)
+                if [ "$seen_digest" = true ] || [ "$#" -lt 2 ] || ! [[ "$2" =~ ^[a-fA-F0-9]{64}$ ]]; then
+                    error "--checksums-sha256 requires exactly one 64-character hexadecimal digest of checksums.txt"
+                    exit 1
+                fi
+                CHECKSUMS_SHA256=$(printf '%s' "$2" | tr 'A-F' 'a-f')
+                seen_digest=true
+                shift 2
+                ;;
+            --install-enclave-storage-helper) INSTALL_HELPER=true; shift ;;
+            --rootless) ROOTLESS=true; shift ;;
+            "") shift ;;
+            --help|-h)
+                echo "Usage: $0 [vX.Y.Z] [--checksums-sha256 DIGEST] [--rootless] [--install-enclave-storage-helper]"
+                echo "DIGEST must be an independently reviewed SHA256 of checksums.txt for the explicit version."
+                echo "Helper provisioning requires sudo and online attestations, even with a digest."
+                exit 0
+                ;;
+            v[0-9]*)
+                [ -z "$VERSION_ARG" ] || { error "Only one release version is allowed"; exit 1; }
+                VERSION_ARG="$1"
+                shift
+                ;;
+            *) error "Unknown installer argument: $1"; exit 1 ;;
+        esac
+    done
+    if [ -n "$CHECKSUMS_SHA256" ] && [ -z "${VERSION_ARG:-${AWF_VERSION:-}}" ]; then
+        error "--checksums-sha256 requires an explicit release version (argument or AWF_VERSION), not latest"
+        exit 1
+    fi
+    if [ "$ROOTLESS" = true ]; then
+        if [ "$INSTALL_HELPER" = true ]; then
+            error "--install-enclave-storage-helper cannot be combined with --rootless"
+            exit 1
+        fi
+        INSTALL_DIR="${HOME:?HOME is required for --rootless}/.local/bin"
+    fi
+}
+
+requires_attestations() {
+    [ -z "$CHECKSUMS_SHA256" ] || [ "$INSTALL_HELPER" = true ]
+}
 
 # Colors for output
 RED='\033[0;31m'
@@ -82,7 +136,9 @@ sha256_portable() {
 check_requirements() {
     local missing=()
 
-    for cmd in curl file gh; do
+    local commands=(curl file)
+    if requires_attestations; then commands+=(gh); fi
+    for cmd in "${commands[@]}"; do
         if ! command -v "$cmd" &> /dev/null; then
             missing+=("$cmd")
         fi
@@ -99,9 +155,20 @@ check_requirements() {
         exit 1
     fi
 
-    if ! gh attestation verify --help 2>/dev/null | grep -q -- '--signer-workflow'; then
+    if requires_attestations && ! gh attestation verify --help 2>/dev/null | grep -- '--signer-workflow' >/dev/null; then
         error "A trusted gh CLI with 'attestation verify --signer-workflow' support is required"
         error "Install or upgrade gh through an independently authenticated channel"
+        exit 1
+    fi
+}
+
+# Authenticate the manifest before using any payload digest it contains.
+verify_manifest_pin() {
+    local actual
+    actual=$(sha256_portable "$1")
+    if [ "$actual" != "$CHECKSUMS_SHA256" ]; then
+        error "Trusted checksums.txt SHA256 verification failed for ${VERSION}; refusing installation"
+        error "Expected: $CHECKSUMS_SHA256; got: $actual. Check the reviewed release pin; do not replace it with an untrusted download digest."
         exit 1
     fi
 }
@@ -159,7 +226,10 @@ check_node() {
         return
     fi
     if command -v node &> /dev/null; then
-        NODE_VERSION=$(node -v | sed 's/^v//')
+        if ! NODE_VERSION=$(node -v | sed 's/^v//'); then
+            USE_BUNDLE=false
+            return
+        fi
         NODE_MAJOR=$(echo "$NODE_VERSION" | cut -d. -f1)
         NODE_MINOR=$(echo "$NODE_VERSION" | cut -d. -f2)
         if [ "$NODE_MAJOR" -gt 20 ] || { [ "$NODE_MAJOR" -eq 20 ] && [ "$NODE_MINOR" -ge 19 ]; }; then
@@ -187,7 +257,9 @@ get_latest_version() {
     info "Fetching latest release version..."
     
     # Try GitHub API with -f to fail on HTTP errors
-    VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    if ! VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'); then
+        VERSION=""
+    fi
     
     if [ -z "$VERSION" ]; then
         error "Failed to fetch latest version from GitHub API"
@@ -289,10 +361,15 @@ verify_checksum() {
     # Extract the checksum for our binary from checksums.txt
     # Format: "checksum  filename" (two spaces) - use exact filename match at end of line
     local expected_sum
-    expected_sum=$(awk -v fname="$BINARY_NAME" '$2 == fname {print $1; exit}' "$checksums_file")
+    expected_sum=$(awk -v fname="$BINARY_NAME" '{
+        line = $0
+        if (sub(/^[^[:space:]]+  /, "", line) || sub(/^[^[:space:]]+ \*/, "", line)) {
+            if (line == fname) {count++; digest=$1}
+        }
+    } END {if (count == 1) print digest}' "$checksums_file")
     
     if [ -z "$expected_sum" ]; then
-        error "Could not find checksum for $BINARY_NAME in checksums.txt"
+        error "Expected exactly one checksum for $BINARY_NAME in authenticated checksums.txt"
         exit 1
     fi
     
@@ -323,9 +400,15 @@ verify_checksum() {
 # Only the authenticated, version-matched helper is authorized, never mount,
 # chown, a shell, or an arbitrary Python script.
 install_enclave_storage_helper() {
+    [ "$INSTALL_HELPER" = true ] || return 0
     [ "$(uname -s)" = Linux ] || return 0
     local helper="enclave-storage-helper.py"
-    if ! awk -v fname="$helper" '$2 == fname { found=1 } END { exit !found }' "$TEMP_DIR/checksums.txt"; then
+    if ! awk -v fname="$helper" '{
+        line = $0
+        if (sub(/^[^[:space:]]+  /, "", line) || sub(/^[^[:space:]]+ \*/, "", line)) {
+            if (line == fname) found=1
+        }
+    } END { exit !found }' "$TEMP_DIR/checksums.txt"; then
         warn "This authenticated legacy release has no unprivileged Docker enclave support; installing the ordinary CLI only"
         return 0
     fi
@@ -414,15 +497,17 @@ PY
 # Main installation function
 main() {
     info "Starting awf installation..."
+    parse_arguments "$@"
     
     # Check requirements
-    check_sudo
+    if [ "$ROOTLESS" != true ]; then check_sudo; fi
     check_requirements
     check_platform
     check_node
 
     # Get version (from argument, env var, or fetch latest)
-    set_version "$1"
+    set_version "$VERSION_ARG"
+    mkdir -p "$INSTALL_DIR"
 
     # Create temp directory with prefix for identification
     # mktemp creates secure temporary directories with proper permissions (0700)
@@ -441,8 +526,13 @@ main() {
     BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
     CHECKSUMS_URL="${BASE_URL}/checksums.txt"
     download_file "$CHECKSUMS_URL" "$TEMP_DIR/checksums.txt"
-    download_file "${BASE_URL}/release-identity.txt" "$TEMP_DIR/release-identity.txt"
-    verify_release_identity "$TEMP_DIR/checksums.txt" "$TEMP_DIR/release-identity.txt"
+    if [ -n "$CHECKSUMS_SHA256" ]; then
+        verify_manifest_pin "$TEMP_DIR/checksums.txt"
+    fi
+    if requires_attestations; then
+        download_file "${BASE_URL}/release-identity.txt" "$TEMP_DIR/release-identity.txt"
+        verify_release_identity "$TEMP_DIR/checksums.txt" "$TEMP_DIR/release-identity.txt"
+    fi
 
     if [ "$USE_BUNDLE" = true ]; then
         # Lightweight bundle path — requires Node.js >= 20
@@ -450,7 +540,7 @@ main() {
         ASSET_URL="${BASE_URL}/${ASSET_NAME}"
 
         download_file "$ASSET_URL" "$TEMP_DIR/$ASSET_NAME"
-        verify_provenance "$TEMP_DIR/$ASSET_NAME"
+        if requires_attestations; then verify_provenance "$TEMP_DIR/$ASSET_NAME"; fi
 
         # Verify checksum (reuse BINARY_NAME for the checksum lookup)
         BINARY_NAME="$ASSET_NAME"
@@ -476,7 +566,7 @@ main() {
 
         # Download binary and checksums
         download_file "$BINARY_URL" "$TEMP_DIR/$BINARY_NAME"
-        verify_provenance "$TEMP_DIR/$BINARY_NAME"
+        if requires_attestations; then verify_provenance "$TEMP_DIR/$BINARY_NAME"; fi
 
         # Verify checksum
         verify_checksum "$TEMP_DIR/$BINARY_NAME" "$TEMP_DIR/checksums.txt"

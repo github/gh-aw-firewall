@@ -35,6 +35,7 @@ const {
 } = require('./cross-provider-fallback');
 const { validateReasoningEffort } = require('./reasoning-effort-validation');
 const { sanitizeForLog, logRequestShape } = require('./logging');
+const { rememberInjectedCredentials, protectUpstreamResponse, redactCredentialError } = require('./credential-protection');
 const { createInvocationModelBudget } = require('./enclave-model-budget');
 const {
   MAX_AUTOMATIC_RECOVERIES,
@@ -638,6 +639,8 @@ function createSendUpstreamRequest({
           body,
           targetHost,
         });
+        rememberInjectedCredentials(req, Object.fromEntries(Object.entries(outboundHeaders)
+          .filter(([name]) => ['authorization', 'x-amz-security-token'].includes(name.toLowerCase()))));
       } catch (err) {
         budgetAttempt.settleMissing();
         otel.endSpanError(span, err, 503);
@@ -724,7 +727,20 @@ function createSendUpstreamRequest({
         onModelFallback,
         logRequest,
       });
-      handleUpstreamResponse(proxyRes, outboundHeaders, {
+      let protectedResponse;
+      try {
+        protectedResponse = protectUpstreamResponse(proxyRes, req);
+      } catch (error) {
+        proxyRes.destroy();
+        budgetAttempt.settleMissing();
+        otel.endSpanError(span, error, 502);
+        handleRequestError(error, {
+          res, requestId, provider, req, targetHost, startTime,
+          statusCode: 502, clientMessage: 'Upstream response could not be safely inspected',
+        });
+        return;
+      }
+      handleUpstreamResponse(protectedResponse, outboundHeaders, {
         body, res, provider, requestId, req, targetHost, upstreamPath, startTime, span, requestBytes,
         hasRetried,
         modelNotSupportedRetryCount,
@@ -773,6 +789,7 @@ function createSendUpstreamRequest({
 
     proxyReq.on('error', (err) => {
       if (cancellation.cancelled) return;
+      err = redactCredentialError(req, err);
       budgetAttempt.settleMissing();
       const failRequest = () => {
         otel.endSpanError(span, err, 502);

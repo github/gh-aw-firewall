@@ -17,6 +17,9 @@ on:
 permissions:
   contents: read
 
+env:
+  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
+
 jobs:
   file-permissions-check:
     name: Check File Permission Patterns (${{ matrix.name }})

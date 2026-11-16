@@ -223,6 +223,11 @@ describe('awf-config.schema.json', () => {
     expect(validate({ apiProxy: { maxAiCredits: -2 } })).toBe(false);
     expect(validate({ apiProxy: { maxAiCredits: -0.5 } })).toBe(false);
     expect(validate({ apiProxy: { maxAiCredits: 10001 } })).toBe(true);
+    expect(validate({ apiProxy: { maxAiCredits: '20K' } })).toBe(true);
+    expect(validate({ apiProxy: { maxAiCredits: '100m' } })).toBe(true);
+    expect(validate({ apiProxy: { maxAiCredits: ' 20K ' } })).toBe(true);
+    expect(validate({ apiProxy: { maxAiCredits: '20KK' } })).toBe(false);
+    expect(validate({ apiProxy: { maxAiCredits: '0K' } })).toBe(false);
     expect(validate({ apiProxy: { modelMultipliers: { 'gpt-4o': 2, 'claude': 1.5 } } })).toBe(true);
     expect(validate({ apiProxy: { modelMultipliers: { 'gpt-4o': 0 } } })).toBe(false);
     expect(validate({ apiProxy: { defaultModelMultiplier: 27 } })).toBe(true);

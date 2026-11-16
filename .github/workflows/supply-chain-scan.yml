@@ -26,8 +26,9 @@ name: Supply Chain Scan
 #
 # All scanners run via Docker (pre-installed on `ubuntu-latest`).
 # Compile once, then run PR-image CVE, published-image CVE, and license scans
-# on separate runners. Keep PR builds sequential to bound disk use and retain
-# the shared build-tools image until the enclave-agent build finishes.
+# on separate runners. Shard PR builds across independent runners, keeping builds
+# sequential within each shard to bound disk use. Build-tools and enclave-agent
+# share a shard so the exact local base survives until its dependent build finishes.
 #
 # To make this a *required* check, add
 # "Supply Chain Scan / Compile + Syft/Grype/Grant"
@@ -73,11 +74,11 @@ jobs:
       - name: Configure Docker Hub cache
         run: bash scripts/ci/configure-docker-mirror.sh
 
-      - name: Checkout gh-aw v1.2.1
+      - name: Checkout gh-aw v1.2.3
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: github/gh-aw
-          ref: 8f3224323bdfd3ae8574c99c5da8a65d450577bb
+          ref: 5b6d021250c8a13b2b34fcc78724a2589a4c6772
           path: .tmp/gh-aw-compiler
           persist-credentials: false
 
@@ -87,28 +88,18 @@ jobs:
           go-version-file: .tmp/gh-aw-compiler/go.mod
           cache: false
 
-      - name: Build gh-aw v1.2.1 and scoped acceptance compiler
+      - name: Build gh-aw v1.2.3 compiler
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$HOME/.local/share/gh/extensions/gh-aw"
           go build \
             -C .tmp/gh-aw-compiler \
-            -ldflags="-X main.version=v1.2.1" \
+            -ldflags="-X main.version=v1.2.3" \
             -o "$HOME/.local/share/gh/extensions/gh-aw/gh-aw" \
-            ./cmd/gh-aw
-          git -C .tmp/gh-aw-compiler apply --unidiff-zero \
-            "${GITHUB_WORKSPACE}/scripts/ci/compiler-agent-acceptance-v0.28.66.patch"
-          go test -C .tmp/gh-aw-compiler ./pkg/workflow ./pkg/parser \
-            -run 'TestValidateCloudHypervisorAgentAcceptance|TestCompileCloudHypervisorAgentAcceptance|TestMainWorkflowSchemaOrdinaryEnclaveTokenLimitAndEvals' -count=1
-          go build \
-            -C .tmp/gh-aw-compiler \
-            -ldflags="-X main.version=dev-v1.2.1-agent-acceptance-v0.28.66-budget131072" \
-            -o "$RUNNER_TEMP/gh-aw-agent-acceptance" \
             ./cmd/gh-aw
           rm -rf .tmp/gh-aw-compiler
           gh aw version
-          "$RUNNER_TEMP/gh-aw-agent-acceptance" version
 
       - name: Prepare pinned Syft scanner
         run: |
@@ -120,22 +111,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          workflows=()
-          while IFS= read -r workflow; do
-            workflows+=("$workflow")
-          done < <(
-            find .github/workflows -maxdepth 1 -type f -name '*.md' \
-              ! -name 'smoke-enclave-cloud-hypervisor-copilot.md' \
-              -print | sort
+          mapfile -t workflows < <(
+            find .github/workflows -maxdepth 1 -type f -name '*.md' -print | sort
           )
-          gh aw compile --syft --action-mode action --action-tag v1.2.1 "${workflows[@]}"
-
-      - name: Compile Copilot acceptance with scoped backport
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          "$RUNNER_TEMP/gh-aw-agent-acceptance" compile --syft --action-mode action \
-            --action-tag v1.2.1 .github/workflows/smoke-enclave-cloud-hypervisor-copilot.md
+          gh aw compile --syft --action-mode action --action-tag v1.2.3 "${workflows[@]}"
 
       - name: Export compiled image inventory
         id: inventory
@@ -157,11 +136,29 @@ jobs:
     name: Scan / ${{ matrix.scan }}
     needs: [compile]
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
-        scan: [pr-images, published-cves, licenses]
+        include:
+          # A slow apt mirror must not consume the budget for all nine images.
+          # Keep the exact local build-tools -> enclave-agent dependency together.
+          - scan: pr-toolchain
+            pr-images: true
+            images: [build-tools, enclave-agent]
+            timeout: 60
+          - scan: pr-agent
+            pr-images: true
+            images: [agent]
+            timeout: 60
+          - scan: pr-services
+            pr-images: true
+            images: [api-proxy, router, cli-proxy, gh-aw-node, enclave-script, enclave-mcp-server]
+            timeout: 60
+          - scan: published-cves
+            timeout: 40
+          - scan: licenses
+            timeout: 40
 
     steps:
       - name: Checkout repository
@@ -170,7 +167,7 @@ jobs:
           persist-credentials: false
 
       - name: Free unused hosted-runner disk space
-        if: matrix.scan == 'pr-images'
+        if: matrix.pr-images == true
         run: |
           df -h /
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
@@ -179,17 +176,17 @@ jobs:
 
       - name: Configure Docker Hub cache
         env:
-          AWF_DOCKER_CONTAINERD_SNAPSHOTTER: ${{ matrix.scan == 'pr-images' && 'true' || 'false' }}
+          AWF_DOCKER_CONTAINERD_SNAPSHOTTER: ${{ matrix.pr-images == true && 'true' || 'false' }}
         run: bash scripts/ci/configure-docker-mirror.sh
 
       - name: Set up Docker Buildx for cached PR builds
-        if: matrix.scan == 'pr-images'
+        if: matrix.pr-images == true
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver: docker
 
       - name: Expose GitHub Actions cache runtime for Buildx CLI
-        if: matrix.scan == 'pr-images'
+        if: matrix.pr-images == true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
@@ -209,6 +206,8 @@ jobs:
         run: docker pull ghcr.io/anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237
 
       - name: Authenticate to GHCR for image scanning
+        # Only registry-based scans need credentials; PR scans use local archives.
+        if: matrix.pr-images != true
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       # Persist Grype's vulnerability DB across runs. The unique run_id key never
@@ -300,16 +299,17 @@ jobs:
           PYEOF
 
       - name: Build and scan PR container images (BLOCKING gate, Grype v0.116.0)
-        if: matrix.scan == 'pr-images'
+        if: matrix.pr-images == true
         # Builds every production image from the Dockerfiles in
         # this PR and scans them with --fail-on high. This is the BLOCKING supply-chain
         # gate: it is the only scan that reflects the CVE fixes in a PR, so a
         # High/Critical finding here fails the job.
         env:
           GRYPE_DB: ${{ runner.temp }}/grype-db
+          PR_IMAGES: ${{ toJSON(matrix.images) }}
         run: |
           python3 - <<'PYEOF'
-          import datetime, hashlib, os, subprocess, sys
+          import datetime, hashlib, json, os, subprocess, sys
           cwd = os.getcwd()
           db_cache = os.environ['GRYPE_DB']
           # Never import yesterday's package layers: refresh apt/apk security
@@ -329,6 +329,13 @@ jobs:
               ('enclave-agent',       'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-agent', '--build-arg', 'BUILD_TOOLS_IMAGE=awf-pr-scan-build-tools:pr']),
               ('enclave-mcp-server',  'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-mcp-server']),
           ]
+          selected = json.loads(os.environ['PR_IMAGES'])
+          known = {name for name, _, _ in containers}
+          if not isinstance(selected, list) or not selected or any(name not in known for name in selected):
+              raise ValueError(f'Invalid PR image shard: {selected!r}')
+          if 'enclave-agent' in selected and 'build-tools' not in selected:
+              raise ValueError('enclave-agent must share a shard with build-tools')
+          containers = [entry for entry in containers if entry[0] in selected]
           def report_disk(label):
               print(f'::group::disk usage ({label})', flush=True)
               subprocess.run(['df', '-h', '/', '/tmp'])

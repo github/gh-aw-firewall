@@ -242,7 +242,7 @@ describe('generatePolicyManifest', () => {
         apiProxyPorts,
       };
       const result = generateSquidConfig(config);
-      expect(result).toContain(`acl allow_api_proxy_ip dst ${apiProxyIp}`);
+      expect(result).toContain(`acl allow_api_proxy_ip dst -n ${apiProxyIp}`);
       expect(result).toContain('http_access allow allow_api_proxy_ip');
       const allowPos = result.indexOf('http_access allow allow_api_proxy_ip');
       const denyIpv4Pos = result.indexOf('http_access deny dst_ipv4');

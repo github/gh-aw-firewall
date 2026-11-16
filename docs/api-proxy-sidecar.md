@@ -585,6 +585,21 @@ API keys are held in the sidecar container, not the agent:
 - A compromised agent cannot exfiltrate credentials
 - Keys are not exposed in the agent container's stdout/stderr logs
 
+#### Upstream credential-echo masking
+
+The sidecar also protects against an upstream that echoes the credential it was just given (for example in a `401`/`502` diagnostic body, a response header, or a transport error). For each request it remembers the credential values it actually injected: provider API keys, bearer tokens, the freshly minted OIDC token, trusted-service secret headers, and the AWS access key, session token and signature of a SigV4-signed request. It masks those values before anything reaches the agent or the sidecar log:
+
+- **Response bodies** are masked in a stream, holding back only a suffix that could complete a credential in the next chunk. For identity-encoded bodies, masking is same-byte-length (a byte that does not occur in any credential), so an existing `Content-Length` remains valid. JSON-escaped forms are masked as well.
+- **Response headers** whose name or value contain a credential are dropped or masked, and integrity headers (`ETag`, `Content-MD5`, `Digest`, `Content-Digest`, `Repr-Digest`) are removed from masked responses because they describe the original bytes.
+- **Body-bearing compressed responses** (`gzip`, `deflate`, `br`) are decoded, masked and re-encoded. Since the encoded body can change size, `Content-Length` is removed. An unsupported `Content-Encoding`, or a corrupt or truncated compressed body, fails closed: the client receives `502` `Upstream response could not be safely inspected` (or the connection is aborted) instead of unmasked bytes.
+- **Errors and logs** (`request_error`, WebSocket upgrade failures) pass through the same redaction, and WebSocket handshakes, message frames and close reasons are masked without buffering ordinary model output.
+
+Encoding validation applies only when a response body is present. `HEAD`, `204`, `205`, `304`, and responses with `Content-Length: 0` are treated as bodyless: their `Content-Encoding` is not decoded or validated and can be retained, including an unsupported value.
+
+Masking is a defense-in-depth layer for credentials the sidecar itself injected; it does not replace keeping keys out of the agent environment. A `502` with `Upstream response could not be safely inspected` is a masking failure, not a provider authentication error.
+
+Implementation: `containers/api-proxy/credential-protection.js`, `containers/api-proxy/credential-websocket.js`. Tests: `containers/api-proxy/credential-protection.test.js`, `containers/api-proxy/server.credential-isolation.test.js`.
+
 :::danger[Protect host credentials]
 API keys are stored in the sidecar container's environment and in the Docker Compose configuration on disk. Protect the host filesystem and configuration accordingly. Only non-sensitive key prefixes are logged for debugging.
 :::
@@ -642,7 +657,7 @@ OpenAI API
 ### 3. Header injection
 
 The Node.js proxy automatically:
-- **Strips** any client-supplied `Authorization`, `x-api-key`, `Proxy-Authorization`, and `X-Forwarded-*` headers
+- **Strips** any client-supplied `Authorization`, `x-api-key`, `api-key`, `x-goog-api-key`, `Proxy-Authorization`, `Forwarded`, `Via`, `x-awf-caller`, and `X-Forwarded-*` headers
 - **Injects** the correct authentication headers:
   - **OpenAI**: `Authorization: Bearer $OPENAI_API_KEY`
   - **Anthropic**: `x-api-key: $ANTHROPIC_API_KEY` and `anthropic-version: 2023-06-01` (if not already set by the client)
@@ -1892,7 +1907,7 @@ AWF supports OIDC-based credential exchange with multiple cloud providers via Gi
 Never print or inspect either Actions OIDC variable. Documentation audits should verify the `id-token: write` permission and the presence/consistency of non-secret provider configuration instead.
 
 :::note[OIDC request capability is sidecar-only]
-AWF forwards `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` only to the api-proxy sidecar when `AWF_AUTH_TYPE=github-oidc`. The variables are excluded from the agent even when `--env-all`, `--env-file`, or explicit `--env` options request them. The minted GitHub JWT and exchanged provider credentials also remain inside the sidecar.
+AWF forwards `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` only to the api-proxy sidecar when `AWF_AUTH_TYPE=github-oidc` or when `GH_AW_OTLP_WORKLOAD_IDENTITY` is set for OTLP exporter workload identity (`buildOtelEnv()` in `src/services/api-proxy-env-config.ts`). The variables are excluded from the agent even when `--env-all`, `--env-file`, or explicit `--env` options request them. The minted GitHub JWT and exchanged provider credentials also remain inside the sidecar.
 
 GitHub Agentic Workflows handles HTTP MCP `auth.type: github-oidc` separately: the compiler-generated, runner-owned **Start MCP Gateway** step passes the Actions variables directly to the MCP gateway, which mints an audience-bound JWT for the remote server. AWF neither launches nor configures that gateway, and the variables do not need to pass through the agent. [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) is resolved by [github/gh-aw#50054](https://github.com/github/gh-aw/pull/50054); recompile older workflow lock files that predate this direct runner-to-gateway path.
 :::
@@ -1917,7 +1932,7 @@ Exchanges the GitHub OIDC JWT for an Azure AD access token via workload identity
 Default OIDC audience: `api://AzureADTokenExchange`
 
 :::caution[Agent routing is not automatically configured]
-Azure OIDC can initialize in the sidecar, but OIDC configuration alone does not set `OPENAI_BASE_URL` or OpenAI compatibility placeholders in the agent. `buildOpenAiCredentialEnv()` currently enables agent routing only when `OPENAI_API_KEY` is configured. Until OIDC-aware OpenAI routing is implemented, AWF does not provide a complete keyless Azure OpenAI invocation path.
+Azure OIDC can initialize in the sidecar, but OIDC configuration alone does not set `OPENAI_BASE_URL` or OpenAI compatibility placeholders in the agent. `buildOpenAiCredentialEnv()` enables agent routing when `OPENAI_API_KEY` is configured or when native OpenAI WIF is fully configured (`isOpenAiOidcConfigured()`, which requires `AWF_AUTH_PROVIDER=openai` plus both OpenAI IDs). Azure OIDC does not enable that path. Until OIDC-aware OpenAI routing is implemented for Azure, AWF does not provide a complete keyless Azure OpenAI invocation path.
 :::
 
 ### AWS Bedrock
@@ -1959,7 +1974,7 @@ Exchanges the GitHub OIDC JWT for a GCP access token via the Security Token Serv
 Default GitHub OIDC audience: `https://iam.googleapis.com/` followed by the `gcpWorkloadIdentityProvider` value. `AWF_AUTH_OIDC_AUDIENCE` overrides this default; the STS audience remains `//iam.googleapis.com/` followed by the provider resource name.
 
 :::note
-`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` are injected by the Actions runner automatically. AWF forwards them to the sidecar when `AWF_AUTH_TYPE=github-oidc` and excludes them from the agent container.
+`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` are injected by the Actions runner automatically. AWF forwards them to the sidecar when `AWF_AUTH_TYPE=github-oidc` or when `GH_AW_OTLP_WORKLOAD_IDENTITY` is set for OTLP exporter workload identity, and excludes them from the agent container.
 :::
 
 :::tip
@@ -2059,41 +2074,67 @@ accounted limit.
 
 ## Runtime and AI-credit steering
 
-Budget steering is **opt-in**. Pass `--enable-token-steering` on the CLI or set `apiProxy.enableTokenSteering: true` in the config file:
+Budget steering is **on by default**. It is active unless the config file sets `apiProxy.steering.budget: false` (or its alias `apiProxy.enableTokenSteering: false`) or the CLI passes `--no-steering-budget`. Set `maxAiCredits` to make credit notices track your own budget rather than the hard cap:
 
 ```yaml
 apiProxy:
   maxAiCredits: 25
-  enableTokenSteering: true
 ```
 
-This one switch enables advisory warnings for AI-credit and runtime thresholds at 80%, 90%, 95%, and 99%. Credit thresholds use the lower of `maxAiCredits` and the operator-controlled hard cap (10,000 credits by default), or the hard cap alone when no credit budget is configured. Runtime steering uses the actual agent start marker, not the first model request. Host timeout enforcement uses a separate host-controlled deadline and does not trust the agent-writable marker.
+`apiProxy.steering.budget` (default `true`) is the single switch for advisory warnings at 80%, 90%, 95%, and 99% of each budget, plus one "little left" notice per kind (see below); `maxAiCredits` does not enable or disable them. Each kind of notice also needs its own budget: credit notices use `maxAiCredits` or the hard cap, and time notices are sent only when `container.agentTimeout` (CLI: `--agent-timeout`) is set. Credit thresholds use the lower of `maxAiCredits` and the operator-controlled hard cap (10,000 credits by default), or the hard cap alone when no credit budget is configured. Runtime steering uses the actual agent start marker, not the first model request. Host timeout enforcement uses a separate host-controlled deadline and does not trust the agent-writable marker.
 
-To opt a workflow out explicitly, set `apiProxy.enableTokenSteering: false` (or omit the field). The CLI/config value is the only source of the sidecar's `AWF_ENABLE_TOKEN_STEERING` env var, which is emitted only when steering is enabled.
+To turn notices off, set `apiProxy.steering.budget: false` (CLI: `--no-steering-budget`). Omitting the field leaves them on; `apiProxy.steering.budget: true` (CLI: `--steering-budget`) states the default explicitly. `apiProxy.enableTokenSteering` (CLI: `--enable-token-steering`) remains an alias for `apiProxy.steering.budget`; setting the two to different values is a configuration error. The CLI/config value is the only source of the sidecar's `AWF_ENABLE_TOKEN_STEERING` env var, which is emitted only when steering is enabled.
 
-Steering is advisory and delivered only in the body of a later eligible outbound model request. It cannot interrupt a running model request or tool, extend the timeout, raise a budget, guarantee a subsequent request, or guarantee completion/submission. Terminal budget exhaustion still rejects requests normally. The proxy cannot reliably distinguish main-agent requests from sub-agent requests: the recorded `x-initiator` value identifies billing class (`agent` or `user`), not which agent made the request. A notice may therefore be delivered to whichever agent or sub-agent request is next.
+Steering is advisory and delivered only in the body of a later eligible outbound model request. It cannot interrupt a running model request or tool, extend the timeout, raise a budget, guarantee a subsequent request, or guarantee completion/submission. Terminal budget exhaustion still rejects requests normally.
 
-Each threshold is tracked once per run. At most one warning is injected per eligible request; the largest crossed percentage is delivered first, then pending warnings on later requests. Equal percentages are ordered time, then AI credits. Classifier, malformed, unsupported, or otherwise unmodifiable requests leave warnings pending; a warning is consumed only after successful injection.
+**Every conversation hears each notice.** A harness keeps its own copy of the conversation and resends it on every turn, so a notice the proxy adds lasts one turn: the model's reply to it stays in the history, the notice does not. In a run with sub-agents, the agent that can publish results may therefore never see a notice sent to a sub-agent. The proxy instead delivers the current time notice and the current AI-credit notice to **every conversation in the run, once each**, on that conversation's own next request that ends with tool results. It never needs to know which agent is the main one.
 
-When a usage record is available for a request carrying a notice, its `token-usage.jsonl` record includes `steering: { "type": "ai_credit", "threshold": 90 }` (with `type` set to `timeout` or `ai_credit`, and `threshold` to 80, 90, 95, or 99). This lets consumers correlate the delivered notice with its request ID without recording prompt content.
+- **Conversations** are recognised by an opaque key derived from their opening: the system prompt or instructions plus the opening user turn (every message before the model's first reply, which for most harnesses is the first user message). The key is an HMAC-SHA-256 under a random secret the proxy generates at startup and keeps in memory only (never logged, written to a file or exposed through `/reflect`), so it is comparable only within one proxy process and does not reveal prompt content. Harnesses keep this fixed for the length of a conversation to keep their own prompt cache, and each sub-agent starts with its own opening. Prompt-cache markers (`cache_control`, `copilot_cache_control`) and Claude Code's per-request `x-anthropic-billing-header` system block are ignored.
+- **Eligible requests** end with a tool result: a `tool` message (Chat Completions), a final user message with `tool_result` blocks (Messages, including Claude on Vertex `:rawPredict`/`:streamRawPredict` and Claude on Bedrock `/model/<id>/invoke`/`/model/<id>/invoke-with-response-stream`; a body with an `anthropic_version` field is read as Messages on any route), a tool output item such as `function_call_output` (Responses; an input message without a `role` counts as a user message), or function responses (Gemini). These are the requests an agent makes while working, so harness housekeeping requests, such as a request to summarize the conversation, are skipped and the notice waits for the next eligible request. Token-counting requests (such as `/v1/messages/count_tokens`, `/v1/responses/input_tokens` or Gemini `:countTokens`) and compaction requests (`/v1/responses/compact`) are not working model calls and never carry or acknowledge a notice.
+- **Responses requests that continue a stored response** with `previous_response_id` (or a non-null `conversation`) carry no history to hash. All of them together count as one conversation, with its own row in the table below: each notice goes to one such request per run, independently of the other conversations, under the same pending, acknowledge and in-flight rules.
+- The proxy keeps one table per notice kind, mapping each conversation key to the latest notice that conversation received. A row is written only when the request carrying the notice is acknowledged (see below). The table holds at most 1,024 conversations; when full, the conversation notified least recently is dropped and, if it returns, hears the current notice once more.
+- If a harness rewrites the opening when it compacts a conversation, or the proxy restarts (which generates a new secret and so changes every conversation key), the conversation counts as new and hears the current notice once more, with current numbers.
+- Known limitation: a sub-agent started from a copy of another conversation shares its opening and is treated as having already heard that conversation's notices.
 
-The message formats are:
+**"Little left" notice.** Besides the thresholds, each kind sends one more notice when little budget remains, even if no threshold has been crossed: when about five model requests' worth of AI credits remain (remaining credits at most five times the average cost of the run's recent priced model requests), or about five minutes remain before the deadline. It fires only once at least half of the budget or deadline has been used, so that a run with very large requests isn't warned at the start, and at most once per run for each kind. It then becomes that kind's current notice and reaches each conversation once, like a threshold notice. A credit "little left" notice needs a recent request cost, so it does not fire while none is known.
+
+**Ranking.** Each notice has a rank: a threshold notice ranks as its percentage, and the "little left" notice ranks just above the highest threshold already crossed when it fires (including thresholds crossed by the same request), and below the next one. For example, if it fires after the 90% threshold and before 95%, it ranks 90.5: it supersedes the 80% and 90% notices, and the 95% and 99% notices supersede it. If it fires before 80%, the 80%, 90%, 95% and 99% notices all supersede it.
+
+At most one warning is injected per eligible request, carrying the highest-ranked notice the conversation has not yet received; equal ranks are ordered time, then AI credits. A conversation that receives a newer warning never receives an older one of the same kind (time or AI credits), since the newest one already describes the current state. Classifier, malformed, unsupported, or otherwise unmodifiable requests leave warnings pending. A warning is marked as sent as soon as the upstream response arrives with a 2xx status, for every response, streaming or not and regardless of content type, because the model has accepted the request and is answering the notice. A client that closes early (Codex, for example, closes right after `response.completed`, and a Gemini `:streamGenerateContent` client may close before the JSON stream ends) therefore does not cause the warning to be repeated. The trade-off is that a 2xx reply the client never fully receives, or a stream that fails after a 2xx start, still counts as delivered; such cases are rare, and the next threshold sends a newer warning anyway. Non-2xx responses, requests rejected by a guard or by request transformation, and clients that disconnect before the upstream response arrives leave the warning pending for that conversation's next request. While a request carrying a warning is in flight, concurrent requests in the same conversation do not repeat it; different conversations can each carry the current warning at the same time.
+
+When a usage record is available for a request carrying a notice, its `token-usage.jsonl` record includes:
+
+- `steering: { "type": "ai_credit", "threshold": 90 }` (with `type` set to `timeout` or `ai_credit`, and `threshold` to 80, 90, 95, or 99) only on the run's **first** delivery of that threshold, so it appears at most once per threshold per run. The "little left" notice has no threshold of its own, but when a delivery of it supersedes crossed thresholds of the same kind that have not yet been recorded (for example, one request crosses 80% and triggers it), that record also carries `steering` for the highest of them, since the notice states the amount actually used and so conveys that threshold; that threshold then counts as recorded.
+- `steering_delivery: { "type": "ai_credit", "trigger": "threshold", "threshold": 90, "conversation": "3f9a0c1b2d4e", "first": false }` on **every** delivery. `trigger` tells the two kinds of notice apart: `"threshold"` for a threshold notice, or `"little_left"` for the "little left" notice, whose `threshold` is `null` (for example `{ "type": "timeout", "trigger": "little_left", "threshold": null, "conversation": "3f9a0c1b2d4e", "first": true }`). `conversation` is the first 12 hex characters of the conversation key: an opaque per-run identifier, comparable only between records of the same run, that does not reveal prompt content (`null` in two cases: (a) a Responses request that continues a stored response, which shares one entry and receives each notice once per run; (b) an eligible request whose opening cannot be keyed, such as Responses input that starts with a `reasoning` item, which uses run-level state), and `first` is `true` on the run's first delivery of the notice (for a threshold notice, the record that also carries `steering`).
+
+These let consumers audit which conversations heard which notice by request ID without recording prompt content.
+
+Every notice, threshold or "little left", states the facts first, computed when the notice is added to a request, then one line about what to do. The line is the same for every conversation, and each agent reads it according to its own role; the proxy does not try to work out which conversation is the main agent. For example:
 
 ```
-[AWF AI CREDIT WARNING] You have used 90% of your AI-credit budget. Complete your current task and prepare final output.
-[AWF TIME WARNING] You have used 90% of your allotted run time. Complete your current task and prepare final output.
+[AWF AI CREDIT WARNING] 247 of 300 AI credits are used; at the current rate about 12 more model requests fit. If you are responsible for this workflow's final output, stop the remaining work and submit it now with what you have. Otherwise, finish your current step and return what you have to the agent that started you.
+[AWF TIME WARNING] 16 of 20 minutes have passed; about 4 minutes remain. If you are responsible for this workflow's final output, stop the remaining work and submit it now with what you have. Otherwise, finish your current step and return what you have to the agent that started you.
 ```
 
-Injection is protocol-aware and preserves caller content and tool exchanges:
+- **AI credits**: credits used and the ceiling, to about three significant digits of the ceiling (as many decimal places as that needs, so very small ceilings such as 0.0000001 keep meaningful values). Credits used are rounded up and the ceiling down, so a notice never overstates what is left (299.7 of 300 reads `300 of 300`). "About N more model requests" is the remaining credits divided by the average cost of the run's 10 most recent priced model requests (routing-classifier requests are excluded), rounded down; below one it reads "less than one more model request fits". With no recent request cost, the estimate is left out (`247 of 300 AI credits are used.`).
+- **Time**: whole minutes passed (rounded down) and minutes remaining (rounded; "less than a minute remains" under one minute).
+
+The wording and the triggers are fixed in AWF and are not configurable. Workflow-specific guidance, such as which tool publishes the results, belongs in the workflow's prompt.
+
+Injection is protocol-aware and preserves caller content and tool exchanges. The notice is always added at the end of the conversation, after the last tool result; the top-level system prompt, instructions, tools, and earlier items are never changed, so the prompt-cache prefix (and any cache breakpoint on the last existing block, whether placed by the harness or by `AWF_ANTHROPIC_AUTO_CACHE`) is preserved:
 
 | Request format | Injection mechanism |
 |---------------|---------------------|
-| OpenAI / Copilot Chat Completions | Inserts a `system` message after existing system messages |
-| OpenAI / Copilot Responses | Appends one final `developer` message item to `input` after all existing items, preserving `instructions`, tools, existing input/tool history, and stream fields for prompt-cache reuse; string input becomes a user message followed by the notice |
-| Anthropic / Copilot Messages | Appends a text block to `system` |
-| Gemini | Appends a text part to `systemInstruction.parts` |
+| OpenAI / Copilot Chat Completions | Appends a final `user` message after the last (tool) message; it stays the final `input` item when translated to Responses |
+| OpenAI / Copilot Responses | Appends one final `developer` message item to `input` after all existing items, preserving `instructions`, tools, existing input/tool history, and stream fields; string input becomes a user message followed by the notice |
+| Anthropic / Copilot Messages | Appends a text block to the final user message, after its `tool_result` blocks; `system` is unchanged |
+| Gemini | Appends a text part to the final user turn, after its function responses; `systemInstruction` is unchanged |
 
-`/reflect` exposes AI-credit `thresholds_crossed` and `thresholds_pending`, and runtime deadline state at `time_steering` (`started_at_ms`, `percent_elapsed`, and threshold fields).
+For Messages, Chat Completions and Gemini, requests whose conversation is empty or ends in an assistant/model turn (such as an assistant prefill) are left unchanged and the warning stays pending.
+
+Known limitation: on Anthropic models older than Claude Opus 4.5 (for example Sonnet 4.5 and Haiku 4.5) with extended thinking, a text block in the final user message starts a new assistant loop and Anthropic strips earlier thinking blocks, so the notice request misses the message-prefix cache once (no worse than the previous system-prompt placement). The next request is tool-result-only again and reads the cache normally. Claude Opus 4.5 and later keep earlier thinking blocks by default and are unaffected; AWF does not apply model-specific handling.
+
+`/reflect` exposes AI-credit `thresholds_crossed`, `thresholds_pending` (threshold percentages only) and `little_left_triggered`, and runtime deadline state at `time_steering` (`started_at_ms`, `percent_elapsed`, and the same threshold and `little_left_triggered` fields).
 
 ### Introspection
 

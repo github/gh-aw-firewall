@@ -204,6 +204,34 @@ describe('generateDockerCompose', () => {
       expect(result.networks['awf-routing']).toMatchObject({ internal: true });
     });
 
+    it('keeps cloud-hypervisor routing on the host proxy and private router bridge', () => {
+      const result = generateDockerCompose(routedConfig({ containerRuntime: 'cloud-hypervisor' }), {
+        ...mockNetworkConfig,
+        proxyIp: '172.30.0.30',
+      });
+      const proxy = result.services['api-proxy'] as any;
+      const router = result.services.router as any;
+
+      // The microVM guest is not a Compose service and receives no routing mount.
+      expect(result.services.agent).toBeUndefined();
+      expect(Object.keys(router.networks)).toEqual(['awf-routing']);
+      expect(router.networks['awf-routing']).toEqual({ aliases: ['gh-aw-router'] });
+      expect(router.ports).toBeUndefined();
+      expect(result.networks['awf-routing']).toMatchObject({ internal: true });
+      expect(proxy.networks).toHaveProperty('awf-routing');
+      expect(proxy.depends_on.router).toEqual({ condition: 'service_healthy' });
+      expect(proxy.volumes).toEqual(expect.arrayContaining([
+        `${mockConfig.workDir}-routing/input:/run/awf-routing/input:ro`,
+        `${mockConfig.workDir}-routing/output:/run/awf-routing/output:rw`,
+      ]));
+      expect(JSON.parse(proxy.environment.AWF_ROUTING_CONFIG).task.conversationFile)
+        .toBe('/run/awf-routing/input/conversation.json');
+      for (const [name, service] of Object.entries(result.services)) {
+        if (name === 'api-proxy') continue;
+        expect((service.volumes ?? []).some((volume: string) => volume.includes('-routing/'))).toBe(false);
+      }
+    });
+
     it('builds the router from the checkout with the contract digest under --build-local', () => {
       const routingConfig: WrapperConfig = {
         ...mockConfig,

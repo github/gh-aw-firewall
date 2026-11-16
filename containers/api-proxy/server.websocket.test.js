@@ -24,7 +24,7 @@ function makeMockSocket() {
   const s = new EventEmitter();
   s.write = jest.fn();
   s.destroy = jest.fn();
-  s.pipe = jest.fn();
+  s.pipe = jest.fn(destination => destination);
   s.writable = true;
   s.destroyed = false;
   return s;
@@ -148,7 +148,7 @@ describe('proxyWebSocket', () => {
       tlsSocket = new EventEmitter();
       tlsSocket.write = jest.fn();
       tlsSocket.destroy = jest.fn();
-      tlsSocket.pipe = jest.fn();
+      tlsSocket.pipe = jest.fn(destination => destination);
     });
 
     it('returns 502 when the CONNECT response is not 200', () => {
@@ -218,7 +218,7 @@ describe('proxyWebSocket', () => {
           const upgradeReqStr = upgradeWrite[0];
           expect(upgradeReqStr).toMatch(/Authorization:\s+Bearer\s+\S+/);
           expect(upgradeReqStr).toContain('host: api.openai.com');
-          expect(tlsSocket.pipe).toHaveBeenCalledWith(socket);
+          expect(tlsSocket.pipe).toHaveBeenCalledWith(expect.objectContaining({ pipe: expect.any(Function) }));
           expect(socket.pipe).toHaveBeenCalledWith(tlsSocket);
           resolve();
         }));
@@ -331,7 +331,7 @@ describe('proxyWebSocket', () => {
           c => typeof c[0] === 'string' && c[0].startsWith('GET ')
         );
         expect(upgradeWrite).toBeDefined();
-        expect(tunnel.pipe).toHaveBeenCalledWith(socket);
+        expect(tunnel.pipe).toHaveBeenCalledWith(expect.objectContaining({ pipe: expect.any(Function) }));
         expect(socket.pipe).toHaveBeenCalledWith(tunnel);
         resolve();
       })));

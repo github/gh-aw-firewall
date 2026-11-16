@@ -16,6 +16,9 @@ concurrency:
   group: docs-preview-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+env:
+  NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
+
 jobs:
   build-preview:
     runs-on: ubuntu-latest

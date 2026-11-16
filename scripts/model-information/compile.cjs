@@ -9,6 +9,8 @@ const { validate, validateRecords } = require('../../shared/model-information/co
 const { importLegacySnapshot } = require('../../shared/model-information/import-legacy-snapshot');
 const schema = require('../../shared/model-information/schema.v1.json');
 const exact = require('../../shared/model-information/exact-pricing');
+const pricingConsumer = require('../../shared/model-information/pricing-consumer');
+const { json: consumerJson, digest } = require('../../shared/model-information/publication-contract.cjs');
 
 const rootArgument = process.argv.find(arg => arg.startsWith('--root='));
 if (rootArgument && !process.argv.includes('--check')) {
@@ -516,7 +518,26 @@ function compile() {
         [model.identity.key, model.importedPricing])),
     },
   };
+  const pricingSnapshot = {
+    kind: 'awf-pricing-consumer', schemaVersion: 1, schemaHash: pricingConsumer.schemaHash,
+    catalogRevision: revision, generatedAt,
+    maintained: sortedModels.filter(model =>
+      model.provenance.authority === 'maintained' && model.tariffs?.length).map(model => ({
+      identity: Object.fromEntries(['key', 'provider', 'rawId', 'lookupId']
+        .map(key => [key, model.identity[key]])),
+      provenance: model.provenance, tariffs: model.tariffs,
+    })),
+    compatibility: fallbackPricing.compatibility,
+    imported: Object.entries(fallbackPricing.imported).map(([provider, prices]) => ({
+      scope: { provider, channel: 'native-api' }, prices,
+    })),
+  };
+  const pricingSnapshotBytes = consumerJson({
+    ...pricingSnapshot, revision: digest(consumerJson(pricingSnapshot)),
+  });
+  pricingConsumer.readPricingSnapshot(pricingSnapshotBytes);
   const output = {
+    'shared/model-information/pricing-consumer.v1.generated.json': pricingSnapshotBytes,
     [importedFile]: json(imported),
     'shared/model-information/naming.generated.json': naming,
     'containers/api-proxy/model-information.naming.generated.json': naming,

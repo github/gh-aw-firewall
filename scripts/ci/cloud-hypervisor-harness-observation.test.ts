@@ -423,13 +423,17 @@ describe('portable Cloud Hypervisor acceptance fixtures (not KVM evidence)', () 
           "((needs.check_security_relevance.outputs.security_files_changed != '0') && " +
           "((github.event_name == 'pull_request') && github.event.label.name == 'ready-for-aw' || " +
           "!(github.event_name == 'pull_request'))) && " +
-          "(needs.activation.outputs.daily_ai_credits_exceeded != 'true')",
+          "(needs.activation.outputs.daily_ai_credits_exceeded != 'true' && " +
+          "needs.activation.outputs.daily_ai_credits_guardrail_status != 'quota_blocked')",
         );
         continue;
       }
       // Require the complete known event-selector shape, not just absence of
       // this label's spelling: an unconditional labeled agent must fail too.
-      expect(normalized(agent.if)).toBe("needs.activation.outputs.daily_ai_credits_exceeded != 'true'");
+      expect(normalized(agent.if)).toBe(
+        "needs.activation.outputs.daily_ai_credits_exceeded != 'true' && " +
+        "needs.activation.outputs.daily_ai_credits_guardrail_status != 'quota_blocked'",
+      );
       const activation = doc.jobs.activation;
       const labels = [...normalized(activation.if).matchAll(/github\.event\.label\.name == '([^']+)'/g)]
         .map(match => match[1]);

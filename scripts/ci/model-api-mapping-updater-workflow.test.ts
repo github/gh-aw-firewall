@@ -31,11 +31,15 @@ describe('scheduled canonical model source maintenance', () => {
     }
   });
 
-  it('runs daily and manually with serialized runs and a read-only agent token', () => {
-    expect(frontmatter.on).toEqual({ schedule: 'daily', workflow_dispatch: null });
+  it('runs every twelve hours off the hour and manually with serialized runs and a read-only agent token', () => {
+    expect(frontmatter.on).toEqual({ schedule: 'every 12h', workflow_dispatch: null });
     expect(lock.on.workflow_dispatch).toBeDefined();
     expect(lock.on.schedule).toHaveLength(1);
-    expect(lock.on.schedule[0].cron.split(' ').slice(2)).toEqual(['*', '*', '*']);
+    const [minute, ...interval] = lock.on.schedule[0].cron.split(' ');
+    expect(minute).toMatch(/^\d{1,2}$/);
+    expect(Number(minute)).toBeGreaterThan(0);
+    expect(Number(minute)).toBeLessThan(60);
+    expect(interval).toEqual(['*/12', '*', '*', '*']);
     expect(frontmatter.concurrency).toEqual({
       group: 'model-source-maintenance', 'cancel-in-progress': false,
     });
@@ -256,7 +260,7 @@ describe('scheduled canonical model source maintenance', () => {
     expect(safeTools).not.toContain('create_release');
     expect(safeTools).not.toContain('create_issue');
     expect(lockText).not.toContain('GH_AW_CI_TRIGGER_TOKEN');
-    expect(lockText.split('\n')[0]).toContain('"compiler_version":"v1.2.1"');
+    expect(lockText.split('\n')[0]).toContain('"compiler_version":"v1.3.0"');
   });
 
   it('creates maintenance PR titles accepted by the existing repository title gate', () => {

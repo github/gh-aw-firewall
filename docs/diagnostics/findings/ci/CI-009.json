@@ -1,0 +1,38 @@
+{
+  "$schema": "../../schema.json",
+  "id": "CI-009",
+  "boundary": "ci",
+  "title": "Supply-chain PR-image scan is cancelled at its job timeout during a slow package-mirror build",
+  "symptoms": [
+    "Supply Chain Scan image-scans job cancelled after exhausting its 40-minute timeout",
+    "PR-image scan stops during a container image build rather than at a Grype High/Critical finding",
+    "Slow apt index or package downloads dominate a build-tools image layer"
+  ],
+  "conditions": [
+    "The failure is a job-level timeout or cancellation in a PR-image scan job, not a scanner finding: the build-tools build may complete and Grype may run before the job is cancelled during the next image build",
+    "Older workflow code built all nine PR images sequentially in one job sharing a single 40-minute budget",
+    "Current code runs three PR-image shards (build-tools + enclave-agent, agent, and six service images), each with a 60-minute budget; published-image CVE and license scans keep 40 minutes",
+    "enclave-agent must share a shard with build-tools because it consumes the exact locally built base image",
+    "A slow mirror, a cache-export failure and a blocking High/Critical vulnerability are different causes that must be classified from the failing step"
+  ],
+  "affects": { "runner": "github-hosted", "runtime": "any", "provider": "any", "authMode": "any" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "workaround",
+  "rootCause": "Package retrieval from a slow mirror consumed most of one shared 40-minute budget (the originating PR measured a 36-minute build-tools layer), so the remaining image builds were cancelled. Sharding gives each independent set of images its own budget and runner; it does not make the upstream mirror faster, and no hosted run has yet shown the 60-minute budgets are sufficient under a slow mirror.",
+  "probe": {
+    "command": "grep -n -e 'scan: pr-' -e 'timeout:' -e 'images:' .github/workflows/supply-chain-scan.yml",
+    "expect": "The command checks workflow topology only: current source lists pr-toolchain, pr-agent and pr-services with a 60-minute timeout. From existing run metadata and bounded build-log timing evidence, confirm cancellation at the job limit and distinguish package retrieval, compilation, cache export and Grype execution within the combined build-and-scan step. Match the slow-mirror cause only when apt index or package-download timings show that retrieval consumed most of the shared 40-minute budget. Cancellation without a Grype finding alone is insufficient; absent timing or cancellation-reason evidence leaves the cause unknown.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use source with the sharded PR-image matrix. Fix the classified step; do not disable or downgrade the blocking High/Critical gate, merge shards in a way that separates enclave-agent from build-tools, ignore cache-export failures, or raise one shared timeout to absorb all builds. Hosted acceptance remains separate; a repeat timeout at 60 minutes is new evidence, not covered by this finding.",
+  "references": [
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11399" },
+    { "kind": "code", "ref": ".github/workflows/supply-chain-scan.yml" },
+    { "kind": "test", "ref": "scripts/ci/docker-registry-ci.test.ts" },
+    { "kind": "doc", "ref": "docs/INTEGRATION-TESTS.md#ci-image-retrieval" }
+  ],
+  "related": ["CI-008"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-02-12"
+}

@@ -29,6 +29,21 @@ describe('parseMemoryLimit', () => {
   it('rejects zero', () => {
     expect(parseMemoryLimit('0g')).toHaveProperty('error');
   });
+
+  it.each(['2gb', '2g ', ' 2g', '1.5g', '2 g', '+2g', '2g\n512m', '2gg'])(
+    'rejects malformed value %j with the format error and no value',
+    (input) => {
+      expect(parseMemoryLimit(input)).toEqual({
+        error: `Invalid --memory-limit value "${input}". Expected format: <number><unit> (e.g., 2g, 512m, 4g)`,
+      });
+    }
+  );
+
+  it.each(['0g', '000m'])('rejects zero value %j with the positive-number error', (input) => {
+    expect(parseMemoryLimit(input)).toEqual({
+      error: `Invalid --memory-limit value "${input}". Memory limit must be a positive number.`,
+    });
+  });
 });
 
 describe('parsePidsLimit', () => {
@@ -47,6 +62,21 @@ describe('parsePidsLimit', () => {
 
   it('rejects zero', () => {
     expect(parsePidsLimit('0')).toHaveProperty('error');
+  });
+
+  it.each(['1000abc', ' 1000', '1000 ', '+1000', '1e3', '0x10', '1000\n2000'])(
+    'rejects malformed value %j with the integer-format error and no value',
+    (input) => {
+      expect(parsePidsLimit(input)).toEqual({
+        error: `Invalid --pids-limit value "${input}". Expected a positive integer (e.g., 1000, 2000).`,
+      });
+    }
+  );
+
+  it.each(['0', '000'])('rejects zero value %j with the positive-integer error', (input) => {
+    expect(parsePidsLimit(input)).toEqual({
+      error: `Invalid --pids-limit value "${input}". pids-limit must be a positive integer.`,
+    });
   });
 
   it('rejects integers outside JavaScript’s safe range', () => {

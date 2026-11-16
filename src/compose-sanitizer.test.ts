@@ -97,4 +97,39 @@ describe('compose snapshot environment policy', () => {
     expect(scalar.environment).toBe('[REDACTED]');
     expect(list.environment).toEqual(['[REDACTED]', '[REDACTED]', '[REDACTED]']);
   });
+
+  it('preserves non-environment content and does not add environment to services without one', () => {
+    const raw = yaml.dump({
+      version: '3',
+      services: {
+        noenv: { image: 'img:1', ports: ['3128:3128'] },
+        nullsvc: null,
+        scalarsvc: 'text',
+        listsvc: ['a'],
+        withenv: { image: 'img:2', environment: { SECRET: 'credential-canary' } },
+      },
+    });
+    const sanitized = sanitizeDockerComposeYaml(raw);
+
+    expect(sanitized).not.toContain('credential-canary');
+    expect(yaml.load(sanitized)).toEqual({
+      version: '3',
+      services: {
+        noenv: { image: 'img:1', ports: ['3128:3128'] },
+        nullsvc: null,
+        scalarsvc: 'text',
+        listsvc: ['a'],
+        withenv: { image: 'img:2', environment: { SECRET: '[REDACTED]' } },
+      },
+    });
+  });
+
+  it.each(['plain scalar', '42', 'null'])('returns non-mapping YAML %j unchanged', raw => {
+    expect(sanitizeDockerComposeYaml(raw)).toBe(raw);
+  });
+
+  it('round-trips compose files whose services key is not a mapping', () => {
+    const raw = yaml.dump({ services: ['credential-canary'], name: 'x' });
+    expect(yaml.load(sanitizeDockerComposeYaml(raw))).toEqual({ services: ['credential-canary'], name: 'x' });
+  });
 });

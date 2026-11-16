@@ -64,6 +64,7 @@ export function buildCopilotCredentialEnv(params: CopilotCredentialEnvParams): R
     // and talks directly to the sidecar without needing GitHub authentication for inference.
     extraEnv: {
       COPILOT_OFFLINE: 'true',
+      COPILOT_PROVIDER_VISION: getConfigEnvValue(config, 'COPILOT_PROVIDER_VISION') ?? 'true',
     },
   });
 

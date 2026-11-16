@@ -10,7 +10,7 @@ All LLM providers use the same credential-isolation architecture. API keys are h
 
 | Port  | Provider           | Auth header                     |
 |-------|--------------------|---------------------------------|
-| 10000 | OpenAI             | `Authorization: Bearer` (static/Azure/GCP), or AWS SigV4 |
+| 10000 | OpenAI             | `Authorization: Bearer` (static/Azure OIDC/GCP/OpenAI WIF), `api-key` (Azure BYOK via Copilot), or AWS SigV4 |
 | 10001 | Anthropic (Claude) | `x-api-key` (static) or `Authorization: Bearer` (OIDC/WIF) |
 | 10002 | GitHub Copilot     | `Authorization: Bearer` or `token`, or AWS SigV4 |
 | 10003 | Google Gemini      | `x-goog-api-key` (static) or `Authorization: Bearer` (GCP WIF) |
@@ -158,7 +158,8 @@ Simplified illustration of the request-handling logic (the real implementation l
 // Stripped headers — never forwarded from client (containers/api-proxy/proxy-utils.js)
 const STRIPPED_HEADERS = new Set([
   'host', 'authorization', 'proxy-authorization',
-  'x-api-key', 'x-goog-api-key', 'forwarded', 'via',
+  'x-api-key', 'api-key', 'x-goog-api-key', 'forwarded', 'via',
+  'x-awf-caller',
 ]);
 // Header names starting with 'x-forwarded-' are also stripped.
 
@@ -401,6 +402,7 @@ This prevents tokens from being visible in `/proc/1/environ` after the agent sta
 - API keys are not visible in `/proc/self/environ` or `/proc/*/environ`
 - Compromised agent code cannot exfiltrate API keys (they don't exist)
 - Only the api-proxy container has access to API keys
+- If an upstream echoes an injected credential back (response body, headers, or error text), the api-proxy masks it before it reaches the agent or the logs; see [Upstream credential-echo masking](./api-proxy-sidecar.md#upstream-credential-echo-masking)
 
 ### Network isolation
 
@@ -671,7 +673,7 @@ AWF keeps the Actions OIDC request capability, minted GitHub JWT, and exchanged 
 
 #### Step 1: Configuration forwarding
 
-The AWF CLI forwards `AWF_AUTH_*` configuration and the Actions runtime OIDC request URL and token only to the api-proxy sidecar. `buildOidcEnv()` conditionally adds the runtime variables to the sidecar in `github-oidc` mode, while `buildExclusionSet()` prevents every agent environment input path from adding them.
+The AWF CLI forwards `AWF_AUTH_*` configuration and the Actions runtime OIDC request URL and token only to the api-proxy sidecar. `buildOidcEnv()` adds the runtime variables in `github-oidc` mode, and `buildOtelEnv()` adds them when `GH_AW_OTLP_WORKLOAD_IDENTITY` is set for OTLP exporter workload identity. `buildExclusionSet()` prevents every agent environment input path from adding them.
 
 ```
 Host environment                    Sidecar container          Agent container
@@ -679,7 +681,7 @@ Host environment                    Sidecar container          Agent container
 AWF_AUTH_TYPE=github-oidc    ──►    AWF_AUTH_TYPE ✓            ✗ (excluded)
 AWF_AUTH_PROVIDER=azure      ──►    AWF_AUTH_PROVIDER ✓        ✗ (excluded)
 AWF_AUTH_AZURE_TENANT_ID=... ──►    AWF_AUTH_AZURE_TENANT_ID ✓ ✗ (excluded)
-ACTIONS_ID_TOKEN_REQUEST_URL ──►    forwarded when type=oidc ✓ ✗ (excluded)
+ACTIONS_ID_TOKEN_REQUEST_URL ──►    forwarded for OIDC auth or OTLP WIF ✓ ✗ (excluded)
 ```
 
 :::note[OIDC-authenticated MCP servers]

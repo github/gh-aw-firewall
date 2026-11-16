@@ -65,6 +65,22 @@ describe('governed legacy catalog import', () => {
     expect(snapshot.models[0]).toMatchObject({ identity: { key: 'other/GPT_5.5' } });
   });
 
+  it('does not project time-dependent prices as fixed rates', () => {
+    const snapshot = importEntries([
+      priced('deepseek/scheduled', {
+        prompt: '0.00000015', completion: '0.0000006',
+        overrides: [{ utc_days: ['monday'], prompt: '0.0000003', completion: '0.0000012' }],
+      }),
+      priced('openai/fixed'),
+    ]);
+
+    expect(snapshot.accepted).toBe(2);
+    expect(snapshot.models.find((model: any) => model.identity.key === 'deepseek/scheduled'))
+      .not.toHaveProperty('importedPricing');
+    expect(snapshot.models.find((model: any) => model.identity.key === 'openai/fixed'))
+      .toHaveProperty('importedPricing');
+  });
+
   it('fails closed on invalid provenance, integrity, source shape and timestamps', () => {
     const bytes = Buffer.from(JSON.stringify({ data: [priced('openai/model')] }));
     const pinned = metadata(bytes);
@@ -106,7 +122,14 @@ describe('governed legacy catalog import', () => {
     expect(snapshot).toMatchObject(pinned);
     if (snapshot.source.startsWith('git-committed')) expect(snapshot.source).toContain('NOT upstream retrieval');
     expect(validate('importedSnapshot', snapshot)).toEqual([]);
-    expect(snapshot.models.every((model: any) => model.importedPricing.sourceNamespace === model.identity.provider)).toBe(true);
+    const raw = JSON.parse(bytes.toString());
+    const scheduled = new Set(raw.data.filter((entry: any) =>
+      Array.isArray(entry.pricing?.overrides) && entry.pricing.overrides.length > 0)
+      .map((entry: any) => entry.id));
+    expect(snapshot.models.every((model: any) => model.importedPricing
+      ? model.importedPricing.sourceNamespace === model.identity.provider &&
+        !scheduled.has(model.identity.key)
+      : scheduled.has(model.identity.key))).toBe(true);
     expect(snapshot.models.every((model: any) => !model.tariffs)).toBe(true);
     const committed = JSON.parse(readFileSync('shared/model-information/imported/legacy-models-dev.snapshot.v1.json', 'utf8'));
     expect(committed).toEqual(snapshot);
