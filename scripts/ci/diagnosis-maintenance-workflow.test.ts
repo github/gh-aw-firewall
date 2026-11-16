@@ -227,7 +227,7 @@ describe('shared diagnosis-maintenance contract', () => {
       'replace it with `proposed` plus the public URL',
       'without being an\nevidence gap',
       'never bulk-classify from titles',
-      'never mark a newly staged proposal as already published',
+      'never mark a newly staged\nproposal as already published',
       'Spend at most 15 minutes on intake and supplemental research',
       'Reserve the remaining budget',
       'npm run diagnostics:freshness',
@@ -273,7 +273,7 @@ describe('shared diagnosis-maintenance contract', () => {
       'call `report-incomplete` with the exact gap',
       'never substitute `noop` merely because time ran out',
       'do not retry through another\ncredential or transport',
-      'never mark a newly staged proposal as already published',
+      'never mark a newly staged\nproposal as already published',
     ]) {
       expect(source).toContain(fragment);
     }
