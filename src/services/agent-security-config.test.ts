@@ -62,6 +62,12 @@ describe('buildAgentSecurityConfig', () => {
     expect(result.tmpfs).toContain('/host/dev/shm:rw,noexec,nosuid,nodev,size=65536k');
   });
 
+  it('uses private executable temporary filesystems in both execution modes', () => {
+    const result = buildAgentSecurityConfig(baseSecurityConfig);
+    expect(result.tmpfs).toContain('/tmp:rw,nosuid,nodev,mode=1777');
+    expect(result.tmpfs).toContain('/host/tmp:rw,nosuid,nodev,mode=1777');
+  });
+
   it('uses default 6g memory limit when memoryLimit is not set', () => {
     const result = buildAgentSecurityConfig(baseSecurityConfig);
     expect(result.mem_limit).toBe('6g');

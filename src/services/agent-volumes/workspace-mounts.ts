@@ -25,7 +25,7 @@ export function buildWorkspaceMounts(params: WorkspaceMountsParams): string[] {
   const { config, projectRoot, effectiveHome, workspaceDir, agentLogsPath, sessionStatePath, initSignalDir } = params;
 
   const mounts: string[] = [
-    '/tmp:/tmp:rw',
+    '/tmp/gh-aw:/tmp/gh-aw:rw',
     `${workspaceDir}:${workspaceDir}:rw`,
     `${agentLogsPath}:${effectiveHome}/.copilot/logs:rw`,
     `${sessionStatePath}:${effectiveHome}/.copilot/session-state:rw`,
@@ -99,8 +99,9 @@ export function buildContainerWorkDirMounts(params: ContainerWorkDirMountsParams
   }
 
   const workDir = path.posix.normalize(configuredWorkDir).replace(/\/+$/, '') || '/';
-  // The empty chroot home volume and the filesystem root always exist.
-  if (workDir === '/' || workDir === effectiveHome) {
+  // These private container directories already exist; never replace /tmp
+  // with the host's directory just to select it as the working directory.
+  if (workDir === '/' || workDir === '/tmp' || workDir === effectiveHome) {
     return [];
   }
 

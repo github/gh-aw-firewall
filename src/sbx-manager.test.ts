@@ -320,8 +320,20 @@ describe('sbx-manager', () => {
       await expect(firstCreate).resolves.toBe(SBX_DEFAULT_NAME);
     });
 
+    it.each([false, true])('shares only an existing temporary handoff (exists=%s)', async (exists) => {
+      mockedExistsSync.mockImplementation((candidate) => exists && candidate === '/tmp/gh-aw');
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+      const args = mockExecaFn.mock.calls[1][1] as string[];
+      expect(args).not.toContain('/tmp');
+      expect(args.includes('/tmp/gh-aw')).toBe(exists);
+      mockedExistsSync.mockReturnValue(false);
+    });
+
     it('uses shell agent, configured mounts, and sanitized env', async () => {
-      // No host $HOME subdirs exist → only workspace, extra mounts, /tmp and
+      // No host $HOME subdirs exist → only workspace, extra mounts, handoff and
       // /usr/local/bin are mounted (the whole $HOME is never mounted).
       mockExecaFn
         .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' }) // auth check
@@ -340,7 +352,6 @@ describe('sbx-manager', () => {
         'shell',
         '/workspace',
         '/tmp/gh-aw:ro',
-        '/tmp',
         '/usr/local/bin',
       ], expect.objectContaining({
         input: 'y\n',

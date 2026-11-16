@@ -1,4 +1,5 @@
 import execa from 'execa';
+import * as fs from 'fs';
 import { copyEnvEntries } from '../env-utils';
 import { logger } from '../logger';
 import { HOME_TOOL_PATHS } from '../config/mount-policy';
@@ -138,8 +139,9 @@ export async function createSandboxInternal(
     }
   }
 
-  // Agent runtime files and installed CLI tools must be accessible.
-  for (const sysPath of ['/tmp', '/usr/local/bin']) {
+  // Share the runtime handoff, never the host temporary root and its IPC.
+  for (const sysPath of ['/tmp/gh-aw', '/usr/local/bin']) {
+    if (sysPath === '/tmp/gh-aw' && !fs.existsSync(sysPath)) continue;
     if (!seenPaths.has(sysPath)) {
       seenPaths.add(sysPath);
       args.push(sysPath);

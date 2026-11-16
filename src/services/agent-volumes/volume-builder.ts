@@ -55,7 +55,7 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
     initSignalDir,
   } = params;
 
-  const agentVolumes: string[] = [];
+  let agentVolumes: string[] = [];
   agentVolumes.push(...(params.additionalMounts ?? []));
   agentVolumes.push(...buildWorkspaceMounts({
     config,
@@ -91,6 +91,10 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
     spec === '/dev/null:/host/dev/null:rw'
   ));
   const customMounts = buildCustomVolumeMounts(config.volumeMounts, config.dockerHostPathPrefix);
+  // Explicit handoffs may replace an automatic mount (notably /tmp/gh-aw on
+  // ARC/DinD). Docker rejects duplicate destinations, so retain the override.
+  const customTargets = new Set(customMounts.map((spec) => parseMount(spec)?.target).filter(Boolean));
+  agentVolumes = agentVolumes.filter((spec) => !customTargets.has(parseMount(spec)?.target));
   agentVolumes.push(...customMounts);
 
   logger.debug('Using selective mounting for security (credential files hidden)');

@@ -246,7 +246,7 @@ function assembleSysrootService(
   //  - Source under workDir (runner's unshared /tmp/awf-*): daemon can't see it
   //  - Source under effectiveHome with target under /host: sysroot volume provides these
   //  - Sysroot-shadowed targets: system binaries already in the sysroot volume
-  // Keep: /tmp:/tmp (daemon has its own), /dev/null overlays, /dev and /sys
+  // Keep: narrow /tmp/gh-aw handoffs, /dev/null overlays, /dev and /sys
   //       (kernel VFS), workspace mounts (ARC shares workspace with daemon).
   const filteredVolumes = filterAgentVolumesForSysroot(agentVolumes, config, effectiveHome);
   agentVolumes.length = 0;

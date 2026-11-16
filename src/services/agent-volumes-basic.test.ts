@@ -59,7 +59,9 @@ describe('agent service', () => {
 
     // Default: selective mounting (no blanket /:/host:rw)
     expect(volumes).not.toContain('/:/host:rw');
-    expect(volumes).toContain('/tmp:/tmp:rw');
+    expect(volumes).not.toContain('/tmp:/tmp:rw');
+    expect(volumes).not.toContain('/tmp:/host/tmp:rw');
+    expect(volumes).toContain('/tmp/gh-aw:/tmp/gh-aw:rw');
     expect(volumes.some((v: string) => v.includes('agent-logs'))).toBe(true);
     // Should include home directory mount
     expect(volumes.some((v: string) => v.includes(process.env.HOME || '/root'))).toBe(true);
@@ -84,7 +86,7 @@ describe('agent service', () => {
     expect(volumes).toContain('/data:/host/data:rw');
 
     // Should still include essential mounts
-    expect(volumes).toContain('/tmp:/tmp:rw');
+    expect(volumes).toContain('/tmp/gh-aw:/tmp/gh-aw:rw');
     expect(volumes.some((v: string) => v.includes('agent-logs'))).toBe(true);
   });
 
@@ -104,8 +106,10 @@ describe('agent service', () => {
     expect(volumes).toContain(`${workspaceDir}:/host${workspaceDir}:ro`);
     expect(volumes).toContain(`${writablePath}:${writablePath}:rw`);
     expect(volumes).toContain(`${writablePath}:/host${writablePath}:rw`);
-    expect(volumes).toContain('/tmp:/tmp:ro');
-    expect(volumes).toContain('/tmp:/host/tmp:ro');
+    expect(volumes).toContain('/tmp/gh-aw:/tmp/gh-aw:ro');
+    expect(volumes).toContain('/tmp/gh-aw:/host/tmp/gh-aw:ro');
+    expect(result.services.agent.tmpfs).toContain('/tmp:rw,nosuid,nodev,mode=1777');
+    expect(result.services.agent.tmpfs).toContain('/host/tmp:rw,nosuid,nodev,mode=1777');
     expect(volumes).toContain(`${getConfig().workDir}/init-signal:/run/awf-init:rw`);
     // Legacy path stays exposed read-only so a newer CLI still works with an
     // older pinned agent image, and it must not become a writable hole in the
@@ -125,7 +129,8 @@ describe('agent service', () => {
     const result = generateDockerCompose(configWithPrefix, mockNetworkConfig);
     const volumes = result.services.agent.volumes as string[];
 
-    expect(volumes).toContain('/daemon-root/tmp:/tmp:rw');
+    expect(volumes).toContain('/daemon-root/tmp/gh-aw:/tmp/gh-aw:rw');
+    expect(volumes.some((volume) => volume.startsWith('/daemon-root/tmp:'))).toBe(false);
     expect(volumes).toContain('/daemon-root/usr:/host/usr:ro');
     expect(volumes).toContain('/daemon-root/tmp/gh-aw/runner-bin:/host/tmp/awf-runner-bin:ro');
     expect(volumes).toContain('/daemon-root/etc/passwd:/host/etc/passwd:ro');
@@ -198,7 +203,7 @@ describe('agent service', () => {
     const result = generateDockerCompose(configWithPrefix, mockNetworkConfig);
     const volumes = result.services.agent.volumes as string[];
 
-    expect(volumes).toContain('/daemon-root/tmp:/tmp:rw');
+    expect(volumes).toContain('/daemon-root/tmp/gh-aw:/tmp/gh-aw:rw');
   });
 
   it('should mount binaries overlay at /host/tmp/awf-runner-bin when binariesSourcePath equals dockerHostPathPrefix', () => {
@@ -286,7 +291,7 @@ describe('agent service', () => {
     expect(hostsVolume).toMatch(/chroot-.*\/hosts:\/host\/etc\/hosts:ro/);
 
     // Should still include essential mounts
-    expect(volumes).toContain('/tmp:/tmp:rw');
+    expect(volumes).toContain('/tmp/gh-aw:/tmp/gh-aw:rw');
     expect(volumes.some((v: string) => v.includes('agent-logs'))).toBe(true);
   });
 });

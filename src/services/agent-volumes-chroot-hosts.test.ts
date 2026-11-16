@@ -80,13 +80,14 @@ describe('agent service', () => {
     expect(volumes).toContain(`/custom/session-state:${homeDir}/.copilot/session-state:rw`);
   });
 
-  it('should mount /tmp under /host for chroot temp scripts', () => {
+  it('uses private chroot temp storage with a narrow gh-aw handoff', () => {
     const result = generateDockerCompose(getConfig(), mockNetworkConfig);
     const agent = result.services.agent;
     const volumes = agent.volumes as string[];
 
-    // /tmp:/host/tmp:rw is required for entrypoint.sh to write command scripts
-    expect(volumes).toContain('/tmp:/host/tmp:rw');
+    expect(volumes).not.toContain('/tmp:/host/tmp:rw');
+    expect(volumes).toContain('/tmp/gh-aw:/host/tmp/gh-aw:rw');
+    expect(agent.tmpfs).toContain('/host/tmp:rw,nosuid,nodev,mode=1777');
   });
 
   it('should mount /etc/passwd and /etc/group for user lookup in chroot mode', () => {

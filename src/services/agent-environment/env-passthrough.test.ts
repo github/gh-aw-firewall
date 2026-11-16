@@ -391,7 +391,7 @@ describe('passthroughHostEnvironment', () => {
       expect(environment).toHaveProperty('TOOL_CACHE_DIR', '/opt/hostedtoolcache');
     });
 
-    it('keeps paths when RUNNER_TEMP lies inside an always-mounted root such as /tmp', () => {
+    it('drops host-only paths when RUNNER_TEMP lies inside private /tmp', () => {
       const environment: Record<string, string> = {};
       withEnv({ RUNNER_TEMP: '/tmp/runner-temp', UV_CACHE_DIR: '/tmp/runner-temp/setup-uv-cache' }, () => {
         passthroughHostEnvironment({
@@ -401,7 +401,7 @@ describe('passthroughHostEnvironment', () => {
         });
       });
 
-      expect(environment).toHaveProperty('UV_CACHE_DIR', '/tmp/runner-temp/setup-uv-cache');
+      expect(environment).not.toHaveProperty('UV_CACHE_DIR');
     });
 
     it('does not remove values that were set before host passthrough', () => {

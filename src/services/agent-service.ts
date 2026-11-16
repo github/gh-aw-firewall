@@ -48,7 +48,7 @@ interface AgentServiceParams {
 function buildAgentSecurityConfig(config: WrapperConfig): any {
   return {
     // SECURITY: Hide sensitive paths from the agent. Both ordinary and /host-
-    // prefixed paths are required because chroot mode mounts /tmp at both paths.
+    // prefixed paths are required because handoff paths exist at both locations.
     //
     // /host/dev/shm: /dev is bind-mounted read-only (/dev:/host/dev:ro), which makes
     // /dev/shm read-only after chroot /host. POSIX semaphores and shared memory
@@ -58,6 +58,11 @@ function buildAgentSecurityConfig(config: WrapperConfig): any {
     // memory is fully isolated from the host and other containers. Size is capped at 64MB
     // (Docker's default). noexec and nosuid flags restrict abuse vectors.
     tmpfs: [
+      // Never share the host temporary root: same-UID host runtime IPC (including
+      // endpoints created after startup) must remain outside the agent mount tree.
+      // Executable temporary files are required by compilers and setup tools.
+      '/tmp:rw,nosuid,nodev,mode=1777',
+      '/host/tmp:rw,nosuid,nodev,mode=1777',
       ...dockerSensitiveTmpfs(config.workDir),
       '/host/dev/shm:rw,noexec,nosuid,nodev,size=65536k',
     ],

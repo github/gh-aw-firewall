@@ -51,11 +51,12 @@ describe('buildWorkspaceMounts', () => {
   });
 
   describe('standard mounts', () => {
-    it('always includes /tmp, workspace, logs, session-state, init-signal mounts', () => {
+    it('includes the temporary handoff, workspace, logs, session-state, and init-signal mounts', () => {
       const config = makeAgentVolumeConfig();
       const mounts = buildWorkspaceMounts(makeParams(config, tmpDir, '/workspace'));
 
-      expect(mounts).toContain('/tmp:/tmp:rw');
+      expect(mounts).not.toContain('/tmp:/tmp:rw');
+      expect(mounts).toContain('/tmp/gh-aw:/tmp/gh-aw:rw');
       expect(mounts).toContain('/workspace:/workspace:rw');
       expect(mounts).toContain('/tmp/awf-logs:/home/runner/.copilot/logs:rw');
       expect(mounts).toContain('/tmp/awf-session:/home/runner/.copilot/session-state:rw');

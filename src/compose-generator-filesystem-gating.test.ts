@@ -54,7 +54,7 @@ describe('generateDockerCompose: filesystem.allowWrite runtime gating', () => {
         .services.agent.volumes as string[];
 
       // An empty allowlist narrows every non-internal writable bind mount.
-      expect(volumes).toContain('/tmp:/tmp:ro');
+      expect(volumes).toContain('/tmp/gh-aw:/tmp/gh-aw:ro');
       expect(volumes).not.toContain('/tmp:/tmp:rw');
 
       // And a guest path with no backing writable host mount still fails

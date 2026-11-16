@@ -26,7 +26,7 @@ export function buildSystemMounts(
     ...systemDirMounts,
     '/dev/null:/host/dev/null:rw',
     `${workspaceDir}:/host${workspaceDir}:rw`,
-    '/tmp:/host/tmp:rw',
+    '/tmp/gh-aw:/host/tmp/gh-aw:rw',
   ];
 
   const normalizedBinariesPath = normalizeChrootBinariesSourcePath(chrootBinariesSourcePath);
@@ -35,8 +35,8 @@ export function buildSystemMounts(
     // always create the mount-point directory. /host/usr is mounted read-only, so
     // Docker cannot mkdir /host/usr/local/bin after that parent mount is applied —
     // which fails in DinD/ARC setups where the staged /usr tree lacks local/bin.
-    // /host/tmp is mounted read-write (/tmp:/host/tmp:rw), so subdirectory creation
-    // always succeeds regardless of the host's staged /tmp content.
+    // /host/tmp is a private writable tmpfs, so subdirectory creation does not
+    // depend on the host's staged /tmp content.
     // entrypoint.sh detects /host/tmp/awf-runner-bin and adds /tmp/awf-runner-bin
     // to the chroot PATH automatically.
     mounts.push(`${normalizedBinariesPath}:/host/tmp/awf-runner-bin:ro`);
