@@ -113,7 +113,7 @@ jobs:
           ref: ${{ needs.bump-version.outputs.version }}
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v3
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -168,7 +168,7 @@ jobs:
           merge-multiple: true
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v3
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -178,7 +178,7 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
 
       - name: Publish Squid multi-architecture manifest
         id: build_squid
@@ -284,7 +284,7 @@ jobs:
           version: ${{ needs.bump-version.outputs.version_number }}
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
 
       - name: Sign Agent image with cosign
         run: |
@@ -353,7 +353,7 @@ jobs:
           version: ${{ needs.bump-version.outputs.version_number }}
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Sign API Proxy image with cosign
         run: |
           cosign sign --yes \
@@ -440,7 +440,7 @@ jobs:
           version: ${{ needs.bump-version.outputs.version_number }}
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Verify Router image labels and platforms
         env:
           REFERENCE: ghcr.io/${{ github.repository }}/router@${{ steps.build_router.outputs.digest }}
@@ -535,7 +535,7 @@ jobs:
           version: ${{ needs.bump-version.outputs.version_number }}
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Sign CLI Proxy image with cosign
         run: |
           cosign sign --yes \
@@ -603,7 +603,7 @@ jobs:
           version: ${{ needs.bump-version.outputs.version_number }}
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Sign Enclave Script image with cosign
         run: |
           cosign sign --yes \
@@ -671,7 +671,7 @@ jobs:
           version: ${{ needs.bump-version.outputs.version_number }}
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Sign Enclave Agent image with cosign
         run: |
           cosign sign --yes \
@@ -738,7 +738,7 @@ jobs:
           version: ${{ needs.bump-version.outputs.version_number }}
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Sign Enclave MCP Server image with cosign
         run: |
           cosign sign --yes \
@@ -773,7 +773,7 @@ jobs:
           ref: ${{ needs.bump-version.outputs.version }}
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v3
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -783,7 +783,7 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
 
       - name: Build and push Agent-Act image
         id: build_agent_act
@@ -883,7 +883,7 @@ jobs:
           version: ${{ needs.bump-version.outputs.version_number }}
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Sign Build-Tools image with cosign
         run: |
           cosign sign --yes \
@@ -969,7 +969,7 @@ jobs:
           version: ${{ needs.bump-version.outputs.version_number }}
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Sign gh-aw-node image with cosign
         run: |
           cosign sign --yes \
@@ -1398,7 +1398,7 @@ jobs:
           NODE
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ needs.bump-version.outputs.version }}
           name: Release ${{ needs.bump-version.outputs.version }}
@@ -1512,7 +1512,7 @@ jobs:
         with:
           ref: ${{ needs.bump-version.outputs.version }}
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v3
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -1520,7 +1520,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Set up guest supervisor Go toolchain
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -1573,7 +1573,7 @@ jobs:
         with:
           ref: ${{ needs.bump-version.outputs.version }}
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v3
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -1581,7 +1581,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Build and push primary guest
         id: build_primary
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -1624,7 +1624,7 @@ jobs:
         with:
           ref: ${{ needs.bump-version.outputs.version }}
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v3
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -1632,7 +1632,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Build and push shared enclave guest
         id: build_enclave
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -1701,7 +1701,7 @@ jobs:
           rustup --version
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v3
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
