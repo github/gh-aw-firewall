@@ -3,6 +3,7 @@
  *
  * These tests cover live container startup behavior that unit tests of volume
  * rewriting cannot catch, such as Docker/runc mountpoint creation order.
+ * Use the images prepared by test-integration-suite.yml, without rebuilding or pulling.
  */
 
 /// <reference path="../jest-custom-matchers.d.ts" />
@@ -43,7 +44,7 @@ describe('filesystem.allowWrite', () => {
         allowWrite: [writableDir],
       },
       container: {
-        buildLocal: true,
+        skipPull: true,
       },
       logging: {
         logLevel: 'debug',
@@ -73,7 +74,7 @@ describe('filesystem.allowWrite', () => {
     fs.writeFileSync(configPath, JSON.stringify({
       network: { allowDomains: ['github.com'] },
       filesystem: { allowWrite: [writableDir] },
-      container: { buildLocal: true },
+      container: { skipPull: true },
       logging: { logLevel: 'debug' },
       security: { legacySecurity: true },
     }));
@@ -103,7 +104,7 @@ describe('filesystem.allowWrite', () => {
     fs.writeFileSync(configPath, JSON.stringify({
       network: { allowDomains: ['github.com'] },
       filesystem: { allowWrite: [writableDir] },
-      container: { buildLocal: true },
+      container: { skipPull: true },
       logging: { logLevel: 'debug' },
       security: { legacySecurity: true },
     }));

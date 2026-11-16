@@ -75,6 +75,11 @@ digests. Scan targets, vulnerability database updates, and the blocking
 High/Critical PR-image gate are unchanged. The setup script validates the merged
 daemon configuration before restart and refuses local or self-hosted runners.
 
+Only published-image CVE and license scans authenticate to GHCR for registry
+targets. PR-image scans use local Docker archives and public base/scanner images,
+so they do not depend on GHCR accepting the workflow token. Registry retrieval
+and blocking High/Critical scan failures still fail their respective steps.
+
 PR-image builds run in three independent shards: build-tools plus enclave-agent,
 agent alone, and the six remaining service images. Each shard has a 60-minute
 budget instead of sharing one 40-minute budget across all nine images, so a slow

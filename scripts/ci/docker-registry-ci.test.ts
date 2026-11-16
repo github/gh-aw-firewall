@@ -67,6 +67,17 @@ describe('CI registry retrieval', () => {
   const prShards = jobs('supply-chain-scan.yml')['image-scans'].strategy!.matrix.include
     .filter(shard => shard['pr-images']);
 
+  it('authenticates registry scans without making local PR-image scans depend on GHCR login', () => {
+    const steps = jobs('supply-chain-scan.yml')['image-scans'].steps;
+    const login = steps.find(step => step.name === 'Authenticate to GHCR for image scanning')!;
+    expect(login.if).toBe('matrix.pr-images != true');
+    expect(login.run).toContain('docker login ghcr.io');
+    expect(login['continue-on-error']).toBeUndefined();
+    const blocking = steps.find(step => step.name?.startsWith('Build and scan PR container images'))!;
+    expect(blocking.run).toContain("f'docker-archive:{tar}'");
+    expect(blocking.run).not.toContain('.docker/config.json');
+  });
+
   it.each(prShards.flatMap(shard => [
     ['success', '2026-11-04'],
     ['success', '2026-11-05'],
