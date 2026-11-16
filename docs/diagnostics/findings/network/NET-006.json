@@ -15,7 +15,7 @@
   ],
   "affects": {
     "runner": "any",
-    "runtime": "runc|chroot",
+    "runtime": "any",
     "provider": "any",
     "authMode": "any"
   },
@@ -26,8 +26,8 @@
   "status": "workaround",
   "rootCause": "The awf-net subnet and Squid address were hardcoded to 172.30.0.0/24 and 172.30.0.10. Squid templated its DNS nameserver from the host resolver, so a resolver inside the subnet made Squid query its own peer address and every CONNECT failed. Relocation via --network-subnet and a fail-loud startup check remove the silent breakage.",
   "probe": {
-    "command": "grep -n nameserver /etc/resolv.conf && docker network inspect awf-net --format '{{json .IPAM.Config}}'",
-    "expect": "Compare the nameserver addresses and any awf-net subnet with the chosen --network-subnet. A nameserver inside the subnet reproduces the collision; a clean result rules it out. This probe reads only resolver and network metadata.",
+    "command": "grep -n nameserver /etc/resolv.conf; cat /proc/net/route; docker network inspect awf-net --format '{{json .IPAM.Config}}'",
+    "expect": "Compare resolver addresses and any awf-net subnet with the chosen --network-subnet, and decode destination/mask entries in /proc/net/route to check for overlapping non-Docker host routes. Resolver and Docker network output alone cannot rule out a route conflict; Docker bridge routes and the default route are ignored by the collision check. These reads expose no credentials.",
     "readOnly": true,
     "secretSafe": true
   },
