@@ -585,6 +585,19 @@ API keys are held in the sidecar container, not the agent:
 - A compromised agent cannot exfiltrate credentials
 - Keys are not exposed in the agent container's stdout/stderr logs
 
+#### Upstream credential-echo masking
+
+The sidecar also protects against an upstream that echoes the credential it was just given (for example in a `401`/`502` diagnostic body, a response header, or a transport error). For each request it remembers the credential values it actually injected: provider API keys, bearer tokens, the freshly minted OIDC token, trusted-service secret headers, and the AWS access key, session token and signature of a SigV4-signed request. It masks those values before anything reaches the agent or the sidecar log:
+
+- **Response bodies** are masked in a stream, holding back only a suffix that could complete a credential in the next chunk. Masking is same-byte-length (a byte that does not occur in any credential), so successful JSON, UTF-8 output and length framing are preserved. JSON-escaped forms are masked as well.
+- **Response headers** whose name or value contain a credential are dropped or masked, and integrity headers (`ETag`, `Content-MD5`, `Digest`, `Content-Digest`, `Repr-Digest`) are removed from masked responses because they describe the original bytes.
+- **Compressed responses** (`gzip`, `deflate`, `br`) are decoded, masked and re-encoded. An unsupported `Content-Encoding`, or a corrupt or truncated stream, fails closed: the client receives `502` `Upstream response could not be safely inspected` (or the connection is aborted) instead of unmasked bytes.
+- **Errors and logs** (`request_error`, WebSocket upgrade failures) pass through the same redaction, and WebSocket handshakes, message frames and close reasons are masked without buffering ordinary model output.
+
+Masking is a defense-in-depth layer for credentials the sidecar itself injected; it does not replace keeping keys out of the agent environment. A `502` with `Upstream response could not be safely inspected` is a masking failure, not a provider authentication error.
+
+Implementation: `containers/api-proxy/credential-protection.js`, `containers/api-proxy/credential-websocket.js`. Tests: `containers/api-proxy/credential-protection.test.js`, `containers/api-proxy/server.credential-isolation.test.js`.
+
 :::danger[Protect host credentials]
 API keys are stored in the sidecar container's environment and in the Docker Compose configuration on disk. Protect the host filesystem and configuration accordingly. Only non-sensitive key prefixes are logged for debugging.
 :::
