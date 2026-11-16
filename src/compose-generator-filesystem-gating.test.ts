@@ -53,9 +53,15 @@ describe('generateDockerCompose: filesystem.allowWrite runtime gating', () => {
       const volumes = generateDockerCompose(composeConfig, mockNetworkConfig)
         .services.agent.volumes as string[];
 
-      // An empty allowlist narrows every non-internal writable bind mount.
-      expect(volumes).toContain('/tmp:/tmp:ro');
+      // Host /tmp is never a bind mount; only the narrow handoff is policy-gated.
+      expect(volumes).not.toContain('/tmp:/tmp:ro');
+      expect(volumes).toContain('/tmp/gh-aw:/tmp/gh-aw:ro');
       expect(volumes).not.toContain('/tmp:/tmp:rw');
+      expect(generateDockerCompose(composeConfig, mockNetworkConfig).services.agent.tmpfs)
+        .toEqual(expect.arrayContaining([
+          '/tmp:rw,exec,nosuid,nodev,size=2097152k',
+          '/host/tmp:rw,exec,nosuid,nodev,size=2097152k',
+        ]));
 
       // And a guest path with no backing writable host mount still fails
       // closed for compose runtimes rather than being silently ignored.

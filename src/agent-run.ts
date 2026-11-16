@@ -6,6 +6,7 @@ import { isAgentExternallyKilled, markAgentExternallyKilled } from './container-
 import { isGvisorRuntime } from './container-runtime';
 import { reportSquidBlocks } from './squid-block-report';
 import type { ProtectedCommandOutputCapture, CapturedOutputStream, CommandAttemptOutcome } from './protected-command-output-capture';
+import { CredentialRedactingStream } from './credential-redactor';
 
 const GVISOR_RETRYABLE_AGENT_EXIT_CODES = new Set([134, 139]);
 const MAX_GVISOR_AGENT_RETRIES = 1;
@@ -51,11 +52,26 @@ function streamAgentLogs(
   const logArgs = ['logs', ...(logsSince ? ['--since', logsSince] : []), '-f', AGENT_CONTAINER_NAME];
   commandOutputCapture?.beginAttempt(currentAttempt);
   const logsProcess = execa('docker', logArgs, {
-    stdio: commandOutputCapture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
-    ...(commandOutputCapture ? { encoding: null, buffer: false } : {}),
+    stdio: ['ignore', 'pipe', 'pipe'],
+    encoding: null,
+    buffer: false,
     reject: false,
     env: getLocalDockerEnv(),
   });
+  let credentialStopPromise: Promise<unknown> | undefined;
+  const stopOnCredentialDisclosure = (): void => {
+    if (credentialStopPromise) return;
+    logger.error('Suspected credential disclosure detected in agent output; stopping the agent container');
+    credentialStopPromise = execa(
+      'docker',
+      ['stop', '-t', '10', AGENT_CONTAINER_NAME],
+      { reject: false, env: getLocalDockerEnv() },
+    );
+  };
+  const redactOutput = (source: NodeJS.ReadableStream | null): NodeJS.ReadableStream | null =>
+    source && typeof (source as { pipe?: unknown }).pipe === 'function'
+      ? source.pipe(new CredentialRedactingStream(stopOnCredentialDisclosure))
+      : null;
   let outputStreamFailed = false;
   const forwardOutput = (
     source: NodeJS.ReadableStream | null,
@@ -71,11 +87,13 @@ function streamAgentLogs(
     let sourceEnded = false;
     let pendingWrites = 0;
     let settled = false;
+    let waitingForDrain = false;
     const presentationFailures = new Set<'error' | 'closed' | 'backpressure'>();
     const cleanupDestinationListeners = (): void => {
       if (!sourceEnded || pendingWrites !== 0) return;
       destination.off('error', onDestinationError);
       destination.off('close', onDestinationClose);
+      destination.off('drain', onDestinationDrain);
     };
     const settle = (): void => {
       cleanupDestinationListeners();
@@ -88,8 +106,15 @@ function streamAgentLogs(
       if (presentationFailures.has(reason)) return;
       presentationFailures.add(reason);
       destinationUnavailable = true;
-      commandOutputCapture!.recordPresentationFailure(stream, reason);
+      waitingForDrain = false;
+      destination.off('drain', onDestinationDrain);
+      commandOutputCapture?.recordPresentationFailure(stream, reason);
       settle();
+    };
+    const onDestinationDrain = (): void => {
+      if (!waitingForDrain || destinationUnavailable) return;
+      waitingForDrain = false;
+      (source as NodeJS.ReadableStream & { resume?: () => void }).resume?.();
     };
     const onDestinationError = (): void => markDestinationUnavailable('error');
     const onDestinationClose = (): void => {
@@ -97,6 +122,7 @@ function streamAgentLogs(
     };
     destination.on('error', onDestinationError);
     destination.once('close', onDestinationClose);
+    destination.on('drain', onDestinationDrain);
     source.once('end', () => {
       sourceEnded = true;
       settle();
@@ -110,7 +136,7 @@ function streamAgentLogs(
     });
     source.on('data', (value: Buffer | string) => {
       const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
-      commandOutputCapture!.recordOutput(currentAttempt, stream, chunk);
+      commandOutputCapture?.recordOutput(currentAttempt, stream, chunk);
       if (destinationUnavailable) return;
       if (destination.destroyed || !destination.writable) {
         markDestinationUnavailable('closed');
@@ -125,7 +151,12 @@ function streamAgentLogs(
         };
         const canContinue = destination.write(chunk, writeCompleted);
         if (!canContinue && !destinationUnavailable) {
-          markDestinationUnavailable('backpressure');
+          if (commandOutputCapture) {
+            markDestinationUnavailable('backpressure');
+          } else {
+            waitingForDrain = true;
+            (source as NodeJS.ReadableStream & { pause?: () => void }).pause?.();
+          }
         }
       } catch {
         markDestinationUnavailable('error');
@@ -139,11 +170,12 @@ function streamAgentLogs(
       settle();
     });
   });
-  const outputDrainPromises: Promise<void>[] = [];
-  if (commandOutputCapture) {
-    outputDrainPromises.push(forwardOutput(logsProcess.stdout, process.stdout, 'stdout'));
-    outputDrainPromises.push(forwardOutput(logsProcess.stderr, process.stderr, 'stderr'));
-  }
+  const redactedStdout = redactOutput(logsProcess.stdout);
+  const redactedStderr = redactOutput(logsProcess.stderr);
+  const outputDrainPromises = [
+    forwardOutput(redactedStdout, process.stdout, 'stdout'),
+    forwardOutput(redactedStderr, process.stderr, 'stderr'),
+  ];
   return async ({ exitCode, outcome }) => {
     let drainTimeout: ReturnType<typeof setTimeout> | undefined;
     const drainResult = await Promise.race([
@@ -163,6 +195,7 @@ function streamAgentLogs(
       logsProcess.stderr?.destroy();
     }
     const logsDrained = drainResult.logsDrained;
+    await credentialStopPromise;
     commandOutputCapture?.finishAttempt(currentAttempt, { exitCode, outcome, logsDrained });
     return { exitCode, outcome };
   };

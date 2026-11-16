@@ -20,7 +20,7 @@ This firewall solves a specific problem: **egress control for AI agents running 
 
 ### What We Explicitly Allow
 
-- **Full filesystem access**: Agents read and write files freely. If your threat model requires filesystem isolation, you need additional controls.
+- **Access to shared files**: Agents can use the workspace and selected tool and handoff directories. These are not safe places for privileged host IPC.
 - **Localhost communication**: Required for stdio-based MCP servers running alongside the agent.
 - **DNS to trusted servers only**: DNS queries are restricted to configured DNS servers (default: Google DNS). This prevents DNS-based data exfiltration to attacker-controlled DNS servers.
 
@@ -58,6 +58,23 @@ persistent or shared hosts, when running untrusted agents.
   repository-aware policy for arbitrary traffic from the primary agent and
   does not protect against runner-host compromise. See the
   [Unified Enclave Architecture](https://github.com/github/gh-aw-firewall/blob/main/docs/enclaves-architecture.md).
+
+### Host runtime IPC
+
+Compose agents have private tmpfs storage at `/tmp` and `/host/tmp`, not a bind
+of host `/tmp`. Only narrow handoffs such as `/tmp/gh-aw` remain shared. This
+keeps runner CoreCLR debugger FIFOs and diagnostic sockets in host `/tmp`
+inaccessible even when created after agent startup. Before launching user code,
+the agent image checks the container-visible temporary and home paths for
+`clr-debug-pipe-*` and `dotnet-diagnostic-*`, failing closed on a match or scan
+error. sbx also no longer automatically shares host `/tmp`.
+
+This does not isolate IPC deliberately placed in live workspace, home-tool,
+handoff, or custom shares. Read-only mounts and same-UID owner permissions are
+not IPC barriers, and a startup scan cannot stop late-created endpoints inside
+shared directories. Keep credential-holding host services out of those shares.
+See the [IPC security contract](https://github.com/github/gh-aw-firewall/blob/main/docs/security.md#host-runtime-ipc-boundary)
+for runtime scope, image requirements, and migration guidance.
 
 ### GitHub repository/path-scoped filtering
 

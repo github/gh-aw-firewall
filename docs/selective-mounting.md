@@ -13,7 +13,7 @@ AWF implements **granular selective mounting** to protect against credential exf
 - Subdirectories with credentials (e.g., `~/.config/hub/config`) were fully accessible
 
 **Fixed Implementation**: As of v0.14.1, AWF uses **granular mounting**:
-- Mount **only** the workspace directory (`$GITHUB_WORKSPACE` or current working directory) and `/tmp`, plus selected system paths
+- Mount **only** the workspace directory (`$GITHUB_WORKSPACE` or current working directory), `/tmp/gh-aw` handoff, and selected system paths; `/tmp` itself is private tmpfs
 - Mount selected home tool directories and `~/.copilot/logs` separately for agent state
 - Apply `/dev/null` overlays as defense-in-depth
 - Never mount the entire `$HOME` directory
@@ -92,6 +92,10 @@ applied to existing directories, whose contents are left in place; a
 non-directory target is rejected. The `rw` bind mode does not override host
 ownership, permissions, ACLs, or a read-only filesystem, so it does not guarantee
 effective write access.
+`/tmp` and `/host/tmp` are private tmpfs mounts; the host `/tmp` is never exposed.
+Host paths below `/tmp` are therefore not implicitly available to the agent. To
+use one with `filesystem.allowWrite`, first expose only the required directory
+with a narrow custom volume mount; the whole host `/tmp` remains prohibited.
 
 **What gets hidden:** known credential paths are overlaid with `/dev/null:ro`
 at direct and `/host` destinations when mountable. Missing paths under
@@ -242,7 +246,7 @@ sudo awf --keep-containers --allow-domains github.com -- echo "test"
 docker inspect awf-agent --format '{{json .Mounts}}' | jq
 
 # You should see:
-# - /tmp mounted
+# - Private /tmp available; only /tmp/gh-aw is shared with the host
 # - empty chroot home and selected tool directories (not real $HOME wholesale)
 # - /dev/null mounted over credential files
 # - NO /:/host mount

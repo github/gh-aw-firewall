@@ -1639,6 +1639,38 @@ AWFEOF
   chmod +x "/host${SCRIPT_FILE}"
 }
 
+check_runtime_ipc_paths() {
+  local root found
+  for root in "$@"; do
+    [ -e "$root" ] || [ -L "$root" ] || continue
+    if ! found="$(find -H "$root" \( -name 'clr-debug-pipe-*' -o -name 'dotnet-diagnostic-*' \) -print -quit)"; then
+      echo "[entrypoint][ERROR] Cannot inspect shared paths for host runtime IPC; refusing to launch" >&2
+      return 1
+    fi
+    if [ -n "$found" ]; then
+      echo "[entrypoint][ERROR] Host CoreCLR debug/diagnostic IPC is visible; refusing to launch" >&2
+      return 1
+    fi
+  done
+}
+
+check_host_runtime_ipc() {
+  # Inspect the container's actual mount view, not the runner filesystem (which
+  # may differ on ARC/DinD). Never unlink host endpoints or trust their modes:
+  # the agent can have the same UID as Runner.Worker and Runner.Listener.
+  local root
+  local roots=(/tmp /host/tmp)
+  for root in "${TMPDIR:-}" "${HOME:-}" "${RUNNER_TEMP:-}"; do
+    if [[ "$root" = /* ]]; then
+      roots+=("$root" "/host$root")
+    elif [ -n "$root" ]; then
+      echo "[entrypoint][ERROR] IPC check requires absolute temporary/home paths" >&2
+      return 1
+    fi
+  done
+  check_runtime_ipc_paths "${roots[@]}"
+}
+
 run_chroot_command() {
 # If chroot mode is enabled, run user command INSIDE the chroot /host
 # This provides transparent host binary access - user command sees host filesystem as /
@@ -1778,6 +1810,7 @@ run_chroot_command() {
     LD_LIBRARY_PATH_CMD="export LD_LIBRARY_PATH=${BROWSER_LD_LIBRARY_PATH}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH};"
   fi
 
+  check_host_runtime_ipc || exit 1
   run_command_with_stdout run_agent_with_token_protection chroot /host /bin/bash -c "
     cd '${CHROOT_WORKDIR}' 2>/dev/null || cd / 2>/dev/null || true
     trap '${CLEANUP_CMD}' EXIT
@@ -1821,6 +1854,7 @@ run_non_chroot_command() {
   # unset from the environment so /proc/self/environ is cleared
   export LD_PRELOAD=/usr/local/lib/one-shot-token.so
 
+  check_host_runtime_ipc || exit 1
   if [ -n "$CAPS_TO_DROP" ]; then
     run_command_with_stdout run_agent_with_token_protection capsh --drop=$CAPS_TO_DROP -- -c "exec gosu awfuser $(printf '%q ' "$@")"
   else

@@ -47,8 +47,9 @@ interface AgentServiceParams {
  */
 function buildAgentSecurityConfig(config: WrapperConfig): any {
   return {
-    // SECURITY: Hide sensitive paths from the agent. Both ordinary and /host-
-    // prefixed paths are required because chroot mode mounts /tmp at both paths.
+    // SECURITY: /tmp and the chroot-visible /host/tmp must be private filesystems.
+    // Binding the runner's /tmp exposes host IPC endpoints, including unauthenticated
+    // CoreCLR debug pipes created by GitHub Runner processes.
     //
     // /host/dev/shm: /dev is bind-mounted read-only (/dev:/host/dev:ro), which makes
     // /dev/shm read-only after chroot /host. POSIX semaphores and shared memory
@@ -56,8 +57,13 @@ function buildAgentSecurityConfig(config: WrapperConfig): any {
     // A tmpfs overlay at /host/dev/shm provides a writable, isolated in-memory filesystem.
     // Security: Docker containers use their own IPC namespace (no --ipc=host), so shared
     // memory is fully isolated from the host and other containers. Size is capped at 64MB
-    // (Docker's default). noexec and nosuid flags restrict abuse vectors.
+    // (Docker's default). Private tmpfs mounts retain nosuid; sensitive overlays are noexec.
     tmpfs: [
+      // Never share the host temporary root: same-UID host runtime IPC (including
+      // endpoints created after startup) must remain outside the agent mount tree.
+      // Executable temporary files are required by compilers and setup tools.
+      '/tmp:rw,exec,nosuid,nodev,size=2097152k',
+      '/host/tmp:rw,exec,nosuid,nodev,size=2097152k',
       ...dockerSensitiveTmpfs(config.workDir),
       '/host/dev/shm:rw,noexec,nosuid,nodev,size=65536k',
     ],

@@ -70,7 +70,7 @@ export function mountedChrootRoots(
 
   return [
     workspaceDir,
-    '/tmp',
+    '/tmp/gh-aw',
     ...systemDirectories(useSysroot),
     ...HOME_TOOL_PATHS
       .filter((toolPath) => toolPath !== '.gemini' || Boolean(config.geminiApiKey || config.googleApiKey))

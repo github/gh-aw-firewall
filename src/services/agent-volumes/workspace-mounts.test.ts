@@ -51,11 +51,12 @@ describe('buildWorkspaceMounts', () => {
   });
 
   describe('standard mounts', () => {
-    it('always includes /tmp, workspace, logs, session-state, init-signal mounts', () => {
+    it('mounts the narrow temporary handoff and required paths without exposing host /tmp', () => {
       const config = makeAgentVolumeConfig();
       const mounts = buildWorkspaceMounts(makeParams(config, tmpDir, '/workspace'));
 
-      expect(mounts).toContain('/tmp:/tmp:rw');
+      expect(mounts).not.toContain('/tmp:/tmp:rw');
+      expect(mounts).toContain('/tmp/gh-aw:/tmp/gh-aw:rw');
       expect(mounts).toContain('/workspace:/workspace:rw');
       expect(mounts).toContain('/tmp/awf-logs:/home/runner/.copilot/logs:rw');
       expect(mounts).toContain('/tmp/awf-session:/home/runner/.copilot/session-state:rw');
@@ -75,6 +76,11 @@ describe('buildWorkspaceMounts', () => {
       const mount = mounts.find(m => m.includes('api-proxy-health-check.sh'));
       expect(mount).toBeDefined();
       expect(mount).toContain(':/usr/local/bin/api-proxy-health-check.sh:ro');
+    });
+
+    it('refuses a custom mount of the whole host /tmp', () => {
+      expect(() => buildCustomVolumeMounts(['/tmp:/tmp:rw']))
+        .toThrow('Refusing to expose the host /tmp');
     });
 
     it('skips api-proxy-health-check.sh mount when file does not exist', () => {
@@ -230,10 +236,27 @@ describe('container working directory visibility', () => {
     expect(mounts.filter(m => m.includes('/workspace/repo'))).toEqual([]);
   });
 
-  it('does not add a mount when the working directory is covered by /tmp or a system mount', () => {
-    const tmpConfig = makeAgentVolumeConfig({ containerWorkDir: '/tmp/build' });
-    expect(buildWorkspaceMounts(makeParams(tmpConfig, tmpDir)).some(m => m.startsWith('/tmp/build:'))).toBe(false);
+  it('mounts a requested host directory below private /tmp without mounting all of /tmp', () => {
+    const buildDir = '/tmp/build';
+    const actual = jest.requireActual<typeof import('fs')>('fs');
+    (fs.statSync as unknown as jest.Mock).mockImplementation((target: unknown, ...rest: unknown[]) => {
+      if (String(target) === buildDir) {
+        return { isDirectory: () => true, isFile: () => false } as fs.Stats;
+      }
+      return (actual.statSync as (...args: unknown[]) => fs.Stats)(target, ...rest);
+    });
 
+    const tmpConfig = makeAgentVolumeConfig({ containerWorkDir: buildDir });
+    const mounts = buildWorkspaceMounts(makeParams(tmpConfig, tmpDir));
+    expect(mounts).toContain(`${buildDir}:${buildDir}:rw`);
+    expect(mounts).toContain(`${buildDir}:/host${buildDir}:rw`);
+    expect(mounts).not.toContain('/tmp:/tmp:rw');
+
+    const rootConfig = makeAgentVolumeConfig({ containerWorkDir: '/tmp' });
+    expect(buildWorkspaceMounts(makeParams(rootConfig, tmpDir)).some(m => m.startsWith('/tmp:/tmp:'))).toBe(false);
+  });
+
+  it('does not add a mount when the working directory is covered by a system mount', () => {
     const usrConfig = makeAgentVolumeConfig({ containerWorkDir: '/usr/local/src' });
     expect(buildWorkspaceMounts(makeParams(usrConfig, tmpDir)).some(m => m.startsWith('/usr/local/src:'))).toBe(false);
   });

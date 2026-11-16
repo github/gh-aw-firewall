@@ -19,6 +19,12 @@ describe('agent service', () => {
   });
 
   describe('containerWorkDir option', () => {
+    it('never remounts the host temporary root as a working directory', () => {
+      const result = generateDockerCompose({ ...getConfig(), containerWorkDir: '/tmp/' }, mockNetworkConfig);
+      const volumes = result.services.agent.volumes as string[];
+      expect(volumes.some((volume) => volume.startsWith('/tmp:'))).toBe(false);
+    });
+
     it('should not set working_dir when containerWorkDir is not specified', () => {
       const result = generateDockerCompose(getConfig(), mockNetworkConfig);
 

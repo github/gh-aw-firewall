@@ -12,12 +12,18 @@ import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { createRunner, AwfRunner } from '../fixtures/awf-runner';
 import { cleanup } from '../fixtures/cleanup';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
 describe('filesystem.allowWrite', () => {
   let runner: AwfRunner;
-  let testDir: string;
+  const fixtureDirs: string[] = [];
+  const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
+
+  function createWorkspaceFixture(prefix: string): string {
+    const directory = fs.mkdtempSync(path.join(workspaceDir, prefix));
+    fixtureDirs.push(directory);
+    return directory;
+  }
 
   beforeAll(async () => {
     await cleanup(false);
@@ -26,13 +32,13 @@ describe('filesystem.allowWrite', () => {
 
   afterAll(async () => {
     await cleanup(false);
-    if (testDir && fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
+    for (const directory of fixtureDirs) {
+      if (fs.existsSync(directory)) fs.rmSync(directory, { recursive: true, force: true });
     }
   });
 
   test('starts the legacy Docker agent when /tmp is narrowed read-only', async () => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-allowwrite-'));
+    const testDir = createWorkspaceFixture('.awf-allowwrite-');
     const writableDir = path.join(testDir, 'agent');
     fs.mkdirSync(writableDir, { recursive: true });
     const configPath = path.join(testDir, 'awf-config.json');
@@ -67,7 +73,7 @@ describe('filesystem.allowWrite', () => {
   }, 180000);
 
   test('keeps security helpers installed when /tmp is narrowed read-only', async () => {
-    const helperDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-allowwrite-helpers-'));
+    const helperDir = createWorkspaceFixture('.awf-allowwrite-helpers-');
     const writableDir = path.join(helperDir, 'agent');
     fs.mkdirSync(writableDir, { recursive: true });
     const configPath = path.join(helperDir, 'awf-config.json');
@@ -97,7 +103,7 @@ describe('filesystem.allowWrite', () => {
   }, 180000);
 
   test('leaves no AWF mount residue on the host after teardown', async () => {
-    const residueDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-allowwrite-residue-'));
+    const residueDir = createWorkspaceFixture('.awf-allowwrite-residue-');
     const writableDir = path.join(residueDir, 'agent');
     fs.mkdirSync(writableDir, { recursive: true });
     const configPath = path.join(residueDir, 'awf-config.json');

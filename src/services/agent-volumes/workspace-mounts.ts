@@ -21,11 +21,23 @@ interface WorkspaceMountsParams {
   initSignalDir: string;
 }
 
+export function buildTemporaryHandoffMounts(dockerHostPathPrefix?: string): string[] {
+  // These are runner-side paths, even when /tmp/gh-aw is also the daemon's
+  // runner-root prefix. Translate now so the final pass cannot mistake this
+  // narrow handoff for an already-staged daemon path.
+  return applyHostPathPrefixToVolumes([
+    '/tmp/gh-aw:/tmp/gh-aw:rw',
+    '/tmp/gh-aw:/host/tmp/gh-aw:rw',
+  ], dockerHostPathPrefix, {
+    translateAlreadyPrefixedPaths: !isSharedDockerHostPathPrefix(dockerHostPathPrefix),
+  });
+}
+
 export function buildWorkspaceMounts(params: WorkspaceMountsParams): string[] {
   const { config, projectRoot, effectiveHome, workspaceDir, agentLogsPath, sessionStatePath, initSignalDir } = params;
 
   const mounts: string[] = [
-    '/tmp:/tmp:rw',
+    ...buildTemporaryHandoffMounts(config.dockerHostPathPrefix),
     `${workspaceDir}:${workspaceDir}:rw`,
     `${agentLogsPath}:${effectiveHome}/.copilot/logs:rw`,
     `${sessionStatePath}:${effectiveHome}/.copilot/session-state:rw`,
@@ -99,8 +111,14 @@ export function buildContainerWorkDirMounts(params: ContainerWorkDirMountsParams
   }
 
   const workDir = path.posix.normalize(configuredWorkDir).replace(/\/+$/, '') || '/';
-  // The empty chroot home volume and the filesystem root always exist.
-  if (workDir === '/' || workDir === effectiveHome) {
+  // These private container directories already exist; never replace /tmp
+  // with the host's directory just to select it as the working directory.
+  if (workDir === '/' || workDir === '/tmp' || workDir === effectiveHome) {
+    return [];
+  }
+  // `/tmp` itself is provided by the private tmpfs. For a requested child
+  // directory, mount only that existing host path over the tmpfs.
+  if (workDir === '/tmp') {
     return [];
   }
 
@@ -116,7 +134,9 @@ export function buildContainerWorkDirMounts(params: ContainerWorkDirMountsParams
     return [];
   }
 
-  if (mountedChrootRoots(config, params.workspaceDir, effectiveHome).some((root) => isAtOrBelow(workDir, root))) {
+  const hostBackedRoots = mountedChrootRoots(config, params.workspaceDir, effectiveHome)
+    .filter((root) => root !== '/tmp');
+  if (hostBackedRoots.some((root) => isAtOrBelow(workDir, root))) {
     return [];
   }
 
@@ -189,6 +209,13 @@ export function buildCustomVolumeMounts(
   };
 
   debug(`Adding ${volumeMounts.length} custom volume mount(s)`);
+
+  for (const mount of volumeMounts) {
+    const source = mount.split(':', 1)[0];
+    if (source && path.resolve(source) === '/tmp') {
+      throw new Error('Refusing to expose the host /tmp through a custom volume mount');
+    }
+  }
 
   // Custom mount sources always use the runner's filesystem view. Translate
   // sources already under daemon-only prefixes (such as /tmp/gh-aw), but keep
