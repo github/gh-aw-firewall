@@ -2,7 +2,7 @@
 # Supply the release's build-tools digest, or a locally built base via BuildKit context.
 ARG BUILD_TOOLS_IMAGE=awf-build-tools
 
-FROM python:3.13.18-alpine3.24@sha256:9ef1a599f863231c3d91e941389bfdc4a2d6070557243d54df1a4e57015b960e AS enclave-script
+FROM python:3.15.0-alpine3.24@sha256:2699b90f4d562a22e2dd076c82f964032f64814204bff36d271a54ba4cc2c7e2 AS enclave-script
 LABEL io.github.awf.enclave.role="script"
 
 RUN apk upgrade --no-cache \
@@ -23,7 +23,7 @@ RUN apk add --no-cache openssl ca-certificates \
     && sh /opt/awf/trust/install-system-trust.sh \
     && rm -f /sbin/apk
 
-FROM node:26.11.1-trixie-slim@sha256:193fe51b64e77981119c98c2002c9e32a70e2f006fb4d25068ce0558998917f0 AS enclave-agent-build
+FROM node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS enclave-agent-build
 
 COPY trust/ /opt/awf/trust/
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
@@ -106,7 +106,7 @@ RUN chmod 0555 /usr/local/bin/run-enclave-agent \
     && rm -rf /usr/local/bin/__pycache__ \
     && mkdir -p /agent /awf/seed /run/awf-enclave-github
 
-FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a AS enclave-mcp-server
+FROM node:26.13.1-alpine3.24@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS enclave-mcp-server
 
 COPY trust/ /opt/awf/trust/
 RUN apk add --no-cache openssl ca-certificates \
