@@ -232,6 +232,8 @@ function checkWriteFileSyncInTempDirs(findings: Finding[]): void {
 function checkCleanupOperationsErrorHandling(findings: Finding[]): void {
   const CLEANUP_FILES = [
     'artifact-preservation.ts',
+    'artifact-enclave-handoff.ts',
+    'artifact-public-permissions.ts',
     'artifact-permissions.ts',
     'container-cleanup.ts',
     'container-stop.ts',
