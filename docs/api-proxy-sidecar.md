@@ -589,10 +589,12 @@ API keys are held in the sidecar container, not the agent:
 
 The sidecar also protects against an upstream that echoes the credential it was just given (for example in a `401`/`502` diagnostic body, a response header, or a transport error). For each request it remembers the credential values it actually injected: provider API keys, bearer tokens, the freshly minted OIDC token, trusted-service secret headers, and the AWS access key, session token and signature of a SigV4-signed request. It masks those values before anything reaches the agent or the sidecar log:
 
-- **Response bodies** are masked in a stream, holding back only a suffix that could complete a credential in the next chunk. Masking is same-byte-length (a byte that does not occur in any credential), so successful JSON, UTF-8 output and length framing are preserved. JSON-escaped forms are masked as well.
+- **Response bodies** are masked in a stream, holding back only a suffix that could complete a credential in the next chunk. For identity-encoded bodies, masking is same-byte-length (a byte that does not occur in any credential), so an existing `Content-Length` remains valid. JSON-escaped forms are masked as well.
 - **Response headers** whose name or value contain a credential are dropped or masked, and integrity headers (`ETag`, `Content-MD5`, `Digest`, `Content-Digest`, `Repr-Digest`) are removed from masked responses because they describe the original bytes.
-- **Compressed responses** (`gzip`, `deflate`, `br`) are decoded, masked and re-encoded. An unsupported `Content-Encoding`, or a corrupt or truncated stream, fails closed: the client receives `502` `Upstream response could not be safely inspected` (or the connection is aborted) instead of unmasked bytes.
+- **Body-bearing compressed responses** (`gzip`, `deflate`, `br`) are decoded, masked and re-encoded. Since the encoded body can change size, `Content-Length` is removed. An unsupported `Content-Encoding`, or a corrupt or truncated compressed body, fails closed: the client receives `502` `Upstream response could not be safely inspected` (or the connection is aborted) instead of unmasked bytes.
 - **Errors and logs** (`request_error`, WebSocket upgrade failures) pass through the same redaction, and WebSocket handshakes, message frames and close reasons are masked without buffering ordinary model output.
+
+Encoding validation applies only when a response body is present. `HEAD`, `204`, `205`, `304`, and responses with `Content-Length: 0` are treated as bodyless: their `Content-Encoding` is not decoded or validated and can be retained, including an unsupported value.
 
 Masking is a defense-in-depth layer for credentials the sidecar itself injected; it does not replace keeping keys out of the agent environment. A `502` with `Upstream response could not be safely inspected` is a masking failure, not a provider authentication error.
 

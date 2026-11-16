@@ -10,20 +10,20 @@
   ],
   "conditions": [
     "The API proxy injected a credential into the request, so response masking is active",
-    "The upstream response has a Content-Encoding other than identity, gzip, deflate or br, or a corrupt or truncated compressed body",
+    "A body-bearing upstream response has a Content-Encoding other than identity, gzip, deflate or br, or a corrupt or truncated compressed body",
     "This is a response-inspection failure, not a provider 401/403; do not rotate keys or change auth mode for it"
   ],
   "affects": { "runner": "any", "runtime": "any", "provider": "any", "authMode": "any" },
   "versions": { "introduced": "unknown", "fixed": "unknown" },
   "status": "workaround",
-  "rootCause": "The API proxy masks any injected credential value an upstream echoes in response bodies, headers or errors. It must decode compressed bodies to do so, and it fails closed with 502 rather than forwarding bytes it cannot inspect. An unsupported encoding or a damaged compressed stream therefore surfaces as a proxy error even though the provider authenticated the request.",
+  "rootCause": "The API proxy masks any injected credential value an upstream echoes in response bodies, headers or errors. It must decode body-bearing compressed responses to do so, and it fails closed with 502 rather than forwarding bytes it cannot inspect. An unsupported encoding or a damaged compressed body therefore surfaces as a proxy error even though the provider authenticated the request. Bodyless responses are not decoded or encoding-validated.",
   "probe": {
     "command": "docker logs awf-api-proxy 2>&1 | grep -E 'request_error|Unsupported upstream response content encoding'",
     "expect": "Run while the containers are kept (--keep-containers). Matches show request_error events with credential-masked error text; compare the matched request's provider and path with the failing call. Do not print request headers, docker inspect output or the container environment.",
     "readOnly": true,
     "secretSafe": true
   },
-  "action": "Retry the request; a truncated or corrupt compressed body is usually transient. For a persistent unsupported encoding, have the client send Accept-Encoding limited to identity, gzip, deflate or br (the proxy already narrows the header for most requests) or report the provider and endpoint. Never disable masking, expose provider keys to the agent, or treat the 502 as an authentication failure. A shipped release containing this behavior is not verified here.",
+  "action": "Retry the request; a truncated or corrupt compressed body is usually transient. For a persistent unsupported encoding on a body-bearing response, have the client send Accept-Encoding limited to identity, gzip, deflate or br (the proxy already narrows the header for most requests) or report the provider and endpoint. Never disable masking, expose provider keys to the agent, or treat the 502 as an authentication failure. A shipped release containing this behavior is not verified here.",
   "references": [
     { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11471" },
     { "kind": "code", "ref": "containers/api-proxy/credential-protection.js" },
