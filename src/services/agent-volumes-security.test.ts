@@ -143,7 +143,7 @@ describe('agent service', () => {
         expect(mount).toContain('nosuid');
         if (mount.startsWith('/tmp:') || mount.startsWith('/host/tmp:')) {
           expect(mount).toContain('nodev');
-          expect(mount).toContain('mode=1777');
+          expect(mount).toContain('exec');
           expect(mount).toMatch(/size=\d+[mk]/);
           return;
         }
@@ -151,8 +151,13 @@ describe('agent service', () => {
         // Each mount must have a size limit (value varies: 1m for secrets, 65536k for /dev/shm)
         expect(mount).toMatch(/size=\d+[mk]/);
       });
-      expect(tmpfs).toContain('/tmp:rw,nosuid,nodev,mode=1777,size=2097152k');
-      expect(tmpfs).toContain('/host/tmp:rw,nosuid,nodev,mode=1777,size=2097152k');
+      expect(tmpfs).toContain('/tmp:rw,exec,nosuid,nodev,size=2097152k');
+      expect(tmpfs).toContain('/host/tmp:rw,exec,nosuid,nodev,size=2097152k');
+      for (const mount of tmpfs.filter((entry: string) =>
+        !entry.startsWith('/tmp:') && !entry.startsWith('/host/tmp:')
+      )) {
+        expect(mount).toContain('noexec');
+      }
     });
 
     it('should apply tmpfs overlay to custom workDir paths', () => {
@@ -180,8 +185,8 @@ describe('agent service', () => {
 
       expect(tmpfs).toHaveLength(dockerSensitiveTmpfs(getConfig().workDir).length + 3);
       expect(tmpfs).toEqual(expect.arrayContaining(dockerSensitiveTmpfs(getConfig().workDir)));
-      expect(tmpfs).toContain('/tmp:rw,nosuid,nodev,mode=1777,size=2097152k');
-      expect(tmpfs).toContain('/host/tmp:rw,nosuid,nodev,mode=1777,size=2097152k');
+      expect(tmpfs).toContain('/tmp:rw,exec,nosuid,nodev,size=2097152k');
+      expect(tmpfs).toContain('/host/tmp:rw,exec,nosuid,nodev,size=2097152k');
       // Writable /dev/shm for POSIX semaphores (chroot makes /host/dev read-only)
       expect(tmpfs.some((t: string) => t.startsWith('/host/dev/shm:'))).toBe(true);
     });

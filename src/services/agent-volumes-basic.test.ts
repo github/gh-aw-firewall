@@ -63,8 +63,8 @@ describe('agent service', () => {
     expect(volumes).not.toContain('/tmp:/host/tmp:rw');
     expect(volumes).toContain('/tmp/gh-aw:/tmp/gh-aw:rw');
     expect(agent.tmpfs).toEqual(expect.arrayContaining([
-      '/tmp:rw,nosuid,nodev,mode=1777,size=2097152k',
-      '/host/tmp:rw,nosuid,nodev,mode=1777,size=2097152k',
+      '/tmp:rw,exec,nosuid,nodev,size=2097152k',
+      '/host/tmp:rw,exec,nosuid,nodev,size=2097152k',
     ]));
     expect(volumes.some((v: string) => v.includes('agent-logs'))).toBe(true);
     // Should include home directory mount
@@ -115,8 +115,8 @@ describe('agent service', () => {
     expect(volumes).not.toContain('/tmp:/host/tmp:ro');
     expect(volumes).toContain('/tmp/gh-aw:/tmp/gh-aw:ro');
     expect(volumes).toContain('/tmp/gh-aw:/host/tmp/gh-aw:ro');
-    expect(result.services.agent.tmpfs).toContain('/tmp:rw,nosuid,nodev,mode=1777,size=2097152k');
-    expect(result.services.agent.tmpfs).toContain('/host/tmp:rw,nosuid,nodev,mode=1777,size=2097152k');
+    expect(result.services.agent.tmpfs).toContain('/tmp:rw,exec,nosuid,nodev,size=2097152k');
+    expect(result.services.agent.tmpfs).toContain('/host/tmp:rw,exec,nosuid,nodev,size=2097152k');
     expect(volumes).toContain(`${getConfig().workDir}/init-signal:/run/awf-init:rw`);
     // Legacy path stays exposed read-only so a newer CLI still works with an
     // older pinned agent image, and it must not become a writable hole in the

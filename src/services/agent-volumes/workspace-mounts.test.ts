@@ -236,10 +236,27 @@ describe('container working directory visibility', () => {
     expect(mounts.filter(m => m.includes('/workspace/repo'))).toEqual([]);
   });
 
-  it('does not add a mount when the working directory is covered by /tmp or a system mount', () => {
-    const tmpConfig = makeAgentVolumeConfig({ containerWorkDir: '/tmp/build' });
-    expect(buildWorkspaceMounts(makeParams(tmpConfig, tmpDir)).some(m => m.startsWith('/tmp/build:'))).toBe(false);
+  it('mounts a requested host directory below private /tmp without mounting all of /tmp', () => {
+    const buildDir = '/tmp/build';
+    const actual = jest.requireActual<typeof import('fs')>('fs');
+    (fs.statSync as unknown as jest.Mock).mockImplementation((target: unknown, ...rest: unknown[]) => {
+      if (String(target) === buildDir) {
+        return { isDirectory: () => true, isFile: () => false } as fs.Stats;
+      }
+      return (actual.statSync as (...args: unknown[]) => fs.Stats)(target, ...rest);
+    });
 
+    const tmpConfig = makeAgentVolumeConfig({ containerWorkDir: buildDir });
+    const mounts = buildWorkspaceMounts(makeParams(tmpConfig, tmpDir));
+    expect(mounts).toContain(`${buildDir}:${buildDir}:rw`);
+    expect(mounts).toContain(`${buildDir}:/host${buildDir}:rw`);
+    expect(mounts).not.toContain('/tmp:/tmp:rw');
+
+    const rootConfig = makeAgentVolumeConfig({ containerWorkDir: '/tmp' });
+    expect(buildWorkspaceMounts(makeParams(rootConfig, tmpDir)).some(m => m.startsWith('/tmp:/tmp:'))).toBe(false);
+  });
+
+  it('does not add a mount when the working directory is covered by a system mount', () => {
     const usrConfig = makeAgentVolumeConfig({ containerWorkDir: '/usr/local/src' });
     expect(buildWorkspaceMounts(makeParams(usrConfig, tmpDir)).some(m => m.startsWith('/usr/local/src:'))).toBe(false);
   });

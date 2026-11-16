@@ -93,6 +93,9 @@ non-directory target is rejected. The `rw` bind mode does not override host
 ownership, permissions, ACLs, or a read-only filesystem, so it does not guarantee
 effective write access.
 `/tmp` and `/host/tmp` are private tmpfs mounts; the host `/tmp` is never exposed.
+Host paths below `/tmp` are therefore not implicitly available to the agent. To
+use one with `filesystem.allowWrite`, first expose only the required directory
+with a narrow custom volume mount; the whole host `/tmp` remains prohibited.
 
 **What gets hidden:** known credential paths are overlaid with `/dev/null:ro`
 at direct and `/host` destinations when mountable. Missing paths under

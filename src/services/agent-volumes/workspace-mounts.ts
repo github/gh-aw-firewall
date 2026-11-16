@@ -116,6 +116,11 @@ export function buildContainerWorkDirMounts(params: ContainerWorkDirMountsParams
   if (workDir === '/' || workDir === '/tmp' || workDir === effectiveHome) {
     return [];
   }
+  // `/tmp` itself is provided by the private tmpfs. For a requested child
+  // directory, mount only that existing host path over the tmpfs.
+  if (workDir === '/tmp') {
+    return [];
+  }
 
   // Credential paths are checked first: a hidden path must never be mounted
   // just because a broader tool-directory mount appears to cover it.
@@ -129,7 +134,9 @@ export function buildContainerWorkDirMounts(params: ContainerWorkDirMountsParams
     return [];
   }
 
-  if (mountedChrootRoots(config, params.workspaceDir, effectiveHome).some((root) => isAtOrBelow(workDir, root))) {
+  const hostBackedRoots = mountedChrootRoots(config, params.workspaceDir, effectiveHome)
+    .filter((root) => root !== '/tmp');
+  if (hostBackedRoots.some((root) => isAtOrBelow(workDir, root))) {
     return [];
   }
 

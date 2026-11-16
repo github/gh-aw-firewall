@@ -88,8 +88,8 @@ describe('agent service', () => {
     expect(volumes).not.toContain('/tmp:/host/tmp:rw');
     expect(volumes).toContain('/tmp/gh-aw:/host/tmp/gh-aw:rw');
     expect(agent.tmpfs).toEqual(expect.arrayContaining([
-      '/tmp:rw,nosuid,nodev,mode=1777,size=2097152k',
-      '/host/tmp:rw,nosuid,nodev,mode=1777,size=2097152k',
+      '/tmp:rw,exec,nosuid,nodev,size=2097152k',
+      '/host/tmp:rw,exec,nosuid,nodev,size=2097152k',
     ]));
   });
 
