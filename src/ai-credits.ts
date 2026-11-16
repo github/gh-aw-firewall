@@ -1,4 +1,4 @@
-export type AiCreditSuffixResult =
+type AiCreditSuffixResult =
   | { recognized: false }
   | { recognized: true; value: number }
   | { recognized: true; error: string };
