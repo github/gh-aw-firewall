@@ -45,7 +45,7 @@ on:
       - 'src/commands/main-action*'
       - 'src/commands/main-action/**'
       - 'src/cli-workflow*'
-      - 'src/services/enclave-mcp-service*'
+      - 'src/services/enclave-mcp-*'
       - 'containers/enclave/**'
       - 'containers/build-tools/**'
       - 'containers/cloud-hypervisor/**'
@@ -121,6 +121,8 @@ jobs:
             scripts/ci/cloud-hypervisor-conformance-admission.test.ts \
             src/enclave/runtime-preflight.test.ts \
             src/services/enclave-mcp-service.test.ts \
+            src/services/enclave-mcp-executor-topology.test.ts \
+            src/services/enclave-mcp-script-service.test.ts \
             src/commands/main-action.test.ts \
             src/commands/main-action-startup-diagnostics.test.ts \
             src/commands/main-action/external-runtime-wiring.test.ts \
