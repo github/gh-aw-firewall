@@ -1,4 +1,8 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import Ajv2020 from 'ajv/dist/2020';
 import { generateSquidConfig } from './squid-config';
+import { parseAuditJsonlLine } from './logs/log-parser';
 import { SquidConfig } from './types';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { version: AWF_VERSION } = require('../package.json') as { version: string };
@@ -158,25 +162,87 @@ describe('generateSquidConfig', () => {
       expect(result).toContain(`"_schema":"audit/v${AWF_VERSION}"`);
     });
 
-    it('audit_jsonl logformat should include all required fields', () => {
-      const config: SquidConfig = {
+    it('audit_jsonl logformat renders records that satisfy audit.schema.json and the audit parser', () => {
+      const result = generateSquidConfig({
         domains: ['example.com'],
         port: defaultPort,
-      };
-      const result = generateSquidConfig(config);
-      // Required fields per audit.schema.json
+      });
       const auditLine = result.split('\n').find(l => l.startsWith('logformat audit_jsonl'));
       expect(auditLine).toBeDefined();
-      const auditLineText = auditLine ?? '';
-      expect(auditLineText).toContain('"timestamp":');
-      expect(auditLineText).toContain('"event":"http_access"');
-      expect(auditLineText).toContain('"client":');
-      expect(auditLineText).toContain('"host":');
-      expect(auditLineText).toContain('"dest":');
-      expect(auditLineText).toContain('"method":');
-      expect(auditLineText).toContain('"status":');
-      expect(auditLineText).toContain('"decision":');
-      expect(auditLineText).toContain('"url":');
+      const template = (auditLine ?? '').replace(/^logformat audit_jsonl\s+/, '');
+
+      // Squid is not available in unit tests, so each format code is replaced with a fixed
+      // sample value. Longest tokens are matched first so `%{Host}>h` is not split.
+      const render = (values: Map<string, string>): string =>
+        template.replace(
+          /%\{%Y-%m-%dT%H:%M:%S\}tg\.%03tu|%<a:%<p|%\{Host\}>h|%>a|%rm|%>Hs|%Ss|%ru/g,
+          token => {
+            const value = values.get(token);
+            if (value === undefined) throw new Error(`unexpected format code ${token}`);
+            return value;
+          }
+        );
+
+      const allowed = render(new Map([
+        ['%{%Y-%m-%dT%H:%M:%S}tg.%03tu', '2026-05-25T09:00:00.000'],
+        ['%>a', '172.30.0.20'],
+        ['%{Host}>h', 'api.github.com:443'],
+        ['%<a:%<p', '140.82.114.22:443'],
+        ['%rm', 'CONNECT'],
+        ['%>Hs', '200'],
+        ['%Ss', 'TCP_TUNNEL'],
+        ['%ru', 'api.github.com:443'],
+      ]));
+      const denied = render(new Map([
+        ['%{%Y-%m-%dT%H:%M:%S}tg.%03tu', '2026-05-25T09:00:01.000'],
+        ['%>a', '172.30.0.20'],
+        ['%{Host}>h', 'example.com:443'],
+        ['%<a:%<p', '-:-'],
+        ['%rm', 'CONNECT'],
+        ['%>Hs', '403'],
+        ['%Ss', 'TCP_DENIED'],
+        ['%ru', 'example.com:443'],
+      ]));
+
+      const schema = JSON.parse(
+        fs.readFileSync(path.join(__dirname, '..', 'schemas', 'audit.schema.json'), 'utf8')
+      ) as object;
+      const ajv = new Ajv2020({ allErrors: true, validateFormats: false });
+      const validate = ajv.compile(schema);
+
+      // Schema validation catches type drift such as a quoted numeric status.
+      const allowedRecord: unknown = JSON.parse(allowed);
+      const deniedRecord: unknown = JSON.parse(denied);
+      expect(validate(allowedRecord)).toBe(true);
+      expect(validate(deniedRecord)).toBe(true);
+      expect(allowedRecord).toMatchObject({
+        _schema: `audit/v${AWF_VERSION}`,
+        timestamp: '2026-05-25T09:00:00.000Z',
+        status: 200,
+        decision: 'TCP_TUNNEL',
+      });
+
+      const allowedEntry = parseAuditJsonlLine(allowed);
+      expect(allowedEntry).toMatchObject({
+        timestamp: Date.parse('2026-05-25T09:00:00.000Z') / 1000,
+        clientIp: '172.30.0.20',
+        domain: 'api.github.com',
+        destIp: '140.82.114.22',
+        destPort: '443',
+        method: 'CONNECT',
+        statusCode: 200,
+        decision: 'TCP_TUNNEL',
+        isAllowed: true,
+        isHttps: true,
+      });
+
+      const deniedEntry = parseAuditJsonlLine(denied);
+      expect(deniedEntry).toMatchObject({
+        domain: 'example.com',
+        statusCode: 403,
+        decision: 'TCP_DENIED',
+        isAllowed: false,
+      });
     });
   });
 });
