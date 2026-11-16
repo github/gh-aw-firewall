@@ -26,6 +26,35 @@ describe('validateEnclavesConfig', () => {
     expect(validateEnclavesConfig(config())).toEqual([]);
   });
 
+  it('preserves error ordering across repository, executor, dynamic, and GitHub validators', () => {
+    const enclaves = normalizeEnclavesConfig([
+      {
+        script: {},
+        timeout: 0,
+        repos: [{ repo: 'invalid', sensitivity: 'internal' }],
+      },
+      {
+        agent: { model: '', github: { cli: 'invalid' as never } },
+        dynamic: dynamicEnclavePolicyFixture({ executor: 'script' }) as never,
+      },
+    ]);
+    const wrapper = config({ enclaves });
+    const expected = [
+      'enclaves[].repos entry "invalid" is not a bare owner/repo slug',
+      'enclaves[].timeout must be between 1 and 4740',
+      'enclaves[].agent.model is required when the agent executor is enabled',
+      'enclaves[].dynamic.executor must be "agent"',
+      DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON,
+      'enclaves agent executor requires the AWF API proxy',
+      'enclaves[].agent.github.cli must be "issues-read-v1"',
+    ];
+
+    expect(validateEnclavesStructure(wrapper)).toEqual(expected);
+    expect(validateEnclavesConfig(wrapper)).toEqual(expected);
+    expect(validateEnclavesStructure(wrapper, { requireDelegationHandoff: false }))
+      .toEqual(expected.filter(error => error !== DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON));
+  });
+
   it('rejects static cloud-hypervisor entries with an omitted Docker-default primary', () => {
     const enclaves = normalizeEnclavesConfig([
       {
