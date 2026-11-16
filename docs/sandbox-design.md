@@ -61,7 +61,8 @@ The agent needs full access to the repository checkout and tool configurations (
 # Simplified example: AWF selectively mounts the workspace and specific paths,
 # not the entire host filesystem.
 volumes:
-  - ${GITHUB_WORKSPACE}:/workspace:rw
+  - ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}:rw
+  - ${GITHUB_WORKSPACE}:/host${GITHUB_WORKSPACE}:rw
   - ${HOME}/.npm:/host${HOME}/.npm:rw
   - ${HOME}/.cargo:/host${HOME}/.cargo:rw
 ```

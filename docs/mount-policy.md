@@ -62,11 +62,13 @@ image and is not driven by this config at all.
 ## Host work-directory permissions
 
 The host work directory (`--work-dir`) holds generated configuration, including
-`docker-compose.yml`, which can contain credentials. When the initial
-runner/daemon filesystem probe creates a missing work directory, it requests
-mode `0700` for that directory and any missing parents. Under `umask 022` or
-`000`, these new directories remain `0700`, including when Docker is
-unreachable.
+`docker-compose.yml`, which can contain credentials. When AWF creates a missing
+work directory, it requests mode `0700` for that directory and any missing
+parents. This happens in the runner/daemon filesystem probe (run when no
+`--docker-host-path-prefix` is set, before configuration setup) and again
+in configuration setup ([`validateAndPrepareWorkDir`](../src/config-writer-ownership.ts)).
+Under `umask 022` or `000`, these new directories remain `0700`, including when
+Docker is unreachable.
 
 The probe does not chmod existing directories. Subsequent configuration
 validation still rejects work directories with group or other access,
