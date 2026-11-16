@@ -51,11 +51,11 @@ describe('buildWorkspaceMounts', () => {
   });
 
   describe('standard mounts', () => {
-    it('always includes /tmp, workspace, logs, session-state, init-signal mounts', () => {
+    it('mounts required paths without exposing the host /tmp', () => {
       const config = makeAgentVolumeConfig();
       const mounts = buildWorkspaceMounts(makeParams(config, tmpDir, '/workspace'));
 
-      expect(mounts).toContain('/tmp:/tmp:rw');
+      expect(mounts).not.toContain('/tmp:/tmp:rw');
       expect(mounts).toContain('/workspace:/workspace:rw');
       expect(mounts).toContain('/tmp/awf-logs:/home/runner/.copilot/logs:rw');
       expect(mounts).toContain('/tmp/awf-session:/home/runner/.copilot/session-state:rw');
@@ -75,6 +75,11 @@ describe('buildWorkspaceMounts', () => {
       const mount = mounts.find(m => m.includes('api-proxy-health-check.sh'));
       expect(mount).toBeDefined();
       expect(mount).toContain(':/usr/local/bin/api-proxy-health-check.sh:ro');
+    });
+
+    it('refuses a custom mount of the whole host /tmp', () => {
+      expect(() => buildCustomVolumeMounts(['/tmp:/tmp:rw']))
+        .toThrow('Refusing to expose the host /tmp');
     });
 
     it('skips api-proxy-health-check.sh mount when file does not exist', () => {

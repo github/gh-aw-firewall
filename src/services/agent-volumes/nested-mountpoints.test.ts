@@ -657,7 +657,7 @@ describe('nested mountpoint preparation', () => {
       };
     }
 
-    it('classifies the staged binary mountpoint as a file, not a directory', () => {
+    it('does not prepare staged binary mountpoints inside private tmpfs', () => {
       const layout = stageSplitFsLayout();
       const writable = path.join(layout.workspaceDir, 'allowed');
       fs.mkdirSync(writable, { recursive: true });
@@ -666,11 +666,10 @@ describe('nested mountpoint preparation', () => {
       const requirement = planNestedMountpoints(volumes)
         .find((candidate) => candidate.containerTarget.endsWith(`/awf-runner-bin/${layout.binaryName}`));
 
-      expect(requirement).toBeDefined();
-      expect(requirement?.kind).toBe('file');
+      expect(requirement).toBeUndefined();
     });
 
-    it('creates the file mountpoint runc cannot create under a read-only /tmp', () => {
+    it('publishes the staged binary without creating a host /tmp placeholder', () => {
       const layout = stageSplitFsLayout();
       const writable = path.join(layout.workspaceDir, 'allowed');
       fs.mkdirSync(writable, { recursive: true });
@@ -678,13 +677,8 @@ describe('nested mountpoint preparation', () => {
       const volumes = layout.build([writable]);
 
       const mountpoint = path.join('/tmp/awf-runner-bin', layout.binaryName);
-      // An empty placeholder: it exists only so runc has something to bind over.
-      const placeholder = fs.statSync(mountpoint);
-      expect(placeholder.isFile()).toBe(true);
-      expect(placeholder.size).toBe(0);
-      // The bind really is published, and the /tmp cover really is read-only —
-      // otherwise this test would pass without exercising anything.
-      expect(volumes.some((spec) => spec.endsWith(':/tmp:ro'))).toBe(true);
+      expect(fs.existsSync(mountpoint)).toBe(false);
+      expect(volumes.some((spec) => spec.endsWith(':/tmp:ro'))).toBe(false);
       expect(volumes.some((spec) => spec.endsWith(`:/tmp/awf-runner-bin/${layout.binaryName}:ro`)))
         .toBe(true);
     });
@@ -792,21 +786,15 @@ describe('nested mountpoint preparation', () => {
       expect(() => layout.build([writable])).not.toThrow();
     });
 
-    it('classifies the legacy init signal mountpoint nested under a narrowed /tmp', () => {
+    it('does not prepare the legacy init path inside private tmpfs', () => {
       const layout = stageSharedTmpLayout();
       const volumes = layout.build([stageWritable(layout)]);
 
       const legacy = planWithProductionResolver(volumes)
         .find((requirement) => requirement.containerTarget === '/tmp/awf-init');
 
-      // The source is the run's own init-signal directory, which the CLI just
-      // created locally — being under the shared prefix must not make it
-      // unclassifiable. Asserted on the plan rather than on disk: a
-      // /tmp/awf-init left behind by another suite would otherwise satisfy an
-      // existsSync check without this code path ever running.
-      expect(legacy?.source).toBe(layout.initSignalDir);
-      expect(legacy?.kind).toBe('directory');
-      expect(legacy?.hostPath).toBe('/tmp/awf-init');
+      expect(legacy).toBeUndefined();
+      expect(volumes).toContain(`${layout.initSignalDir}:/tmp/awf-init:ro`);
     });
 
     it('prepares the nested home mountpoints when the chroot home is under the prefix', () => {

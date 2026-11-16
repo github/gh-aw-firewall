@@ -90,6 +90,7 @@ target directories with the safe runner UID:GID and mode `0755`. Existing
 directories retain their ownership, mode, and contents; a non-directory target
 is rejected. The `rw` bind mode does not override host ownership, permissions,
 ACLs, or a read-only filesystem, so it does not guarantee effective write access.
+`/tmp` and `/host/tmp` are private tmpfs mounts; the host `/tmp` is never exposed.
 
 **What gets hidden:** known credential paths are overlaid with `/dev/null:ro`
 at direct and `/host` destinations when mountable. Missing paths under

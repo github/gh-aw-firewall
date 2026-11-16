@@ -19,7 +19,7 @@ The system is orchestrated by `src/cli.ts` and managed by `src/docker-manager.ts
 - Runs the user's command (e.g., `claude`, `copilot`, `curl`)
 - An iptables-init init container (`awf-iptables-init`) shares the agent's network namespace and runs `setup-iptables.sh` to redirect all port 80/443 traffic via DNAT to Squid before the user command starts
 - `entrypoint.sh` handles UID/GID mapping, DNS config, chroot to `/host`, and capability drop (`SYS_CHROOT`, `SYS_ADMIN` dropped before user code runs)
-- **Selective bind mounts** (not a blanket host FS mount): system binaries (`/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/opt`, `/sys`, `/dev`) read-only; workspace and `/tmp` read-write; empty home volume with only whitelisted `$HOME` subdirs (`.cache`, `.config`, `.local`, `.anthropic`, `.claude`, `.cargo`, `.rustup`, `.npm`, `.copilot`); select `/etc` files (SSL certs, `passwd`, `group`, `nsswitch.conf`, `ld.so.cache`, `alternatives`, `hosts` — not `/etc/shadow`)
+- **Selective bind mounts** (not a blanket host FS mount): system binaries (`/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/opt`, `/sys`, `/dev`) read-only; workspace read-write; private tmpfs at `/tmp` and `/host/tmp` (the host `/tmp` is never mounted); empty home volume with only whitelisted `$HOME` subdirs (`.cache`, `.config`, `.local`, `.anthropic`, `.claude`, `.cargo`, `.rustup`, `.npm`, `.copilot`); select `/etc` files (SSL certs, `passwd`, `group`, `nsswitch.conf`, `ld.so.cache`, `alternatives`, `hosts` — not `/etc/shadow`)
 - Sensitive API keys are NOT present in the agent environment when `--enable-api-proxy` is active
 
 **3. API Proxy Sidecar (optional)** — `containers/api-proxy/`, IP `172.30.0.30`
@@ -156,7 +156,7 @@ The codebase follows a modular architecture with clear separation of concerns:
 
 **Agent Execution Container** (`containers/agent/`)
 - Based on `ubuntu:22.04`; can also use GitHub Actions parity image (`act` preset)
-- Selective bind mounts under `/host/`: system binaries `/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/opt`, `/sys`, `/dev` (ro); workspace and `/tmp` (rw); whitelisted `$HOME` subdirs (rw); select `/etc` files — NOT a blanket host FS mount; `/etc/shadow`, unwhitelisted home dirs, and most of `/etc` are excluded
+- Selective bind mounts under `/host/`: system binaries `/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/opt`, `/sys`, `/dev` (ro); workspace (rw); private tmpfs at `/tmp` and `/host/tmp`; whitelisted `$HOME` subdirs (rw); select `/etc` files — NOT a blanket host FS mount; host `/tmp`, `/etc/shadow`, unwhitelisted home dirs, and most of `/etc` are excluded
 - `entrypoint.sh` handles: UID/GID remapping → DNS config → SSL CA import → chroot to `/host` → capability drop → run user command as host user
 - **procfs mount**: A container-scoped procfs is mounted at `/host/proc` with `hidepid=2` to support runtimes that read `/proc/self/exe` (Java, .NET) while preventing the agent from reading other processes' `/proc/[pid]/environ` (credential isolation)
 - **iptables init container** (`awf-iptables-init`): separate container sharing agent's network namespace via `network_mode: service:agent`. Runs `setup-iptables.sh` to configure NAT rules before user command starts. Agent waits for `/run/awf-init/ready` signal file (also accepting the legacy `/tmp/awf-init/ready` so an older pinned agent image still works).

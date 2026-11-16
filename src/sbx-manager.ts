@@ -405,6 +405,9 @@ async function createSandboxInternal(config: SbxCreateConfig): Promise<string> {
   const name = config.name || SBX_DEFAULT_NAME;
   const squidPort = config.squidPort || 3128;
   const proxyUrl = `http://${config.squidIp}:${squidPort}`;
+  if (path.resolve(config.workspaceDir) === '/tmp') {
+    throw new Error('Refusing to expose the host /tmp as the sbx workspace');
+  }
 
   logger.info(`[sbx] Creating sandbox "${name}" with proxy ${proxyUrl}`);
 
@@ -446,6 +449,9 @@ async function createSandboxInternal(config: SbxCreateConfig): Promise<string> {
     for (const mount of config.extraMounts) {
       const parts = mount.split(':');
       const hostPath = parts[0];
+      if (path.resolve(hostPath) === '/tmp') {
+        throw new Error('Refusing to expose the host /tmp through an sbx mount');
+      }
       if (seenPaths.has(hostPath)) continue; // deduplicate
       seenPaths.add(hostPath);
       // Determine mode: last segment is 'ro' or 'rw' if there are 2+ colons
@@ -458,9 +464,10 @@ async function createSandboxInternal(config: SbxCreateConfig): Promise<string> {
     }
   }
 
-  // Mount /tmp so agent runtime files (prompts, logs) are accessible, and
-  // /usr/local/bin for Copilot CLI and other installed tools.
-  for (const sysPath of ['/tmp', '/usr/local/bin']) {
+  // Keep the microVM's /tmp private. Exporting the host /tmp exposes runner IPC
+  // endpoints such as CoreCLR debug pipes. /usr/local/bin remains available for
+  // Copilot CLI and other installed tools.
+  for (const sysPath of ['/usr/local/bin']) {
     if (!seenPaths.has(sysPath)) {
       seenPaths.add(sysPath);
       args.push(sysPath);

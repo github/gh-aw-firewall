@@ -12,7 +12,7 @@ jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaM
 const { getConfig } = useAgentVolumesTestConfig();
 
 describe('agent service', () => {
-  it('masks a Foundry credential env file inside the /tmp bind', () => {
+  it('does not expose a Foundry credential env file from host /tmp', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'foundry-env-file-'));
     const envFile = path.join(root, 'foundry.env');
     fs.writeFileSync(envFile, 'FOUNDRY_API_KEY=synthetic-secret\n');
@@ -23,8 +23,9 @@ describe('agent service', () => {
         envFile,
       }, mockNetworkConfig).services.agent.volumes as string[];
 
-      expect(volumes).toContain(`/dev/null:${envFile}:ro`);
-      expect(volumes).toContain(`/dev/null:/host${envFile}:ro`);
+      expect(volumes.some((volume) => volume.includes(envFile))).toBe(false);
+      expect(volumes).not.toContain('/tmp:/tmp:rw');
+      expect(volumes).not.toContain('/tmp:/host/tmp:rw');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -109,13 +110,19 @@ describe('agent service', () => {
       const agent = result.services.agent;
       const tmpfs = agent.tmpfs as string[];
 
-      // All tmpfs mounts should have security options
+      // All tmpfs mounts should have isolation options and a size limit.
       tmpfs.forEach((mount: string) => {
-        expect(mount).toContain('noexec');
         expect(mount).toContain('nosuid');
-        // Each mount must have a size limit (value varies: 1m for secrets, 65536k for /dev/shm)
+        // Each mount must have a size limit.
         expect(mount).toMatch(/size=\d+[mk]/);
       });
+      expect(tmpfs).toContain('/tmp:rw,nosuid,nodev,size=2097152k');
+      expect(tmpfs).toContain('/host/tmp:rw,nosuid,nodev,size=2097152k');
+      for (const mount of tmpfs.filter((entry: string) =>
+        !entry.startsWith('/tmp:') && !entry.startsWith('/host/tmp:')
+      )) {
+        expect(mount).toContain('noexec');
+      }
     });
 
     it('should apply tmpfs overlay to custom workDir paths', () => {
@@ -141,8 +148,10 @@ describe('agent service', () => {
       const agent = result.services.agent;
       const tmpfs = agent.tmpfs as string[];
 
-      expect(tmpfs).toHaveLength(dockerSensitiveTmpfs(getConfig().workDir).length + 1);
+      expect(tmpfs).toHaveLength(dockerSensitiveTmpfs(getConfig().workDir).length + 3);
       expect(tmpfs).toEqual(expect.arrayContaining(dockerSensitiveTmpfs(getConfig().workDir)));
+      expect(tmpfs).toContain('/tmp:rw,nosuid,nodev,size=2097152k');
+      expect(tmpfs).toContain('/host/tmp:rw,nosuid,nodev,size=2097152k');
       // Writable /dev/shm for POSIX semaphores (chroot makes /host/dev read-only)
       expect(tmpfs.some((t: string) => t.startsWith('/host/dev/shm:'))).toBe(true);
     });

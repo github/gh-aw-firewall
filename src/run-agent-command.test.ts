@@ -213,7 +213,10 @@ describe('runAgentCommand', () => {
         logsDrained: true,
       });
       expect(capture.finishCommand).toHaveBeenCalledWith(7, 'exited');
-      expect(stderrWrite).toHaveBeenCalledWith(Buffer.from([0x0a, 0x00, 0x42]), expect.any(Function));
+      const presentedStderr = Buffer.concat(stderrWrite.mock.calls.map(([chunk]) =>
+        Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))
+      ));
+      expect(presentedStderr).toEqual(Buffer.from([0x0a, 0x00, 0x42]));
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['logs', '-f', 'awf-agent'],
@@ -507,7 +510,7 @@ describe('runAgentCommand', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['logs', '--since', expect.any(String), '-f', 'awf-agent'],
-        expect.objectContaining({ stdio: 'inherit', reject: false })
+        expect.objectContaining({ stdio: ['ignore', 'pipe', 'pipe'], reject: false })
       );
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(`gVisor agent exited with code ${crashExitCode}`));
     } finally {

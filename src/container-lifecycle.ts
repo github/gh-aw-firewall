@@ -25,6 +25,7 @@ import { isGvisorRuntime } from './container-runtime';
 import { removeConflictingComposeNetworks } from './compose-network-conflicts';
 import { captureEnclaveStartupDiagnostics } from './enclave/startup-diagnostics';
 import type { ProtectedCommandOutputCapture, CapturedOutputStream, CommandAttemptOutcome } from './protected-command-output-capture';
+import { CredentialRedactingStream } from './credential-redactor';
 
 const GVISOR_RETRYABLE_AGENT_EXIT_CODES = new Set([134, 139]);
 const MAX_GVISOR_AGENT_RETRIES = 1;
@@ -433,11 +434,34 @@ export async function runAgentCommand(
       const currentAttempt = commandOutputCapture ? ++attemptNumber : 0;
       commandOutputCapture?.beginAttempt(currentAttempt);
       const logsProcess = execa('docker', logArgs, {
-        stdio: commandOutputCapture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
-        ...(commandOutputCapture ? { encoding: null, buffer: false } : {}),
+        stdio: ['ignore', 'pipe', 'pipe'],
+        encoding: null,
+        buffer: false,
         reject: false,
         env: getLocalDockerEnv(),
       });
+      let credentialStopPromise: Promise<unknown> | undefined;
+      const stopOnCredentialDisclosure = (): void => {
+        if (credentialStopPromise) return;
+        logger.error('Suspected credential disclosure detected in agent output; stopping the agent container');
+        credentialStopPromise = execa(
+          'docker',
+          ['stop', '-t', '10', AGENT_CONTAINER_NAME],
+          { reject: false, env: getLocalDockerEnv() },
+        );
+      };
+      const redactOutput = (source: NodeJS.ReadableStream | null): NodeJS.ReadableStream | null =>
+        source?.pipe(new CredentialRedactingStream(stopOnCredentialDisclosure)) ?? null;
+      const captureRawOutput = (
+        source: NodeJS.ReadableStream | null,
+        stream: CapturedOutputStream,
+      ): void => {
+        if (!source || !commandOutputCapture) return;
+        source.on('data', (value: Buffer | string) => {
+          const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+          commandOutputCapture.recordOutput(currentAttempt, stream, chunk);
+        });
+      };
       let outputStreamFailed = false;
       const forwardOutput = (
         source: NodeJS.ReadableStream | null,
@@ -470,7 +494,7 @@ export async function runAgentCommand(
           if (presentationFailures.has(reason)) return;
           presentationFailures.add(reason);
           destinationUnavailable = true;
-          commandOutputCapture!.recordPresentationFailure(stream, reason);
+          commandOutputCapture?.recordPresentationFailure(stream, reason);
           settle();
         };
         const onDestinationError = (): void => markDestinationUnavailable('error');
@@ -492,7 +516,6 @@ export async function runAgentCommand(
         });
         source.on('data', (value: Buffer | string) => {
           const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
-          commandOutputCapture!.recordOutput(currentAttempt, stream, chunk);
           if (destinationUnavailable) return;
           if (destination.destroyed || !destination.writable) {
             markDestinationUnavailable('closed');
@@ -521,11 +544,12 @@ export async function runAgentCommand(
           settle();
         });
       });
-      const outputDrainPromises: Promise<void>[] = [];
-      if (commandOutputCapture) {
-        outputDrainPromises.push(forwardOutput(logsProcess.stdout, process.stdout, 'stdout'));
-        outputDrainPromises.push(forwardOutput(logsProcess.stderr, process.stderr, 'stderr'));
-      }
+      captureRawOutput(logsProcess.stdout, 'stdout');
+      captureRawOutput(logsProcess.stderr, 'stderr');
+      const outputDrainPromises = [
+        forwardOutput(redactOutput(logsProcess.stdout), process.stdout, 'stdout'),
+        forwardOutput(redactOutput(logsProcess.stderr), process.stderr, 'stderr'),
+      ];
       const recordAttemptCompletion = async (
         exitCode: number,
         outcome: Exclude<CommandAttemptOutcome, 'running'>,
@@ -548,6 +572,7 @@ export async function runAgentCommand(
           logsProcess.stderr?.destroy();
         }
         const logsDrained = drainResult.logsDrained;
+        await credentialStopPromise;
         commandOutputCapture?.finishAttempt(currentAttempt, { exitCode, outcome, logsDrained });
         return { exitCode, outcome };
       };

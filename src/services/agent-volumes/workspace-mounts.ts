@@ -25,7 +25,6 @@ export function buildWorkspaceMounts(params: WorkspaceMountsParams): string[] {
   const { config, projectRoot, effectiveHome, workspaceDir, agentLogsPath, sessionStatePath, initSignalDir } = params;
 
   const mounts: string[] = [
-    '/tmp:/tmp:rw',
     `${workspaceDir}:${workspaceDir}:rw`,
     `${agentLogsPath}:${effectiveHome}/.copilot/logs:rw`,
     `${sessionStatePath}:${effectiveHome}/.copilot/session-state:rw`,
@@ -189,6 +188,13 @@ export function buildCustomVolumeMounts(
   };
 
   debug(`Adding ${volumeMounts.length} custom volume mount(s)`);
+
+  for (const mount of volumeMounts) {
+    const source = mount.split(':', 1)[0];
+    if (source && path.resolve(source) === '/tmp') {
+      throw new Error('Refusing to expose the host /tmp through a custom volume mount');
+    }
+  }
 
   // Custom mount sources always use the runner's filesystem view. Translate
   // sources already under daemon-only prefixes (such as /tmp/gh-aw), but keep

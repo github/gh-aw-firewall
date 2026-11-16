@@ -321,8 +321,8 @@ describe('sbx-manager', () => {
     });
 
     it('uses shell agent, configured mounts, and sanitized env', async () => {
-      // No host $HOME subdirs exist → only workspace, extra mounts, /tmp and
-      // /usr/local/bin are mounted (the whole $HOME is never mounted).
+      // No host $HOME subdirs exist → only workspace, extra mounts, and
+      // /usr/local/bin are mounted (the whole $HOME and host /tmp are never mounted).
       mockExecaFn
         .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' }) // auth check
         .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' }); // sbx create
@@ -340,7 +340,6 @@ describe('sbx-manager', () => {
         'shell',
         '/workspace',
         '/tmp/gh-aw:ro',
-        '/tmp',
         '/usr/local/bin',
       ], expect.objectContaining({
         input: 'y\n',
@@ -968,30 +967,24 @@ describe('sbx-manager', () => {
       expect(args).toContain('/data');
     });
 
-    it('skips system paths already in workspace or dedup list', async () => {
-      const home = process.env.HOME || '/home/runner';
-      mockedExistsSync.mockImplementation(
-        (p: fs.PathLike) => String(p) === `${home}/.cache`,
-      );
-      mockExecaFn
-        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
-        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
-
-      // workspaceDir IS /tmp — should not be added again
-      await createSandbox({
+    it('refuses to expose the host /tmp as the workspace', async () => {
+      await expect(createSandbox({
         name: 'awf-agent-tmp',
         workspaceDir: '/tmp',
         squidIp: '172.30.0.10',
-      });
+      })).rejects.toThrow('Refusing to expose the host /tmp');
+      expect(mockExecaFn).not.toHaveBeenCalled();
+    });
 
-      const createCall = mockExecaFn.mock.calls[1];
-      const args: string[] = createCall[1];
-      const tmpCount = args.filter(a => a === '/tmp').length;
-      expect(tmpCount).toBe(1);
-      expect(args).toContain('/usr/local/bin');
-      // The whole $HOME is never mounted; only existing whitelisted subdirs are.
-      expect(args).not.toContain(home);
-      expect(args).toContain(`${home}/.cache`);
+    it('refuses to expose the host /tmp through an extra mount', async () => {
+      mockExecaFn.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+      await expect(createSandbox({
+        workspaceDir: '/workspace',
+        squidIp: '172.30.0.10',
+        extraMounts: ['/tmp:/tmp:ro'],
+      })).rejects.toThrow('Refusing to expose the host /tmp');
+      expect(mockExecaFn).toHaveBeenCalledTimes(1);
     });
   });
 

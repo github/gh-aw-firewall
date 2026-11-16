@@ -51,14 +51,14 @@ describe('init signal directory compatibility', () => {
       expect(volumes).not.toContain(`${getConfig().workDir}/init-signal:${LEGACY_INIT_SIGNAL_DIR}:rw`);
     });
 
-    it('keeps the legacy path exposed when a write policy narrows /tmp', () => {
+    it('keeps the legacy path exposed without mounting the host /tmp', () => {
       const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
       const volumes = generateDockerCompose(
         { ...getConfig(), filesystemAllowWrite: [`${workspaceDir}/src`] },
         mockNetworkConfig,
       ).services.agent.volumes as string[];
 
-      expect(volumes).toContain('/tmp:/tmp:ro');
+      expect(volumes).not.toContain('/tmp:/tmp:ro');
       expect(volumes).toContain(`${getConfig().workDir}/init-signal:${LEGACY_INIT_SIGNAL_DIR}:ro`);
     });
   });
