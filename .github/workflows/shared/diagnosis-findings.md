@@ -60,6 +60,9 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 | MCP GitHub tool calls fail while provider inference still works | AUTH-003 | auth | workaround |
 | Anthropic OIDC initialization fails until the API-proxy token retry | AUTH-004 | auth | fixed |
 | Agent exhausts early 503 retries while the API proxy has no token | AUTH-004 | auth | fixed |
+| Client receives 502 with error "Upstream response could not be safely inspected" | AUTH-005 | auth | workaround |
+| Client message "Unsupported upstream response content encoding" | AUTH-005 | auth | workaround |
+| Upstream response is aborted mid-stream with a request_error log event while the provider is healthy | AUTH-005 | auth | workaround |
 | safe output validation failed in the workflow run | CI-001 | ci | workaround |
 | The agent job succeeds but the safe-output collection step exits non-zero | CI-001 | ci | workaround |
 | create-pull-request rejected: file not in allowed-files | CI-001 | ci | workaround |
@@ -354,6 +357,20 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 - **Related:** AUTH-002
 - **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/10495 · code: src/services/api-proxy-service-config.ts · test: src/services/api-proxy-service-config.test.ts · test: src/compose-generator.test.ts · doc: docs/auth-matrix.md
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2026-12-09
+
+### AUTH-005 — API-proxy refuses an upstream response it cannot safely inspect for credential echoes
+
+- **Boundary:** auth · **Status:** workaround
+- **Affects:** runner=any, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Client receives 502 with error "Upstream response could not be safely inspected" · Client message "Unsupported upstream response content encoding" · Upstream response is aborted mid-stream with a request_error log event while the provider is healthy
+- **Discriminating conditions:** The API proxy injected a credential into the request, so response masking is active · A body-bearing upstream response has a Content-Encoding other than identity, gzip, deflate or br, or a corrupt or truncated compressed body · This is a response-inspection failure, not a provider 401/403; do not rotate keys or change auth mode for it
+- **Root cause:** The API proxy masks any injected credential value an upstream echoes in response bodies, headers or errors. It must decode body-bearing compressed responses to do so, and it fails closed with 502 rather than forwarding bytes it cannot inspect. An unsupported encoding or a damaged compressed body therefore surfaces as a proxy error even though the provider authenticated the request. Bodyless responses are not decoded or encoding-validated.
+- **Safe probe:** `docker logs awf-api-proxy 2>&1 | grep -E 'request_error|Unsupported upstream response content encoding'` → Run while the containers are kept (--keep-containers). Matches show request_error events with credential-masked error text; compare the matched request's provider and path with the failing call. Do not print request headers, docker inspect output or the container environment.
+- **Action:** Retry the request; a truncated or corrupt compressed body is usually transient. For a persistent unsupported encoding on a body-bearing response, have the client send Accept-Encoding limited to identity, gzip, deflate or br (the proxy already narrows the header for most requests) or report the provider and endpoint. Never disable masking, expose provider keys to the agent, or treat the 502 as an authentication failure. A shipped release containing this behavior is not verified here.
+- **Related:** AUTH-002
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11471 · code: containers/api-proxy/credential-protection.js · code: containers/api-proxy/upstream-http.js · test: containers/api-proxy/server.credential-isolation.test.js · test: containers/api-proxy/credential-protection.test.js · doc: Upstream credential-echo masking (docs/api-proxy-sidecar.md)
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
 
 ## Boundary: ci
 

@@ -267,6 +267,7 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | AUTH-002 | auth | API-proxy OIDC mode is configured but the Actions token request variables are missing | workaround | [`findings/auth/AUTH-002.json`](./findings/auth/AUTH-002.json) |
 | AUTH-003 | auth | gh-aw-launched HTTP MCP GitHub server fails the OIDC boundary check | workaround | [`findings/auth/AUTH-003.json`](./findings/auth/AUTH-003.json) |
 | AUTH-004 | auth | Primary API-proxy OIDC initialization races Squid readiness | fixed | [`findings/auth/AUTH-004.json`](./findings/auth/AUTH-004.json) |
+| AUTH-005 | auth | API-proxy refuses an upstream response it cannot safely inspect for credential echoes | workaround | [`findings/auth/AUTH-005.json`](./findings/auth/AUTH-005.json) |
 | CI-001 | ci | gh-aw safe-output step fails because the emitted payload violates the declared contract | workaround | [`findings/ci/CI-001.json`](./findings/ci/CI-001.json) |
 | CI-002 | ci | Compiler-owned enclave gateway is unavailable or violates the handoff contract | workaround | [`findings/ci/CI-002.json`](./findings/ci/CI-002.json) |
 | CI-003 | ci | Cloud Hypervisor regression admission rejects a regional Actions OIDC endpoint | fixed | [`findings/ci/CI-003.json`](./findings/ci/CI-003.json) |
@@ -332,6 +333,9 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | MCP GitHub tool calls fail while provider inference still works | AUTH-003 | auth | workaround |
 | Anthropic OIDC initialization fails until the API-proxy token retry | AUTH-004 | auth | fixed |
 | Agent exhausts early 503 retries while the API proxy has no token | AUTH-004 | auth | fixed |
+| Client receives 502 with error "Upstream response could not be safely inspected" | AUTH-005 | auth | workaround |
+| Client message "Unsupported upstream response content encoding" | AUTH-005 | auth | workaround |
+| Upstream response is aborted mid-stream with a request_error log event while the provider is healthy | AUTH-005 | auth | workaround |
 | safe output validation failed in the workflow run | CI-001 | ci | workaround |
 | The agent job succeeds but the safe-output collection step exits non-zero | CI-001 | ci | workaround |
 | create-pull-request rejected: file not in allowed-files | CI-001 | ci | workaround |

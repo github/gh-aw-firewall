@@ -402,6 +402,7 @@ This prevents tokens from being visible in `/proc/1/environ` after the agent sta
 - API keys are not visible in `/proc/self/environ` or `/proc/*/environ`
 - Compromised agent code cannot exfiltrate API keys (they don't exist)
 - Only the api-proxy container has access to API keys
+- If an upstream echoes an injected credential back (response body, headers, or error text), the api-proxy masks it before it reaches the agent or the logs; see [Upstream credential-echo masking](./api-proxy-sidecar.md#upstream-credential-echo-masking)
 
 ### Network isolation
 
