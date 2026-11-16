@@ -3,6 +3,13 @@ import * as os from 'os';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { handoffPrivateEnclaveAudit } from './artifact-preservation';
+import { handoffPrivateEnclaveAudit as enclaveHandoff } from './artifact-enclave-handoff';
+
+describe('artifact-preservation handoff facade', () => {
+  it('re-exports the enclave handoff implementation', () => {
+    expect(handoffPrivateEnclaveAudit).toBe(enclaveHandoff);
+  });
+});
 
 const linuxRoot = process.platform === 'linux' && process.getuid?.() === 0;
 

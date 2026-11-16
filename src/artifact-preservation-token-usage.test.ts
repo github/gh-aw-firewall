@@ -16,9 +16,23 @@ import * as os from 'os';
 import * as path from 'path';
 import { mockExecaSync } from './test-helpers/mock-execa.test-utils';
 import { preserveCleanupArtifacts } from './artifact-preservation';
+import { resolveTokenLogSubdir } from './artifact-token-usage';
 import { logger } from './logger';
 
 const TOKEN_USAGE_LOG_FILENAME = 'token-usage.jsonl';
+
+describe('resolveTokenLogSubdir', () => {
+  it.each([
+    [undefined, ''],
+    ['/var/log/api-proxy', ''],
+    ['/var/log/api-proxy/custom/nested', 'custom/nested'],
+    ['/var/log', undefined],
+    ['/var/log/api-proxy/../outside', undefined],
+    ['/var/log/api-proxy-other', undefined],
+  ])('resolves %s to %s', (directory, expected) => {
+    expect(resolveTokenLogSubdir(directory)).toBe(expected);
+  });
+});
 
 describe('preserveCleanupArtifacts – token usage log path', () => {
   const originalGithubEnv = process.env.GITHUB_ENV;
@@ -73,6 +87,16 @@ describe('preserveCleanupArtifacts – token usage log path', () => {
     preserveCleanupArtifacts(workDir, { proxyLogsDir, tokenLogDir });
 
     expect(readExports()).toBe(`AWF_TOKEN_USAGE_LOG=${tokenUsage}\n`);
+  });
+
+  it('does not publish token usage outside the API-proxy log directory', () => {
+    const proxyLogsDir = path.join(scratch, 'logs');
+    writeTokenUsage(path.join(proxyLogsDir, 'api-proxy-logs'));
+    writeTokenUsage(path.join(proxyLogsDir, 'outside'));
+
+    preserveCleanupArtifacts(workDir, { proxyLogsDir, tokenLogDir: '/var/log/outside' });
+
+    expect(readExports()).toBe('');
   });
 
   it('keeps the RUNNER_TEMP path under arc-dind with a daemon-only /host prefix', () => {

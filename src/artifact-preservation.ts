@@ -1,129 +1,28 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import execa from 'execa';
 import { logger } from './logger';
 import {
   fixArtifactPermissionsForRootless,
   isBenignArtifactPermissionError,
 } from './artifact-permissions';
+import {
+  chmodPublicArtifacts,
+  chmodRuntimeArtifacts,
+  hasPrivateDiagnostics,
+  publicArtifactPaths,
+} from './artifact-public-permissions';
+import { preserveEnclaveAudit } from './artifact-enclave-handoff';
+import { publishTokenUsageLogPath, resolveTokenLogSubdir } from './artifact-token-usage';
 import type { ImageManifestConfig } from './image-resolver';
-import { getLocalDockerEnv } from './host-env';
 import { resolveEnclavePaths } from './enclave/paths';
-import { ENCLAVE_MCP_SERVER_CONTAINER_NAME } from './constants';
 import { resolveRunnerVisibleHostPath } from './services/host-path-prefix';
 import { getStartupDiagnosticPath } from './logs/startup-diagnostics';
-import { openArtifactDirectory, resolveArtifactOwner } from './resolved-config-artifact';
+import { openArtifactDirectory } from './resolved-config-artifact';
 import { preservedArtifactDirectory } from './log-paths';
 
-const ENCLAVE_SESSION_DIR = 'sessions';
-const ENCLAVE_AUDIT_FILES = [
-  { source: 'enclave.jsonl', destination: 'enclave.jsonl' },
-  { source: 'runtime-telemetry.jsonl', destination: 'enclave-runtime.jsonl' },
-  { source: 'enclave-host-executor.jsonl', destination: 'enclave-host-executor.jsonl' },
-] as const;
-const PRIVATE_ENCLAVE_AUDIT_FILE = 'enclave-host-executor.jsonl';
-type EnclaveArtifactCopyResult = { exitCode: number | null; stderr: string };
+export { handoffPrivateEnclaveAudit } from './artifact-enclave-handoff';
 
-function isSafeAuditDestination(
-  directoryFd: number,
-  directoryPath: string,
-  name: string,
-  directory = false,
-): boolean {
-  try {
-    const stat = fs.lstatSync(`/proc/self/fd/${directoryFd}/${name}`);
-    if (!stat.isSymbolicLink() && (directory ? stat.isDirectory() : stat.isFile())) {
-      return true;
-    }
-    logger.warn(`Refusing to preserve audit artifact at unsafe destination: ${path.join(directoryPath, name)}`);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true;
-    logger.warn(`Could not validate audit artifact destination: ${path.join(directoryPath, name)}`, error);
-  }
-  return false;
-}
-
-function handoffPrivateEnclaveAuditInDirectory(
-  directoryFd: number,
-  fileName: (typeof ENCLAVE_AUDIT_FILES)[number]['destination'],
-): void {
-  const owner = resolveArtifactOwner();
-  const fd = fs.openSync(`/proc/self/fd/${directoryFd}/${fileName}`,
-    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
-  try {
-    const stat = fs.fstatSync(fd);
-    const mode = stat.mode & 0o777;
-    if (!stat.isFile() || stat.nlink !== 1 ||
-        (mode !== 0o600 && !(mode === 0o644 && fileName !== PRIVATE_ENCLAVE_AUDIT_FILE)) ||
-        (stat.uid !== process.getuid?.() && stat.uid !== owner.uid) ||
-        stat.size > 32 * 1024 * 1024) {
-      throw new Error('Unsafe private enclave audit handoff');
-    }
-    fs.fchmodSync(fd, 0o600);
-    fs.fchownSync(fd, owner.uid, owner.gid);
-  } finally {
-    fs.closeSync(fd);
-  }
-}
-
-function copyEnclaveArtifact(
-  directoryFd: number,
-  directoryPath: string,
-  source: string,
-  name: string,
-  directory: boolean,
-): EnclaveArtifactCopyResult {
-  if (!isSafeAuditDestination(directoryFd, directoryPath, name, directory)) {
-    throw new Error(`Unsafe enclave artifact destination: ${name}`);
-  }
-  const stagingPath = fs.mkdtempSync(`/proc/self/fd/${directoryFd}/.awf-enclave-audit-`);
-  fs.chmodSync(stagingPath, 0o700);
-  let stagingFd: number | undefined;
-  try {
-    stagingFd = fs.openSync(
-      stagingPath,
-      fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW,
-    );
-    const stagedPath = `/proc/self/fd/${stagingFd}/${name}`;
-    const result = execa.sync(
-      'docker',
-      ['cp', source, `/proc/${process.pid}/fd/${stagingFd}/${name}`],
-      { env: getLocalDockerEnv(), reject: false },
-    );
-    if (result.exitCode !== 0) return result;
-
-    const stagedStat = fs.lstatSync(stagedPath);
-    if (stagedStat.isSymbolicLink() || (directory ? !stagedStat.isDirectory() : !stagedStat.isFile())) {
-      throw new Error(`Unsafe staged enclave artifact: ${name}`);
-    }
-    if (!isSafeAuditDestination(directoryFd, directoryPath, name, directory)) {
-      throw new Error(`Unsafe enclave artifact destination: ${name}`);
-    }
-    fs.renameSync(stagedPath, `/proc/self/fd/${directoryFd}/${name}`);
-    return result;
-  } finally {
-    if (stagingFd !== undefined) fs.closeSync(stagingFd);
-    fs.rmSync(stagingPath, { recursive: true, force: true });
-  }
-}
-
-/** @internal Final broker copy only: never widen access to its payload-bearing records. */
-// ts-prune-ignore-next
-export function handoffPrivateEnclaveAudit(
-  directory: string,
-  fileName: (typeof ENCLAVE_AUDIT_FILES)[number]['destination'] = PRIVATE_ENCLAVE_AUDIT_FILE,
-): void {
-  if (!ENCLAVE_AUDIT_FILES.some(file => file.destination === fileName)) {
-    throw new Error('Invalid enclave audit role');
-  }
-  const directoryFd = openArtifactDirectory(directory);
-  try {
-    handoffPrivateEnclaveAuditInDirectory(directoryFd, fileName);
-  } finally {
-    fs.closeSync(directoryFd);
-  }
-}
 /**
  * Copies the iptables audit dump from the init-signal volume to the audit directory.
  * Must be called BEFORE stopContainers() because `docker compose down -v` destroys
@@ -166,47 +65,7 @@ export function preserveIptablesAudit(
     }
 
     if (fs.existsSync(enclaveRoot)) {
-      for (const auditFile of ENCLAVE_AUDIT_FILES) {
-        try {
-          const source = `${ENCLAVE_MCP_SERVER_CONTAINER_NAME}:/var/log/awf-enclave/${auditFile.source}`;
-          const result = copyEnclaveArtifact(
-            auditDirectoryFd,
-            targetAuditDir,
-            source,
-            auditFile.destination,
-            false,
-          );
-          if (result.exitCode === 0) {
-            if (auditFile.destination === PRIVATE_ENCLAVE_AUDIT_FILE) {
-              handoffPrivateEnclaveAuditInDirectory(auditDirectoryFd, auditFile.destination);
-            }
-            logger.debug(`Copied enclave MCP server ${auditFile.source} to audit directory`);
-          } else {
-            complete = false;
-            logger.debug(`Could not copy enclave ${auditFile.source}:`, result.stderr);
-          }
-        } catch {
-          complete = false;
-          logger.error('Protected enclave audit handoff failed (role=broker-audit, reason=unsafe-or-inaccessible).');
-        }
-      }
-      try {
-        const source = `${ENCLAVE_MCP_SERVER_CONTAINER_NAME}:/var/log/awf-enclave/${ENCLAVE_SESSION_DIR}`;
-        const result = copyEnclaveArtifact(
-          auditDirectoryFd,
-          targetAuditDir,
-          source,
-          'enclave-agent-sessions',
-          true,
-        );
-        if (result.exitCode === 0) {
-          logger.debug('Copied enclave agent sessions to audit directory');
-        } else {
-          logger.debug('Could not copy enclave agent sessions:', result.stderr);
-        }
-      } catch {
-        logger.debug('Could not copy enclave agent sessions: unsafe destination or staging');
-      }
+      if (!preserveEnclaveAudit(auditDirectoryFd, targetAuditDir)) complete = false;
     }
     return complete;
   } finally {
@@ -227,72 +86,6 @@ type PreserveDirectoryOptions = {
   chmodPreservedDir?: boolean;
   chmodRuntimeDir?: 'recursive' | 'direct-files' | false;
 };
-
-function chmodRuntimeArtifacts(targetDir: string, mode: 'recursive' | 'direct-files'): void {
-  if (mode === 'recursive') {
-    execa.sync('chmod', ['-R', 'a+rX', targetDir]);
-    return;
-  }
-
-  execa.sync('chmod', ['a+rX', targetDir]);
-  const directFiles = fs
-    .readdirSync(targetDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => path.join(targetDir, entry.name));
-  if (directFiles.length > 0) {
-    execa.sync('chmod', ['a+rX', ...directFiles]);
-  }
-}
-
-function publicArtifactPaths(directory: string): string[] {
-  const entries = fs.readdirSync(directory, { withFileTypes: true });
-  return entries.flatMap((entry) => {
-    const entryPath = path.join(directory, entry.name);
-    if (entry.isSymbolicLink()) return [];
-    if (entry.name === PRIVATE_ENCLAVE_AUDIT_FILE) return [];
-    if (entry.isDirectory() && entry.name === 'cloud-hypervisor') return [];
-    if (entry.isDirectory() && entry.name === 'diagnostics') {
-      return publicArtifactPaths(entryPath);
-    }
-    return [entryPath];
-  });
-}
-
-function isRealDirectory(directory: string): boolean {
-  try {
-    const stat = fs.lstatSync(directory);
-    return stat.isDirectory() && !stat.isSymbolicLink();
-  } catch {
-    return false;
-  }
-}
-
-function hasPrivateDiagnostics(directory: string): boolean {
-  return fs.existsSync(path.join(directory, PRIVATE_ENCLAVE_AUDIT_FILE)) ||
-    isRealDirectory(path.join(directory, 'cloud-hypervisor')) ||
-    (isRealDirectory(path.join(directory, 'diagnostics')) &&
-      isRealDirectory(path.join(directory, 'diagnostics', 'cloud-hypervisor')));
-}
-
-function chmodPublicArtifacts(directory: string): void {
-  if (!isRealDirectory(directory)) {
-    throw new Error(`Refusing to change permissions for non-directory path: ${directory}`);
-  }
-  // Host and broker control diagnostics are private, runner-owned artifacts.
-  // Preserve their modes rather than applying the legacy public-log repair.
-  if (hasPrivateDiagnostics(directory)) {
-    execa.sync('chmod', ['a+rX', directory]);
-    const diagnosticsDirectory = path.join(directory, 'diagnostics');
-    if (isRealDirectory(diagnosticsDirectory) &&
-      isRealDirectory(path.join(diagnosticsDirectory, 'cloud-hypervisor'))) {
-      execa.sync('chmod', ['a+rX', diagnosticsDirectory]);
-    }
-    const publicPaths = publicArtifactPaths(directory);
-    if (publicPaths.length > 0) execa.sync('chmod', ['-R', 'a+rX', ...publicPaths]);
-  } else {
-    execa.sync('chmod', ['-R', 'a+rX', directory]);
-  }
-}
 
 function preserveDirectory({
   runtimeDir,
@@ -345,7 +138,7 @@ function preserveDirectory({
       // container-stop.ts is the authoritative fix, so never mask the
       // successful preservation with a chmod failure.
       try {
-        execa.sync('chmod', ['-R', 'a+rX', destinationDir]);
+        chmodRuntimeArtifacts(destinationDir, 'recursive');
       } catch (error) {
         if (isBenignArtifactPermissionError(error)) {
           logger.debug(
@@ -360,57 +153,6 @@ function preserveDirectory({
     return destinationDir;
   }
   return undefined;
-}
-
-/** File name the api-proxy sidecar writes per-request token usage records to. */
-const TOKEN_USAGE_LOG_FILE = 'token-usage.jsonl';
-
-/**
- * Environment variable exported via `$GITHUB_ENV` with the absolute,
- * runner-visible path of the preserved `token-usage.jsonl`.
- *
- * The location depends on `--proxy-logs-dir`, the work directory, and
- * `--docker-host-path-prefix` translation (for example `${RUNNER_TEMP}/gh-aw/...`
- * under `runner.topology: arc-dind`), so later workflow steps should read this
- * variable instead of hardcoding a `/tmp/gh-aw/...` path.
- */
-const TOKEN_USAGE_LOG_ENV_VAR = 'AWF_TOKEN_USAGE_LOG';
-
-/**
- * Logs the final runner-visible token-usage log path and, inside GitHub
- * Actions, exports it as {@link TOKEN_USAGE_LOG_ENV_VAR} for subsequent steps.
- * Best-effort: never throws.
- */
-function resolveTokenLogSubdir(tokenLogDir?: string): string | undefined {
-  const relativePath = path.relative('/var/log/api-proxy', tokenLogDir || '/var/log/api-proxy');
-  if (
-    relativePath === '..' ||
-    relativePath.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relativePath)
-  ) {
-    return undefined;
-  }
-  return relativePath === '.' ? '' : relativePath;
-}
-
-function publishTokenUsageLogPath(apiProxyLogsDir: string, tokenLogSubdir: string): void {
-  const tokenUsageLog = path.join(apiProxyLogsDir, tokenLogSubdir, TOKEN_USAGE_LOG_FILE);
-  if (!fs.existsSync(tokenUsageLog)) return;
-  logger.info(`Token usage log available at: ${tokenUsageLog}`);
-
-  const githubEnvFile = process.env.GITHUB_ENV;
-  if (!githubEnvFile) return;
-  // A newline would let the value inject additional $GITHUB_ENV entries.
-  if (/[\r\n]/.test(tokenUsageLog)) {
-    logger.debug(`Not exporting ${TOKEN_USAGE_LOG_ENV_VAR}: path contains a newline`);
-    return;
-  }
-  try {
-    fs.appendFileSync(githubEnvFile, `${TOKEN_USAGE_LOG_ENV_VAR}=${tokenUsageLog}\n`);
-    logger.debug(`Exported ${TOKEN_USAGE_LOG_ENV_VAR}=${tokenUsageLog} to $GITHUB_ENV`);
-  } catch (error) {
-    logger.debug(`Could not export ${TOKEN_USAGE_LOG_ENV_VAR} to $GITHUB_ENV:`, error);
-  }
 }
 
 function preserveHostStartupDiagnostic(proxyLogsDir: string): void {

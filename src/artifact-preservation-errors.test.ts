@@ -48,6 +48,7 @@ import * as os from 'os';
 import { fixArtifactPermissionsForRootless } from './artifact-permissions';
 import { logger } from './logger';
 import { openArtifactDirectory } from './resolved-config-artifact';
+import { resolveEnclavePaths } from './enclave/paths';
 import { mockExecaSync } from './test-helpers/mock-execa.test-utils';
 import {
   preserveIptablesAudit,
@@ -83,6 +84,40 @@ describe('artifact-preservation – error paths', () => {
   // ─── preserveIptablesAudit ──────────────────────────────────────────────
 
   describe('preserveIptablesAudit', () => {
+    const linuxIt = process.platform === 'linux' ? it : it.skip;
+
+    linuxIt.each(['iptables-audit.txt', 'enclave.jsonl', 'runtime-telemetry.jsonl', 'enclave-host-executor.jsonl'])(
+      'retains incomplete status when %s fails but other audit copies succeed',
+      (failedFile) => {
+        const workDir = makeTempDir('awf-audit-');
+        try {
+          const initSignalDir = path.join(workDir, 'init-signal');
+          realFs.mkdirSync(initSignalDir);
+          realFs.writeFileSync(path.join(initSignalDir, 'iptables-audit.txt'), 'rules');
+          realFs.mkdirSync(resolveEnclavePaths(workDir).root, { recursive: true });
+          const auditDir = path.join(workDir, 'audit');
+          realFs.mkdirSync(auditDir);
+          if (failedFile === 'iptables-audit.txt') {
+            realFs.writeFileSync(path.join(auditDir, failedFile), 'existing rules');
+          }
+          mockExecaSync.mockImplementation((_command, args) => {
+            if (args[1].endsWith(`/${failedFile}`) || args[1].endsWith('/sessions')) {
+              return { exitCode: 1, stdout: '', stderr: 'not available' };
+            }
+            realFs.writeFileSync(args[2], 'audit', {
+              mode: args[1].endsWith('/enclave-host-executor.jsonl') ? 0o600 : 0o644,
+            });
+            return { exitCode: 0, stdout: '', stderr: '' };
+          });
+
+          expect(preserveIptablesAudit(workDir, auditDir)).toBe(false);
+          expect(mockExecaSync).toHaveBeenCalledTimes(4);
+        } finally {
+          realFs.rmSync(workDir, { recursive: true, force: true });
+        }
+      },
+    );
+
     it('reports incomplete preservation when safe destination open fails', () => {
       const workDir = makeTempDir('awf-audit-');
       try {
