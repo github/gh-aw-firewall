@@ -112,7 +112,7 @@ describe('shared diagnosis-maintenance contract', () => {
       'safe-outputs': { 'create-pull-request': { 'allowed-files': string[]; max: number } };
     };
     expect(config.tools.github['allowed-repos']).toEqual(['github/gh-aw-firewall']);
-    expect(config.tools.github['min-integrity']).toBe('unapproved');
+    expect(config.tools.github['min-integrity']).toBe('none');
     expect(config.permissions).toEqual({
       'copilot-requests': 'write',
       contents: 'read',
@@ -136,7 +136,50 @@ describe('shared diagnosis-maintenance contract', () => {
     expect(source).toContain('retry denied or integrity-filtered reads through\nanother credential or transport');
     const lock = read('.github/workflows/runtime-enclave-doctor-updater.lock.yml');
     expect(lock).toContain('GH_AW_GITHUB_REPOS: \'["github/gh-aw-firewall"]\'');
-    expect(lock).toContain("GH_AW_GITHUB_MIN_INTEGRITY: 'unapproved'");
+    expect(lock).toContain("GH_AW_GITHUB_MIN_INTEGRITY: 'none'");
+    expect(lock).toContain('DIFC_PROXY_POLICY: \'{"allow-only":{"min-integrity":"none","repos":["github/gh-aw-firewall"]}}\'');
+    const compiled = yaml.load(lock) as {
+      jobs: { agent: { steps: Array<{ name: string; run?: string }> } };
+    };
+    const gateway = compiled.jobs.agent.steps.find(step => step.name === 'Start MCP Gateway')!;
+    const githubConfig = gateway.run!.match(/"github": (\{[\s\S]*?\n\s*\}),\n\s*"safeoutputs":/)![1];
+    const github = JSON.parse(githubConfig.replace(/\$\{GH_AW_GUARD_[A-Z_]+\}/g, '[]')) as {
+      env: Record<string, string>;
+      'guard-policies': unknown;
+    };
+    expect(github['guard-policies']).toMatchObject({
+      'allow-only': { 'min-integrity': 'none', repos: ['github/gh-aw-firewall'] },
+    });
+    expect(github.env.GITHUB_READ_ONLY).toBe('1');
+    expect(gateway.run).toContain('"blocked-users": ${GH_AW_GUARD_BLOCKED_USERS}');
+    expect(gateway.run).toContain('"write-sink": {');
+    const manifest = JSON.parse(lock.split('\n')[1].slice('# gh-aw-manifest: '.length));
+    expect(manifest.threat_detection.mode).toBe('enabled');
+  });
+
+  it('probes runtime PR-content access once and stops on integrity denials without bypasses', () => {
+    const source = read('.github/workflows/runtime-enclave-doctor-updater.md');
+    const probe = JSON.parse(source.match(/```json\n(.+)\n```/)![1]);
+    expect(probe).toEqual({
+      method: 'get_files', owner: 'github', repo: 'gh-aw-firewall', pullNumber: 11239, perPage: 5,
+    });
+    for (const fragment of [
+      'pinned\ngateway v0.5.8 labels PR file lists and diffs `none`',
+      'independently of merge\nstatus or author trust',
+      'not executing it or promoting its\ntrust',
+      'admits all GitHub content in this repository at `none`, not\nonly PR diffs',
+      'maintainers must approve that source-admission scope',
+      'Before reviewing candidates, make this single GitHub MCP access probe',
+      'not review completion',
+      'stop PR-content reads for the run',
+      'do not retry other PRs,\nmethods or page sizes to resolve the denial',
+      'only for an attempted candidate, leaving unattempted candidates unreviewed',
+      'Call `report-incomplete` with the exact failed tool arguments',
+      'the compiled gateway version and policy',
+      'Do not claim that\nunattempted reads were individually denied',
+    ]) {
+      expect(source).toContain(fragment);
+    }
   });
 
   it('bounds runtime diff retrieval while retaining complete evidence requirements', () => {
