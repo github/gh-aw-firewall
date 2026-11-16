@@ -80,15 +80,16 @@ describe('agent service', () => {
     expect(volumes).toContain(`/custom/session-state:${homeDir}/.copilot/session-state:rw`);
   });
 
-  it('should use private tmpfs for chroot temporary files', () => {
+  it('uses private chroot temp storage with a narrow gh-aw handoff', () => {
     const result = generateDockerCompose(getConfig(), mockNetworkConfig);
     const agent = result.services.agent;
     const volumes = agent.volumes as string[];
 
     expect(volumes).not.toContain('/tmp:/host/tmp:rw');
+    expect(volumes).toContain('/tmp/gh-aw:/host/tmp/gh-aw:rw');
     expect(agent.tmpfs).toEqual(expect.arrayContaining([
-      '/tmp:rw,nosuid,nodev,size=2097152k',
-      '/host/tmp:rw,nosuid,nodev,size=2097152k',
+      '/tmp:rw,nosuid,nodev,mode=1777,size=2097152k',
+      '/host/tmp:rw,nosuid,nodev,mode=1777,size=2097152k',
     ]));
   });
 

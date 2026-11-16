@@ -21,10 +21,23 @@ interface WorkspaceMountsParams {
   initSignalDir: string;
 }
 
+export function buildTemporaryHandoffMounts(dockerHostPathPrefix?: string): string[] {
+  // These are runner-side paths, even when /tmp/gh-aw is also the daemon's
+  // runner-root prefix. Translate now so the final pass cannot mistake this
+  // narrow handoff for an already-staged daemon path.
+  return applyHostPathPrefixToVolumes([
+    '/tmp/gh-aw:/tmp/gh-aw:rw',
+    '/tmp/gh-aw:/host/tmp/gh-aw:rw',
+  ], dockerHostPathPrefix, {
+    translateAlreadyPrefixedPaths: !isSharedDockerHostPathPrefix(dockerHostPathPrefix),
+  });
+}
+
 export function buildWorkspaceMounts(params: WorkspaceMountsParams): string[] {
   const { config, projectRoot, effectiveHome, workspaceDir, agentLogsPath, sessionStatePath, initSignalDir } = params;
 
   const mounts: string[] = [
+    ...buildTemporaryHandoffMounts(config.dockerHostPathPrefix),
     `${workspaceDir}:${workspaceDir}:rw`,
     `${agentLogsPath}:${effectiveHome}/.copilot/logs:rw`,
     `${sessionStatePath}:${effectiveHome}/.copilot/session-state:rw`,
@@ -98,8 +111,9 @@ export function buildContainerWorkDirMounts(params: ContainerWorkDirMountsParams
   }
 
   const workDir = path.posix.normalize(configuredWorkDir).replace(/\/+$/, '') || '/';
-  // The empty chroot home volume and the filesystem root always exist.
-  if (workDir === '/' || workDir === effectiveHome) {
+  // These private container directories already exist; never replace /tmp
+  // with the host's directory just to select it as the working directory.
+  if (workDir === '/' || workDir === '/tmp' || workDir === effectiveHome) {
     return [];
   }
 

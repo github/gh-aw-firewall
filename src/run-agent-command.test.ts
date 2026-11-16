@@ -204,8 +204,14 @@ describe('runAgentCommand', () => {
 
       expect(result.exitCode).toBe(7);
       expect(capture.beginAttempt).toHaveBeenCalledWith(1);
-      expect(capture.recordOutput).toHaveBeenCalledWith(1, 'stdout', Buffer.from([0x00, 0xff, 0x41]));
-      expect(capture.recordOutput).toHaveBeenCalledWith(1, 'stderr', Buffer.from([0x0a, 0x00, 0x42]));
+      const capturedStdout = Buffer.concat(jest.mocked(capture.recordOutput).mock.calls
+        .filter(([, stream]) => stream === 'stdout')
+        .map(([, , chunk]) => chunk));
+      const capturedStderr = Buffer.concat(jest.mocked(capture.recordOutput).mock.calls
+        .filter(([, stream]) => stream === 'stderr')
+        .map(([, , chunk]) => chunk));
+      expect(capturedStdout).toEqual(Buffer.from([0x00, 0xff, 0x41]));
+      expect(capturedStderr).toEqual(Buffer.from([0x0a, 0x00, 0x42]));
       expect(capture.recordPresentationFailure).toHaveBeenCalledWith('stdout', 'error');
       expect(capture.finishAttempt).toHaveBeenCalledWith(1, {
         exitCode: 7,
@@ -337,8 +343,10 @@ describe('runAgentCommand', () => {
       const result = await runAgentCommand(getDir(), ['github.com'], undefined, undefined, undefined, capture);
 
       expect(result.exitCode).toBe(0);
-      expect(capture.recordOutput).toHaveBeenCalledWith(1, 'stdout', Buffer.from('first'));
-      expect(capture.recordOutput).toHaveBeenCalledWith(1, 'stdout', Buffer.from('second'));
+      const capturedStdout = Buffer.concat(jest.mocked(capture.recordOutput).mock.calls
+        .filter(([, stream]) => stream === 'stdout')
+        .map(([, , chunk]) => chunk));
+      expect(capturedStdout).toEqual(Buffer.from('firstsecond'));
       expect(capture.recordPresentationFailure).toHaveBeenCalledWith('stdout', 'backpressure');
       expect(capture.finishAttempt).toHaveBeenCalledWith(1, {
         exitCode: 0,

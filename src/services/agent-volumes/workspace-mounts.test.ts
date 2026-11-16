@@ -51,11 +51,12 @@ describe('buildWorkspaceMounts', () => {
   });
 
   describe('standard mounts', () => {
-    it('mounts required paths without exposing the host /tmp', () => {
+    it('mounts the narrow temporary handoff and required paths without exposing host /tmp', () => {
       const config = makeAgentVolumeConfig();
       const mounts = buildWorkspaceMounts(makeParams(config, tmpDir, '/workspace'));
 
       expect(mounts).not.toContain('/tmp:/tmp:rw');
+      expect(mounts).toContain('/tmp/gh-aw:/tmp/gh-aw:rw');
       expect(mounts).toContain('/workspace:/workspace:rw');
       expect(mounts).toContain('/tmp/awf-logs:/home/runner/.copilot/logs:rw');
       expect(mounts).toContain('/tmp/awf-session:/home/runner/.copilot/session-state:rw');

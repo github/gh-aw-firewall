@@ -170,7 +170,7 @@ because restoring credentials would expose them through another live mount.
   `sbx daemon status` for diagnostics), then runs `sbx create --name <n> shell
   <workspace> [mounts...]`. It translates AWF's Docker-style
   `host:container:mode` mount strings into sbx's positional `path[:ro]` form,
-  deduplicates paths, and always adds `/tmp`, `/usr/local/bin`, and curated
+  deduplicates paths, and adds `/tmp/gh-aw`, `/usr/local/bin`, and curated
   `$HOME` tool paths so agent runtime files and installed CLIs are reachable
   without exposing host-private state.
 - **`execInSandbox(name, cmd, opts)`** — runs `sbx exec` with optional
@@ -206,7 +206,7 @@ mounts where the host path maps to the identical path inside the VM**
 The generated command is:
 
 ```text
-sbx create --name <name> shell <workspaceDir> [extraMount...] /tmp /usr/local/bin [homeToolPath...]
+sbx create --name <name> shell <workspaceDir> [extraMount...] /tmp/gh-aw /usr/local/bin [homeToolPath...]
 ```
 
 (`shell` is sbx's generic agent image, which supplies the guest base OS.)
@@ -224,7 +224,7 @@ What `createSandbox()` shares, in order:
    - **`/usr/local/bin`** — the toolchain seam. The Copilot CLI and other
      host-installed tools live here and are mounted straight in. Note it is
      *narrow*: only `/usr/local/bin`, **not** `/usr`, `/lib`, `/lib64`, or `/opt`.
-   - **`/tmp`** — agent runtime files (rendered prompts, logs).
+   - **`/tmp/gh-aw`** — agent runtime handoffs. Guest `/tmp` stays private; host runtime IPC must not be placed in shared handoffs.
    - **`$HOME` tool dirs** — a **curated whitelist** of writable agent dirs, not
      the whole home directory. The manager resolves `HOME_TOOL_PATHS` from the
      central policy and mounts only paths that exist on the host. Most entries
@@ -442,7 +442,8 @@ Concretely, a KVM backend must:
   self-hosted / nested-virt-capable environments.
 - **Mount the workspace** at its host absolute path. sbx and Cloud Hypervisor
   use virtio-fs; another backend may use a block device or a filesystem
-  sidecar. Also surface `/tmp`, `/usr/local/bin`, and `$HOME` when required.
+  sidecar. Keep guest `/tmp` private; surface only narrow handoffs such as
+  `/tmp/gh-aw`, `/usr/local/bin`, and curated home tool paths when required.
 - **Inject the agent environment**, and **sanitize secrets** first — reuse the
   `sanitizeEnvForSbx()` pattern (strip `TOKEN|SECRET|KEY|...`).
 - **Return the agent's exit code** faithfully (AWF propagates it), mapping

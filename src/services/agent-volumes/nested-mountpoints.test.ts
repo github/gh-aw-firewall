@@ -489,9 +489,7 @@ describe('nested mountpoint preparation', () => {
   });
 
   describe('buildAgentVolumes (end-to-end topology)', () => {
-    // Narrowing /tmp makes the legacy init bind materialise the shared
-    // /tmp/awf-init mountpoint. That root is intentionally left in place; see
-    // makeFixedTmpArtifactTracker for why removing it is unsafe.
+    // Host binds can be narrowed without making private /tmp read-only.
     function stageRunnerLayout() {
       const home = path.join(tmpRoot, 'home', 'runner');
       const workspaceDir = path.join(home, 'work', 'repo', 'repo');
@@ -577,23 +575,16 @@ describe('nested mountpoint preparation', () => {
     });
   });
 
-  // A regular-file bind nested inside a read-only cover needs a *file*
-  // mountpoint. runc cannot create one inside a read-only bind any more than it
-  // can create a directory, so this has to be prepared too. It is reachable on
-  // split-filesystem runners: the agent binary is staged under the daemon path
-  // prefix and published at /tmp/awf-runner-bin/<name>, while a write policy
-  // narrows the /tmp:/tmp bind to read-only.
+  // Staged runner binaries now land in private writable /tmp, so no host-side
+  // placeholder is needed even when a write policy narrows host binds.
   describe('buildAgentVolumes (staged runner binary under --docker-host-path-prefix)', () => {
     const prefixRoots: string[] = [];
     const runnerBinPaths: string[] = [];
-    // This case narrows /tmp too, so it also materialises the fixed
-    // /tmp/awf-init and /tmp/awf-runner-bin mountpoints.
+    // Track fixed paths to ensure private /tmp needs no host placeholders.
     const fixedTmp = makeFixedTmpArtifactTracker(FIXED_TMP_STAGED_COPIES);
 
     afterEach(() => {
-      // Staging and the /tmp cover are both real paths by construction: the
-      // staging root has to sit under the daemon prefix, and the cover bind is
-      // hardcoded to /tmp.
+      // Staging is a real path beneath the daemon prefix.
       prefixRoots.splice(0).forEach((dir) => fs.rmSync(dir, { recursive: true, force: true }));
       runnerBinPaths.splice(0).forEach((file) => fs.rmSync(file, { force: true }));
       fixedTmp.cleanup();
@@ -657,7 +648,7 @@ describe('nested mountpoint preparation', () => {
       };
     }
 
-    it('does not prepare staged binary mountpoints inside private tmpfs', () => {
+    it('publishes the staged binary without a read-only host cover', () => {
       const layout = stageSplitFsLayout();
       const writable = path.join(layout.workspaceDir, 'allowed');
       fs.mkdirSync(writable, { recursive: true });
@@ -667,9 +658,11 @@ describe('nested mountpoint preparation', () => {
         .find((candidate) => candidate.containerTarget.endsWith(`/awf-runner-bin/${layout.binaryName}`));
 
       expect(requirement).toBeUndefined();
+      expect(volumes.some((spec) => spec.endsWith(`:/tmp/awf-runner-bin/${layout.binaryName}:ro`)))
+        .toBe(true);
     });
 
-    it('publishes the staged binary without creating a host /tmp placeholder', () => {
+    it('does not create staged binary placeholders in host /tmp', () => {
       const layout = stageSplitFsLayout();
       const writable = path.join(layout.workspaceDir, 'allowed');
       fs.mkdirSync(writable, { recursive: true });
@@ -786,7 +779,7 @@ describe('nested mountpoint preparation', () => {
       expect(() => layout.build([writable])).not.toThrow();
     });
 
-    it('does not prepare the legacy init path inside private tmpfs', () => {
+    it('keeps the legacy init signal without a host /tmp mountpoint requirement', () => {
       const layout = stageSharedTmpLayout();
       const volumes = layout.build([stageWritable(layout)]);
 

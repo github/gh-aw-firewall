@@ -12,7 +12,31 @@ jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaM
 const { getConfig } = useAgentVolumesTestConfig();
 
 describe('agent service', () => {
-  it('does not expose a Foundry credential env file from host /tmp', () => {
+  it.each([undefined, '/host', '/tmp/gh-aw', '/tmp'])(
+    'masks automatic-handoff credentials and resolves writable descendants with prefix %s',
+    (dockerHostPathPrefix) => {
+      fs.mkdirSync('/tmp/gh-aw', { recursive: true });
+      const root = fs.mkdtempSync('/tmp/gh-aw/foundry-auto-');
+      const envFile = path.join(root, 'foundry.env');
+      fs.writeFileSync(envFile, 'FOUNDRY_API_KEY=synthetic-secret\n');
+      try {
+        const volumes = generateDockerCompose({
+          ...getConfig(), enableApiProxy: true, envFile, dockerHostPathPrefix,
+          filesystemAllowWrite: [root],
+        }, mockNetworkConfig).services.agent.volumes as string[];
+        expect(volumes).toContain(`/dev/null:${envFile}:ro`);
+        expect(volumes).toContain(`/dev/null:/host${envFile}:ro`);
+        const source = dockerHostPathPrefix && dockerHostPathPrefix !== '/tmp'
+          ? `${dockerHostPathPrefix}${root}` : root;
+        expect(volumes).toContain(`${source}:${root}:rw`);
+        expect(volumes).toContain(`${source}:/host${root}:rw`);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('masks a Foundry credential env file in an explicitly shared temporary directory', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'foundry-env-file-'));
     const envFile = path.join(root, 'foundry.env');
     fs.writeFileSync(envFile, 'FOUNDRY_API_KEY=synthetic-secret\n');
@@ -21,11 +45,14 @@ describe('agent service', () => {
         ...getConfig(),
         enableApiProxy: true,
         envFile,
+        volumeMounts: [`${root}:${root}:rw`],
       }, mockNetworkConfig).services.agent.volumes as string[];
 
-      expect(volumes.some((volume) => volume.includes(envFile))).toBe(false);
       expect(volumes).not.toContain('/tmp:/tmp:rw');
       expect(volumes).not.toContain('/tmp:/host/tmp:rw');
+      // Private /tmp no longer exposes the host env file at the direct path.
+      expect(volumes).not.toContain(`/dev/null:${envFile}:ro`);
+      expect(volumes).toContain(`/dev/null:/host${envFile}:ro`);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -110,19 +137,22 @@ describe('agent service', () => {
       const agent = result.services.agent;
       const tmpfs = agent.tmpfs as string[];
 
-      // All tmpfs mounts should have isolation options and a size limit.
+      // Temporary roots must support executable build outputs; secret masks
+      // and shared memory keep their noexec flags and explicit size limits.
       tmpfs.forEach((mount: string) => {
         expect(mount).toContain('nosuid');
-        // Each mount must have a size limit.
+        if (mount.startsWith('/tmp:') || mount.startsWith('/host/tmp:')) {
+          expect(mount).toContain('nodev');
+          expect(mount).toContain('mode=1777');
+          expect(mount).toMatch(/size=\d+[mk]/);
+          return;
+        }
+        expect(mount).toContain('noexec');
+        // Each mount must have a size limit (value varies: 1m for secrets, 65536k for /dev/shm)
         expect(mount).toMatch(/size=\d+[mk]/);
       });
-      expect(tmpfs).toContain('/tmp:rw,nosuid,nodev,size=2097152k');
-      expect(tmpfs).toContain('/host/tmp:rw,nosuid,nodev,size=2097152k');
-      for (const mount of tmpfs.filter((entry: string) =>
-        !entry.startsWith('/tmp:') && !entry.startsWith('/host/tmp:')
-      )) {
-        expect(mount).toContain('noexec');
-      }
+      expect(tmpfs).toContain('/tmp:rw,nosuid,nodev,mode=1777,size=2097152k');
+      expect(tmpfs).toContain('/host/tmp:rw,nosuid,nodev,mode=1777,size=2097152k');
     });
 
     it('should apply tmpfs overlay to custom workDir paths', () => {
@@ -150,8 +180,8 @@ describe('agent service', () => {
 
       expect(tmpfs).toHaveLength(dockerSensitiveTmpfs(getConfig().workDir).length + 3);
       expect(tmpfs).toEqual(expect.arrayContaining(dockerSensitiveTmpfs(getConfig().workDir)));
-      expect(tmpfs).toContain('/tmp:rw,nosuid,nodev,size=2097152k');
-      expect(tmpfs).toContain('/host/tmp:rw,nosuid,nodev,size=2097152k');
+      expect(tmpfs).toContain('/tmp:rw,nosuid,nodev,mode=1777,size=2097152k');
+      expect(tmpfs).toContain('/host/tmp:rw,nosuid,nodev,mode=1777,size=2097152k');
       // Writable /dev/shm for POSIX semaphores (chroot makes /host/dev read-only)
       expect(tmpfs.some((t: string) => t.startsWith('/host/dev/shm:'))).toBe(true);
     });

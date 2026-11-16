@@ -59,8 +59,11 @@ function buildAgentSecurityConfig(config: WrapperConfig): any {
     // memory is fully isolated from the host and other containers. Size is capped at 64MB
     // (Docker's default). noexec and nosuid flags restrict abuse vectors.
     tmpfs: [
-      '/tmp:rw,nosuid,nodev,size=2097152k',
-      '/host/tmp:rw,nosuid,nodev,size=2097152k',
+      // Never share the host temporary root: same-UID host runtime IPC (including
+      // endpoints created after startup) must remain outside the agent mount tree.
+      // Executable temporary files are required by compilers and setup tools.
+      '/tmp:rw,nosuid,nodev,mode=1777,size=2097152k',
+      '/host/tmp:rw,nosuid,nodev,mode=1777,size=2097152k',
       ...dockerSensitiveTmpfs(config.workDir),
       '/host/dev/shm:rw,noexec,nosuid,nodev,size=65536k',
     ],

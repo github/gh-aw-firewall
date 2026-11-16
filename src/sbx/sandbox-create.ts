@@ -1,4 +1,5 @@
 import execa from 'execa';
+import * as fs from 'fs';
 import { copyEnvEntries } from '../env-utils';
 import { logger } from '../logger';
 import { HOME_TOOL_PATHS } from '../config/mount-policy';
@@ -145,10 +146,9 @@ export async function createSandboxInternal(
     }
   }
 
-  // Keep the microVM's /tmp private. Exporting the host /tmp exposes runner IPC
-  // endpoints such as CoreCLR debug pipes. /usr/local/bin remains available for
-  // Copilot CLI and other installed tools.
-  for (const sysPath of ['/usr/local/bin']) {
+  // Share the runtime handoff, never the host temporary root and its IPC.
+  for (const sysPath of ['/tmp/gh-aw', '/usr/local/bin']) {
+    if (sysPath === '/tmp/gh-aw' && !fs.existsSync(sysPath)) continue;
     if (!seenPaths.has(sysPath)) {
       seenPaths.add(sysPath);
       args.push(sysPath);

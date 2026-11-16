@@ -335,11 +335,12 @@ describe('generateDockerCompose: sysroot-stage service (runner.topology = arc-di
       ),
     ).toBe(false);
 
-    // Host /tmp stays isolated; kernel paths and the staged sysroot remain.
+    // Host /tmp stays isolated; the narrow handoff, kernel paths, and staged sysroot remain.
+    expect(volumes).toContain('/tmp/gh-aw:/tmp/gh-aw:rw');
     expect(volumes).not.toContain('/tmp:/tmp:rw');
     expect(result.services.agent.tmpfs).toEqual(expect.arrayContaining([
-      '/tmp:rw,nosuid,nodev,size=2097152k',
-      '/host/tmp:rw,nosuid,nodev,size=2097152k',
+      '/tmp:rw,nosuid,nodev,mode=1777,size=2097152k',
+      '/host/tmp:rw,nosuid,nodev,mode=1777,size=2097152k',
     ]));
     expect(volumes).toContain('/sys:/host/sys:ro');
     expect(volumes).toContain('/dev:/host/dev:ro');
