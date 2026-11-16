@@ -119,6 +119,11 @@ Reuse these instead of duplicating their commands:
 | Raw ClientHello reaches Squid instead of an HTTP CONNECT request | NET-004 | network | workaround |
 | Connection to a host-published service (for example Redis or PostgreSQL) through the host gateway is rejected or times out | NET-005 | network | fixed |
 | The port is listed in --allow-host-service-ports but a connectivity check still fails | NET-005 | network | fixed |
+| Every CONNECT fails with 503 HIER_NONE after startup on OpenShift or ARO | NET-006 | network | workaround |
+| The awf-net subnet contains the DNS resolver(s) | NET-006 | network | workaround |
+| The awf-net subnet overlaps existing host route(s) | NET-006 | network | workaround |
+| a network with name awf-net exists but was not created for project "awf-<timestamp>" | NET-007 | network | fixed |
+| Compose fails before the agent or Squid starts, after a previous run was killed or timed out | NET-007 | network | fixed |
 | 400 Bad Request: Authorization header is badly formatted | AUTH-001 | auth | fixed |
 | Copilot requests fail immediately against api.enterprise.githubcopilot.com or api.business.githubcopilot.com | AUTH-001 | auth | fixed |
 | api-proxy reports that no OIDC token could be minted | AUTH-002 | auth | workaround |
@@ -365,6 +370,34 @@ Reuse these instead of duplicating their commands:
 - **Related:** NET-001
 - **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11083 · code: src/host-iptables-rules.ts · test: src/host-iptables-host-access.test.ts · doc: docs/usage.md
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
+
+### NET-006 — awf-net subnet collides with host or cluster DNS resolver or routes
+
+- **Boundary:** network · **Status:** workaround
+- **Affects:** runner=any, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Every CONNECT fails with 503 HIER_NONE after startup on OpenShift or ARO · The awf-net subnet contains the DNS resolver(s) · The awf-net subnet overlaps existing host route(s)
+- **Discriminating conditions:** The default awf-net subnet 172.30.0.0/24 sits inside a cluster service CIDR (for example 172.30.0.0/16) whose CoreDNS ClusterIP is 172.30.0.10, the address AWF assigns to Squid · A nameserver from --dns-servers or the host resolv.conf falls inside the awf-net subnet, or a non-Docker host route overlaps it · Routes owned by Docker bridges (br-, docker, veth, awf, fw-bridge) are ignored by the collision check; the default route is ignored
+- **Root cause:** The awf-net subnet and Squid address were hardcoded to 172.30.0.0/24 and 172.30.0.10. Squid templated its DNS nameserver from the host resolver, so a resolver inside the subnet made Squid query its own peer address and every CONNECT failed. Relocation via --network-subnet and a fail-loud startup check remove the silent breakage.
+- **Safe probe:** `grep -n nameserver /etc/resolv.conf; cat /proc/net/route; docker network inspect awf-net --format '{{json .IPAM.Config}}'` → Compare resolver addresses and any awf-net subnet with the chosen --network-subnet, and decode destination/mask entries in /proc/net/route to check for overlapping non-Docker host routes. Resolver and Docker network output alone cannot rule out a route conflict; Docker bridge routes and the default route are ignored by the collision check. These reads expose no credentials.
+- **Action:** Relocate the network to a free RFC1918 block with --network-subnet (config key network.subnet), for example --network-subnet 10.88.0.0/24, and re-run. Do not disable the collision check or switch off DNS filtering. The check reports a collision as a startup error, so an error is the expected signal rather than a defect in the current code.
+- **Related:** NET-002, NET-001
+- **Provenance:** issue: awf-net hardcoded subnet collides with OpenShift service CIDR, breaking Squid DNS (https://github.com/github/gh-aw-firewall/issues/8390) · pull-request: Add --network-subnet to relocate awf-net off colliding host/cluster subnets (https://github.com/github/gh-aw-firewall/pull/8398) · code: assertNetworkSubnetUsable() resolver and route collision check (src/network-subnet.ts) · code: Startup call site for the subnet check (src/commands/validators/network-options.ts) · test: Subnet collision and override tests (src/network-subnet.test.ts)
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-11-16
+
+### NET-007 — Compose refuses to start because a leftover awf-net belongs to another project
+
+- **Boundary:** network · **Status:** fixed
+- **Affects:** runner=any, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** a network with name awf-net exists but was not created for project "awf-<timestamp>" · Compose fails before the agent or Squid starts, after a previous run was killed or timed out
+- **Discriminating conditions:** A previous AWF run was killed or timed out before its awf-net network was removed · The leftover network carries a different or no com.docker.compose.project label than the current run · The generated compose file declares a pinned, non-external network name (host-iptables external mode is not affected)
+- **Root cause:** Compose does not scope fixed network names per project, so an orphaned awf-net from an earlier run is treated as foreign and refused. AWF attempts to reclaim the network before compose up and retries after detaching stale endpoints it can identify from the network's Compose project label. If that label is absent, stale endpoints carrying the old project label may not be identified or detached, so reclaim and automatic recovery are not guaranteed.
+- **Safe probe:** `docker network inspect awf-net --format '{{index .Labels "com.docker.compose.project"}} {{len .Containers}}'` → Shows the owning compose project label and attached container count. A label that differs from the current run's project with no live containers identifies an orphan that the reclaim path should remove. This read reveals no container environment or credentials.
+- **Action:** AWF attempts to reclaim an orphaned awf-net before startup. Do not assume automatic recovery when the network has no Compose project label or reclaim logs removal/detach warnings: inspect attached containers, disconnect or remove only confirmed stale endpoints, and re-run. For a labeled network whose stale endpoints can be identified, reclamation should proceed automatically. Do not change the network name to a broad wildcard or disable the reclaim.
+- **Related:** NET-006
+- **Provenance:** issue: awf-net Docker network collision breaks container startup (https://github.com/github/gh-aw-firewall/issues/7809) · pull-request: Reclaim orphaned fixed-name Docker networks before compose up (https://github.com/github/gh-aw-firewall/pull/7817) · code: removeConflictingComposeNetworks() orphan reclaim (src/compose-network-conflicts.ts) · code: Reclaim call before compose up (src/container-startup.ts) · test: Orphaned and unlabelled network reclaim tests (src/compose-network-conflicts.test.ts)
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-11-16
 
 ## Boundary: auth
 
