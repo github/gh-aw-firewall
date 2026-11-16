@@ -396,6 +396,15 @@ describe('NVX host confinement', () => {
     ['supplementary group retention', {
       status: status(PID, { Groups: '27' }),
     }, /supplementary groups/],
+    ['mismatched UID', {
+      status: status(PID, { Uid: '1000 1000 0 1000' }),
+    }, /unexpected UID/],
+    ['missing GID', {
+      status: status(PID, { Gid: '' }),
+    }, /unexpected GID/],
+    ['malformed UID', {
+      status: status(PID, { Uid: 'invalid' }),
+    }, /NVX UID is malformed/],
     ['missing seccomp', {
       status: status(PID, { Seccomp: '0' }),
     }, /seccomp filter mode 2/],
