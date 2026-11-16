@@ -112,7 +112,7 @@ describe('shared diagnosis-maintenance contract', () => {
       'safe-outputs': { 'create-pull-request': { 'allowed-files': string[]; max: number } };
     };
     expect(config.tools.github['allowed-repos']).toEqual(['github/gh-aw-firewall']);
-    expect(config.tools.github['min-integrity']).toBe('none');
+    expect(config.tools.github['min-integrity']).toBe('unapproved');
     expect(config.permissions).toEqual({
       'copilot-requests': 'write',
       contents: 'read',
@@ -136,8 +136,8 @@ describe('shared diagnosis-maintenance contract', () => {
     expect(source).toContain('retry denied or integrity-filtered reads through\nanother credential or transport');
     const lock = read('.github/workflows/runtime-enclave-doctor-updater.lock.yml');
     expect(lock).toContain('GH_AW_GITHUB_REPOS: \'["github/gh-aw-firewall"]\'');
-    expect(lock).toContain("GH_AW_GITHUB_MIN_INTEGRITY: 'none'");
-    expect(lock).toContain('DIFC_PROXY_POLICY: \'{"allow-only":{"min-integrity":"none","repos":["github/gh-aw-firewall"]}}\'');
+    expect(lock).toContain("GH_AW_GITHUB_MIN_INTEGRITY: 'unapproved'");
+    expect(lock).toContain('DIFC_PROXY_POLICY: \'{"allow-only":{"min-integrity":"unapproved","repos":["github/gh-aw-firewall"]}}\'');
     const compiled = yaml.load(lock) as {
       jobs: { agent: { steps: Array<{ name: string; run?: string }> } };
     };
@@ -148,7 +148,7 @@ describe('shared diagnosis-maintenance contract', () => {
       'guard-policies': unknown;
     };
     expect(github['guard-policies']).toMatchObject({
-      'allow-only': { 'min-integrity': 'none', repos: ['github/gh-aw-firewall'] },
+      'allow-only': { 'min-integrity': 'unapproved', repos: ['github/gh-aw-firewall'] },
     });
     expect(github.env.GITHUB_READ_ONLY).toBe('1');
     expect(gateway.run).toContain('"blocked-users": ${GH_AW_GUARD_BLOCKED_USERS}');
@@ -164,11 +164,6 @@ describe('shared diagnosis-maintenance contract', () => {
       method: 'get_files', owner: 'github', repo: 'gh-aw-firewall', pullNumber: 11239, perPage: 5,
     });
     for (const fragment of [
-      'pinned\ngateway v0.5.8 labels PR file lists and diffs `none`',
-      'independently of merge\nstatus or author trust',
-      'not executing it or promoting its\ntrust',
-      'admits all GitHub content in this repository at `none`, not\nonly PR diffs',
-      'maintainers must approve that source-admission scope',
       'Before reviewing candidates, make this single GitHub MCP access probe',
       'not review completion',
       'stop PR-content reads for the run',
@@ -177,6 +172,23 @@ describe('shared diagnosis-maintenance contract', () => {
       'Call `report-incomplete` with the exact failed tool arguments',
       'the compiled gateway version and policy',
       'Do not claim that\nunattempted reads were individually denied',
+    ]) {
+      expect(source).toContain(fragment);
+    }
+  });
+
+  it('bootstraps the known pending runtime PR within the existing review cap', () => {
+    const source = read('.github/workflows/runtime-enclave-doctor-updater.md');
+    for (const fragment of [
+      'bootstrap PR #11665 on each run until its latest',
+      '`updated_at` has a completed receipt',
+      '`pull_request_read` with `method: get` for #11665',
+      'use only its `number` and\n`updated_at` to match a receipt',
+      'Do not classify it from PR metadata or body',
+      'add a missing candidate to the selected\nfirst-time batch',
+      'Count this bootstrap candidate within the existing 50-review cap',
+      'prioritizing it before the ordinary first-time queue',
+      'do not increase the cap or manually edit intake checkpoints',
     ]) {
       expect(source).toContain(fragment);
     }
