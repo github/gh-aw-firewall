@@ -47,7 +47,7 @@ export interface IntakeState {
 export interface Receipt {
   number: number;
   updatedAt: string;
-  disposition: 'covered' | 'proposed' | 'no-impact' | 'needs-evidence';
+  disposition: 'covered' | 'proposed' | 'no-impact' | 'needs-evidence' | 'publication-pending';
   evidence: string;
 }
 
@@ -105,7 +105,7 @@ export function validateReceipts(receipts: Receipt[]): void {
   if (!Array.isArray(receipts)) throw new Error('Intake receipts must be an array');
   for (const receipt of receipts) {
     if (!Number.isSafeInteger(receipt.number) || receipt.number < 1 ||
-      !['covered', 'proposed', 'no-impact', 'needs-evidence'].includes(receipt.disposition) ||
+      !['covered', 'proposed', 'no-impact', 'needs-evidence', 'publication-pending'].includes(receipt.disposition) ||
       typeof receipt.evidence !== 'string' || receipt.evidence.trim().length < 12) {
       throw new Error('Every intake receipt requires a disposition and specific review evidence');
     }
@@ -117,7 +117,7 @@ function isValidReceipt(value: unknown): value is Receipt {
   if (!value || typeof value !== 'object') return false;
   const receipt = value as Partial<Receipt>;
   if (!Number.isSafeInteger(receipt.number) || (receipt.number ?? 0) < 1 ||
-    !['covered', 'proposed', 'no-impact', 'needs-evidence'].includes(receipt.disposition ?? '') ||
+    !['covered', 'proposed', 'no-impact', 'needs-evidence', 'publication-pending'].includes(receipt.disposition ?? '') ||
     typeof receipt.evidence !== 'string' || receipt.evidence.trim().length < 12 ||
     typeof receipt.updatedAt !== 'string') return false;
   try {
@@ -167,7 +167,7 @@ export async function collectIntake(
     const key = `${receipt.number}:${receipt.updatedAt}`;
     const status = receiptStatus.get(key) ?? { completed: false, needsEvidence: false };
     if (receipt.disposition === 'needs-evidence') status.needsEvidence = true;
-    else status.completed = true;
+    else if (receipt.disposition !== 'publication-pending') status.completed = true;
     receiptStatus.set(key, status);
   }
   const pending = new Map(state.pending.map((candidate) =>
