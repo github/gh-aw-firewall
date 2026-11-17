@@ -133,14 +133,14 @@ function makeModelBodyTransform(
     const eligibilityRequest = req || {};
     pinRequestEligibility(eligibilityRequest);
     const updateResolutionMetadata = () => {
-      const records = getRuntimeModels(provider);
-      if (Array.isArray(records)) {
+      const currentRuntimePricing = captureRuntimePricing();
+      if (Object.hasOwn(currentRuntimePricing, provider)) {
         eligibilityRequest.awfRuntimePricing = {
-          ...(eligibilityRequest.awfRuntimePricing || {}), [provider]: records,
+          ...(eligibilityRequest.awfRuntimePricing || {}),
+          [provider]: currentRuntimePricing[provider],
         };
       }
     };
-    if (!eligibilityRequest.awfRuntimePricing?.[provider]) updateResolutionMetadata();
     const refreshModels = async () => {
       await refreshProviderModelsForResolution(provider);
       updateResolutionMetadata();
@@ -247,15 +247,7 @@ function makeModelBodyTransform(
     })) {
       req.awfModelRecoveryDisabled = true;
     }
-    if (req) {
-      const currentRuntimePricing = captureRuntimePricing();
-      if (Object.hasOwn(currentRuntimePricing, provider)) {
-        req.awfRuntimePricing = {
-          ...(req.awfRuntimePricing || {}),
-          [provider]: currentRuntimePricing[provider],
-        };
-      }
-    }
+    if (req) updateResolutionMetadata();
     if (!result) return null;
     if (req && (result.automaticReplacement === true || result.fallback?.activated === true ||
         result.fallback?.reason === 'family_version_fallback')) {

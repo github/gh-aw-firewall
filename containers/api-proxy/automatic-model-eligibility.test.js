@@ -140,19 +140,23 @@ test('alias resolution uses refreshed provider metadata after an excluded-only f
   const savedAliases = process.env.AWF_MODEL_ALIASES;
   let records = [{ id: 'gpt-5.4', supportedEndpoints: ['/responses'], modelPickerEnabled: false }];
   const models = { copilot: ['gpt-5.4'] };
+  let runtimeCatalog;
   const refresh = jest.fn(async () => {
     records = [
       { id: 'gpt-6-luna-decisions', supportedEndpoints: ['/v1/decisions'] },
       { id: 'gpt-5.5', supportedEndpoints: ['/responses'] },
     ];
     models.copilot = records.map(record => record.id);
+    runtimeCatalog.replaceRuntimeModels('copilot', records);
   });
   let transform;
   try {
     process.env.AWF_MODEL_ALIASES = '{"models":{"large":["copilot/gpt-*"]}}';
     jest.isolateModules(() => {
+      runtimeCatalog = require('./runtime-model-catalog');
+      runtimeCatalog.replaceRuntimeModels('copilot', records);
       transform = require('./model-config').makeModelBodyTransform(
-        'copilot', models, refresh, null, () => records,
+        'copilot', models, refresh, null, runtimeCatalog.getRuntimeModels,
       );
     });
     const req = {
