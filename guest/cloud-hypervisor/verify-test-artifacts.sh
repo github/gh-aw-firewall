@@ -175,7 +175,7 @@ verify_enclave_rootfs() {
     debugfs -R "stat /usr/local/lib/node_modules/$package/package.json" "$image" 2>&1 \
       | grep -F 'Type: regular'
   done
-  debugfs -R 'stat /usr/local/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex' "$image" 2>&1 \
+  debugfs -R 'stat /usr/local/lib/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex' "$image" 2>&1 \
     | grep -F 'Type: regular'
   debugfs -R 'stat /usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe' "$image" 2>&1 \
     | grep -F 'Type: regular'
