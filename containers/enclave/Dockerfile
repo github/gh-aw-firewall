@@ -35,7 +35,9 @@ ARG NPM_CONFIG_REGISTRY=https://packagefeedproxy.microsoft.io/npm/
 ARG CODEX_VERSION=0.159.3
 ARG CLAUDE_VERSION=2.1.280
 RUN npm_config_ignore_scripts=false npm install --global --include=optional --install-strategy=nested \
-      "@openai/codex@${CODEX_VERSION}" "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
+      "@openai/codex@${CODEX_VERSION}" \
+      "@openai/codex-linux-x64@npm:@openai/codex@${CODEX_VERSION}-linux-x64" \
+      "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
     && for engine in codex claude; do \
          launcher="$(readlink -f "/usr/local/bin/$engine")"; \
          if head -n 1 "$launcher" | grep -q '^#!/usr/bin/env node'; then \
