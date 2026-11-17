@@ -45,10 +45,12 @@ describe('shared identity utilities', () => {
     },
   );
 
-  it.each(['ENOENT', 'EACCES', 'EIO'])('only treats ENOENT as a dead process: %s', async (code) => {
-    const error = Object.assign(new Error(code), { code });
-    const result = readProcessStartTime(123, async () => { throw error; });
-    if (code === 'ENOENT') await expect(result).resolves.toBeUndefined();
-    else await expect(result).rejects.toBe(error);
-  });
+  it.each(['ENOENT', 'ESRCH', 'EACCES', 'EIO'])(
+    'treats only ENOENT and ESRCH as a dead process: %s', async (code) => {
+      const error = Object.assign(new Error(code), { code });
+      const result = readProcessStartTime(123, async () => { throw error; });
+      if (code === 'ENOENT' || code === 'ESRCH') await expect(result).resolves.toBeUndefined();
+      else await expect(result).rejects.toBe(error);
+    },
+  );
 });
