@@ -1,0 +1,40 @@
+{
+  "$schema": "../../schema.json",
+  "id": "CI-010",
+  "boundary": "ci",
+  "title": "Codex enclave exits 0 but its shell tool fails in nested bubblewrap",
+  "symptoms": [
+    "bwrap: Failed to make / slave: Operation not permitted",
+    "Codex enclave agent exit 0 with failure category result-empty",
+    "Codex inference succeeds but the diagnostic shell command never runs"
+  ],
+  "conditions": [
+    "The engine is Codex and the pinned CLI (0.159.3 in the enclave image) runs its default nested sandbox inside the hardened enclave",
+    "The CLI exit code is 0 and inference succeeded, but no schema-valid result reaches /awf/out, so the invocation fails with the canonical result-empty category",
+    "Older launches omitted the trusted external-sandbox opt-in, so the enclave entrypoint did not add --dangerously-bypass-approvals-and-sandbox",
+    "Raw bwrap text is not retained in diagnostics; only the finite failure category is, so an old aggregate failure alone does not identify this cause"
+  ],
+  "affects": { "runner": "any", "runtime": "any", "provider": "openai", "authMode": "any" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "fixed",
+  "rootCause": "Codex's default nested bubblewrap sandbox cannot run inside the already hardened, zero-capability enclave, so its shell tool fails while the CLI still exits 0. The fix makes AWF the sole owner of the execution policy: the shared provider environment sets AWF_ENCLAVE_AGENT_CODEX_BYPASS_APPROVALS=true for Docker, gVisor and Cloud Hypervisor, and the entrypoint then runs codex exec with --dangerously-bypass-approvals-and-sandbox. Task text, request fields and ambient environment cannot select or override it.",
+  "probe": {
+    "command": "jq '{failure: .session.failure, lastEvent: .session.lastEvent}' path/to/protected/diagnostics.json",
+    "expect": "A Codex enclave failure with category result-empty after an engine-result event with exitCode 0 matches this finding. The projection never contains raw engine output or bwrap text, so a historical failure without the projection is unknown, not confirmed.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use source whose shared provider environment sets the trusted bypass flag and whose entrypoint inserts --dangerously-bypass-approvals-and-sandbox. Keep the outer confinement (non-root identity, zero capabilities, no-new-privileges, read-only root and seed, bounded noexec writable paths, proxy-only network) and keep treating a missing or invalid /awf/out result as a failure even when the CLI exits 0. Do not accept a result-empty run as success and do not let a task or request field select the policy. Hosted acceptance remains separate.",
+  "references": [
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11190" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11224" },
+    { "kind": "code", "ref": "containers/enclave/agent-executor/agent-provider-environment.js" },
+    { "kind": "code", "ref": "containers/enclave/agent-entrypoint.py" },
+    { "kind": "test", "ref": "src/enclave/agent-provider-environment.test.ts" },
+    { "kind": "test", "ref": "src/enclave/agent-entrypoint-diagnostics.test.ts" },
+    { "kind": "doc", "ref": "docs/enclaves-architecture.md" }
+  ],
+  "related": ["CI-004", "CI-006"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-02-12"
+}

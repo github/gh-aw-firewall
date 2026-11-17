@@ -279,6 +279,8 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | CI-007 | ci | Prestarted enclave gateway cannot resolve the private enclave service after network attachment | fixed | [`findings/ci/CI-007.json`](./findings/ci/CI-007.json) |
 | CI-008 | ci | Agentic workflow fails in pre-agent setup before the engine starts | fixed | [`findings/ci/CI-008.json`](./findings/ci/CI-008.json) |
 | CI-009 | ci | Supply-chain PR-image scan is cancelled at its job timeout during a slow package-mirror build | workaround | [`findings/ci/CI-009.json`](./findings/ci/CI-009.json) |
+| CI-010 | ci | Codex enclave exits 0 but its shell tool fails in nested bubblewrap | fixed | [`findings/ci/CI-010.json`](./findings/ci/CI-010.json) |
+| CI-011 | ci | Daily primary-agent regression fails at the guest credential or Codex invocation contract | fixed | [`findings/ci/CI-011.json`](./findings/ci/CI-011.json) |
 | SEC-001 | security | Suspected isolation or credential-boundary regression must go to security review, not a bypass | needs-evidence | [`findings/security/SEC-001.json`](./findings/security/SEC-001.json) |
 
 ### Symptom lookup
@@ -368,6 +370,13 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | Supply Chain Scan image-scans job cancelled after exhausting its 40-minute timeout | CI-009 | ci | workaround |
 | PR-image scan stops during a container image build rather than at a Grype High/Critical finding | CI-009 | ci | workaround |
 | Slow apt index or package downloads dominate a build-tools image layer | CI-009 | ci | workaround |
+| bwrap: Failed to make / slave: Operation not permitted | CI-010 | ci | fixed |
+| Codex enclave agent exit 0 with failure category result-empty | CI-010 | ci | fixed |
+| Codex inference succeeds but the diagnostic shell command never runs | CI-010 | ci | fixed |
+| Copilot credential is not isolated | CI-011 | ci | fixed |
+| Copilot placeholder contract is unavailable | CI-011 | ci | fixed |
+| Codex regression stalls on inherited stdin | CI-011 | ci | fixed |
+| Codex attempts direct OpenAI inference with a placeholder credential under Cloud Hypervisor or NVX | CI-011 | ci | fixed |
 | The agent container can reach a domain that is not allowlisted | SEC-001 | security | needs-evidence |
 | A provider credential is observable inside the agent environment while the api-proxy is enabled | SEC-001 | security | needs-evidence |
 | Egress succeeds without a corresponding Squid access-log entry | SEC-001 | security | needs-evidence |
