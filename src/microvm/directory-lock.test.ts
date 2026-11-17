@@ -1,7 +1,11 @@
 import {
+  readDirectoryLockOwner,
+  reclaimStaleDirectoryLock,
+  removeOwnedDirectoryLock,
   withDirectoryLock,
   type DirectoryLockDependencies,
   type DirectoryLockOwner,
+  type DirectoryLockReclamationDependencies,
 } from './directory-lock';
 
 interface Recorded {
@@ -35,6 +39,8 @@ function createHarness(existingLockAttempts: number) {
     writeFile: async (filePath, contents, options) => {
       recorded.writeFile.push({ path: filePath, contents, options });
     },
+    readFile: async () => recorded.writeFile[recorded.writeFile.length - 1].contents,
+    rmdir: async () => undefined,
     sleep: async (milliseconds) => {
       recorded.sleeps.push(milliseconds);
     },
@@ -64,6 +70,139 @@ function baseOptions(
   };
 }
 
+describe('shared directory-lock ownership and reclamation', () => {
+  const directory = '/run/awf-test/.lock';
+  const owner = { pid: 4321, startTime: '77', nonce: 'a'.repeat(32) };
+  const stats = { dev: 5, ino: 42, mtimeMs: 0 };
+
+  function dependencies() {
+    return {
+      mkdir: jest.fn().mockResolvedValue(undefined),
+      sleep: jest.fn().mockResolvedValue(undefined),
+      readFile: jest.fn().mockResolvedValue(JSON.stringify(owner)),
+      rm: jest.fn().mockResolvedValue(undefined),
+      rename: jest.fn().mockResolvedValue(undefined),
+      rmdir: jest.fn().mockResolvedValue(undefined),
+      lstat: jest.fn().mockResolvedValue(stats),
+      processStartTime: jest.fn().mockResolvedValue(undefined),
+    } satisfies DirectoryLockReclamationDependencies;
+  }
+
+  it.each(['null', '[]', '{}', '{', '{"pid":0}', '"owner"'])(
+    'tolerates invalid owner metadata %s', async (contents) => {
+      const deps = dependencies();
+      deps.readFile.mockResolvedValue(contents);
+      await expect(readDirectoryLockOwner(deps, directory)).resolves.toBeUndefined();
+    },
+  );
+
+  it.each(['pid', 'startTime', 'nonce'])('refuses release after a changed %s', async (field) => {
+    const deps = dependencies();
+    deps.readFile.mockResolvedValue(JSON.stringify({ ...owner, [field]: 'changed' }));
+    await expect(removeOwnedDirectoryLock(deps, directory, owner, 'ownership changed'))
+      .rejects.toThrow('ownership changed');
+    expect(deps.rm).not.toHaveBeenCalled();
+  });
+
+  it('leaves release untouched when a reaper holds the admission barrier', async () => {
+    const deps = dependencies();
+    deps.mkdir.mockRejectedValue(Object.assign(new Error('exists'), { code: 'EEXIST' }));
+    await expect(removeOwnedDirectoryLock(deps, directory, owner, 'ownership changed'))
+      .rejects.toThrow('Timed out waiting to release directory lock');
+    expect(deps.readFile).not.toHaveBeenCalled();
+    expect(deps.rm).not.toHaveBeenCalled();
+    expect(deps.rmdir).not.toHaveBeenCalled();
+  });
+
+  it('retries release rather than silently abandoning a live-owned lock', async () => {
+    const deps = dependencies();
+    deps.mkdir.mockRejectedValueOnce(Object.assign(new Error('exists'), { code: 'EEXIST' }));
+    await removeOwnedDirectoryLock(deps, directory, owner, 'ownership changed', {
+      timeoutMs: 1_000, retryMs: 7,
+    });
+    expect(deps.sleep).toHaveBeenCalledWith(7);
+    expect(deps.rm).toHaveBeenCalledWith(directory, { recursive: true, force: true });
+    expect(deps.rmdir).toHaveBeenCalledWith(`${directory}.reaper`);
+  });
+
+  it.each([
+    { ...stats, ino: 43 },
+    { ...stats, dev: 6 },
+    { ...stats, ino: undefined },
+  ])('does not quarantine a replacement or unverifiable inode: %j', async (current) => {
+    const deps = dependencies();
+    deps.lstat.mockResolvedValueOnce(stats).mockResolvedValue(current);
+    await reclaimStaleDirectoryLock(deps, directory);
+    expect(deps.rename).not.toHaveBeenCalled();
+    expect(deps.rm).not.toHaveBeenCalled();
+    expect(deps.rmdir).toHaveBeenCalledWith(`${directory}.reaper`);
+  });
+
+  it('compares the nonce before quarantining even when PID/start time match', async () => {
+    const deps = dependencies();
+    deps.readFile.mockResolvedValueOnce(JSON.stringify(owner))
+      .mockResolvedValue(JSON.stringify({ ...owner, nonce: 'b'.repeat(32) }));
+    await reclaimStaleDirectoryLock(deps, directory);
+    expect(deps.rename).not.toHaveBeenCalled();
+    expect(deps.rm).not.toHaveBeenCalled();
+  });
+
+  it('backs off while a competing reaper holds a claim', async () => {
+    const deps = dependencies();
+    deps.mkdir.mockRejectedValue(Object.assign(new Error('exists'), { code: 'EEXIST' }));
+    await reclaimStaleDirectoryLock(deps, directory);
+    expect(deps.rmdir).not.toHaveBeenCalled();
+    expect(deps.rename).not.toHaveBeenCalled();
+    expect(deps.rm).not.toHaveBeenCalled();
+  });
+
+  it('deletes only quarantine even if another holder recreates the lock path', async () => {
+    const deps = dependencies();
+    await reclaimStaleDirectoryLock(deps, directory);
+    const quarantine = deps.rename.mock.calls[0][1] as string;
+    expect(quarantine).toMatch(/\.stale-[a-f0-9]{32}$/);
+    expect(deps.rm.mock.calls).toEqual([[quarantine, { recursive: true, force: true }]]);
+  });
+
+  it.each(['inode', 'owner', 'liveness'])(
+    'retains unverified quarantine on a post-rename %s race', async (race) => {
+      const deps = dependencies();
+      if (race === 'inode') {
+        deps.lstat.mockResolvedValueOnce(stats).mockResolvedValueOnce(stats)
+          .mockResolvedValue({ ...stats, ino: 43 });
+      } else if (race === 'owner') {
+        deps.readFile.mockResolvedValueOnce(JSON.stringify(owner))
+          .mockResolvedValueOnce(JSON.stringify(owner))
+          .mockResolvedValue(JSON.stringify({ ...owner, nonce: 'b'.repeat(32) }));
+      } else {
+        deps.processStartTime.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined)
+          .mockResolvedValue(owner.startTime);
+      }
+      await expect(reclaimStaleDirectoryLock(deps, directory))
+        .rejects.toThrow('reclamation raced with another lock owner');
+      expect(deps.rename).toHaveBeenCalledTimes(1);
+      expect(deps.rm).not.toHaveBeenCalled();
+      expect(deps.rmdir).toHaveBeenCalledWith(`${directory}.reaper`);
+    },
+  );
+
+  it('propagates process-read errors after quarantine without deleting it', async () => {
+    const deps = dependencies();
+    deps.processStartTime.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined)
+      .mockRejectedValue(new Error('process read failed'));
+    await expect(reclaimStaleDirectoryLock(deps, directory)).rejects.toThrow('process read failed');
+    expect(deps.rm).not.toHaveBeenCalled();
+    expect(deps.rmdir).toHaveBeenCalledWith(`${directory}.reaper`);
+  });
+
+  it('releases its claim after a quarantine deletion error', async () => {
+    const deps = dependencies();
+    deps.rm.mockRejectedValue(new Error('denied'));
+    await expect(reclaimStaleDirectoryLock(deps, directory)).rejects.toThrow('denied');
+    expect(deps.rmdir).toHaveBeenCalledWith(`${directory}.reaper`);
+  });
+});
+
 describe('withDirectoryLock', () => {
   it('creates the lock, records ownership, and releases it after the operation', async () => {
     const { recorded, dependencies } = createHarness(0);
@@ -74,7 +213,9 @@ describe('withDirectoryLock', () => {
     });
 
     expect(result).toBe('done');
-    expect(recorded.mkdir).toEqual(['/run/awf-test', '/run/awf-test/.lock']);
+    expect(recorded.mkdir).toEqual([
+      '/run/awf-test', '/run/awf-test/.lock', '/run/awf-test/.lock.reaper',
+    ]);
     expect(recorded.writeFile).toHaveLength(1);
     expect(recorded.writeFile[0].path).toBe('/run/awf-test/.lock/owner.json');
     expect(recorded.writeFile[0].options).toEqual({ flag: 'wx', mode: 0o600 });

@@ -1,8 +1,18 @@
 import { randomBytes } from 'crypto';
-import { promises as fs } from 'fs';
-import * as path from 'path';
 import { createDefaultIdentityDependencies } from '../identity-dependencies';
-import { withDirectoryLock, type DirectoryLockOwner } from '../microvm/directory-lock';
+import {
+  isLockOwner,
+  isSameLockOwner,
+  reclaimStaleDirectoryLock,
+  removeOwnedDirectoryLock,
+  withDirectoryLock,
+} from '../microvm/directory-lock';
+import {
+  formatError,
+  parsePositiveInteger,
+  parseProcessStatStartTime,
+  readProcessStartTime,
+} from '../microvm/identity-utils';
 import { resolveAndValidateVmmAccount } from '../vmm-account-validation';
 import {
   composeDeviceAcl,
@@ -20,7 +30,6 @@ const DEVICE_ACL_LOCK_DIRECTORY = '/run/awf-cloud-hypervisor/.device-acl-lock';
 const ACCOUNT_LOCK_RETRY_MS = 25;
 const ACCOUNT_LOCK_TIMEOUT_MS = 10_000;
 const DEVICE_ACL_LOCK_TIMEOUT_MS = 60_000;
-const INCOMPLETE_LOCK_STALE_MS = 1_000;
 const VMM_DEVICE_PATHS = ['/dev/kvm', '/dev/net/tun'] as const;
 
 export interface CloudHypervisorVmmIdentity {
@@ -56,11 +65,13 @@ export interface CloudHypervisorVmmIdentityDependencies {
   writeFile(filePath: string, contents: string, options?: { flag?: string; mode?: number }): Promise<void>;
   readFile(filePath: string, encoding: 'utf8'): Promise<string>;
   rm(filePath: string, options: { recursive: true; force: true }): Promise<void>;
+  rename(from: string, to: string): Promise<void>;
   rmdir(directory: string): Promise<void>;
   lstat(filePath: string): Promise<{
     uid: number;
     gid: number;
-    ino?: number;
+    dev?: number | bigint;
+    ino?: number | bigint;
     mtimeMs?: number;
   }>;
   run(command: string, args: readonly string[]): Promise<{ stdout: string; stderr: string }>;
@@ -71,8 +82,6 @@ export interface CloudHypervisorVmmIdentityDependencies {
 
 const defaultDependencies: CloudHypervisorVmmIdentityDependencies =
   createDefaultIdentityDependencies(readProcessStartTime);
-
-type LockOwner = DirectoryLockOwner;
 
 export class CloudHypervisorVmmIdentityManager {
   private identity: CloudHypervisorVmmIdentity | undefined;
@@ -501,110 +510,14 @@ export class CloudHypervisorVmmIdentityManager {
       dependencies: this.dependencies,
       startTimeErrorMessage: 'Cannot determine AWF process start time for VMM identity lock',
       timeoutErrorMessage: 'Timed out waiting for the Cloud Hypervisor VMM identity lock',
-      reclaimStaleLock: (directory) => this.reclaimStaleLock(directory),
-      removeOwnedLock: (directory, owner) => this.removeOwnedLock(directory, owner),
+      reclaimStaleLock: (directory) => reclaimStaleDirectoryLock(this.dependencies, directory),
+      removeOwnedLock: (directory, owner) => removeOwnedDirectoryLock(
+        this.dependencies, directory, owner,
+        'Cloud Hypervisor VMM account lock ownership changed unexpectedly',
+        { timeoutMs, retryMs: ACCOUNT_LOCK_RETRY_MS },
+      ),
       operation,
     });
-  }
-
-  private async reclaimStaleLock(lockDirectory: string): Promise<void> {
-    const reaperDirectory = path.join(lockDirectory, '.reaper');
-    let initialStats: Awaited<ReturnType<CloudHypervisorVmmIdentityDependencies['lstat']>>;
-    try {
-      initialStats = await this.dependencies.lstat(lockDirectory);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-      throw error;
-    }
-    let owner = await this.readLockOwner(lockDirectory);
-    if (
-      !owner &&
-      (initialStats.mtimeMs === undefined ||
-        Date.now() - initialStats.mtimeMs < INCOMPLETE_LOCK_STALE_MS)
-    ) {
-      return;
-    }
-    if (owner) {
-      const liveStartTime = await this.dependencies.processStartTime(owner.pid);
-      if (liveStartTime === owner.startTime) return;
-    }
-    if (!await this.tryClaimReaper(reaperDirectory, initialStats)) return;
-    try {
-      const currentStats = await this.dependencies.lstat(lockDirectory);
-      if (
-        initialStats.ino === undefined ||
-        currentStats.ino === undefined ||
-        currentStats.ino !== initialStats.ino
-      ) return;
-      owner = await this.readLockOwner(lockDirectory);
-      if (owner) {
-        const liveStartTime = await this.dependencies.processStartTime(owner.pid);
-        if (liveStartTime === owner.startTime) return;
-      } else if (
-        initialStats.mtimeMs === undefined ||
-        Date.now() - initialStats.mtimeMs < INCOMPLETE_LOCK_STALE_MS
-      ) {
-        return;
-      }
-      await this.dependencies.rm(lockDirectory, { recursive: true, force: true });
-    } finally {
-      await this.dependencies.rmdir(reaperDirectory).catch((error) => {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      });
-    }
-  }
-
-  private async readLockOwner(lockDirectory: string): Promise<LockOwner | undefined> {
-    try {
-      const parsed = JSON.parse(
-        await this.dependencies.readFile(path.join(lockDirectory, 'owner.json'), 'utf8'),
-      ) as LockOwner;
-      return isLockOwner(parsed) ? parsed : undefined;
-    } catch (error) {
-      if (
-        (error as NodeJS.ErrnoException).code === 'ENOENT' ||
-        error instanceof SyntaxError
-      ) return undefined;
-      throw error;
-    }
-  }
-
-  private async tryClaimReaper(
-    reaperDirectory: string,
-    lockStats: Awaited<ReturnType<CloudHypervisorVmmIdentityDependencies['lstat']>>,
-  ): Promise<boolean> {
-    try {
-      await this.dependencies.mkdir(reaperDirectory, { mode: 0o700 });
-      return true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
-        throw error;
-      }
-      try {
-        const reaperStats = await this.dependencies.lstat(reaperDirectory);
-        if (
-          lockStats.ino !== undefined &&
-          reaperStats.mtimeMs !== undefined &&
-          Date.now() - reaperStats.mtimeMs >= INCOMPLETE_LOCK_STALE_MS
-        ) {
-          await this.dependencies.rmdir(reaperDirectory);
-        }
-      } catch (reaperError) {
-        if ((reaperError as NodeJS.ErrnoException).code !== 'ENOENT') throw reaperError;
-      }
-      return false;
-    }
-  }
-
-  private async removeOwnedLock(lockDirectory: string, owner: LockOwner): Promise<void> {
-    const current = JSON.parse(
-      await this.dependencies.readFile(path.join(lockDirectory, 'owner.json'), 'utf8'),
-    ) as LockOwner;
-    if (!isSameLockOwner(owner, current)) {
-      throw new Error('Cloud Hypervisor VMM account lock ownership changed unexpectedly');
-    }
-    await this.dependencies.rm(lockDirectory, { recursive: true, force: true });
   }
 }
 
@@ -699,50 +612,3 @@ export const cloudHypervisorVmmIdentityTestHelpers = {
   parsePositiveInteger,
   readProcessStartTime,
 };
-
-async function readProcessStartTime(
-  pid: number,
-  readFile: (filePath: string, encoding: 'utf8') => Promise<string> =
-    (filePath, encoding) => fs.readFile(filePath, encoding),
-): Promise<string | undefined> {
-  try {
-    const stat = await readFile(`/proc/${pid}/stat`, 'utf8');
-    return parseProcessStatStartTime(stat);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-    throw error;
-  }
-}
-
-function parseProcessStatStartTime(stat: string): string | undefined {
-  const close = stat.lastIndexOf(')');
-  const fields = stat.slice(close + 2).split(' ');
-  return fields[19]?.trim();
-}
-
-function parsePositiveInteger(value: string, label: string): number {
-  const trimmed = value.trim();
-  if (!/^[1-9]\d*$/.test(trimmed)) {
-    throw new Error(`Cloud Hypervisor VMM account returned an invalid ${label}: ${trimmed}`);
-  }
-  const parsed = Number(trimmed);
-  if (!Number.isSafeInteger(parsed)) {
-    throw new Error(`Cloud Hypervisor VMM account returned an unsafe ${label}: ${trimmed}`);
-  }
-  return parsed;
-}
-
-function isLockOwner(value: LockOwner): boolean {
-  return Number.isSafeInteger(value?.pid) && value.pid > 0 &&
-    typeof value.startTime === 'string' && /^\d+$/.test(value.startTime) &&
-    typeof value.nonce === 'string' && /^[a-f0-9]{32}$/.test(value.nonce);
-}
-
-function isSameLockOwner(left: LockOwner, right: LockOwner): boolean {
-  return isLockOwner(left) && isLockOwner(right) &&
-    left.pid === right.pid && left.startTime === right.startTime && left.nonce === right.nonce;
-}
-
-function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}

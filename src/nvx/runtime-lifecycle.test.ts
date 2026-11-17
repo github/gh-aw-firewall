@@ -347,7 +347,9 @@ describe('NVX Phase 3d runtime lifecycle', () => {
     });
     // The recorded owner PID is not running, so the lock is stale.
     deps.processStartTime = jest.fn(async (pid: number) => (pid === 123 ? '99' : undefined));
-    deps.readFile = jest.fn(async () => JSON.stringify({ pid: 999, startTime: '7' }));
+    deps.readFile = jest.fn(async () => JSON.stringify({
+      pid: 999, startTime: '7', nonce: 'a'.repeat(32),
+    }));
 
     await expect(new NvxVmmIdentityManager(RUN_ID, tools, deps).allocate())
       .rejects.toThrow(/lock ownership changed unexpectedly/);
@@ -358,7 +360,7 @@ describe('NVX Phase 3d runtime lifecycle', () => {
     expect(removed.some((target) => /\.stale-[a-f0-9]{32}$/.test(target))).toBe(true);
   });
 
-  it('restores a quarantined lock whose owner is still live', async () => {
+  it('preserves a lock whose owner becomes live before quarantine', async () => {
     const { deps } = identityDependencies();
     deps.mkdir = jest.fn(async (directory: string) => {
       if (directory.endsWith('.account-lock')) {
@@ -369,21 +371,22 @@ describe('NVX Phase 3d runtime lifecycle', () => {
     deps.rm = jest.fn().mockResolvedValue(undefined);
     let reads = 0;
     deps.readFile = jest.fn(async () => {
-      // The quarantined directory turns out to hold a different, live owner.
+      // Revalidation finds a different, live owner before quarantine.
       reads += 1;
       return JSON.stringify(reads === 1
-        ? { pid: 999, startTime: '7' }
-        : { pid: 321, startTime: '42' });
+        ? { pid: 999, startTime: '7', nonce: 'a'.repeat(32) }
+        : { pid: 321, startTime: '42', nonce: 'b'.repeat(32) });
     });
     deps.processStartTime = jest.fn(async (pid: number) => {
       if (pid === 123) return '99';
       if (pid === 321) return '42';
       return undefined;
     });
+    deps.sleep = async () => { throw new Error('stop waiting'); };
 
     await expect(new NvxVmmIdentityManager(RUN_ID, tools, deps).allocate())
-      .rejects.toThrow(/raced with another lock owner/);
-    expect(deps.rename).toHaveBeenCalledTimes(2);
+      .rejects.toThrow('stop waiting');
+    expect(deps.rename).not.toHaveBeenCalled();
     expect(deps.rm).not.toHaveBeenCalled();
   });
 
