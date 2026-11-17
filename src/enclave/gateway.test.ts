@@ -245,6 +245,8 @@ describe('enclave gateway module boundaries', () => {
     const unexpectedImport = jest.fn(() => {
       throw new Error('Contract loaded an HTTP or Docker dependency');
     });
+    // Clear the cached file-level execa mock before installing import guards.
+    jest.resetModules();
     jest.doMock('http', unexpectedImport);
     jest.doMock('https', unexpectedImport);
     jest.doMock('execa', unexpectedImport);
@@ -259,7 +261,7 @@ describe('enclave gateway module boundaries', () => {
     } finally {
       jest.dontMock('http');
       jest.dontMock('https');
-      jest.dontMock('execa');
+      jest.doMock('execa', () => ({ __esModule: true, default: mockExeca }));
       jest.dontMock('../docker-host');
     }
   });
