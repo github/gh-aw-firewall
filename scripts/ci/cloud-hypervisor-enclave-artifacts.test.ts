@@ -43,7 +43,7 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     expect(build).toContain('verify-guest-engine.py"');
     expect(build).not.toContain('chroot "$tree" /usr/local/bin/"$engine" --version');
     expect(verify).toContain('for engine in copilot codex claude; do');
-    expect(verify).toContain('@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex');
+    expect(verify).toContain('@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex');
     expect(verify).toContain('@anthropic-ai/claude-code/bin/claude.exe');
     expect(build).toContain('ENCLAVE_SCRIPT_IMAGE=$ENCLAVE_IMAGE');
     expect(build).toContain('ENCLAVE_IMAGE=${CH_ENCLAVE_IMAGE:-awf-cloud-hypervisor-enclave:build}');

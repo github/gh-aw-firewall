@@ -14,6 +14,9 @@ describe('enclave image contract', () => {
     expect(dockerfile).toContain('ARG CLAUDE_VERSION=2.1.280');
     expect(dockerfile).toContain('npm_config_ignore_scripts=false npm install --global --include=optional --install-strategy=nested');
     expect(dockerfile).toContain('"@openai/codex@${CODEX_VERSION}"');
+    expect(dockerfile).toContain(
+      '"@openai/codex-linux-x64@npm:@openai/codex@${CODEX_VERSION}-linux-x64"',
+    );
     expect(dockerfile).toContain('"@anthropic-ai/claude-code@${CLAUDE_VERSION}"');
     for (const scope of ['@openai', '@anthropic-ai']) {
       expect(dockerfile).toContain(
