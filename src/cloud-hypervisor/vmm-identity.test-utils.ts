@@ -99,6 +99,15 @@ export function dependencies(
         if (filePath.startsWith(`${directory}/`)) ownerContents.delete(filePath);
       }
     }),
+    rename: jest.fn(async (from, to) => {
+      if (from.endsWith('.account-lock')) lockExists = false;
+      for (const filePath of [...ownerContents.keys()]) {
+        if (filePath.startsWith(`${from}/`)) {
+          ownerContents.set(filePath.replace(from, to), ownerContents.get(filePath) as string);
+          ownerContents.delete(filePath);
+        }
+      }
+    }),
     rmdir: jest.fn().mockResolvedValue(undefined),
     lstat: jest.fn().mockResolvedValue({ uid: 23001, gid: 23002, ino: 1, mtimeMs: 0 }),
     run,

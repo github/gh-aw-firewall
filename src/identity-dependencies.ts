@@ -6,6 +6,7 @@ export interface DefaultIdentityDependencies {
   readonly writeFile: typeof fs.writeFile;
   readonly readFile: typeof fs.readFile;
   readonly rm: typeof fs.rm;
+  readonly rename: typeof fs.rename;
   readonly rmdir: typeof fs.rmdir;
   readonly lstat: typeof fs.lstat;
   readonly run: (
@@ -35,6 +36,7 @@ export function createDefaultIdentityDependencies(
     writeFile: fs.writeFile,
     readFile: fs.readFile,
     rm: fs.rm,
+    rename: fs.rename,
     rmdir: fs.rmdir,
     lstat: fs.lstat,
     run: async (command, args) => {

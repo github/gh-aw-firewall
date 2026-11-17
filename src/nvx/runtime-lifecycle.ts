@@ -2,7 +2,12 @@ import { randomBytes } from 'crypto';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { createDefaultIdentityDependencies } from '../identity-dependencies';
-import { withDirectoryLock, type DirectoryLockOwner } from '../microvm/directory-lock';
+import {
+  reclaimStaleDirectoryLock,
+  removeOwnedDirectoryLock,
+  withDirectoryLock,
+} from '../microvm/directory-lock';
+import { formatError, parsePositiveInteger, readProcessStartTime } from '../microvm/identity-utils';
 import { resolveAndValidateVmmAccount } from '../vmm-account-validation';
 import {
   createMicrovmNetworkPlan,
@@ -41,7 +46,6 @@ const DEVICE_ACL_LOCK_DIRECTORY = '/run/awf-nvx/.device-acl-lock';
 const LOCK_RETRY_MS = 25;
 const ACCOUNT_LOCK_TIMEOUT_MS = 10_000;
 const DEVICE_ACL_LOCK_TIMEOUT_MS = 60_000;
-const INCOMPLETE_LOCK_STALE_MS = 1_000;
 type NvxDevicePath = NvxCleanupDeviceAclIdentity['path'];
 const NVX_DEVICE_PATHS: readonly NvxDevicePath[] = ['/dev/kvm'];
 const NVX_HOST_PIDS_MAX = 256;
@@ -126,99 +130,13 @@ async function withLifecycleLock<T>(
     dependencies,
     startTimeErrorMessage: 'Cannot determine AWF process start time for NVX lifecycle lock',
     timeoutErrorMessage: 'Timed out waiting for the NVX lifecycle lock',
-    reclaimStaleLock: (directory) => reclaimStaleLock(dependencies, directory),
-    removeOwnedLock: (directory, owner) => removeOwnedLock(dependencies, directory, owner),
+    reclaimStaleLock: (directory) => reclaimStaleDirectoryLock(dependencies, directory),
+    removeOwnedLock: (directory, owner) => removeOwnedDirectoryLock(
+      dependencies, directory, owner, 'NVX lifecycle lock ownership changed unexpectedly',
+      { timeoutMs, retryMs: LOCK_RETRY_MS },
+    ),
     operation,
   });
-}
-
-async function reclaimStaleLock(
-  dependencies: NvxRuntimeLifecycleDependencies,
-  lockDirectory: string,
-): Promise<void> {
-  let initialStats: Awaited<ReturnType<NvxRuntimeLifecycleDependencies['lstat']>>;
-  try {
-    initialStats = await dependencies.lstat(lockDirectory);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-    throw error;
-  }
-  const owner = await readLockOwner(dependencies, lockDirectory);
-  if (
-    owner &&
-    await dependencies.processStartTime(owner.pid) === owner.startTime
-  ) return;
-  if (
-    !owner &&
-    (initialStats.mtimeMs === undefined ||
-      Date.now() - initialStats.mtimeMs < INCOMPLETE_LOCK_STALE_MS)
-  ) return;
-  const quarantinePath = `${lockDirectory}.stale-${randomBytes(16).toString('hex')}`;
-  try {
-    await dependencies.rename(lockDirectory, quarantinePath);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT' || code === 'ENOTEMPTY' || code === 'EEXIST' || code === 'ENOTDIR') return;
-    throw error;
-  }
-  const quarantined = await dependencies.lstat(quarantinePath);
-  const quarantinedOwner = await readLockOwner(dependencies, quarantinePath);
-  const sameInode =
-    String(quarantined.dev ?? '') === String(initialStats.dev ?? '') &&
-    String(quarantined.ino ?? '') === String(initialStats.ino ?? '');
-  const sameOwner =
-    quarantinedOwner?.pid === owner?.pid &&
-    quarantinedOwner?.startTime === owner?.startTime;
-  const ownerIsLive = quarantinedOwner !== undefined &&
-    (await dependencies.processStartTime(quarantinedOwner.pid)) === quarantinedOwner.startTime;
-  if (!sameInode || !sameOwner || ownerIsLive) {
-    try {
-      await dependencies.rename(quarantinePath, lockDirectory);
-    } catch {
-      // The lock path was recreated by another holder; leave it untouched.
-    }
-    throw new Error('NVX lifecycle lock reclamation raced with another lock owner');
-  }
-  await dependencies.rm(quarantinePath, { recursive: true, force: true });
-}
-
-async function readLockOwner(
-  dependencies: NvxRuntimeLifecycleDependencies,
-  lockDirectory: string,
-): Promise<{ pid: number; startTime: string } | undefined> {
-  try {
-    const parsed = JSON.parse(
-      await dependencies.readFile(path.join(lockDirectory, 'owner.json'), 'utf8'),
-    ) as { pid?: unknown; startTime?: unknown };
-    const pid = parsed.pid;
-    if (typeof pid === 'number' && Number.isSafeInteger(pid) && typeof parsed.startTime === 'string') {
-      return { pid, startTime: parsed.startTime };
-    }
-    return undefined;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT' || error instanceof SyntaxError) {
-      return undefined;
-    }
-    throw error;
-  }
-}
-
-async function removeOwnedLock(
-  dependencies: NvxRuntimeLifecycleDependencies,
-  lockDirectory: string,
-  owner: DirectoryLockOwner,
-): Promise<void> {
-  const current = JSON.parse(
-    await dependencies.readFile(path.join(lockDirectory, 'owner.json'), 'utf8'),
-  ) as typeof owner;
-  if (
-    current.pid !== owner.pid ||
-    current.startTime !== owner.startTime ||
-    current.nonce !== owner.nonce
-  ) {
-    throw new Error('NVX lifecycle lock ownership changed unexpectedly');
-  }
-  await dependencies.rm(lockDirectory, { recursive: true, force: true });
 }
 
 export function withNvxDeviceAclLock<T>(
@@ -823,27 +741,4 @@ function parseNumericLines(contents: string): number[] {
     if (!Number.isSafeInteger(parsed)) throw new Error(`NVX cgroup PID is unsafe: ${value}`);
     return parsed;
   }).sort((a, b) => a - b);
-}
-
-function parsePositiveInteger(value: string, label: string): number {
-  const trimmed = value.trim();
-  if (!/^\d+$/.test(trimmed)) throw new Error(`NVX ${label} is malformed`);
-  const parsed = Number(trimmed);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`NVX ${label} is unsafe`);
-  return parsed;
-}
-
-async function readProcessStartTime(pid: number): Promise<string | undefined> {
-  try {
-    const stat = await fs.readFile(`/proc/${pid}/stat`, 'utf8');
-    const close = stat.lastIndexOf(')');
-    const fields = stat.slice(close + 2).split(' ');
-    return fields[19];
-  } catch {
-    return undefined;
-  }
-}
-
-function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
