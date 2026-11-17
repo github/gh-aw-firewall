@@ -31,10 +31,9 @@ function normalizeEndpoint(endpoint) {
 function getAutomaticSelectionBlock(record) {
   if (!record || typeof record !== 'object') return null;
   if (record.modelPickerEnabled === false) return 'model_picker_disabled';
-  const endpoints = Array.isArray(record.supportedEndpoints)
-    ? record.supportedEndpoints.filter(endpoint => typeof endpoint === 'string')
-    : [];
-  if (endpoints.length > 0 && !endpoints.some(endpoint => AGENT_ENDPOINTS.has(normalizeEndpoint(endpoint)))) {
+  // An empty list advertises no endpoint; only an absent list means unknown.
+  if (Array.isArray(record.supportedEndpoints) && !record.supportedEndpoints.some(endpoint =>
+    typeof endpoint === 'string' && AGENT_ENDPOINTS.has(normalizeEndpoint(endpoint)))) {
     return 'no_agent_endpoint';
   }
   return null;

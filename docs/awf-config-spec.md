@@ -2480,11 +2480,12 @@ for the run says so:
 | `automatic_selection_reason` | Evidence |
 |------------------------------|----------|
 | `model_picker_disabled` | The provider reports `model_picker_enabled: false` (Copilot) |
-| `no_agent_endpoint` | The provider lists `supported_endpoints`, and none of them is Chat Completions, Responses, or Messages (for example a Decisions-only or embeddings-only model) |
+| `no_agent_endpoint` | The provider lists `supported_endpoints`, and none of them is Chat Completions, Responses, or Messages (for example a Decisions-only or embeddings-only model, or an empty list) |
 
 Absence of evidence is not a reason to exclude a model. A model whose provider
-publishes no picker state or endpoint list stays selectable, so incomplete
-metadata never empties a catalogue. Maintained catalogue data is not used for
+publishes no picker state and no endpoint list stays selectable, so incomplete
+metadata never empties a catalogue. An empty endpoint list is evidence, not
+absence: it advertises no endpoint. Maintained catalogue data is not used for
 this decision.
 
 The rule never changes an explicit choice. A model ID requested directly, and

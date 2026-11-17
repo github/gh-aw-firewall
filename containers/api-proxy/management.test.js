@@ -283,16 +283,18 @@ describe('routing metadata in /reflect', () => {
 
   it('publishes whether each model can be selected automatically', () => {
     const routingModels = buildRoutingModelMetadata('copilot',
-      ['gpt-5.3-codex', 'gpt-5.6-luna-utility', 'gpt-6-luna-decisions', 'undiscovered-model'], [
+      ['gpt-5.3-codex', 'gpt-5.6-luna-utility', 'gpt-6-luna-decisions', 'no-endpoints', 'undiscovered-model'], [
         { id: 'gpt-5.3-codex', supportedEndpoints: ['/responses', 'ws:/responses'] },
         { id: 'gpt-5.6-luna-utility', supportedEndpoints: ['/responses'], modelPickerEnabled: false },
         { id: 'gpt-6-luna-decisions', supportedEndpoints: ['/v1/decisions'] },
+        { id: 'no-endpoints', supportedEndpoints: [] },
       ]);
     expect(routingModels.map(({ model_id, automatic_selection_eligible, automatic_selection_reason }) =>
       ({ model_id, automatic_selection_eligible, automatic_selection_reason }))).toEqual([
       { model_id: 'gpt-5.3-codex', automatic_selection_eligible: true, automatic_selection_reason: undefined },
       { model_id: 'gpt-5.6-luna-utility', automatic_selection_eligible: false, automatic_selection_reason: 'model_picker_disabled' },
       { model_id: 'gpt-6-luna-decisions', automatic_selection_eligible: false, automatic_selection_reason: 'no_agent_endpoint' },
+      { model_id: 'no-endpoints', automatic_selection_eligible: false, automatic_selection_reason: 'no_agent_endpoint' },
       { model_id: 'undiscovered-model', automatic_selection_eligible: true, automatic_selection_reason: undefined },
     ]);
   });
