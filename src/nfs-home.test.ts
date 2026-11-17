@@ -159,18 +159,18 @@ jest.mock('fs', () => ({ __esModule: true, ...jest.requireActual('fs') }));
     stageNfsHome(config, home, destination);
 
     expect(replaced).toBe(true);
-    expect(fs.existsSync(path.join(destination, '.cache/raced'))).toBe(false);
+    expect(fs.lstatSync(path.join(destination, '.cache/raced')).isSymbolicLink()).toBe(true);
     open.mockRestore();
   });
 
-  it('skips a source file replaced after it was checked', () => {
+  it('copies the source file pinned before its path is replaced', () => {
     const sourceFile = write('.cache/raced', 'original content');
     const backupFile = `${sourceFile}.original`;
     const destination = path.join(root, 'snapshot');
     fs.mkdirSync(destination);
     let replaced = false;
     const open = jest.spyOn(fs, 'openSync').mockImplementation((candidate, flags, mode) => {
-      if (!replaced && String(candidate).startsWith('/proc/self/fd/') && String(candidate).endsWith('/raced')) {
+      if (!replaced && /^\/proc\/self\/fd\/\d+$/.test(String(candidate))) {
         replaced = true;
         fs.renameSync(sourceFile, backupFile);
         fs.writeFileSync(sourceFile, 'replacement content');
@@ -181,7 +181,7 @@ jest.mock('fs', () => ({ __esModule: true, ...jest.requireActual('fs') }));
     stageNfsHome(config, home, destination);
 
     expect(replaced).toBe(true);
-    expect(fs.existsSync(path.join(destination, '.cache/raced'))).toBe(false);
+    expect(fs.readFileSync(path.join(destination, '.cache/raced'), 'utf8')).toBe('original content');
     open.mockRestore();
   });
 

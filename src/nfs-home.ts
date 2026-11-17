@@ -5,6 +5,8 @@ import { WrapperConfig } from './types';
 import { getSafeHostGid, getSafeHostUid } from './host-identity';
 import { resolveRunnerToolCachePath } from './runner-tool-cache';
 
+const LINUX_O_PATH = 0x200000; // Linux O_PATH is not exposed by Node's fs.constants.
+
 export function usesNfsHome(config: WrapperConfig, home: string): boolean {
   if (process.platform !== 'linux' || config.runnerTopology === 'arc-dind' ||
       ['sbx', 'nvx', 'cloud-hypervisor'].includes(config.containerRuntime ?? '')) return false;
@@ -44,10 +46,6 @@ function openDirectoryAt(parentFd: number, entry: string): number {
 
 function isVanishedSource(error: unknown): boolean {
   return ['ENOENT', 'ESTALE'].includes((error as NodeJS.ErrnoException).code ?? '');
-}
-
-function isSourceLinkRace(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException).code === 'ELOOP';
 }
 
 function openSourceDirectory(rootFd: number, relativePath: string): number {
@@ -153,87 +151,98 @@ export function stageNfsHome(config: WrapperConfig, home: string, destination: s
         if (excluded.some((entry) => isWithin(entry, sourcePath))) continue;
 
         const sourcePathAtFd = descriptorPath(sourceFd, name);
-        let sourceStat: fs.Stats;
+        let sourceEntryFd: number;
         try {
-          sourceStat = fs.lstatSync(sourcePathAtFd);
+          sourceEntryFd = fs.openSync(
+            sourcePathAtFd,
+            LINUX_O_PATH | fs.constants.O_NOFOLLOW,
+          );
         } catch (error) {
           if (isVanishedSource(error)) continue;
           throw error;
         }
 
-        if (sourceStat.isSymbolicLink()) {
-          let linkTarget: string;
+        try {
+          const sourceStat = fs.fstatSync(sourceEntryFd);
+          if (sourceStat.isSymbolicLink()) {
+            let linkTarget: string;
+            try {
+              linkTarget = fs.readlinkSync(sourcePathAtFd);
+            } catch (error) {
+              if (isVanishedSource(error)) continue;
+              throw error;
+            }
+            fs.symlinkSync(linkTarget, descriptorPath(targetFd, name));
+            continue;
+          }
+
+          if (sourceStat.isDirectory()) {
+            let childSourceFd: number;
+            try {
+              childSourceFd = fs.openSync(
+                descriptorPath(sourceEntryFd),
+                fs.constants.O_RDONLY | fs.constants.O_DIRECTORY,
+              );
+            } catch (error) {
+              if (isVanishedSource(error)) continue;
+              throw error;
+            }
+            try {
+              const openedStat = fs.fstatSync(childSourceFd);
+              if (openedStat.dev !== sourceStat.dev || openedStat.ino !== sourceStat.ino) continue;
+              fs.mkdirSync(descriptorPath(targetFd, name), { mode: 0o700 });
+              const childTargetFd = openDirectoryAt(targetFd, name);
+              try {
+                copyDirectoryContents(childSourceFd, childTargetFd, childRelativePath);
+                setOwnership(childTargetFd);
+                fs.fchmodSync(childTargetFd, 0o700);
+              } finally {
+                fs.closeSync(childTargetFd);
+              }
+            } finally {
+              fs.closeSync(childSourceFd);
+            }
+            continue;
+          }
+
+          if (!sourceStat.isFile()) continue; // Sockets, FIFOs and devices are not staged.
+          let sourceFileFd: number;
           try {
-            linkTarget = fs.readlinkSync(sourcePathAtFd);
+            sourceFileFd = fs.openSync(
+              descriptorPath(sourceEntryFd),
+              fs.constants.O_RDONLY | fs.constants.O_NONBLOCK,
+            );
           } catch (error) {
             if (isVanishedSource(error)) continue;
             throw error;
           }
-          fs.symlinkSync(linkTarget, descriptorPath(targetFd, name));
-          continue;
-        }
-
-        if (sourceStat.isDirectory()) {
-          let childSourceFd: number;
           try {
-            childSourceFd = openDirectoryAt(sourceFd, name);
-          } catch (error) {
-            if (isVanishedSource(error) || isSourceLinkRace(error)) continue;
-            throw error;
-          }
-          try {
-            const openedStat = fs.fstatSync(childSourceFd);
-            if (openedStat.dev !== sourceStat.dev || openedStat.ino !== sourceStat.ino) continue;
-            fs.mkdirSync(descriptorPath(targetFd, name), { mode: 0o700 });
-            const childTargetFd = openDirectoryAt(targetFd, name);
+            const openedStat = fs.fstatSync(sourceFileFd);
+            if (!openedStat.isFile() || openedStat.dev !== sourceStat.dev || openedStat.ino !== sourceStat.ino) continue;
+            const targetFileFd = fs.openSync(
+              descriptorPath(targetFd, name),
+              fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
+              0o600,
+            );
             try {
-              copyDirectoryContents(childSourceFd, childTargetFd, childRelativePath);
-              setOwnership(childTargetFd);
-              fs.fchmodSync(childTargetFd, 0o700);
-            } finally {
-              fs.closeSync(childTargetFd);
-            }
-          } finally {
-            fs.closeSync(childSourceFd);
-          }
-          continue;
-        }
-
-        if (!sourceStat.isFile()) continue; // Sockets, FIFOs and devices are not staged.
-        let sourceFileFd: number;
-        try {
-          sourceFileFd = fs.openSync(
-            sourcePathAtFd,
-            fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
-          );
-        } catch (error) {
-          if (isVanishedSource(error) || isSourceLinkRace(error)) continue;
-          throw error;
-        }
-        try {
-          const openedStat = fs.fstatSync(sourceFileFd);
-          if (!openedStat.isFile() || openedStat.dev !== sourceStat.dev || openedStat.ino !== sourceStat.ino) continue;
-          const targetFileFd = fs.openSync(
-            descriptorPath(targetFd, name),
-            fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
-            0o600,
-          );
-          try {
-            const buffer = Buffer.allocUnsafe(64 * 1024);
-            let bytesRead: number;
-            while ((bytesRead = fs.readSync(sourceFileFd, buffer, 0, buffer.length, null)) > 0) {
-              let offset = 0;
-              while (offset < bytesRead) {
-                offset += fs.writeSync(targetFileFd, buffer, offset, bytesRead - offset);
+              const buffer = Buffer.allocUnsafe(64 * 1024);
+              let bytesRead: number;
+              while ((bytesRead = fs.readSync(sourceFileFd, buffer, 0, buffer.length, null)) > 0) {
+                let offset = 0;
+                while (offset < bytesRead) {
+                  offset += fs.writeSync(targetFileFd, buffer, offset, bytesRead - offset);
+                }
               }
+              setOwnership(targetFileFd);
+              fs.fchmodSync(targetFileFd, (openedStat.mode & 0o777) | 0o600);
+            } finally {
+              fs.closeSync(targetFileFd);
             }
-            setOwnership(targetFileFd);
-            fs.fchmodSync(targetFileFd, (openedStat.mode & 0o777) | 0o600);
           } finally {
-            fs.closeSync(targetFileFd);
+            fs.closeSync(sourceFileFd);
           }
         } finally {
-          fs.closeSync(sourceFileFd);
+          fs.closeSync(sourceEntryFd);
         }
       }
     };
