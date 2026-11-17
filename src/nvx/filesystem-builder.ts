@@ -1,24 +1,35 @@
 import { createHash, randomUUID } from 'crypto';
-import {
-  constants,
-  createReadStream,
-  createWriteStream,
-  promises as fs,
-  type Stats,
-} from 'fs';
-import type { FileHandle } from 'fs/promises';
+import { promises as fs } from 'fs';
 import * as path from 'path';
 import execa from 'execa';
-import { pipeline } from 'stream/promises';
 import { CREDENTIAL_ENTRIES, HOME_FORBIDDEN_SUBDIRS } from '../config/mount-policy';
 import { createNvxRunLayout } from './run-layout';
+import { copyDeterministicTree, sha256File } from './fs-tree-copy';
+import {
+  assertLayerSources,
+  assertNonRootIdentity,
+  assertRegularFile,
+  assertSafeRunId,
+  assertSourceDateEpoch,
+  assertUuid,
+  normalizeExcludedPaths,
+  normalizeRelative,
+  normalizeScratchBytes,
+  NVX_BLOCK_BYTES,
+  NVX_DEFAULT_MAX_SCRATCH_BYTES,
+  NVX_LAYER_ROLES,
+  NVX_MIN_SCRATCH_BYTES,
+  type NvxLayerRole,
+} from './filesystem-layer-validation';
 
-const MIB = 1024 * 1024;
-const NVX_BLOCK_BYTES = 4096;
-export const NVX_MIN_SCRATCH_BYTES = 128 * MIB;
-export const NVX_DEFAULT_MAX_SCRATCH_BYTES = 8 * 1024 * MIB;
-export const NVX_LAYER_ROLES = ['distro', 'runtime', 'custom'] as const;
-export type NvxLayerRole = typeof NVX_LAYER_ROLES[number];
+export {
+  normalizeNvxLayerSymlinkTarget,
+  normalizeScratchBytes,
+  NVX_DEFAULT_MAX_SCRATCH_BYTES,
+  NVX_LAYER_ROLES,
+  NVX_MIN_SCRATCH_BYTES,
+  type NvxLayerRole,
+} from './filesystem-layer-validation';
 
 export interface NvxLayerSource {
   readonly role: NvxLayerRole;
@@ -362,247 +373,6 @@ export function deriveNvxLayerUuid(
   ].join('-');
 }
 
-export function normalizeScratchBytes(
-  requestedBytes: number,
-  maximumBytes = NVX_DEFAULT_MAX_SCRATCH_BYTES,
-): number {
-  if (
-    !Number.isSafeInteger(maximumBytes) ||
-    maximumBytes < NVX_MIN_SCRATCH_BYTES
-  ) {
-    throw new Error(
-      `NVX scratch cap must be at least ${NVX_MIN_SCRATCH_BYTES} bytes`,
-    );
-  }
-  if (!Number.isSafeInteger(requestedBytes) || requestedBytes <= 0) {
-    throw new Error(`Invalid NVX scratch size: ${requestedBytes}`);
-  }
-  const normalized = Math.max(NVX_MIN_SCRATCH_BYTES, requestedBytes);
-  const aligned = Math.ceil(normalized / NVX_BLOCK_BYTES) * NVX_BLOCK_BYTES;
-  if (aligned > maximumBytes) {
-    throw new Error(`NVX scratch requires ${aligned} bytes, exceeding cap ${maximumBytes}`);
-  }
-  return aligned;
-}
-
-async function copyDeterministicTree(
-  sourceRoot: string,
-  destinationRoot: string,
-  excludedPaths: readonly string[],
-  manifest: NvxLayerSourceManifestEntry[],
-  sourceDateEpoch: number,
-  preserveOwnership = false,
-  includeRoot = true,
-): Promise<void> {
-  await assertDescriptorTraversalSupport();
-  const root = await openDirectoryNoFollow(sourceRoot);
-  try {
-    await copyDirectory(root, '');
-  } finally {
-    await root.close();
-  }
-
-  async function copyDirectory(directory: FileHandle, relativePath: string): Promise<void> {
-    const current = descriptorPath(directory);
-    if (relativePath || includeRoot) {
-      const destination = stagingPath(destinationRoot, relativePath);
-      const stat = await directory.stat();
-      const mode = normalizedMode(stat);
-      await prepareDestination(destination, true);
-      await fs.chmod(destination, mode);
-      const ownership = await applyOwnership(destination, stat, false);
-      manifest.push({ path: relativePath, type: 'directory', mode, size: 0, ...ownership });
-    }
-    const before = await directory.stat();
-    const children = await fs.readdir(current);
-    children.sort();
-    for (const child of children) {
-      const childPath = path.join(current, child);
-      const childRelativePath = relativePath ? `${relativePath}/${child}` : child;
-      if (isExcluded(childRelativePath, excludedPaths)) continue;
-      const stat = await fs.lstat(childPath);
-      const destination = stagingPath(destinationRoot, childRelativePath);
-      if (stat.isSymbolicLink()) {
-        const sourceTarget = await fs.readlink(childPath);
-        const target = normalizeNvxLayerSymlinkTarget(childRelativePath, sourceTarget);
-        assertContained(
-          sourceRoot,
-          path.resolve(sourceRoot, path.dirname(childRelativePath), target),
-          `NVX layer symlink target for ${childRelativePath}`,
-        );
-        const after = await fs.lstat(childPath);
-        assertSourceUnchanged(stat, after, childRelativePath);
-        await prepareDestination(destination, false);
-        await fs.symlink(target, destination);
-        await fs.lutimes(destination, sourceDateEpoch, sourceDateEpoch);
-        const ownership = await applyOwnership(destination, stat, true);
-        manifest.push({
-          path: childRelativePath,
-          type: 'symlink',
-          mode: stat.mode & 0o777,
-          size: Buffer.byteLength(target),
-          target,
-          ...ownership,
-        });
-      } else if (stat.isDirectory()) {
-        const childDirectory = await openDirectoryNoFollow(childPath);
-        try {
-          assertSourceUnchanged(stat, await childDirectory.stat(), childRelativePath);
-          await copyDirectory(childDirectory, childRelativePath);
-        } finally {
-          await childDirectory.close();
-        }
-      } else if (stat.isFile()) {
-        await copyRegularFile(childPath, destination, stat, childRelativePath);
-      } else {
-        throw new Error(`Special filesystem entry is not safe for NVX layer: ${childRelativePath}`);
-      }
-    }
-    assertSourceUnchanged(before, await directory.stat(), relativePath || '/');
-    await fs.utimes(stagingPath(destinationRoot, relativePath), sourceDateEpoch, sourceDateEpoch);
-  }
-
-  async function applyOwnership(
-    destination: string,
-    stat: Pick<Stats, 'uid' | 'gid'>,
-    symbolicLink: boolean,
-  ): Promise<{ uid?: number; gid?: number }> {
-    const uid = preserveOwnership ? stat.uid : 0;
-    const gid = preserveOwnership ? stat.gid : 0;
-    if (symbolicLink) await fs.lchown(destination, uid, gid);
-    else await fs.chown(destination, uid, gid);
-    return { uid, gid };
-  }
-
-  async function prepareDestination(destination: string, directory: boolean): Promise<void> {
-    let existing: Stats | undefined;
-    try {
-      existing = await fs.lstat(destination);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
-    // Never descend through a lower-precedence symlink, even if it points
-    // inside the guest: resolving it here would use the host's namespace.
-    if (directory) {
-      if (existing && (!existing.isDirectory() || existing.isSymbolicLink())) {
-        throw new Error(`NVX overlay directory conflicts with non-directory: ${destination}`);
-      }
-      if (!existing) await fs.mkdir(destination, { mode: 0o700 });
-    } else if (existing) {
-      await fs.rm(destination, { recursive: true, force: true });
-    }
-  }
-
-  async function copyRegularFile(
-    source: string,
-    destination: string,
-    lstat: Stats,
-    relativePath: string,
-  ): Promise<void> {
-    const handle = await fs.open(source, constants.O_RDONLY | noFollowFlag());
-    try {
-      const stat = await handle.stat();
-      if (!stat.isFile()) {
-        throw new Error(`NVX layer source changed while opening file: ${relativePath}`);
-      }
-      assertSourceUnchanged(lstat, stat, relativePath);
-      const mode = normalizedMode(stat);
-      await prepareDestination(destination, false);
-      await pipeline(
-        createReadStream(descriptorPath(handle)),
-        createWriteStream(destination, { flags: 'wx', mode }),
-      );
-      await fs.chmod(destination, mode);
-      assertSourceUnchanged(stat, await handle.stat(), relativePath);
-      assertSourceUnchanged(stat, await fs.lstat(source), relativePath);
-      await fs.utimes(destination, sourceDateEpoch, sourceDateEpoch);
-      const copied = await fs.stat(destination);
-      const ownership = await applyOwnership(destination, stat, false);
-      manifest.push({
-        path: relativePath,
-        type: 'file',
-        mode,
-        size: copied.size,
-        sha256: await sha256File(destination),
-        ...ownership,
-      });
-    } finally {
-      await handle.close();
-    }
-  }
-}
-
-function assertSourceUnchanged(before: Stats, after: Stats, relativePath: string): void {
-  if (
-    before.dev !== after.dev || before.ino !== after.ino ||
-    before.mode !== after.mode || before.uid !== after.uid || before.gid !== after.gid ||
-    before.size !== after.size || before.mtimeMs !== after.mtimeMs ||
-    before.ctimeMs !== after.ctimeMs
-  ) {
-    throw new Error(`NVX layer source changed during staging: ${relativePath}`);
-  }
-}
-
-async function openDirectoryNoFollow(directoryPath: string): Promise<FileHandle> {
-  const handle = await fs.open(
-    directoryPath,
-    constants.O_RDONLY | directoryFlag() | noFollowFlag(),
-  );
-  const stat = await handle.stat();
-  if (!stat.isDirectory()) {
-    await handle.close();
-    throw new Error(`NVX layer source must be a real directory: ${directoryPath}`);
-  }
-  return handle;
-}
-
-function descriptorPath(handle: FileHandle): string {
-  return `/proc/self/fd/${handle.fd}`;
-}
-
-function noFollowFlag(): number {
-  return constants.O_NOFOLLOW as number;
-}
-
-function directoryFlag(): number {
-  return constants.O_DIRECTORY as number;
-}
-
-export function normalizeNvxLayerSymlinkTarget(
-  relativePath: string,
-  target: string,
-): string {
-  if (!path.posix.isAbsolute(target)) return target;
-  const guestTarget = path.posix.normalize(target);
-  const guestDirectory = path.posix.dirname(`/${relativePath}`);
-  return path.posix.relative(guestDirectory, guestTarget) || '.';
-}
-
-async function assertDescriptorTraversalSupport(): Promise<void> {
-  if (
-    process.platform !== 'linux' ||
-    constants.O_NOFOLLOW === undefined ||
-    constants.O_DIRECTORY === undefined
-  ) {
-    throw new Error('NVX filesystem staging requires Linux descriptor traversal support');
-  }
-  try {
-    await fs.access('/proc/self/fd');
-  } catch {
-    throw new Error('NVX filesystem staging requires mounted /proc/self/fd');
-  }
-}
-
-function stagingPath(root: string, relativePath: string): string {
-  const destination = path.join(root, relativePath);
-  assertContained(root, destination, 'NVX layer staging destination');
-  return destination;
-}
-
-function normalizedMode(stat: Stats): number {
-  return stat.mode & 0o777;
-}
-
 function orderedLayerSources(
   sources: readonly NvxLayerSource[],
 ): readonly NvxLayerSource[] {
@@ -611,106 +381,6 @@ function orderedLayerSources(
     const source = byRole.get(role);
     return source ? [source] : [];
   });
-}
-
-function assertLayerSources(sources: readonly NvxLayerSource[]): void {
-  if (sources.length < 1 || sources.length > NVX_LAYER_ROLES.length) {
-    throw new Error('NVX requires one to three deterministic EROFS layer sources');
-  }
-  const roles = sources.map(({ role }) => role);
-  for (const role of roles) {
-    if (!NVX_LAYER_ROLES.includes(role)) {
-      throw new Error(`Unsupported NVX layer role: ${String(role)}`);
-    }
-  }
-  const duplicates = roles.filter((role, index) => roles.indexOf(role) !== index);
-  if (duplicates.length > 0) {
-    throw new Error(`Duplicate NVX layer role: ${duplicates[0]}`);
-  }
-  if (!roles.includes('distro')) {
-    throw new Error('NVX requires a distro source for its single immutable guest root');
-  }
-}
-
-function normalizeExcludedPaths(values: readonly string[]): readonly string[] {
-  const normalized = new Set<string>();
-  for (const value of values) {
-    if (
-      !value ||
-      path.isAbsolute(value) ||
-      value.includes('\0')
-    ) {
-      throw new Error(`NVX excluded path must be a non-empty relative path: ${value}`);
-    }
-    const relative = normalizeRelative(path.normalize(value));
-    if (relative === '..' || relative.startsWith('../')) {
-      throw new Error(`NVX excluded path escapes its layer source: ${value}`);
-    }
-    normalized.add(relative.replace(/^\.\//, '').replace(/\/$/, ''));
-  }
-  return [...normalized].sort();
-}
-
-function isExcluded(relativePath: string, excludedPaths: readonly string[]): boolean {
-  return excludedPaths.some((excluded) =>
-    relativePath === excluded ||
-    relativePath.startsWith(`${excluded}/`) ||
-    relativePath.endsWith(`/${excluded}`) ||
-    relativePath.includes(`/${excluded}/`)
-  );
-}
-
-function assertContained(root: string, candidate: string, label: string): void {
-  const relative = path.relative(path.resolve(root), path.resolve(candidate));
-  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    throw new Error(`${label} escapes ${root}: ${candidate}`);
-  }
-}
-
-function normalizeRelative(value: string): string {
-  return value.split(path.sep).join('/');
-}
-
-function assertSafeRunId(runId: string): void {
-  if (!/^[A-Za-z0-9-]{1,64}$/.test(runId)) {
-    throw new Error(`Unsafe NVX run id: ${runId}`);
-  }
-}
-
-function assertSourceDateEpoch(value: number): void {
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`Invalid NVX SOURCE_DATE_EPOCH value: ${value}`);
-  }
-}
-
-function assertNonRootIdentity(uid: number, gid: number): void {
-  if (
-    !Number.isInteger(uid) ||
-    !Number.isInteger(gid) ||
-    uid < 1 ||
-    gid < 1 ||
-    uid > 0xffff_ffff ||
-    gid > 0xffff_ffff
-  ) {
-    throw new Error(`NVX scratch identity must be a non-root UID:GID: ${uid}:${gid}`);
-  }
-}
-
-function assertUuid(value: string, label: string): void {
-  if (
-    !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(
-      value,
-    )
-  ) {
-    throw new Error(`${label} must be a canonical lowercase UUID: ${value}`);
-  }
-}
-
-async function assertRegularFile(filePath: string, label: string): Promise<void> {
-  const stat = await fs.lstat(filePath);
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw new Error(`${label} must be a regular file: ${filePath}`);
-  }
 }
 
 async function writeExclusiveJson(
@@ -725,12 +395,6 @@ async function writeExclusiveJson(
   } finally {
     await handle.close();
   }
-}
-
-async function sha256File(filePath: string): Promise<string> {
-  const hash = createHash('sha256');
-  for await (const chunk of createReadStream(filePath)) hash.update(chunk as Buffer);
-  return hash.digest('hex');
 }
 
 function sha256Text(value: string): string {
