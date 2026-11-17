@@ -163,6 +163,28 @@ jest.mock('fs', () => ({ __esModule: true, ...jest.requireActual('fs') }));
     open.mockRestore();
   });
 
+  it('skips a source file replaced after it was checked', () => {
+    const sourceFile = write('.cache/raced', 'original content');
+    const backupFile = `${sourceFile}.original`;
+    const destination = path.join(root, 'snapshot');
+    fs.mkdirSync(destination);
+    let replaced = false;
+    const open = jest.spyOn(fs, 'openSync').mockImplementation((candidate, flags, mode) => {
+      if (!replaced && String(candidate).startsWith('/proc/self/fd/') && String(candidate).endsWith('/raced')) {
+        replaced = true;
+        fs.renameSync(sourceFile, backupFile);
+        fs.writeFileSync(sourceFile, 'replacement content');
+      }
+      return actualFs.openSync(candidate, flags, mode as number);
+    });
+
+    stageNfsHome(config, home, destination);
+
+    expect(replaced).toBe(true);
+    expect(fs.existsSync(path.join(destination, '.cache/raced'))).toBe(false);
+    open.mockRestore();
+  });
+
   it('skips source entries removed during staging', () => {
     const sourceFile = write('.cache/pruned');
     const destination = path.join(root, 'snapshot');
@@ -253,6 +275,16 @@ jest.mock('fs', () => ({ __esModule: true, ...jest.requireActual('fs') }));
 
     expect(() => stageNfsHome(config, home, path.join(alias, 'staging')))
       .toThrow('--work-dir outside the host home');
+  });
+
+  it('does not use a symlinked staging destination', () => {
+    const destination = path.join(root, 'snapshot');
+    const alias = path.join(root, 'snapshot-alias');
+    fs.mkdirSync(destination);
+    fs.symlinkSync(destination, alias);
+
+    expect(() => stageNfsHome(config, home, alias)).toThrow();
+    expect(fs.readdirSync(destination)).toEqual([]);
   });
 
   it('rejects symlinked tool roots instead of following them outside the home allowlist', () => {

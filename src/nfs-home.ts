@@ -94,16 +94,14 @@ export function stageNfsHome(config: WrapperConfig, home: string, destination: s
   if (isWithin(home, canonicalDestination)) {
     throw new Error('An NFS home requires --work-dir outside the host home.');
   }
-  if (fs.lstatSync(destination).isSymbolicLink()) {
-    throw new Error(`NFS home staging requires an empty, non-symlink chroot home: ${destination}`);
-  }
   const destinationFd = fs.openSync(
     destination,
     fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW,
   );
   let homeFd: number | undefined;
   try {
-    if (fs.realpathSync(descriptorPath(destinationFd)) !== canonicalDestination ||
+    if (!fs.fstatSync(destinationFd).isDirectory() ||
+        fs.realpathSync(descriptorPath(destinationFd)) !== canonicalDestination ||
         fs.readdirSync(descriptorPath(destinationFd)).length !== 0) {
       throw new Error(`NFS home staging requires an empty, non-symlink chroot home: ${destination}`);
     }
@@ -184,6 +182,8 @@ export function stageNfsHome(config: WrapperConfig, home: string, destination: s
             throw error;
           }
           try {
+            const openedStat = fs.fstatSync(childSourceFd);
+            if (openedStat.dev !== sourceStat.dev || openedStat.ino !== sourceStat.ino) continue;
             fs.mkdirSync(descriptorPath(targetFd, name), { mode: 0o700 });
             const childTargetFd = openDirectoryAt(targetFd, name);
             try {
@@ -212,7 +212,7 @@ export function stageNfsHome(config: WrapperConfig, home: string, destination: s
         }
         try {
           const openedStat = fs.fstatSync(sourceFileFd);
-          if (!openedStat.isFile()) continue;
+          if (!openedStat.isFile() || openedStat.dev !== sourceStat.dev || openedStat.ino !== sourceStat.ino) continue;
           const targetFileFd = fs.openSync(
             descriptorPath(targetFd, name),
             fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
