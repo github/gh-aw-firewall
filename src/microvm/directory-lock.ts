@@ -142,7 +142,13 @@ export async function reclaimStaleDirectoryLock(
   }
 
   try {
-    const currentStats = await dependencies.lstat(lockDirectory);
+    let currentStats: LockStats;
+    try {
+      currentStats = await dependencies.lstat(lockDirectory);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw error;
+    }
     if (!sameInode(initialStats, currentStats)) return;
     const currentOwner = await readDirectoryLockOwner(dependencies, lockDirectory);
     if (owner || currentOwner) {

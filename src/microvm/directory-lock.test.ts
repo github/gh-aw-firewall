@@ -147,6 +147,16 @@ describe('shared directory-lock ownership and reclamation', () => {
     expect(deps.rm).not.toHaveBeenCalled();
   });
 
+  it('backs off when another reaper already removed the canonical directory', async () => {
+    const deps = dependencies();
+    deps.lstat.mockResolvedValueOnce(stats)
+      .mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }));
+    await expect(reclaimStaleDirectoryLock(deps, directory)).resolves.toBeUndefined();
+    expect(deps.rename).not.toHaveBeenCalled();
+    expect(deps.rm).not.toHaveBeenCalled();
+    expect(deps.rmdir).toHaveBeenCalledWith(`${directory}.reaper`);
+  });
+
   it('backs off while a competing reaper holds a claim', async () => {
     const deps = dependencies();
     deps.mkdir.mockRejectedValue(Object.assign(new Error('exists'), { code: 'EEXIST' }));

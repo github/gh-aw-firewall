@@ -152,6 +152,20 @@ describe.each(['NVX', 'Cloud Hypervisor'])('%s shared directory-lock reclamation
     expect(dependencies.rm).not.toHaveBeenCalled();
   });
 
+  it('serializes competing stale-lock reclaimers', async () => {
+    await seedLock(staleOwner);
+    let active = 0;
+    const operation = jest.fn(async () => {
+      active += 1;
+      expect(active).toBe(1);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      active -= 1;
+    });
+    await Promise.all(Array.from({ length: 4 }, () => withLock(operation)));
+    expect(operation).toHaveBeenCalledTimes(4);
+    expect(await fs.readdir(root)).toEqual([]);
+  });
+
   it('serializes competing callers and releases the lock on operation failure', async () => {
     const events: string[] = [];
     let release!: () => void;
