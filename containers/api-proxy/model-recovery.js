@@ -2,7 +2,6 @@
 
 const { parseBodyAsObject } = require('./body-utils');
 const { getRuntimeModels } = require('./runtime-model-catalog');
-const { isAutomaticModelEligible } = require('./automatic-model-eligibility');
 const { normalizeModel } = require('./routing-catalogue');
 const { getRetiredModelBlockState } = require('./guards/retired-model-guard');
 const { getCurrentGuardChecks } = require('./proxy-guards');
@@ -18,6 +17,7 @@ const {
 } = require('./model-eligibility');
 const { assessRequestCompatibility } = require('./protocol-compatibility/assessment');
 const { getRequestReasoning, getReasoningScope } = require('./model-reasoning');
+const { getAutomaticSelectionBlock } = require('./automatic-selection');
 
 const MAX_AUTOMATIC_RECOVERIES = 3;
 
@@ -76,7 +76,7 @@ function protocolForUrl(url) {
 // capabilities are not evidence that a replacement can preserve a feature.
 function isRecoveryCompatible(record, provider, parsed, url, originalRecord, req = {}) {
   const protocol = protocolForUrl(url);
-  if (!parsed || !protocol || !isAutomaticModelEligible(record)) return false;
+  if (!parsed || !protocol || getAutomaticSelectionBlock(record) !== null) return false;
   if (typeof parsed.model === 'string' && parsed.model.includes('?')) return false;
   const scope = getReasoningScope(
     provider,

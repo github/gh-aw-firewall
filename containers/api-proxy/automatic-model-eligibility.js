@@ -9,7 +9,9 @@ function isAutomaticModelEligible(record) {
   if (!Array.isArray(record?.supportedEndpoints)) return true;
   return record.supportedEndpoints.some(endpoint =>
     typeof endpoint === 'string' &&
-    AGENT_ENDPOINTS.has(endpoint.replace(/^\/?(?:v1\/)?/, '').replace('chat_completions', 'chat/completions')));
+    AGENT_ENDPOINTS.has(
+      endpoint.replace(/^\/?(?:v1\/)?/, '').replace(/\/+$/, '').replace('chat_completions', 'chat/completions'),
+    ));
 }
 
 function isAutomaticModelCandidate(model, provider, runtimeCatalog) {

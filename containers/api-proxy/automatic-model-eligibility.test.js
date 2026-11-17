@@ -13,7 +13,7 @@ describe('provider-metadata automatic selection eligibility', () => {
   test.each([
     undefined, {}, { supportedEndpoints: null },
     ...['/chat/completions', '/v1/chat/completions', 'chat/completions', 'chat_completions',
-      '/responses', '/v1/responses', 'responses', '/messages', '/v1/messages', 'messages']
+      '/responses', '/v1/responses', 'responses', '/v1/responses/', '/messages', '/v1/messages', 'messages']
       .map(endpoint => ({ supportedEndpoints: ['/v1/decisions', endpoint] })),
   ])('keeps missing metadata and agent endpoints eligible: %p', record => {
     expect(isAutomaticModelEligible(record)).toBe(true);

@@ -2465,33 +2465,47 @@ it is returned with HTTP `403` and `"retryable": false` so clients fail fast.
 Only transient OIDC readiness states, such as a token that has not been minted
 yet, use HTTP `503` and `"retryable": true`.
 
-### 12.2 Automatic Selection Requires Agent-Eligible Models
+### 12.8 Automatic Selection Is Restricted to Models That Can Serve an Agent
 
-Whenever AWF chooses a model the caller did not name, it MUST apply one shared
-provider-metadata eligibility rule using the model catalogue for the run:
+Whenever the proxy chooses a model the caller did not name, it MUST consider
+only models that can be selected automatically. This covers models matched by
+an alias pattern containing `*`, family-version replacement, middle-power
+fallback, provider-scoped `auto`, Copilot `auto` on Responses, and automatic
+recovery. It also governs which aliases are advertised via `/reflect` and
+`models.json`.
 
-- Exclude a Copilot model when `model_picker_enabled` is explicitly `false`.
-- Exclude a model whose advertised `supported_endpoints` list contains none of
-  Chat Completions, Responses, or Messages. An empty list also excludes it.
-  Endpoint names may be bare or use `/` or `/v1/` prefixes;
-  `chat_completions` is also recognized.
-- Missing picker or endpoint metadata does not exclude a model.
+A model cannot be selected automatically when the provider's own model list
+for the run says so:
 
-This rule applies to alias patterns containing `*` (including nested aliases),
-family-version replacement, middle-power fallback, provider-scoped `auto`,
-Copilot Responses `auto`, and automatic recovery. Existing endpoint, feature,
-model-policy, and harness checks still apply. An alias whose only matches are
-excluded MUST NOT be advertised through `/reflect` or `models.json`.
+| `automatic_selection_reason` | Evidence |
+|------------------------------|----------|
+| `model_picker_disabled` | The provider reports `model_picker_enabled: false` (Copilot) |
+| `no_agent_endpoint` | The provider lists `supported_endpoints`, and none of them is Chat Completions, Responses, or Messages (for example a Decisions-only or embeddings-only model, or an empty list) |
 
-Direct model IDs and alias entries without `*` are explicit choices and are not
-filtered by this rule. For example, `evals: ["copilot/gpt-6-luna-decisions"]`
-remains resolvable even if that model advertises only `/v1/decisions`.
+Absence of evidence is not a reason to exclude a model. A model whose provider
+publishes no picker state and no endpoint list stays selectable, so incomplete
+metadata never empties a catalogue. An empty endpoint list is evidence, not
+absence: it advertises no endpoint. Maintained catalogue data is not used for
+this decision. Endpoint names may be bare or use `/` or `/v1/` prefixes;
+`chat_completions` is also recognized. WebSocket-only endpoints do not qualify
+as an HTTP agent endpoint.
 
-`/reflect` publishes `routing_models[].automatic_selection_eligible` for every
-discovered model. Clients that choose models before sending a request to AWF,
-including the gh-aw Copilot harness resolving `auto`, MUST consume that decision
-rather than reimplementing this rule. A `true` value is not a guarantee of
-compatibility with a particular request.
+The rule never changes an explicit choice. A model ID requested directly, and
+an alias entry written without `*` (for example
+`evals: ["copilot/gpt-6-luna-decisions"]`), resolve as written.
+
+Each `/reflect` `routing_models` entry publishes the decision as
+`automatic_selection_eligible` (boolean), with `automatic_selection_reason`
+present when it is `false`. Clients that resolve models before calling the
+proxy, including the gh-aw Copilot harness resolving `auto`, MUST consume this
+decision rather than independently infer eligibility. A `true` value does not
+guarantee compatibility with a particular request; endpoint, capability,
+policy, and harness checks still apply.
+
+Without this rule, a wildcard such as `copilot/gpt-6*` can match an evaluation
+model that only serves `/v1/decisions`, and every agent turn then fails before
+producing output
+([github/gh-aw#76961](https://github.com/github/gh-aw/issues/76961)).
 
 ## 13a. Task-Level Model Routing
 

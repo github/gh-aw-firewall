@@ -17,6 +17,8 @@
  * Model ref syntax: "providerid/modelid" where modelid supports * wildcards.
  * Resolution is recursive (aliases can reference other aliases), loop-detected,
  * case-insensitive, and sorted by semver semantics (highest version first).
+ * Wildcard matches and fallbacks only consider models that can be selected
+ * automatically (see automatic-selection.js); exact entries are kept as written.
  */
 
 const { globMatch, extractVersionNumbers, compareByVersion, stripRedundantProviderPrefix } = require('./model-utils');
@@ -183,9 +185,9 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
   if (family) {
     const familyPrefix = `${family}.`;
     const familyCandidates = providerModels.filter(m => m.toLowerCase().startsWith(familyPrefix) &&
-      /^gpt-5\.\d+$/i.test(m));
+      /^gpt-5\.\d+$/i.test(m) &&
+      isAutomaticModelCandidate(m, currentProvider, eligibilityRequest.awfRuntimePricing));
     const permittedCandidates = familyCandidates.filter(c =>
-      isAutomaticModelCandidate(c, currentProvider, eligibilityRequest.awfRuntimePricing) &&
       _isModelPermittedByPolicy(c, modelPolicyConfig, currentProvider) &&
       _isModelHarnessPermitted(c, currentProvider, resolutionState));
     if (permittedCandidates.length > 0) {
@@ -214,7 +216,8 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
   const fallbackAvailableModels = {
     [currentProvider]: providerModels.filter(m =>
       _isModelPermittedByPolicy(m, modelPolicyConfig, currentProvider) &&
-      isModelHarnessEligible(m, currentProvider, resolutionState.eligibilityRequest, { inputMode: 'native' })),
+      isModelHarnessEligible(m, currentProvider, resolutionState.eligibilityRequest, { inputMode: 'native' }) &&
+      isAutomaticModelCandidate(m, currentProvider, eligibilityRequest.awfRuntimePricing)),
   };
   return applyModelParametersToResolution(tryMiddlePowerFallback(
     requestedModel, fallbackAvailableModels, currentProvider,
@@ -301,16 +304,24 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
         continue;
       }
 
+      // An exact entry is an explicit choice; a wildcard only selects models
+      // that can be chosen automatically.
+      const isWildcard = modelPattern.includes('*');
+      const skipped = [];
       for (const model of providerModels) {
-        if (globMatch(modelPattern, model)) {
-          if (modelPattern.includes('*') &&
-              !isAutomaticModelCandidate(model, currentProvider, resolutionState.eligibilityRequest.awfRuntimePricing)) {
-            resolutionState.blocked = true;
-            continue;
-          }
-          candidates.push(model);
-          genuineCandidates.add(model);
+        if (!globMatch(modelPattern, model)) continue;
+        if (isWildcard && !isAutomaticModelCandidate(
+          model, currentProvider, resolutionState.eligibilityRequest.awfRuntimePricing,
+        )) {
+          resolutionState.blocked = true;
+          skipped.push(model);
+          continue;
         }
+        candidates.push(model);
+        genuineCandidates.add(model);
+      }
+      if (skipped.length > 0) {
+        log.push(`[model-resolver] "${pattern}" skipped ${skipped.length} model(s) that cannot be selected automatically: ${skipped.slice(0, 5).join(', ')}${skipped.length > 5 ? ', …' : ''}`);
       }
     }
   }
@@ -362,7 +373,10 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
         requestedModel, {
           [currentProvider]: (availableModels[currentProvider] || [])
             .filter(model => _isModelPermittedByPolicy(model, modelPolicyConfig, currentProvider) &&
-              isModelHarnessEligible(model, currentProvider, resolutionState.eligibilityRequest, { inputMode: 'native' })),
+              isModelHarnessEligible(model, currentProvider, resolutionState.eligibilityRequest, { inputMode: 'native' }) &&
+              isAutomaticModelCandidate(
+                model, currentProvider, resolutionState.eligibilityRequest.awfRuntimePricing,
+              )),
         }, currentProvider,
         'no_alias_match_and_not_in_available_models', fallbackConfig, log,
         resolutionState.eligibilityRequest.awfRuntimePricing

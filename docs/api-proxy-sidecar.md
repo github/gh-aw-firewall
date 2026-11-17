@@ -1048,6 +1048,18 @@ Selected: claude-sonnet-4-5 (median)
 Reason: no_alias_match_and_not_in_available_models
 ```
 
+### Models that can be chosen automatically
+
+Alias patterns containing `*`, family-version replacement, and middle-power
+fallback skip any model that the provider's own model list marks as unable to
+serve an agent: a Copilot model not enabled in the model picker, or a model
+whose `supported_endpoints` include none of Chat Completions, Responses, or
+Messages (for example a Decisions-only evaluation model). Models without that
+metadata stay eligible. A model ID requested directly, or an alias entry
+written without `*`, is never skipped. `/reflect` reports the decision per
+model in `routing_models[].automatic_selection_eligible`. See
+[the configuration spec](awf-config-spec.md#128-automatic-selection-is-restricted-to-models-that-can-serve-an-agent).
+
 ### Extended Alias Syntax
 
 Model aliases now support per-alias fallback control:
@@ -1318,7 +1330,8 @@ curl http://172.30.0.30:10000/reflect
           "supported_endpoints": ["chat_completions", "responses"],
           "supported_reasoning_efforts": ["none", "low", "medium", "high", "xhigh"],
           "context_window_tokens": 1050000,
-          "candidate_metadata_complete": true
+          "candidate_metadata_complete": true,
+          "automatic_selection_eligible": true
         },
         {
           "model_id": "o3",
@@ -1327,7 +1340,8 @@ curl http://172.30.0.30:10000/reflect
           "supported_endpoints": ["responses"],
           "supported_reasoning_efforts": null,
           "context_window_tokens": null,
-          "candidate_metadata_complete": false
+          "candidate_metadata_complete": false,
+          "automatic_selection_eligible": true
         }
       ],
       "models_url": "http://api-proxy:10000/v1/models"
@@ -1383,7 +1397,7 @@ Fields:
 - `models` — list of model IDs fetched from the provider at startup; `null` if the provider is not configured or model fetch failed
 - `model_metadata` — sanitized provider metadata, including pricing and provenance when the provider supplies it; currently Copilot supplies runtime pricing
 - `routing_models` — per-discovered-model endpoint, reasoning-effort, and context metadata used by task routing. `source` identifies provider-supplied or maintained fields; `candidate_metadata_complete: false` means the model cannot be offered as a route. `candidate_metadata_reason` explains known exclusions, such as a Copilot model not enabled in the model picker
-- `routing_models[].automatic_selection_eligible` — AWF's shared provider-metadata decision for automatic model selection. It is `false` for Copilot models explicitly disabled in the picker, or models whose advertised endpoints include none of Chat Completions, Responses, or Messages (including an empty endpoint list). Missing metadata remains eligible. This decision uses the run's provider metadata, not model-name exclusions or maintained endpoint guesses. Explicit IDs and literal alias entries remain selectable even when it is `false`. Consumers that resolve `auto` before calling AWF, including gh-aw's Copilot harness, must use this field instead of independently inferring eligibility. A `true` value does not replace request-specific endpoint, capability, policy, or harness checks; it is independent of `candidate_metadata_complete`
+- `routing_models[].automatic_selection_eligible` — AWF's shared provider-metadata decision for automatic model selection. It is `false` for Copilot models explicitly disabled in the picker, or models whose advertised endpoints include none of Chat Completions, Responses, or Messages (including an empty endpoint list). Missing metadata remains eligible. `automatic_selection_reason`, when present, gives the provider evidence (`model_picker_disabled` or `no_agent_endpoint`). This decision uses the run's provider metadata, not model-name exclusions or maintained endpoint guesses. Explicit IDs and literal alias entries remain selectable even when it is `false`. Consumers that resolve `auto` before calling AWF, including gh-aw's Copilot harness, must use this field instead of independently inferring eligibility. A `true` value does not replace request-specific endpoint, capability, policy, or harness checks; it is independent of `candidate_metadata_complete`. See [the configuration spec](awf-config-spec.md#128-automatic-selection-is-restricted-to-models-that-can-serve-an-agent).
 - `copilot_native_auto` — Copilot-only CLI launch compatibility diagnostic, separate from API-level `automatic_model_selection`; currently `supported: false`. See [native Auto limitations](#copilot-cli-native-auto-routing-not-supported)
 - `model_api_mapping` — maintained endpoint and routing metadata, with source references, for model families where provider `/models` APIs do not publish those limits
 - `models_fetch_complete` — `true` once the startup model-fetch pass has finished
