@@ -104,6 +104,165 @@ These are the [documented installation baselines](quickstart.md#prerequisites), 
 
 GitHub-hosted macOS runners are themselves virtual machines (`Apple M1 (Virtual)`) that do not support nested virtualization. AWF requires Docker for the Squid proxy container, agent container, and MCP Gateway — all of which need a Linux VM on macOS. Docker Desktop, colima (with both `vz` and `qemu` VM types), and Apple's `container` tool were all tested and none can provide Docker on these runners. The root cause error is: `Virtualization is not available on this hardware`.
 
+#### Native macOS sandbox evaluation (Seatbelt + pf)
+
+**Status: evaluation only, not an implemented backend or supported runner.**
+This evaluates [AWF #11712](https://github.com/github/gh-aw-firewall/issues/11712)
+and [gh-aw #78360](https://github.com/github/gh-aw/issues/78360).
+The recommendation is a **conditional go for a disposable-runner feasibility
+spike, not for production enablement**. There is no native-macOS runtime option
+to select today; existing Docker/Linux behavior and macOS rejection remain
+unchanged.
+
+The candidate runs the agent directly on Darwin, so it could use the installed
+Xcode SDKs, `xcodebuild`, SwiftPM, and simulator. It requires neither Docker nor
+nested virtualization. Earlier Apple Container proposals used a Linux guest on
+self-hosted Apple Silicon: even if that guest could start, it would not supply
+native Xcode. This proposal is a different isolation model, not a revival of
+that backend.
+
+**Proposed trust boundary**
+
+```text
+macOS: trusted supervisor + native proxies (separate from agent UID)
+           |
+           +-- sandbox-exec --> non-admin agent UID + descendants
+                                |
+                                +-- exact loopback proxy endpoint only
+                                           |
+                                   domain ACL --> DNS --> upstream
+
+Linux: threat detection --> safe-output validation and execution
+       (consumes untrusted macOS results; write credentials stay here)
+```
+
+All of the following are requirements for a future opt-in backend, not claims
+that the current implementation meets them:
+
+1. **Seatbelt enforcement.** Generate a `sandbox-exec` profile that denies
+   network access except outbound TCP to the proxy's exact numeric loopback
+   address and port. Do not allow arbitrary localhost traffic, inbound listeners,
+   direct IPv4/IPv6 connections, UDP/QUIC, or agent-side DNS. Apply restrictions
+   before executing any agent-controlled command, including shell startup files
+   and build scripts, and verify inheritance across child processes. Start from
+   deny-by-default policy with explicit filesystem and IPC permissions; escape
+   generated profile values rather than interpolating workflow text as policy.
+   `sandbox-exec` is deprecated and its policy interface is not a stable public
+   contract, so availability and effective enforcement need per-image checks.
+2. **Native domain proxy.** Prefer native Squid with AWF's existing
+   [domain ACL generation](../src/squid/config-generator.ts), rather than a
+   second domain-matching implementation. Audit its generated Linux paths,
+   listener bindings, source-address exemptions, and container-specific routes
+   before reuse: loopback source IPs cannot distinguish the agent from trusted
+   native services. Bind only the designated loopback endpoint, run outside the
+   agent's Seatbelt profile under a separate trusted identity, and protect its
+   executable, configuration, and logs from agent writes. Check the requested
+   hostname against the ACL **before DNS resolution**, and resolve/connect only
+   inside this trusted proxy. Preserve exact/subdomain/wildcard and deny-rule
+   semantics, HTTP and CONNECT port restrictions, and TLS authority checks.
+   Reject unapproved IP-literal destinations and prevent allowed hostnames from
+   rebinding to loopback, private, link-local, or metadata addresses. Test the
+   actual connected address, including IPv6 and mapped-address forms.
+   Redirected requests must undergo the same checks. A domain allowlist is not
+   content-level exfiltration prevention for allowed destinations.
+3. **Dedicated UID and pf defense in depth.** A trusted privileged supervisor
+   creates a run-specific non-admin user with no sudo authorization, admin group,
+   or reusable runner credentials. Launch with a minimal environment, private
+   home/tmp, and no inherited network sockets or privileged file descriptors.
+   Before launch, install and verify an AWF-owned `pf` anchor restricting that
+   UID's egress to the designated proxy endpoint, with IPv4/IPv6 coverage.
+   Do not assume a syntactically valid rule is effective: existing quick rules,
+   state entries, loopback `set skip`, and UID attribution can defeat the
+   intended fence. UID filtering cannot constrain traffic sent by a system
+   daemon on the agent's behalf; Seatbelt/IPC restrictions remain essential.
+   The proxy UID must remain able to reach upstreams. Isolate per-run anchors
+   and serialize privileged setup/cleanup so concurrent runs cannot remove
+   each other's protections. Never flush the host ruleset, globally disable
+   `pf`, or disrupt the runner's control connection.
+4. **No delegated escape.** Allow only individually justified Unix sockets and
+   Mach/XPC services. DNS via `mDNSResponder`, URL-opening helpers, Apple Events,
+   launch services, and simulator/build daemons must not become unsandboxed
+   network deputies. A child process inheriting Seatbelt does not prove that a
+   separately launched service inherits it. Blanket Mach lookup or Unix-socket
+   permission to make Xcode work is not an acceptable fix.
+5. **Native control plane, not just a native agent.** The current
+   [external-agent lifecycle](../src/external-runtime-backend.ts) explicitly
+   retains Compose infrastructure; adding a runtime registry entry alone cannot
+   remove Docker. Squid, credential-injecting API proxies, MCP gateway/server
+   launch, readiness, diagnostics, and cleanup all need a non-container path.
+   Model credentials stay in a trusted native proxy, never in the agent
+   environment. Any local API/MCP endpoints require narrowly scoped,
+   authenticated exceptions, not general localhost access or a generic relay.
+   Container-only MCP servers, Docker sockets/DinD, Linux chroot/mount flags,
+   and enclaves must be rejected unless separately implemented and validated.
+6. **Fail-closed lifecycle.** Preflight must establish the exact runner image,
+   Seatbelt behavior, UID separation, proxy health, and effective `pf` rules
+   before releasing the agent. Missing privileges, unsupported options, or
+   failed probes must abort, never fall back to an unsandboxed command.
+   Proxy/supervisor failure must not create another egress path. On completion,
+   timeout, cancellation, or partial startup failure, terminate and verify all
+   agent-UID processes and attributable delegated work before removing the
+   fence, proxy, files, or account. Do not recycle a UID while processes or
+   matching network state remain; uncertain cleanup requires runner disposal.
+
+**Weaker guarantee and workflow integration**
+
+This would be host-kernel Seatbelt policy plus ordinary user permissions and
+`pf`, **not** a container, VM, chroot, private filesystem view, or PID namespace.
+Filesystem/process protection beyond normal UID separation depends on the
+Seatbelt profile. Shared readable files, caches, host services, kernel attack
+surface, and delegated processes remain concerns. A non-admin account alone
+does not hide world-readable runner secrets or prevent access through an
+over-permissive service. Protect the runner account, keychains, signing
+identities, Actions command/environment files, proxy credentials, and
+supervisor state; scope writable paths to the workspace and private build
+state. Shared or persistent self-hosted Macs are outside the initial target.
+Code signing with production identities is not an initial acceptance goal.
+
+Keep threat detection and safe outputs in separate **Linux jobs**, including
+their write-capable tokens. Treat all macOS artifacts, logs, paths, and proposed
+outputs as untrusted data; do not execute uploaded scripts during privileged
+post-processing. Moving these jobs does not repair a bypass of the macOS agent
+boundary.
+
+The upstream compiler's
+[`runs_on_validation.go`](https://github.com/github/gh-aw/blob/main/pkg/workflow/runs_on_validation.go)
+rejects macOS labels today. A later coordinated compiler change must require an
+explicit native-sandbox opt-in for the agent job, generate native setup instead
+of Docker steps, and retain Linux placement for threat detection and safe
+outputs. Do not simply remove label validation. This evaluation adds no compiler
+syntax, implicit fallback, or claim of upstream product support.
+
+[Anthropic sandbox-runtime](https://github.com/anthropic-experimental/sandbox-runtime#how-it-works)
+is precedent for macOS Seatbelt plus localhost HTTP/SOCKS proxies and filesystem
+restrictions, not evidence that AWF's UID/`pf`, Xcode, or compiler integration
+already works. Compare reuse against AWF's policy and credential-custody
+requirements before choosing a dependency; no dependency is added here.
+
+**Required evidence and decision gates**
+
+Run a bounded spike on disposable GitHub-hosted macOS VMs, recording exact image,
+OS, architecture, Xcode, proxy, and policy versions. Use packet capture and
+controlled authoritative-DNS logs to observe traffic, including delegated work,
+rather than relying only on command exit codes. No live macOS acceptance has
+been performed for this evaluation; Linux unit tests or generated policy
+snapshots cannot substitute for these checks:
+
+| Area | Required positive and adversarial checks |
+|------|-----------------------------------------|
+| Network policy | Allowed HTTP/HTTPS succeeds; denied hosts, sibling/suffix tricks, blocked-over-allowed rules, redirects, malformed CONNECT/Host authorities, CONNECT/SNI disagreement, unauthorized ports, and IP literals fail. Prove rejected hostnames are not resolved. |
+| Bypass resistance | Unset all proxy variables; attempt raw TCP, IPv4/IPv6, UDP/QUIC, DNS over UDP/TCP, system-resolver IPC, non-proxy localhost ports, private/metadata targets, rebinding, Unix sockets, and Mach/XPC deputies. Each must fail without widening policy. |
+| Independent layers | In trusted test fixtures, exercise Seatbelt and the UID-scoped `pf` fence separately, as well as together, including loopback skip, existing states, and rule ordering. Record any coverage differences rather than claiming interchangeable enforcement. |
+| Identity and files | Agent and grandchildren cannot sudo, switch UID, inspect proxy credentials, read runner secrets/keychains, modify policy/binaries, signal trusted services, or write Actions control files. Check symlink/path aliases and shared caches. |
+| Native tools | Fetch an allowlisted SwiftPM dependency and reject a denied one; run `xcodebuild` build/test and simulator launch/test under the dedicated UID. Check build plugins and simulator/system-daemon traffic, not just command exit status. |
+| Failure and cleanup | Missing `sandbox-exec`, unavailable privileges, invalid profile/anchor, proxy death, port squatting, partial startup, timeout, cancellation, and supervisor death never produce unrestricted execution. Prove descendants/delegated work are reaped and unrelated host rules survive cleanup. |
+| Workflow handoff | Native agent results reach Linux threat detection/safe outputs without exposing write tokens or running agent-supplied code outside the sandbox. Unsupported Docker-only features fail before agent launch. |
+
+Proceed to a separately reviewed experimental backend only if those gates pass
+without broad IPC/network exceptions and the residual risk is explicitly
+accepted. Otherwise the result is **no-go for the affected runner/toolchain**:
+keep macOS unsupported rather than relaxing the boundary to make a build pass.
+
 ### Architecture
 
 | Architecture | Status | Notes |
