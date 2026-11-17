@@ -4,6 +4,7 @@ import { resolveApiCredentials } from './resolve-credentials';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import { resolveSteeringBudget } from '../parsers/rate-limit-parsers';
 import { logger } from '../logger';
+import { resolveAgentHome } from '../agent-home';
 import {
   CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS,
   CLOUD_HYPERVISOR_DEFAULT_BINARY,
@@ -145,6 +146,12 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
   } = inputs;
 
   const chrootIdentity = buildChrootIdentity(options);
+  const homeDir = options.home === undefined ? undefined : resolveAgentHome({
+    homeDir: options.home as string,
+    containerRuntime: options.containerRuntime as string | undefined,
+    runnerTopology: options.runnerTopology as WrapperConfig['runnerTopology'],
+    chrootIdentity,
+  });
   const dind = buildDindConfig(options);
   const cloudHypervisor = buildCloudHypervisorConfig(options);
   const nvx = buildNvxConfig(options);
@@ -162,6 +169,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     keepContainers: options.keepContainers as boolean,
     tty: (options.tty as boolean) || false,
     workDir: options.workDir as string,
+    homeDir,
     buildLocal: options.buildLocal as boolean,
     skipPull: options.skipPull as boolean,
     images: options.images as WrapperConfig['images'],

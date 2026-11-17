@@ -1,6 +1,18 @@
-import { reportBlockedDomains } from './container-startup-diagnostics';
+import { handleHealthcheckError, reportBlockedDomains } from './container-startup-diagnostics';
 
 describe('container-startup-diagnostics', () => {
+  it.each(['permission denied', 'operation not permitted', 'read-only file system'])(
+    'explains a daemon-side credential mount failure: %s',
+    async (reason) => {
+      const target = '/home/nfs-runner/.config/glab-cli/config.yml';
+      const message = `error mounting "/dev/null" to rootfs at "${target}": ${reason}`;
+      await expect(handleHealthcheckError(message, new Error(message), '/unused', undefined, []))
+        .rejects.toThrow(target);
+      await expect(handleHealthcheckError(message, new Error(message), '/unused', undefined, []))
+        .rejects.toThrow(/root-squash.*--home/);
+    },
+  );
+
   it('classifies missing domains, non-standard ports, and protocol mismatches independently', () => {
     const messages: string[] = [];
 

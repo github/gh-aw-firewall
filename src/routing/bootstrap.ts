@@ -3,6 +3,7 @@ import * as path from 'path';
 import { TextDecoder } from 'util';
 import type { WrapperConfig, ModelRoutingBootstrapState } from '../types';
 import { getRealUserHome, getSafeHostGid, getSafeHostUid } from '../host-identity';
+import { resolveAgentHome } from '../agent-home';
 import { isDigestPinnedImageReference } from '../image-reference';
 import { resolveRuntimeImageFor } from '../image-resolver';
 import { runtimeUsesComposeAgent } from '../container-runtime';
@@ -46,8 +47,8 @@ function toRoutingFailureExit(message: string): RoutingFailureExitError {
   return new RoutingFailureExitError(message);
 }
 
-function routingRootForWorkDir(workDir: string): string {
-  return path.join(getRealUserHome(), `.awf-routing-${path.basename(workDir)}`);
+function routingRootForWorkDir(workDir: string, home = getRealUserHome()): string {
+  return path.join(home, `.awf-routing-${path.basename(workDir)}`);
 }
 
 function parseMountSource(volume: string): string | undefined {
@@ -252,7 +253,7 @@ export function stageRoutingConversation(config: WrapperConfig): ModelRoutingBoo
   if (config.experimentalModelRouting !== true || !config.modelRouting) return undefined;
 
   assertRoutingHostSupported(config);
-  const root = routingRootForWorkDir(config.workDir);
+  const root = routingRootForWorkDir(config.workDir, resolveAgentHome(config));
   assertRoutingRootDoesNotOverlapAgentMounts(config, root);
 
   const conversation = readPrivateConversation(config.modelRouting.task.conversationFile);

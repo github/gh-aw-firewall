@@ -559,6 +559,31 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
   const fixture = setupWorkdirFixture();
   const { buildConfig } = fixture;
 
+  it('prepares tool sources only under the private home', () => {
+    const home = path.join(fixture.tempDir, 'private-home');
+    fs.mkdirSync(home);
+    workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig({ homeDir: home }));
+    expect(fs.statSync(path.join(home, '.config')).isDirectory()).toBe(true);
+    expect(fs.existsSync(path.join(fixture.tempDir, '.config'))).toBe(false);
+  });
+
+  it('reports the home path and root-squash when tool directory creation is denied', () => {
+    const mkdir = fs.mkdirSync as jest.Mock;
+    const original = mkdir.getMockImplementation()!;
+    mkdir.mockImplementation((target: fs.PathLike, ...args: unknown[]) => {
+      if (String(target).endsWith('/.config')) {
+        throw Object.assign(new Error(`EACCES: ${target}`), { code: 'EACCES' });
+      }
+      return original(target, ...args);
+    });
+    try {
+      expect(() => workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig()))
+        .toThrow(/Cannot prepare agent home.*root-squash.*--home/);
+    } finally {
+      mkdir.mockImplementation(original);
+    }
+  });
+
   it('creates chroot home directory without touching log directories', () => {
     const config = buildConfig();
     const logPaths = resolveLogPaths(config);

@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { MAX_ENV_VALUE_SIZE } from '../../constants';
 import { copyEnvEntries } from '../../env-utils';
-import { getRealUserHome } from '../../host-identity';
+import { resolveAgentHome } from '../../agent-home';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
 import { mountedChrootRoots } from '../agent-path-policy';
@@ -141,7 +141,7 @@ function dropUnmountedRunnerTempPaths(
     }
     if (!mountedRoots) {
       const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
-      const effectiveHome = getRealUserHome();
+      const effectiveHome = resolveAgentHome(config);
       mountedRoots = [
         ...mountedChrootRoots(config, workspaceDir, effectiveHome),
         ...buildContainerWorkDirMounts({ config, workspaceDir, effectiveHome })

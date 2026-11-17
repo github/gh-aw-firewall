@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { buildCredentialHidingOverlays, pruneUnmountableCredentialOverlays } from './credential-hiding';
@@ -160,7 +160,28 @@ describe('pruneUnmountableCredentialOverlays', () => {
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
     fs.rmSync(hostDir, { recursive: true, force: true });
+  });
+
+  it.each(['EACCES', 'EPERM', 'EIO'])('fails closed rather than pruning a credential on %s', (code) => {
+    const target = `/host${HOME}/.config/glab-cli/config.yml`;
+    const hostPath = path.join(hostDir, '.config/glab-cli/config.yml');
+    const probe = jest.spyOn(fs, 'lstatSync').mockImplementation(() => {
+      throw Object.assign(new Error(`${code}: ${hostPath}`), { code });
+    });
+    try {
+      expect(() => pruneUnmountableCredentialOverlays([
+        `${hostDir}:/host${HOME}:rw`,
+        overlay(target),
+      ])).toThrow(hostPath);
+      expect(() => pruneUnmountableCredentialOverlays([
+        `${hostDir}:/host${HOME}:rw`,
+        overlay(target),
+      ])).toThrow(/root-squash.*--home/);
+    } finally {
+      probe.mockRestore();
+    }
   });
 
   it.each([HOME, `/host${HOME}`])(

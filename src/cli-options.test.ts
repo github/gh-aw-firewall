@@ -14,6 +14,7 @@ describe('cli-options program', () => {
   beforeEach(() => {
     // Reset accumulated option values between parses.
     program.setOptionValueWithSource('env', [], 'default');
+    program.setOptionValueWithSource('home', undefined, 'default');
     program.setOptionValueWithSource('excludeEnv', [], 'default');
     program.setOptionValueWithSource('mount', [], 'default');
     program.setOptionValueWithSource('inputDir', undefined, 'default');
@@ -42,6 +43,11 @@ describe('cli-options program', () => {
   it('exposes the expected metadata', () => {
     expect(program.name()).toBe('awf');
     expect(program.description()).toContain('firewall');
+  });
+
+  it('parses a job-scoped --home', () => {
+    program.parse(['node', 'awf', '--home', '/var/tmp/job-home', '--', 'true'], { from: 'node' });
+    expect(program.opts().home).toBe('/var/tmp/job-home');
   });
 
   it.each(['-1', '0', '0.5', '100', '20K', '100M', '20k', '100m'])(

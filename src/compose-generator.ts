@@ -5,7 +5,7 @@ import { DEFAULT_DNS_SERVERS } from './dns-resolver';
 import { parseImageTag } from './image-tag';
 import { resolveRuntimeImage, validateCustomImageManifest } from './image-resolver';
 import { SslConfig } from './host-env';
-import { getRealUserHome } from './host-identity';
+import { resolveAgentHome } from './agent-home';
 import { resolveLogPaths } from './log-paths';
 import { redactComposeServiceEnvironment } from './compose-sanitizer';
 import { buildSquidService } from './services/squid-service';
@@ -122,7 +122,7 @@ export function generateDockerCompose(
     sslConfig,
   });
 
-  const effectiveHome = options.effectiveHome ?? getRealUserHome();
+  const effectiveHome = options.effectiveHome ?? resolveAgentHome(config);
   const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
   const stageGeminiSettings = isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config);
 

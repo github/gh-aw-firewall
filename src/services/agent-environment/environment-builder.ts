@@ -14,6 +14,7 @@ import { isRouterOtelHostEnvVar } from '../router-otel-env';
 import { AgentEnvironmentParams } from './types';
 import { COPILOT_BROKER_PRIVATE_ENV, COPILOT_BROKER_CONTEXT_ENV } from '../../copilot-token-broker';
 import { isolateTrustedServiceEnvironment } from '../../trusted-service';
+import { resolveAgentHome } from '../../agent-home';
 
 export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<string, string> {
   const excludedEnvVars = buildExclusionSet(params.config);
@@ -46,6 +47,10 @@ export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<st
   }
 
   isolateTrustedServiceEnvironment(params.config, environment);
+  if (params.config.homeDir !== undefined) {
+    environment.HOME = resolveAgentHome(params.config);
+    environment.AWF_CHROOT_IDENTITY_HOME = environment.HOME;
+  }
   return environment;
 }
 

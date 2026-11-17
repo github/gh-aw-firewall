@@ -2,7 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { WrapperConfig } from './types';
 import { logger } from './logger';
-import { getSafeHostUid, getSafeHostGid, getRealUserHome } from './host-env';
+import { getSafeHostUid, getSafeHostGid } from './host-env';
+import { homePreparationError, resolveAgentHome } from './agent-home';
 import { createMissingOwnedDirectorySegments } from './fs-utils';
 import { resolveRunnerToolCachePath } from './runner-tool-cache';
 import { HOME_TOOL_PATHS } from './config/mount-policy';
@@ -219,7 +220,7 @@ export function prepareChrootHomeMounts(config: WrapperConfig): void {
   // root:root, making it inaccessible to the agent user (e.g., UID 1001).
   // Also create an empty writable home directory that gets mounted as $HOME
   // in the chroot, giving tools a writable home without exposing credentials.
-  const effectiveHome = getRealUserHome();
+  const effectiveHome = resolveAgentHome(config);
   const uid = parseInt(getSafeHostUid(), 10);
   const gid = parseInt(getSafeHostGid(), 10);
 
@@ -235,6 +236,8 @@ export function prepareChrootHomeMounts(config: WrapperConfig): void {
     setDirectoryOwnership(emptyHomeFd, uid, gid);
     logger.debug(`Created chroot home directory: ${emptyHomeDir} (${uid}:${gid})`);
     prepareHomeMountsWithFd(config, effectiveHome, uid, gid, emptyHomeDir, emptyHomeFd);
+  } catch (error) {
+    throw homePreparationError(effectiveHome, error);
   } finally {
     fs.closeSync(emptyHomeFd);
   }

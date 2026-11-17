@@ -36,7 +36,39 @@ AWF derives the effective home directory at runtime from the host environment (`
 
 This means self-hosted Linux runners with non-standard service-account homes are supported, as long as `$HOME` is set correctly before invoking `awf`.
 
-Variables from `--env` flags override everything else.
+For Compose agents on runners with an NFS or shared home, use `--home <path>`
+to select an existing, runner-writable, job-scoped directory on local disk:
+
+```bash
+job_home="$(mktemp -d /var/tmp/awf-home.XXXXXX)"
+awf --home "$job_home" --allow-domains github.com -- copilot
+# Remove "$job_home" after collecting this job's outputs.
+```
+
+AWF uses this path for the agent's `HOME`, allowlisted home-directory mount
+sources, and credential-mask destinations. It does not change the host process's
+`HOME`, copy the runner's caches, credentials, or Copilot history, or mount the
+entire selected directory. Provision required tools in system paths or the
+selected home's allowlisted tool directories. Copilot session state remains
+bound to this run's session directory (`--session-state-dir` /
+`AWF_SESSION_STATE_DIR` when configured). `--home` takes precedence over
+environment-supplied `HOME`; any `chroot.identity.home` must match.
+External microVM runtimes and ARC/DinD sysroot staging reject this option.
+
+Permission failures preparing home paths or inspecting credential masks fail
+closed and identify the path. On NFS, root-squash can deny root access even
+when the runner user can write; use a local job home rather than disabling
+credential masks. Masks for files confirmed absent are omitted without
+creating placeholder credential files on the host; permission errors are
+never treated as absence.
+
+The gh-aw `copy_copilot_session_state.sh` collector is maintained in
+`github/gh-aw`, not AWF. It must collect only the current run's session directory,
+without falling back to the runner's global `$HOME/.copilot/session-state`;
+that upstream change is tracked by [github/gh-aw#76904](https://github.com/github/gh-aw/issues/76904).
+
+Variables from `--env` flags override other environment values, except the home
+identity selected by `--home`.
 
 **Proxy variables set automatically:** `HTTP_PROXY`, `HTTPS_PROXY`, and `https_proxy` are always set to point to the Squid proxy (`http://172.30.0.10:3128`). Note that lowercase `http_proxy` is intentionally **not** set — some curl builds on Ubuntu 22.04 ignore uppercase `HTTP_PROXY` for HTTP URLs (httpoxy mitigation), so HTTP traffic falls through to iptables DNAT interception instead. iptables DNAT serves as a defense-in-depth fallback for both HTTP and HTTPS.
 

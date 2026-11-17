@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../../logger';
 import { credentialFilesToHide, gitLabCredentialFiles } from '../../config/mount-policy';
+import { homePreparationError } from '../../agent-home';
 import {
   LocalSourceResolver,
   ParsedMount,
@@ -15,7 +16,7 @@ function existingRealPath(candidate: string): string | undefined {
     fs.lstatSync(candidate);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-    throw error;
+    throw homePreparationError(candidate, error);
   }
   try {
     return fs.realpathSync(candidate);
@@ -166,7 +167,13 @@ export function pruneUnmountableCredentialOverlays(
     if (localCoverSource === undefined) return true;
 
     const hostPath = `${localCoverSource}${suffix}`;
-    return fs.existsSync(hostPath);
+    try {
+      fs.lstatSync(hostPath);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw homePreparationError(hostPath, error);
+    }
   });
 
   const dropped = volumes.length - kept.length;

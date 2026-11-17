@@ -4,6 +4,7 @@ import { logger } from './logger';
 import { parseDomainWithProtocol, isWildcardPattern, wildcardToRegex } from './domain-patterns';
 import { getLocalDockerEnv } from './docker-host';
 import { checkSquidLogs } from './squid-log-reader';
+import { homePreparationError } from './agent-home';
 
 /**
  * Returns true when the Docker Compose error message indicates that a specific
@@ -198,6 +199,11 @@ export async function handleHealthcheckError(
   proxyLogsDir: string | undefined,
   allowedDomains: string[]
 ): Promise<never> {
+  if (errorMsg.includes('/dev/null') &&
+      /mount/i.test(errorMsg) &&
+      /permission denied|operation not permitted|read-only file system/i.test(errorMsg)) {
+    throw homePreparationError('/dev/null credential overlay', new Error(errorMsg));
+  }
   if (errorMsg.includes('is unhealthy') || errorMsg.includes('dependency failed')) {
     const { hasDenials, blockedTargets } = await checkSquidLogs(workDir, proxyLogsDir);
 

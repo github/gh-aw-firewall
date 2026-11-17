@@ -106,6 +106,21 @@ describe('routing bootstrap', () => {
     expect(fs.existsSync(state.root)).toBe(false);
   });
 
+  it('stages routing under the selected local home rather than the runner home', () => {
+    const home = fs.mkdtempSync('/var/tmp/awf-routing-home-');
+    const conversationFile = path.join(tempDir, 'conversation.json');
+    writeConversation(conversationFile);
+    const config = { ...makeConfig(workDirFor(tempDir), conversationFile), homeDir: home };
+    try {
+      const state = stageRoutingConversation(config)!;
+      expect(path.dirname(state.root)).toBe(fs.realpathSync(home));
+      expect(fs.statSync(state.inputFile).isFile()).toBe(true);
+    } finally {
+      cleanupRoutingState(config);
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it('refuses oversized and invalid conversations with public messages', () => {
     const conversationFile = path.join(tempDir, 'conversation.json');
     fs.writeFileSync(conversationFile, '{');
