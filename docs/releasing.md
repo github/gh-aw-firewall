@@ -342,11 +342,12 @@ installation if either is absent or mismatched, and skip Sigstore only when
 selected. Attestation must remain the default, with no fallback on failure;
 the checksum-only adoption guidance below applies only when that mode is selected.
 
-The downstream `actions/setup/sh/install_awf_binary.sh` can adopt this contract
-for ordinary CLI installation, including helper-capable releases: keep its
-independently reviewed version/manifest pin, but remove the version-based
-requirement for runtime identity/manifest/CLI attestation lookups. Prefer
-invoking this installer, vendored from a reviewed immutable AWF revision, with
+When the explicit checksum-only mode is selected, the downstream
+`actions/setup/sh/install_awf_binary.sh` can adopt this contract for ordinary
+CLI installation, including helper-capable releases: keep its independently
+reviewed version/manifest pin, but remove the version-based requirement for
+runtime identity/manifest/CLI attestation lookups. Prefer invoking this
+installer, vendored from a reviewed immutable AWF revision, with
 `--checksums-sha256` and `--rootless`, rather than maintaining another downloader
 and verifier. Alternatively, an existing consumer may implement the same
 manifest-first, exact-single-payload checksum contract. Never fetch and execute

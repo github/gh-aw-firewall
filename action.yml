@@ -73,7 +73,7 @@ runs:
           else
             printf '%s\n' "$verification_output" >&2
             if [[ "$verification_output" == *"public good verifier is not available"* ]]; then
-              echo "::error::The Sigstore public-good trust root could not be fetched or initialized. Check corporate-proxy HTTPS access to tuf-repo-cdn.sigstore.dev, sigstore-tuf-root.storage.googleapis.com, rekor.sigstore.dev, and fulcio.sigstore.dev."
+              echo "::error::The Sigstore public-good trust root could not be fetched or initialized. Check corporate-proxy HTTPS access to api.github.com, tuf-repo.github.com, and tuf-repo-cdn.sigstore.dev."
             fi
             echo "::error::Release provenance verification failed for $(basename "$1"). Legacy unattested releases are not supported; use an attested release and a trusted, authenticated gh CLI."
             exit 1

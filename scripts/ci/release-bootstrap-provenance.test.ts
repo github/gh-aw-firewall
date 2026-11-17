@@ -454,9 +454,11 @@ describe('release bootstrap authentication', () => {
       expect(output).toContain(message);
       expect(output).toContain('Sigstore public-good trust root could not be fetched');
       for (const host of [
-        'tuf-repo-cdn.sigstore.dev', 'sigstore-tuf-root.storage.googleapis.com',
-        'rekor.sigstore.dev', 'fulcio.sigstore.dev',
+        'api.github.com', 'tuf-repo.github.com', 'tuf-repo-cdn.sigstore.dev',
       ]) expect(output).toContain(host);
+      for (const host of [
+        'sigstore-tuf-root.storage.googleapis.com', 'rekor.sigstore.dev', 'fulcio.sigstore.dev',
+      ]) expect(output).not.toContain(host);
       expect(f.log('gh.log').trim().split('\n')).toHaveLength(1);
       expect(f.log('github-path')).toBe('');
       expect(fs.existsSync(path.join(f.directory, 'installed/awf'))).toBe(false);
