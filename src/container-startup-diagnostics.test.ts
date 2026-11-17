@@ -1,4 +1,4 @@
-import { handleHealthcheckError, reportBlockedDomains } from './container-startup-diagnostics';
+import { credentialMountPreparationError, handleHealthcheckError, reportBlockedDomains } from './container-startup-diagnostics';
 
 describe('container-startup-diagnostics', () => {
   it.each(['permission denied', 'operation not permitted', 'read-only file system'])(
@@ -12,6 +12,22 @@ describe('container-startup-diagnostics', () => {
         .rejects.toThrow(/root-squash.*--home/);
     },
   );
+
+  it.each([
+    'error mounting "/dev/null": no such file or directory',
+    'error mounting "/workspace": permission denied',
+    'permission denied reading /dev/null',
+  ])('does not classify unrelated failures: %s', message => {
+    expect(credentialMountPreparationError(new Error(message))).toBeUndefined();
+  });
+
+  it('reads stderr on the original error through its cause', () => {
+    const cause = Object.assign(new Error('generic failure'), {
+      stderr: 'error mounting "/dev/null" at "/home/runner/config": operation not permitted',
+    });
+    const error = Object.assign(new Error('agent start failed'), { cause });
+    expect(credentialMountPreparationError(error)?.message).toMatch(/config.*root-squash.*--home/);
+  });
 
   it('classifies missing domains, non-standard ports, and protocol mismatches independently', () => {
     const messages: string[] = [];

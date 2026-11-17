@@ -15,12 +15,13 @@ function existingRealPath(candidate: string): string | undefined {
   try {
     fs.lstatSync(candidate);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return undefined;
     throw homePreparationError(candidate, error);
   }
   try {
     return fs.realpathSync(candidate);
   } catch (error) {
+    if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return undefined;
     throw new Error(`Cannot safely resolve GitLab credential path ${candidate}: ${(error as Error).message}`);
   }
 }
@@ -168,10 +169,10 @@ export function pruneUnmountableCredentialOverlays(
 
     const hostPath = `${localCoverSource}${suffix}`;
     try {
-      fs.lstatSync(hostPath);
+      fs.statSync(hostPath);
       return true;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return false;
       throw homePreparationError(hostPath, error);
     }
   });

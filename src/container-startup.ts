@@ -17,6 +17,7 @@ import {
   handleHealthcheckError,
   logContainerLogsToStderr,
   detectDnsResolutionFailure,
+  credentialMountPreparationError,
 } from './container-startup-diagnostics';
 import { removeConflictingComposeNetworks } from './compose-network-conflicts';
 import { captureEnclaveStartupDiagnostics } from './enclave/startup-diagnostics';
@@ -28,7 +29,12 @@ class InfrastructureReadinessError extends Error {
     Object.defineProperty(this, 'cause', { value: cause, configurable: true });
   }
 }
-class PostReadinessAgentStartupError extends Error {}
+class PostReadinessAgentStartupError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    Object.defineProperty(this, 'cause', { value: cause, configurable: true });
+  }
+}
 
 function getComposeUpArgs(skipPull?: boolean): string[] {
   const composeArgs = ['compose', 'up', '-d'];
@@ -46,12 +52,15 @@ async function runDockerComposeUp(workDir: string, composeArgs: string[]): Promi
   // runners and break assertions that check for agent command output.
   // All AWF informational output goes to stderr (via logger), so this
   // keeps the output consistent. Users still see progress in their terminal.
-  await execa('docker', composeArgs, {
+  // Keep progress visible while retaining stderr on execa failures for diagnosis.
+  const subprocess = execa('docker', composeArgs, {
     cwd: workDir,
     stdout: process.stderr,
-    stderr: 'inherit',
+    stderr: 'pipe',
     env: getLocalDockerEnv(),
   });
+  subprocess.stderr?.pipe(process.stderr, { end: false });
+  await subprocess;
 }
 
 async function attemptContainerStartup(
@@ -119,9 +128,7 @@ async function attemptContainerStartup(
       try {
         await runDockerComposeUp(workDir, composeArgs);
       } catch (error) {
-        throw new PostReadinessAgentStartupError(
-          error instanceof Error ? error.message : String(error),
-        );
+        throw new PostReadinessAgentStartupError(error);
       }
       return undefined;
     }
@@ -170,6 +177,10 @@ async function handleRetryStartupFailure(
   proxyLogsDir: string | undefined,
   allowedDomains: string[],
 ): Promise<void> {
+  if (retryError instanceof InfrastructureReadinessError) throw retryError;
+  const credentialError = credentialMountPreparationError(retryError);
+  if (credentialError) throw credentialError;
+  if (retryError instanceof PostReadinessAgentStartupError) throw retryError;
   const retryErrorMsg = retryError.message;
   if (await didContainerFailStartup(retryErrorMsg, API_PROXY_CONTAINER_NAME)) {
     // Surface api-proxy logs and emit a clear, unambiguous error so
@@ -355,10 +366,10 @@ export async function startContainers(
     proxyLogsDir,
   );
   if (startupError) {
-    if (
-      startupError instanceof InfrastructureReadinessError
-      || startupError instanceof PostReadinessAgentStartupError
-    ) {
+    if (startupError instanceof InfrastructureReadinessError) throw startupError;
+    const credentialError = credentialMountPreparationError(startupError);
+    if (credentialError) throw credentialError;
+    if (startupError instanceof PostReadinessAgentStartupError) {
       throw startupError;
     }
     await handleStartupFailure(startupError, workDir, proxyLogsDir, allowedDomains, runComposeUp);

@@ -6,6 +6,7 @@ import { makeAgentVolumeConfig } from './agent-volumes.test-utils';
 import { WrapperConfig } from '../../types';
 import * as dockerHostStaging from './docker-host-staging';
 import { logger } from '../../logger';
+import * as hostIdentity from '../../host-identity';
 
 // `statSync` is wrapped so tests can simulate a host working directory that
 // lives outside every default mount without creating it on disk.
@@ -320,6 +321,27 @@ describe('container working directory visibility', () => {
     const mounts = buildWorkspaceMounts(makeParams(config, tmpDir, '/workspace'));
 
     expect(mounts.some(m => m.startsWith('/home/runner/.ssh'))).toBe(false);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('deliberately hides'));
+  });
+
+  it('keeps the sudo-aware runner home hidden when an alternate home is used', () => {
+    jest.spyOn(hostIdentity, 'getRealUserHome').mockReturnValue('/home/runner');
+    const config = makeAgentVolumeConfig({ containerWorkDir: '/home/runner/.ssh/work' });
+    const params = { ...makeParams(config, tmpDir), effectiveHome: '/home/isolated' };
+    expect(buildWorkspaceMounts(params).some(m => m.startsWith('/home/runner/.ssh'))).toBe(false);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('deliberately hides'));
+  });
+
+  it('rejects a working directory symlink into runner Copilot session history', () => {
+    const runner = path.join(tmpDir, 'runner');
+    const history = path.join(runner, '.copilot/session-state');
+    const alias = path.join(tmpDir, 'history');
+    fs.mkdirSync(history, { recursive: true });
+    fs.symlinkSync(history, alias);
+    jest.spyOn(hostIdentity, 'getRealUserHome').mockReturnValue(runner);
+    const config = makeAgentVolumeConfig({ containerWorkDir: alias });
+    const params = { ...makeParams(config, tmpDir), effectiveHome: '/home/isolated' };
+    expect(buildWorkspaceMounts(params).some(m => m.startsWith(`${alias}:`))).toBe(false);
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('deliberately hides'));
   });
 

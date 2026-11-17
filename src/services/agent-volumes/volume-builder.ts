@@ -1,11 +1,13 @@
 import { SslConfig } from '../../host-env';
 import { getSafeHostGid, getSafeHostUid } from '../../host-env';
+import { getRealUserHome } from '../../host-identity';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
 import { FOUNDRY_ENV } from '../../api-proxy-env-constants';
 import { readEnvFile } from '../../github-env';
 import { applyHostPathPrefixToVolumes } from '../host-path-prefix';
 import { buildCredentialHidingOverlays, pruneUnmountableCredentialOverlays } from './credential-hiding';
+import { buildExposedHomeSecretOverlays } from './exposed-home-secrets';
 import { createLocalSourceResolver, parseMount } from './mount-topology';
 import { ensureNestedMountpoints } from './nested-mountpoints';
 import { buildDockerSocketMount } from './docker-socket';
@@ -122,9 +124,14 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   const credentialOverlays = buildCredentialHidingOverlays(
     effectiveHome, agentVolumes, localSourceResolver, process.env, foundryEnvFile,
   );
+  const runnerHome = getRealUserHome();
+  credentialOverlays.push(...buildExposedHomeSecretOverlays(
+    [effectiveHome, runnerHome], agentVolumes, localSourceResolver, sessionStatePath,
+    config.homeDir !== undefined && runnerHome !== effectiveHome ? runnerHome : undefined,
+  ));
   const credentialTargets = new Set(credentialOverlays.map((spec) => parseMount(spec)?.target));
   const maskedVolumes = agentVolumes.filter((spec) => !credentialTargets.has(parseMount(spec)?.target));
-  maskedVolumes.push(...credentialOverlays);
+  maskedVolumes.push(...new Set(credentialOverlays));
 
   const policyVolumes = applyFilesystemWritePolicy(
     maskedVolumes,

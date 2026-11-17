@@ -20,15 +20,38 @@ export function resolveAgentHome(config: AgentHomeConfig): string {
     throw new Error('--home must be an absolute directory path without colons or control characters');
   }
   let resolved: string;
+  let homeStat: fs.Stats;
   try {
     resolved = fs.realpathSync(home);
-    if (!fs.statSync(resolved).isDirectory()) throw new Error('not a directory');
+    homeStat = fs.statSync(resolved);
+    if (!homeStat.isDirectory()) throw new Error('not a directory');
     fs.accessSync(resolved, fs.constants.R_OK | fs.constants.W_OK | fs.constants.X_OK);
   } catch (error) {
     throw homePreparationError(home, error);
   }
   if (resolved === '/' || hasUnsafePathCharacters(resolved)) {
     throw new Error('--home must name a non-root directory without colons or control characters');
+  }
+  const effectiveUid = process.getuid?.();
+  const sudoUid = process.env.SUDO_UID !== undefined
+    ? Number.parseInt(process.env.SUDO_UID, 10)
+    : undefined;
+  const trustedOwners = new Set<number>();
+  if (effectiveUid !== undefined) trustedOwners.add(effectiveUid);
+  if (effectiveUid === 0 && sudoUid !== undefined && Number.isSafeInteger(sudoUid) && sudoUid >= 0) {
+    trustedOwners.add(sudoUid);
+  }
+  if (!trustedOwners.has(homeStat.uid)) {
+    throw new Error(
+      `Refusing to use --home not owned by the invoking user: ${resolved} ` +
+      `(owner uid=${homeStat.uid}, trusted uid(s)=${[...trustedOwners].join(',')})`,
+    );
+  }
+  if ((homeStat.mode & 0o022) !== 0) {
+    throw new Error(
+      `Refusing to use --home writable by group or other users: ${resolved} ` +
+      `(mode=${(homeStat.mode & 0o777).toString(8)})`,
+    );
   }
   if (config.chrootIdentity?.home && config.chrootIdentity.home !== resolved) {
     throw new Error('--home must match chroot.identity.home when both are configured');

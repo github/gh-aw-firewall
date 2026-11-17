@@ -5,6 +5,7 @@ import { WrapperConfig } from '../../types';
 import { INIT_SIGNAL_DIR, LEGACY_INIT_SIGNAL_DIR } from '../../constants';
 import { applyHostPathPrefixToVolumes, isSharedDockerHostPathPrefix } from '../host-path-prefix';
 import { hiddenHostRoots, mountedChrootRoots } from '../agent-path-policy';
+import { getRealUserHome } from '../../host-identity';
 import {
   extractCommandBinaryName,
   shouldUseDockerHostStaging,
@@ -124,9 +125,18 @@ export function buildContainerWorkDirMounts(params: ContainerWorkDirMountsParams
 
   // Credential paths are checked first: a hidden path must never be mounted
   // just because a broader tool-directory mount appears to cover it.
-  if (hiddenHostRoots(effectiveHome).some((root) =>
-    isAtOrBelow(workDir, root) || isAtOrBelow(root, workDir)
-  )) {
+  const hiddenRoots = hiddenHostRoots(effectiveHome, getRealUserHome());
+  const isHidden = (candidate: string) => hiddenRoots.some((root) =>
+    isAtOrBelow(candidate, root) || isAtOrBelow(root, candidate));
+  let hidden = isHidden(workDir);
+  if (!hidden) {
+    try {
+      hidden = isHidden(fs.realpathSync(workDir));
+    } catch {
+      // Missing or inaccessible working directories are handled below.
+    }
+  }
+  if (hidden) {
     logger.warn(
       `Container working directory ${workDir} is inside a host path that AWF deliberately hides from ` +
       'the sandbox; it will not be mounted and the agent will start in / instead'

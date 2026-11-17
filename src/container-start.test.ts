@@ -48,7 +48,7 @@ describe('startContainers', () => {
     expect(mockExecaFn).toHaveBeenCalledWith(
       'docker',
       ['compose', 'up', '-d'],
-      expect.objectContaining({ cwd: getDir(), stdout: process.stderr, stderr: 'inherit' })
+      expect.objectContaining({ cwd: getDir(), stdout: process.stderr, stderr: 'pipe' })
     );
   });
 
@@ -61,7 +61,7 @@ describe('startContainers', () => {
     expect(mockExecaFn).toHaveBeenCalledWith(
       'docker',
       ['compose', 'up', '-d'],
-      expect.objectContaining({ cwd: getDir(), stdout: process.stderr, stderr: 'inherit' })
+      expect.objectContaining({ cwd: getDir(), stdout: process.stderr, stderr: 'pipe' })
     );
   });
 
@@ -74,7 +74,7 @@ describe('startContainers', () => {
     expect(mockExecaFn).toHaveBeenCalledWith(
       'docker',
       ['compose', 'up', '-d', '--pull', 'never'],
-      expect.objectContaining({ cwd: getDir(), stdout: process.stderr, stderr: 'inherit' })
+      expect.objectContaining({ cwd: getDir(), stdout: process.stderr, stderr: 'pipe' })
     );
   });
 
@@ -87,7 +87,7 @@ describe('startContainers', () => {
     expect(mockExecaFn).toHaveBeenCalledWith(
       'docker',
       ['compose', 'up', '-d'],
-      expect.objectContaining({ cwd: getDir(), stdout: process.stderr, stderr: 'inherit' })
+      expect.objectContaining({ cwd: getDir(), stdout: process.stderr, stderr: 'pipe' })
     );
   });
 

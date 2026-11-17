@@ -48,7 +48,9 @@ awf --home "$job_home" --allow-domains github.com -- copilot
 AWF uses this path for the agent's `HOME`, allowlisted home-directory mount
 sources, and credential-mask destinations. It does not change the host process's
 `HOME`, copy the runner's caches, credentials, or Copilot history, or mount the
-entire selected directory. Provision required tools in system paths or the
+entire selected directory. The resolved directory must be owned by the invoking
+user (or by root or `SUDO_UID` when running as root) and must not be writable by
+group or other users. Provision required tools in system paths or the
 selected home's allowlisted tool directories. Copilot session state remains
 bound to this run's session directory (`--session-state-dir` /
 `AWF_SESSION_STATE_DIR` when configured). `--home` takes precedence over
