@@ -2465,6 +2465,43 @@ it is returned with HTTP `403` and `"retryable": false` so clients fail fast.
 Only transient OIDC readiness states, such as a token that has not been minted
 yet, use HTTP `503` and `"retryable": true`.
 
+### 12.8 Automatic Selection Is Restricted to Models That Can Serve an Agent
+
+Whenever the proxy chooses a model the caller did not name, it MUST consider
+only models that can be selected automatically. This covers models matched by
+an alias pattern containing `*`, family-version replacement, middle-power
+fallback, provider-scoped `auto`, Copilot `auto` on Responses, and automatic
+recovery. It also governs which aliases are advertised via `/reflect` and
+`models.json`.
+
+A model cannot be selected automatically when the provider's own model list
+for the run says so:
+
+| `automatic_selection_reason` | Evidence |
+|------------------------------|----------|
+| `model_picker_disabled` | The provider reports `model_picker_enabled: false` (Copilot) |
+| `no_agent_endpoint` | The provider lists `supported_endpoints`, and none of them is Chat Completions, Responses, or Messages (for example a Decisions-only or embeddings-only model, or an empty list) |
+
+Absence of evidence is not a reason to exclude a model. A model whose provider
+publishes no picker state and no endpoint list stays selectable, so incomplete
+metadata never empties a catalogue. An empty endpoint list is evidence, not
+absence: it advertises no endpoint. Maintained catalogue data is not used for
+this decision.
+
+The rule never changes an explicit choice. A model ID requested directly, and
+an alias entry written without `*` (for example
+`evals: ["copilot/gpt-6-luna-decisions"]`), resolve as written.
+
+Each `/reflect` `routing_models` entry publishes the decision as
+`automatic_selection_eligible` (boolean), with `automatic_selection_reason`
+present when it is `false`. Clients that resolve aliases themselves before
+calling the proxy SHOULD apply the same decision, so the two resolvers agree.
+
+Without this rule, a wildcard such as `copilot/gpt-6*` can match an evaluation
+model that only serves `/v1/decisions`, and every agent turn then fails before
+producing output
+([github/gh-aw#76961](https://github.com/github/gh-aw/issues/76961)).
+
 ## 13a. Task-Level Model Routing
 
 Task-level model routing is **experimental and opt-in**. To enable it, set
