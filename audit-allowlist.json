@@ -1,0 +1,10 @@
+{
+  "acceptances": [
+    {
+      "advisory": "GHSA-fc5q-39xc-vjpf",
+      "package": "picomatch",
+      "expires": "2026-12-01",
+      "reason": "picomatch is present only through build, packaging, and test dependencies and is not shipped as CLI runtime code. Upstream has no patched release as of 2026-11-17."
+    }
+  ]
+}

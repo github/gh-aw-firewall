@@ -238,11 +238,19 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     expect(lock).not.toContain('lpcox-smoke-pins-v0-28-64');
     expect(lock).not.toContain('--cloud-hypervisor-development-allow-unattested-artifacts');
     expect(source).toContain('both primary and enclave supervisors must come from verified release artifacts');
-    const executor = fs.readFileSync(path.resolve(__dirname,
-      '../../src/cloud-hypervisor/host-enclave-executor.ts'), 'utf8');
-    expect(executor).not.toContain('developmentSupervisor');
-    expect(executor).not.toContain('resolveDevelopmentEnclaveSupervisor');
-    expect(executor).toContain('supervisorPath: this.options.preflight.supervisorPath');
+    const executorModules = [
+      'host-enclave-executor.ts',
+      'host-enclave-filesystem.ts',
+      'host-enclave-public-artifacts.ts',
+      'host-enclave-workload-profile.ts',
+      'host-enclave-stderr.ts',
+    ].map(module => fs.readFileSync(path.resolve(__dirname,
+      '../../src/cloud-hypervisor', module), 'utf8'));
+    for (const moduleSource of executorModules) {
+      expect(moduleSource).not.toContain('developmentSupervisor');
+      expect(moduleSource).not.toContain('resolveDevelopmentEnclaveSupervisor');
+    }
+    expect(executorModules[1]).toContain('supervisorPath: preflight.supervisorPath');
   });
 
   it('only publishes a fixed summary after successful host validation', () => {
