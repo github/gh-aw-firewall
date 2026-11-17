@@ -735,3 +735,56 @@ describe('resolveModel — complex alias trees', () => {
     expect(result.resolvedModel).toBe('gpt-5.2');
   });
 });
+
+// ── automatic selection ────────────────────────────────────────────────────
+
+describe('resolveModel automatic selection', () => {
+  const { replaceRuntimeModels, clearRuntimeModels } = require('./runtime-model-catalog');
+  const { filterResolvableAliases } = require('./model-resolver');
+  const noFallback = { enabled: false };
+  // Copilot catalogue from github/gh-aw#76961, where `auto` chose a Decisions-only model.
+  const models = {
+    copilot: ['claude-haiku-4.5', 'gpt-5.3-codex', 'gpt-5.6-luna-utility', 'gpt-6-luna-decisions', 'text-embedding-3-small'],
+  };
+  const aliases = {
+    'gpt-6': ['copilot/gpt-6*'],
+    'gpt-5': ['copilot/gpt-5*'],
+    large: ['gpt-6', 'gpt-5'],
+    evals: ['copilot/gpt-6-luna-decisions'],
+  };
+
+  beforeEach(() => replaceRuntimeModels('copilot', [
+    { id: 'claude-haiku-4.5', supportedEndpoints: ['/chat/completions', '/v1/messages'] },
+    { id: 'gpt-5.3-codex', supportedEndpoints: ['/responses', 'ws:/responses'] },
+    { id: 'gpt-5.6-luna-utility', supportedEndpoints: ['/responses', 'ws:/responses'], modelPickerEnabled: false },
+    { id: 'gpt-6-luna-decisions', supportedEndpoints: ['/v1/decisions'] },
+    { id: 'text-embedding-3-small', modelPickerEnabled: false },
+  ]));
+  afterEach(() => clearRuntimeModels());
+
+  it('skips wildcard matches the provider marks as unable to serve an agent turn', () => {
+    expect(resolveModel('gpt-5', aliases, models, 'copilot', [], noFallback).resolvedModel).toBe('gpt-5.3-codex');
+    expect(resolveModel('large', aliases, models, 'copilot', [], noFallback).resolvedModel).toBe('gpt-5.3-codex');
+    expect(resolveModel('gpt-6', aliases, models, 'copilot', [], noFallback)).toBeNull();
+    expect(filterResolvableAliases({ 'gpt-6': aliases['gpt-6'] }, models)).toEqual({});
+  });
+
+  it('keeps explicitly requested models and exact alias entries', () => {
+    expect(resolveModel('gpt-6-luna-decisions', aliases, models, 'copilot', [], noFallback).resolvedModel)
+      .toBe('gpt-6-luna-decisions');
+    expect(resolveModel('evals', aliases, models, 'copilot', [], noFallback).resolvedModel)
+      .toBe('gpt-6-luna-decisions');
+  });
+
+  it('keeps models selectable when the provider publishes no metadata for them', () => {
+    clearRuntimeModels();
+    expect(resolveModel('gpt-6', aliases, models, 'copilot', [], noFallback).resolvedModel).toBe('gpt-6-luna-decisions');
+  });
+
+  it('synthesizes middle-power fallbacks only from automatically selectable models', () => {
+    const result = resolveModel('unknown-model', {}, models, 'copilot', [], { enabled: true });
+    expect(result.fallback.activated).toBe(true);
+    expect(result.fallback.candidates.map(candidate => candidate.model).sort())
+      .toEqual(['claude-haiku-4.5', 'gpt-5.3-codex']);
+  });
+});
