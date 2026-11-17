@@ -7,6 +7,7 @@ const advisory = (name: string, id: string) => ({
   name,
   dependency: name,
   url: `https://github.com/advisories/${id}`,
+  severity: 'high',
 });
 
 function report() {
@@ -46,8 +47,16 @@ describe('npm audit acceptance', () => {
           severity: 'high',
           via: [advisory('picomatch', 'GHSA-fc5q-39xc-vjpf')],
         },
+        glob: {
+          severity: 'moderate',
+          via: [{ ...advisory('glob', 'GHSA-moderate'), severity: 'moderate' }],
+        },
+        jest: {
+          severity: 'high',
+          via: ['picomatch', 'glob'],
+        },
       },
-      metadata: { vulnerabilities: { high: 1, critical: 0 } },
+      metadata: { vulnerabilities: { high: 2, critical: 0 } },
     };
     expect(() => enforceNpmAudit(rootReport, rootAcceptances, now)).not.toThrow();
   });

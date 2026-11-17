@@ -68,11 +68,15 @@ export function enforceNpmAudit(report: unknown, config: unknown, now = new Date
     const next = new Set(ancestors).add(name);
     return entry.via.every((via: unknown) => {
       if (typeof via === 'string') {
-        return Object.prototype.hasOwnProperty.call(vulnerabilities, via) && accepted(via, next);
+        const dependency = vulnerabilities[via];
+        return record(dependency) &&
+          (!['high', 'critical'].includes(String(dependency.severity)) || accepted(via, next));
       }
-      return record(via) && typeof via.url === 'string' && typeof via.name === 'string' &&
-        via.dependency === via.name &&
-        acceptedKeys.has(`${via.name}:${via.url.replace('https://github.com/advisories/', '')}`);
+      return record(via) &&
+        (!['high', 'critical'].includes(String(via.severity)) ||
+          (typeof via.url === 'string' && typeof via.name === 'string' &&
+            via.dependency === via.name &&
+            acceptedKeys.has(`${via.name}:${via.url.replace('https://github.com/advisories/', '')}`)));
     });
   }
 
