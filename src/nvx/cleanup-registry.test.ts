@@ -304,5 +304,27 @@ describe('DurableNvxCleanupRegistry', () => {
         code: 'ENOENT',
       });
     });
+
+    it('persists handle mutations and process stages on the same record', async () => {
+      const handle = await registry.createPending(RUN_ID);
+      const record = handle.record;
+      const readRecord = () => store.read(path.join(root, `${RUN_ID}.json`));
+      const updatedAt = '2000-01-01T00:00:00.000Z';
+      record.updatedAt = updatedAt;
+      await handle.prepareAccount(name);
+      expect((await readRecord()).vmmIdentity).toEqual({ state: 'pending', name });
+      expect(record.updatedAt).not.toBe(updatedAt);
+      await handle.captureIdentity({ name, uid: 23001, gid: 23002 });
+      expect((await readRecord()).stages.accountCreated).toBe(true);
+
+      const launcher = await handle.captureProcess('launcher', 4242);
+      expect((await readRecord()).resources.launcher).toEqual(launcher);
+      expect((await readRecord()).stages.processStarted).toBe(true);
+      const openvmm = await handle.captureProcess('openvmm', 4242);
+      expect((await readRecord()).resources.openvmm).toEqual(openvmm);
+      await handle.captureMountNamespace('4026531841');
+      expect((await readRecord()).resources.mountNamespaceInode).toBe('4026531841');
+      expect(handle.record).toBe(record);
+    });
   });
 });
