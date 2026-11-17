@@ -36,6 +36,27 @@ AWF derives the effective home directory at runtime from the host environment (`
 
 This means self-hosted Linux runners with non-standard service-account homes are supported, as long as `$HOME` is set correctly before invoking `awf`.
 
+For Docker/gVisor runners whose home is on **root-squashed NFS**, AWF stages
+allowlisted home tool directories in its local, disposable chroot home instead
+of bind-mounting them from NFS. Credential stores are excluded before copying;
+Docker does not create credential-mask mountpoints in the real home. The runner
+user must be able to read the tool state. No sudo or home ownership changes are
+required, and the runner's `HOME` need not change.
+Allowlisted tool roots must be real directories, not symlinks; symlinks within
+them are preserved without copying their targets.
+
+Use a private `--work-dir` on a **local filesystem outside the NFS home**,
+writable by the runner and accessible to the Docker daemon (the default
+`/tmp/awf-*` normally meets this requirement). Allow enough space for the
+allowlisted tool caches and installations, including any runner tool cache
+under the home directory. Home-state changes in the sandbox
+are discarded at cleanup rather than written back to NFS; configured session
+state and log directories remain separate live mounts. Workspace, tool-cache
+sources outside the home, custom mount, session-state, and log sources must
+still be accessible to Docker; use local workspace/log storage when NFS denies
+Docker access.
+This automatic staging does not apply to ARC/DinD or non-compose runtimes.
+
 Variables from `--env` flags override everything else.
 
 **Proxy variables set automatically:** `HTTP_PROXY`, `HTTPS_PROXY`, and `https_proxy` are always set to point to the Squid proxy (`http://172.30.0.10:3128`). Note that lowercase `http_proxy` is intentionally **not** set — some curl builds on Ubuntu 22.04 ignore uppercase `HTTP_PROXY` for HTTP URLs (httpoxy mitigation), so HTTP traffic falls through to iptables DNAT interception instead. iptables DNAT serves as a defense-in-depth fallback for both HTTP and HTTPS.

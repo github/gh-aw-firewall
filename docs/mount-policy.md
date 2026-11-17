@@ -89,6 +89,15 @@ separately checks its storage against effective agent-visible mounts.
 
 ## How each runtime applies the credential deny list
 
+On Linux compose runners with an NFS home (except ARC/DinD), AWF instead copies
+the allowlisted tool paths into its local chroot home. It excludes entire
+`credentials.entries` paths, forbidden home directories, exposed GitLab
+credential locations, and API-proxy env files before copying, and does not
+follow symlinks or copy sockets/devices/FIFOs. Credential stores are therefore
+absent rather than masked on NFS. The local-storage requirements and snapshot
+semantics are described in [environment.md](environment.md#self-hosted-runner-home-directory-support).
+A runner tool cache under the home is staged too and remains mounted read-only.
+
 The runtime families that read the policy hide credentials with different
 mechanisms, but from the **same list**:
 
