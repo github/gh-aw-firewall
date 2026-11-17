@@ -1,0 +1,22 @@
+{
+  "acceptances": [
+    {
+      "advisory": "GHSA-mh32-jxcr-mh9f",
+      "package": "astro",
+      "expires": "2026-12-01",
+      "reason": "The docs deploy is a static build and does not render runtime dynamic tag names from untrusted input. The patched Astro release is not yet installable from the approved package feed."
+    },
+    {
+      "advisory": "GHSA-r3h5-4585-7x3w",
+      "package": "astro",
+      "expires": "2026-12-01",
+      "reason": "The docs deploy is static and does not use the @astrojs/node image endpoint. The patched Astro release is not yet installable from the approved package feed."
+    },
+    {
+      "advisory": "GHSA-fc5q-39xc-vjpf",
+      "package": "picomatch",
+      "expires": "2026-12-01",
+      "reason": "The deployed docs do not accept user-supplied glob patterns at runtime, and upstream has no patched picomatch release as of 2026-11-17."
+    }
+  ]
+}
