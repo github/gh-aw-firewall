@@ -19,8 +19,8 @@ interface Acceptance {
 
 export function validateAcceptances(value: unknown, now = new Date()): Acceptance[] {
   if (!record(value) || !Array.isArray(value.acceptances) ||
-      value.acceptances.length !== allowed.size) {
-    throw new Error('Invalid docs audit acceptances');
+      value.acceptances.length === 0 || value.acceptances.length > allowed.size) {
+    throw new Error('Invalid npm audit acceptances');
   }
   const seen = new Set<string>();
   const acceptances = value.acceptances.map((entry: unknown) => {
@@ -28,14 +28,14 @@ export function validateAcceptances(value: unknown, now = new Date()): Acceptanc
         typeof entry.package !== 'string' || typeof entry.reason !== 'string' ||
         !entry.reason.trim() || typeof entry.expires !== 'string' ||
         !/^\d{4}-\d{2}-\d{2}$/.test(entry.expires)) {
-      throw new Error('Invalid docs audit acceptance entry');
+      throw new Error('Invalid npm audit acceptance entry');
     }
     const key = `${entry.package}:${entry.advisory}`;
     const expiry = new Date(`${entry.expires}T00:00:00Z`);
     if (!allowed.has(key) || seen.has(key) || !Number.isFinite(expiry.getTime()) ||
         expiry.toISOString().slice(0, 10) !== entry.expires ||
         !Number.isFinite(now.getTime()) || now >= expiry) {
-      throw new Error(`Unsupported, duplicate, expired or invalid docs audit acceptance: ${key}`);
+      throw new Error(`Unsupported, duplicate, expired or invalid npm audit acceptance: ${key}`);
     }
     seen.add(key);
     return entry as unknown as Acceptance;
@@ -43,7 +43,7 @@ export function validateAcceptances(value: unknown, now = new Date()): Acceptanc
   return acceptances;
 }
 
-export function enforceDocsAudit(report: unknown, config: unknown, now = new Date()): void {
+export function enforceNpmAudit(report: unknown, config: unknown, now = new Date()): void {
   const acceptances = validateAcceptances(config, now);
   const acceptedKeys = new Set(acceptances.map((entry) => `${entry.package}:${entry.advisory}`));
   if (!record(report) || report.error || report.auditReportVersion !== 2 ||
@@ -89,7 +89,7 @@ export function enforceDocsAudit(report: unknown, config: unknown, now = new Dat
     }
   }
   if (blocked.length) {
-    throw new Error(`Unaccepted high/critical docs vulnerabilities: ${blocked.join(', ')}`);
+    throw new Error(`Unaccepted high/critical npm vulnerabilities: ${blocked.join(', ')}`);
   }
 }
 
@@ -100,11 +100,11 @@ if (require.main === module) {
     if (reportPath === '--check-allowlist') {
       validateAcceptances(config);
     } else if (reportPath) {
-      enforceDocsAudit(JSON.parse(fs.readFileSync(reportPath, 'utf8')), config);
+      enforceNpmAudit(JSON.parse(fs.readFileSync(reportPath, 'utf8')), config);
     } else {
-      throw new Error('Usage: enforce-docs-audit.ts <audit.json|--check-allowlist> <allowlist.json>');
+      throw new Error('Usage: enforce-npm-audit.ts <audit.json|--check-allowlist> <allowlist.json>');
     }
-    console.log('Docs audit acceptance/enforcement passed');
+    console.log('npm audit acceptance/enforcement passed');
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

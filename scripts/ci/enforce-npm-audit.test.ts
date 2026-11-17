@@ -1,5 +1,6 @@
-import acceptances from '../../docs-site/audit-allowlist.json';
-import { enforceDocsAudit, validateAcceptances } from './enforce-docs-audit';
+import rootAcceptances from '../../audit-allowlist.json';
+import docsAcceptances from '../../docs-site/audit-allowlist.json';
+import { enforceNpmAudit, validateAcceptances } from './enforce-npm-audit';
 
 const now = new Date('2026-11-17T20:00:00Z');
 const advisory = (name: string, id: string) => ({
@@ -29,17 +30,31 @@ function report() {
   };
 }
 
-describe('docs audit acceptance', () => {
+describe('npm audit acceptance', () => {
   it('accepts only the configured advisories and their transitive findings', () => {
-    expect(() => enforceDocsAudit(report(), acceptances, now)).not.toThrow();
+    expect(() => enforceNpmAudit(report(), docsAcceptances, now)).not.toThrow();
     expect(() => validateAcceptances({
-      acceptances: acceptances.acceptances.slice(1),
-    }, now)).toThrow();
+      acceptances: [...rootAcceptances.acceptances, ...rootAcceptances.acceptances],
+    }, now)).toThrow('duplicate');
+  });
+
+  it('supports the narrower root-package acceptance', () => {
+    const rootReport = {
+      auditReportVersion: 2,
+      vulnerabilities: {
+        picomatch: {
+          severity: 'high',
+          via: [advisory('picomatch', 'GHSA-fc5q-39xc-vjpf')],
+        },
+      },
+      metadata: { vulnerabilities: { high: 1, critical: 0 } },
+    };
+    expect(() => enforceNpmAudit(rootReport, rootAcceptances, now)).not.toThrow();
   });
 
   it.each(['high', 'critical'])('rejects unrelated %s findings', (severity) => {
     const audit = report();
-    expect(() => enforceDocsAudit({
+    expect(() => enforceNpmAudit({
       ...audit,
       vulnerabilities: {
         ...audit.vulnerabilities,
@@ -51,28 +66,28 @@ describe('docs audit acceptance', () => {
           critical: Number(severity === 'critical'),
         },
       },
-    }, acceptances, now)).toThrow(`other (${severity})`);
+    }, docsAcceptances, now)).toThrow(`other (${severity})`);
   });
 
   it('fails closed on malformed reports, cycles and inconsistent counts', () => {
-    expect(() => enforceDocsAudit({}, acceptances, now)).toThrow('Invalid npm audit report');
-    expect(() => enforceDocsAudit({
+    expect(() => enforceNpmAudit({}, docsAcceptances, now)).toThrow('Invalid npm audit report');
+    expect(() => enforceNpmAudit({
       ...report(),
       vulnerabilities: { astro: { severity: 'high', via: ['astro'] } },
       metadata: { vulnerabilities: { high: 1, critical: 0 } },
-    }, acceptances, now)).toThrow('Unaccepted');
-    expect(() => enforceDocsAudit({
+    }, docsAcceptances, now)).toThrow('Unaccepted');
+    expect(() => enforceNpmAudit({
       ...report(),
       metadata: { vulnerabilities: { high: 0, critical: 0 } },
-    }, acceptances, now)).toThrow('Inconsistent');
+    }, docsAcceptances, now)).toThrow('Inconsistent');
   });
 
   it('enforces the UTC expiry', () => {
-    expect(() => enforceDocsAudit(
-      report(), acceptances, new Date('2026-11-30T23:59:59Z'),
+    expect(() => enforceNpmAudit(
+      report(), docsAcceptances, new Date('2026-11-30T23:59:59Z'),
     )).not.toThrow();
-    expect(() => enforceDocsAudit(
-      report(), acceptances, new Date('2026-12-01T00:00:00Z'),
+    expect(() => enforceNpmAudit(
+      report(), docsAcceptances, new Date('2026-12-01T00:00:00Z'),
     )).toThrow('expired');
   });
 });
