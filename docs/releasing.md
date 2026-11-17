@@ -240,14 +240,16 @@ failed attestation is an independent trust anchor.
 
 #### Corporate proxies and Sigstore availability
 
-Attested installation requires runner-side HTTPS access (TCP 443) to GitHub
-and the Sigstore public-good services. Allow these hosts through the corporate
-proxy, in addition to the GitHub release/API download hosts:
+Attested installation requires runner-side HTTPS access (TCP 443) to the
+GitHub release download hosts and these verification endpoints:
 
-- `tuf-repo-cdn.sigstore.dev` — TUF trust-root metadata, including `/targets/root.json`
-- `sigstore-tuf-root.storage.googleapis.com` — Sigstore trust-root storage
-- `rekor.sigstore.dev` — transparency log, including `/api/v1/log`
-- `fulcio.sigstore.dev` — certificate authority, including `/api/v1/rootCert`
+- `api.github.com` — release attestations API
+- `tuf-repo.github.com` — GitHub trusted-root metadata
+- `tuf-repo-cdn.sigstore.dev` — Sigstore public-good trusted-root metadata
+
+Fulcio certificates and Rekor inclusion evidence are verified locally from the
+attestation bundle and trusted root; verification does not require direct access
+to the Fulcio or Rekor services or the Sigstore storage origin.
 
 `public good verifier is not available (initialization may have failed)` can
 mean the verifier could not fetch or initialize its public-good trust root.
