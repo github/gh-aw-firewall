@@ -329,6 +329,65 @@ describe('NVX host confinement', () => {
     }));
   });
 
+  it('checks confinement before rechecking threads and process identity in order', async () => {
+    const deps = dependencies({
+      taskListings: [
+        [String(PID), String(PID + 1)],
+        [String(PID), String(PID + 1), String(PID + 2)],
+      ],
+      extraFiles: {
+        [`/proc/${PID}/task/${PID + 1}/status`]: status(PID + 1),
+        [`/proc/${PID}/task/${PID + 2}/status`]: status(PID + 2),
+      },
+      taskStartTime: (taskId, read) => (
+        taskId === PID + 1 && read > 1 ? '33333' : '22222'
+      ),
+    });
+
+    await expect(verifyNvxConfinement(verificationOptions(), deps)).resolves.toEqual(
+      expect.objectContaining({ process: expect.objectContaining({ threadCount: 3 }) }),
+    );
+
+    const checks = Object.entries(deps).flatMap(([operation, dependency]) => {
+      const { mock } = dependency as jest.Mock;
+      return mock.calls.map(([filePath], index) => ({
+        order: mock.invocationCallOrder[index],
+        check: `${operation} ${filePath}`,
+      }));
+    }).sort((left, right) => left.order - right.order).map(({ check }) => check);
+
+    expect(checks).toEqual([
+      'realpath /trusted/openvmm',
+      'stat /trusted/openvmm',
+      `readFile /proc/${PID}/stat`,
+      `readlink /proc/${PID}/exe`,
+      `stat /proc/${PID}/exe`,
+      `readdir /proc/${PID}/task`,
+      `readFile /proc/${PID}/task/${PID}/stat`,
+      `readFile /proc/${PID}/task/${PID}/status`,
+      `readFile /proc/${PID}/task/${PID + 1}/stat`,
+      `readFile /proc/${PID}/task/${PID + 1}/status`,
+      `readFile /proc/${PID}/cgroup`,
+      `readFile ${CGROUP}/cgroup.procs`,
+      `readFile ${CGROUP}/memory.max`,
+      `readFile ${CGROUP}/cpu.max`,
+      `readFile ${CGROUP}/pids.max`,
+      `readlink /proc/${PID}/ns/net`,
+      'stat /run/netns/awfnvx-test',
+      `readlink /proc/${PID}/ns/mnt`,
+      `readdir /proc/${PID}/task`,
+      `readFile /proc/${PID}/task/${PID}/stat`,
+      `readFile /proc/${PID}/task/${PID + 1}/stat`,
+      `readFile /proc/${PID}/task/${PID + 1}/stat`,
+      `readFile /proc/${PID}/task/${PID + 1}/status`,
+      `readFile /proc/${PID}/task/${PID + 2}/stat`,
+      `readFile /proc/${PID}/task/${PID + 2}/status`,
+      `readFile /proc/${PID}/stat`,
+      `readlink /proc/${PID}/exe`,
+      `stat /proc/${PID}/exe`,
+    ]);
+  });
+
   it.each([
     ['executable substitution', {
       executable: '/usr/bin/python3',
@@ -337,6 +396,15 @@ describe('NVX host confinement', () => {
     ['supplementary group retention', {
       status: status(PID, { Groups: '27' }),
     }, /supplementary groups/],
+    ['mismatched UID', {
+      status: status(PID, { Uid: '1000 1000 0 1000' }),
+    }, /unexpected UID/],
+    ['missing GID', {
+      status: status(PID, { Gid: '' }),
+    }, /unexpected GID/],
+    ['malformed UID', {
+      status: status(PID, { Uid: 'invalid' }),
+    }, /NVX UID is malformed/],
     ['missing seccomp', {
       status: status(PID, { Seccomp: '0' }),
     }, /seccomp filter mode 2/],
