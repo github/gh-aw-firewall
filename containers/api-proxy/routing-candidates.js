@@ -41,7 +41,7 @@ function protocolFor(provider, effort, protocols) {
 }
 
 function getModelRoutingChoices(providerModel, provider) {
-  if (!isAutomaticModelEligible(providerModel)) return [];
+  if (providerModel.automaticSelectionEligible === false || !isAutomaticModelEligible(providerModel)) return [];
   if (!Array.isArray(providerModel.protocols)) return [];
   const decision = getModelReasoning(providerModel, provider);
   const efforts = decision.support === 'unsupported' ? [undefined] : decision.selectableEfforts;
