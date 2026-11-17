@@ -12,6 +12,7 @@ const { parseBodyAsObject } = require('./body-utils');
 const { resolveModel } = require('./model-resolver');
 const { compareByVersion, stripRedundantProviderPrefix } = require('./model-utils');
 const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
+const { getAutomaticSelectionBlock } = require('./automatic-selection');
 
 /**
  * Attempt to rewrite the "model" field in a JSON request body using the alias map.
@@ -111,7 +112,7 @@ function rewriteCopilotAutoResponsesModelInBody(body, availableModels, modelReco
   const candidates = [...available]
     .map(id => recordsById.get(id))
     .filter(record => record &&
-      record.modelPickerEnabled !== false &&
+      getAutomaticSelectionBlock(record) === null &&
       /(?:^|[-.])codex(?:$|[-.])/i.test(record.id) &&
       Array.isArray(record.supportedEndpoints) &&
       record.supportedEndpoints.some(endpoint => ['/responses', '/v1/responses', 'responses'].includes(endpoint)) &&

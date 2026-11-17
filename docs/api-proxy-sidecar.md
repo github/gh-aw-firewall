@@ -1048,6 +1048,18 @@ Selected: claude-sonnet-4-5 (median)
 Reason: no_alias_match_and_not_in_available_models
 ```
 
+### Models that can be chosen automatically
+
+Alias patterns containing `*`, family-version replacement, and middle-power
+fallback skip any model that the provider's own model list marks as unable to
+serve an agent: a Copilot model not enabled in the model picker, or a model
+whose `supported_endpoints` include none of Chat Completions, Responses, or
+Messages (for example a Decisions-only evaluation model). Models without that
+metadata stay eligible. A model ID requested directly, or an alias entry
+written without `*`, is never skipped. `/reflect` reports the decision per
+model in `routing_models[].automatic_selection_eligible`. See
+[the configuration spec](awf-config-spec.md#128-automatic-selection-is-restricted-to-models-that-can-serve-an-agent).
+
 ### Extended Alias Syntax
 
 Model aliases now support per-alias fallback control:
@@ -1317,7 +1329,8 @@ curl http://172.30.0.30:10000/reflect
           "supported_endpoints": ["chat_completions", "responses"],
           "supported_reasoning_efforts": ["none", "low", "medium", "high", "xhigh"],
           "context_window_tokens": 1050000,
-          "candidate_metadata_complete": true
+          "candidate_metadata_complete": true,
+          "automatic_selection_eligible": true
         },
         {
           "model_id": "o3",
@@ -1325,7 +1338,8 @@ curl http://172.30.0.30:10000/reflect
           "supported_endpoints": ["responses"],
           "supported_reasoning_efforts": null,
           "context_window_tokens": null,
-          "candidate_metadata_complete": false
+          "candidate_metadata_complete": false,
+          "automatic_selection_eligible": true
         }
       ],
       "models_url": "http://api-proxy:10000/v1/models"
@@ -1380,7 +1394,7 @@ Fields:
 - `configured` — `true` if an API key for this provider was found at startup
 - `models` — list of model IDs fetched from the provider at startup; `null` if the provider is not configured or model fetch failed
 - `model_metadata` — sanitized provider metadata, including pricing and provenance when the provider supplies it; currently Copilot supplies runtime pricing
-- `routing_models` — per-discovered-model endpoint, reasoning-effort, and context metadata used by task routing. `source` identifies provider-supplied or maintained fields; `candidate_metadata_complete: false` means the model cannot be offered as a route. `candidate_metadata_reason` explains known exclusions, such as a Copilot model not enabled in the model picker
+- `routing_models` — per-discovered-model endpoint, reasoning-effort, and context metadata used by task routing. `source` identifies provider-supplied or maintained fields; `candidate_metadata_complete: false` means the model cannot be offered as a route. `candidate_metadata_reason` explains known exclusions, such as a Copilot model not enabled in the model picker. `automatic_selection_eligible: false` means alias wildcards and fallback never choose the model, and `automatic_selection_reason` gives the provider evidence (`model_picker_disabled` or `no_agent_endpoint`); see [the configuration spec](awf-config-spec.md#128-automatic-selection-is-restricted-to-models-that-can-serve-an-agent)
 - `copilot_native_auto` — Copilot-only CLI launch compatibility diagnostic, separate from API-level `automatic_model_selection`; currently `supported: false`. See [native Auto limitations](#copilot-cli-native-auto-routing-not-supported)
 - `model_api_mapping` — maintained endpoint and routing metadata, with source references, for model families where provider `/models` APIs do not publish those limits
 - `models_fetch_complete` — `true` once the startup model-fetch pass has finished
