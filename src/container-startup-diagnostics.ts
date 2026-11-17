@@ -4,6 +4,25 @@ import { logger } from './logger';
 import { parseDomainWithProtocol, isWildcardPattern, wildcardToRegex } from './domain-patterns';
 import { getLocalDockerEnv } from './docker-host';
 import { checkSquidLogs } from './squid-log-reader';
+import { homePreparationError } from './agent-home';
+
+export function credentialMountPreparationError(error: Error): Error | undefined {
+  const seen = new Set<Error>();
+  let current: Error | undefined = error;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const stderr = 'stderr' in current && typeof current.stderr === 'string' ? current.stderr : '';
+    const detail = stderr && !current.message.includes(stderr)
+      ? `${current.message}\n${stderr}` : current.message;
+    if (detail.includes('/dev/null') &&
+        /mount/i.test(detail) &&
+        /permission denied|operation not permitted|read-only file system/i.test(detail)) {
+      return homePreparationError('/dev/null credential overlay', new Error(detail));
+    }
+    current = 'cause' in current && current.cause instanceof Error ? current.cause : undefined;
+  }
+  return undefined;
+}
 
 /**
  * Returns true when the Docker Compose error message indicates that a specific
@@ -198,6 +217,9 @@ export async function handleHealthcheckError(
   proxyLogsDir: string | undefined,
   allowedDomains: string[]
 ): Promise<never> {
+  const credentialError = credentialMountPreparationError(error)
+    ?? credentialMountPreparationError(new Error(errorMsg));
+  if (credentialError) throw credentialError;
   if (errorMsg.includes('is unhealthy') || errorMsg.includes('dependency failed')) {
     const { hasDenials, blockedTargets } = await checkSquidLogs(workDir, proxyLogsDir);
 

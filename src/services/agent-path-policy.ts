@@ -38,7 +38,7 @@ export function recoverHostPaths(environment: Record<string, string>): void {
  * directory inside one is never auto-mounted, so `--container-workdir ~/.ssh`
  * cannot defeat credential hiding.
  */
-export function hiddenHostRoots(effectiveHome: string): string[] {
+export function hiddenHostRoots(effectiveHome: string, runnerHome = effectiveHome): string[] {
   return [
     '/etc',
     '/root',
@@ -46,8 +46,11 @@ export function hiddenHostRoots(effectiveHome: string): string[] {
     '/run',
     '/boot',
     '/var/run',
-    ...HOME_FORBIDDEN_SUBDIRS.map((subdir) => path.posix.join(effectiveHome, subdir)),
-    ...CREDENTIAL_ENTRIES.map((entry) => path.posix.join(effectiveHome, entry.path)),
+    ...[...new Set([effectiveHome, runnerHome])].flatMap((home) => [
+      ...HOME_FORBIDDEN_SUBDIRS.map((subdir) => path.posix.join(home, subdir)),
+      ...CREDENTIAL_ENTRIES.map((entry) => path.posix.join(home, entry.path)),
+      path.posix.join(home, '.copilot/session-state'),
+    ]),
   ];
 }
 

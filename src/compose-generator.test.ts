@@ -55,6 +55,31 @@ describe('generateDockerCompose', () => {
     fs.rmSync(mockConfig.workDir, { recursive: true, force: true });
   });
 
+  it('uses the private home for HOME, tool sources, credential masks, and run-scoped sessions', () => {
+    const home = fs.realpathSync(fs.mkdtempSync(path.join(mockConfig.workDir, 'home-')));
+    fs.mkdirSync(path.join(home, '.config/glab-cli'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.config/glab-cli/config.yml'), '');
+    const compose = generateDockerCompose({
+      ...mockConfig,
+      homeDir: home,
+      envAll: true,
+      additionalEnv: { HOME: '/runner-home-must-not-override' },
+    }, mockNetworkConfig);
+    const agent = compose.services.agent;
+    expect(agent.environment?.HOME).toBe(home);
+    expect(agent.environment?.AWF_CHROOT_IDENTITY_HOME).toBe(home);
+    expect(agent.volumes).toContain(`${mockConfig.workDir}-chroot-home:/host${home}:rw`);
+    expect(agent.volumes).toContain(`${home}/.config:/host${home}/.config:rw`);
+    expect(agent.volumes).toContain(`/dev/null:/host${home}/.config/glab-cli/config.yml:ro`);
+    expect(agent.volumes).toContain(`/dev/null:${home}/.config/glab-cli/config.yml:ro`);
+    expect(agent.volumes).toContain(`${mockConfig.workDir}/agent-session-state:/host${home}/.copilot/session-state:rw`);
+    const hostHome = process.env.HOME;
+    if (hostHome) {
+      expect(agent.volumes).not.toContain(`${hostHome}/.config:/host${hostHome}/.config:rw`);
+      expect(agent.volumes).not.toContain(`${hostHome}/.copilot:/host${hostHome}/.copilot:rw`);
+    }
+  });
+
     it('redacts aggregate OTLP credentials and logs settings in audit snapshots without mutating runtime config', () => {
       const endpoints = JSON.stringify([
         { url: 'https://first-canary.example/v1/traces?ingest=endpoint-canary', headers: 'authorization=Bearer%20first-canary' },

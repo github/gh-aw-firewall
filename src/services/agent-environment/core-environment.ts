@@ -1,10 +1,10 @@
 import { INIT_SIGNAL_DIR, SQUID_PORT } from '../../constants';
-import { getRealUserHome } from '../../host-identity';
+import { resolveAgentHome } from '../../agent-home';
 import { AgentEnvironmentParams } from './types';
 
 export function buildCoreEnvironment(params: AgentEnvironmentParams): Record<string, string> {
   const { config, networkConfig } = params;
-  const homeDir = getRealUserHome();
+  const homeDir = resolveAgentHome(config);
 
   return {
     HTTP_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,

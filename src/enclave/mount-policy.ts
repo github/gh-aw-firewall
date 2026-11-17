@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { etcAllowlist, HOME_TOOL_PATHS, systemDirectories } from '../config/mount-policy';
-import { getRealUserHome } from '../host-identity';
+import { resolveAgentHome } from '../agent-home';
 import type { WrapperConfig } from '../types';
 import { applyHostPathPrefixToVolumes } from '../services/host-path-prefix';
 import { resolveDockerSocketPath } from '../services/agent-volumes/docker-socket';
@@ -155,7 +155,7 @@ function collectAgentVisiblePaths(
   env: NodeJS.ProcessEnv,
   cwd: string,
 ): VisiblePath[] {
-  const home = getRealUserHome();
+  const home = resolveAgentHome(config);
   const workspace = env.GITHUB_WORKSPACE || cwd;
   const visible: VisiblePath[] = [
     { label: 'temporary directory', source: '/tmp' },

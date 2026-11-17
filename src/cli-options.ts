@@ -281,6 +281,10 @@ program
     collectStringArray
   )
   .option(
+    '--home <path>',
+    'Use an existing local job-scoped home instead of the runner home (Compose agents only)'
+  )
+  .option(
     '--container-workdir <dir>',
     'Working directory inside the container'
   )

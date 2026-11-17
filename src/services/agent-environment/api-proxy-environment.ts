@@ -1,5 +1,6 @@
 import { parseValidPortSpecs } from '../../host-iptables-validation';
-import { getRealUserHome, getSafeHostGid, getSafeHostUid, isNativeRootWithoutSudo } from '../../host-identity';
+import { getSafeHostGid, getSafeHostUid, isNativeRootWithoutSudo } from '../../host-identity';
+import { resolveAgentHome } from '../../agent-home';
 import { logger } from '../../logger';
 import { isGcpOidcConfigured } from '../credentials/gcp-oidc-config';
 import { AgentEnvironmentParams } from './types';
@@ -42,7 +43,7 @@ export function buildApiProxyEnvironment(params: ApiProxyEnvironmentParams): voi
   }
 
   environment.AWF_CHROOT_ENABLED = 'true';
-  environment.AWF_WORKDIR = config.containerWorkDir || getRealUserHome();
+  environment.AWF_WORKDIR = config.containerWorkDir || resolveAgentHome(config);
   environment.AWF_USER_UID = getSafeHostUid();
   environment.AWF_USER_GID = getSafeHostGid();
 

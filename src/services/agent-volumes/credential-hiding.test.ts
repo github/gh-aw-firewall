@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { buildCredentialHidingOverlays, pruneUnmountableCredentialOverlays } from './credential-hiding';
@@ -147,6 +147,21 @@ describe('buildCredentialHidingOverlays', () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('ignores dangling GitLab credentials and non-directory parents', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlab-mask-missing-'));
+    try {
+      const config = path.join(root, 'config');
+      fs.mkdirSync(config);
+      fs.symlinkSync(path.join(root, 'missing'), path.join(config, 'config.yml'));
+      expect(() => buildCredentialHidingOverlays(root, [], undefined, { GLAB_CONFIG_DIR: config })).not.toThrow();
+      fs.rmSync(config, { recursive: true });
+      fs.writeFileSync(config, '');
+      expect(() => buildCredentialHidingOverlays(root, [], undefined, { GLAB_CONFIG_DIR: config })).not.toThrow();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('pruneUnmountableCredentialOverlays', () => {
@@ -160,7 +175,42 @@ describe('pruneUnmountableCredentialOverlays', () => {
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
     fs.rmSync(hostDir, { recursive: true, force: true });
+  });
+
+  it.each(['EACCES', 'EPERM', 'EIO'])('fails closed rather than pruning a credential on %s', (code) => {
+    const target = `/host${HOME}/.config/glab-cli/config.yml`;
+    const hostPath = path.join(hostDir, '.config/glab-cli/config.yml');
+    const probe = jest.spyOn(fs, 'statSync').mockImplementation(() => {
+      throw Object.assign(new Error(`${code}: ${hostPath}`), { code });
+    });
+    try {
+      expect(() => pruneUnmountableCredentialOverlays([
+        `${hostDir}:/host${HOME}:rw`,
+        overlay(target),
+      ])).toThrow(hostPath);
+      expect(() => pruneUnmountableCredentialOverlays([
+        `${hostDir}:/host${HOME}:rw`,
+        overlay(target),
+      ])).toThrow(/root-squash.*--home/);
+    } finally {
+      probe.mockRestore();
+    }
+  });
+
+  it.each(['ro', 'rw'])('drops dangling symlinks behind a %s bind', (mode) => {
+    const link = path.join(hostDir, 'credential');
+    fs.symlinkSync(path.join(hostDir, 'missing'), link);
+    const bind = `${hostDir}:/host${HOME}:${mode}`;
+    expect(pruneUnmountableCredentialOverlays([bind, overlay(`/host${HOME}/credential`)])).toEqual([bind]);
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+  });
+
+  it('drops overlays below a non-directory parent', () => {
+    fs.writeFileSync(path.join(hostDir, 'file'), '');
+    const bind = `${hostDir}:/host${HOME}:rw`;
+    expect(pruneUnmountableCredentialOverlays([bind, overlay(`/host${HOME}/file/credential`)])).toEqual([bind]);
   });
 
   it.each([HOME, `/host${HOME}`])(

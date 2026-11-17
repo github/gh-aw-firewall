@@ -16,6 +16,9 @@ export interface VolumeOptions {
    */
   workDir: string;
 
+  /** Local job-scoped home source and agent HOME (Compose agents only). */
+  homeDir?: string;
+
   /**
    * Custom volume mounts to add to the agent execution container
    *

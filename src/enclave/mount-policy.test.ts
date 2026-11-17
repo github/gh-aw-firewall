@@ -43,6 +43,15 @@ describe('enclave private-root mount policy', () => {
     )).not.toThrow();
   });
 
+  it('rejects private state exposed through the selected job home', () => {
+    const home = path.join(testRoot, 'job-home');
+    fs.mkdirSync(home);
+    expect(() => assertEnclavePrivateRootIsolated(
+      { ...config(workDir), homeDir: home },
+      resolveEnclavePaths(workDir, path.join(home, '.config')),
+    )).toThrow(/home tool directory \.config/);
+  });
+
   it('rejects private state under the primary-agent temporary mount', () => {
     expect(() => assertEnclavePrivateRootIsolated(
       config(workDir),

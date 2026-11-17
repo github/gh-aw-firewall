@@ -113,6 +113,16 @@ mechanisms, but from the **same list**:
   those `.config` directories aside when their parent is mounted;
   `.local/state/sandboxes` is instead protected because `.local/state` is never
   mounted.
+  When a workspace, working-directory or explicit bind exposes either the
+  effective home or the sudo-aware runner home, compose also maps these file
+  masks through the exposed bind paths, including aliases. Existing global
+  `.copilot/session-state` directories exposed by such binds are overlaid with
+  the run's session-state directory. The runner's home is not inspected merely
+  because an alternate `--home` was selected. With an alternate `--home`,
+  compose rejects binds exposing forbidden runner-home paths or opaque
+  credential directories, because individual file masks cannot secure them.
+  Compose also rejects binds into a subdirectory of Copilot session history.
+  For example, use a workspace below the runner home rather than the home itself.
 - **Compose (Docker / gVisor)** and the **sbx microVM** replace parents listed in
   `narrowPaths` with their explicit descendants. In particular, they mount
   rootless tool directories under `~/.local` but never `~/.local` or

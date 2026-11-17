@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../../logger';
 import { credentialFilesToHide, gitLabCredentialFiles } from '../../config/mount-policy';
+import { homePreparationError } from '../../agent-home';
 import {
   LocalSourceResolver,
   ParsedMount,
@@ -14,12 +15,13 @@ function existingRealPath(candidate: string): string | undefined {
   try {
     fs.lstatSync(candidate);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-    throw error;
+    if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return undefined;
+    throw homePreparationError(candidate, error);
   }
   try {
     return fs.realpathSync(candidate);
   } catch (error) {
+    if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return undefined;
     throw new Error(`Cannot safely resolve GitLab credential path ${candidate}: ${(error as Error).message}`);
   }
 }
@@ -166,7 +168,13 @@ export function pruneUnmountableCredentialOverlays(
     if (localCoverSource === undefined) return true;
 
     const hostPath = `${localCoverSource}${suffix}`;
-    return fs.existsSync(hostPath);
+    try {
+      fs.statSync(hostPath);
+      return true;
+    } catch (error) {
+      if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return false;
+      throw homePreparationError(hostPath, error);
+    }
   });
 
   const dropped = volumes.length - kept.length;
