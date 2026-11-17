@@ -3,6 +3,7 @@
 const { parseBodyAsObject } = require('./body-utils');
 const { compareByVersion, stripRedundantProviderPrefix } = require('./model-utils');
 const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
+const { isAutomaticModelEligible } = require('./automatic-model-eligibility');
 
 const MODEL_PROVIDERS = Object.freeze({
   anthropic: /^claude[-.]/i,
@@ -71,7 +72,7 @@ function getScopedAutoCandidates(provider, modelProvider, endpoint, models, reco
     typeof record?.id === 'string' &&
     available.has(record.id.toLowerCase()) &&
     family.test(record.id) &&
-    record.modelPickerEnabled !== false &&
+    isAutomaticModelEligible(record) &&
     Array.isArray(record.supportedEndpoints) &&
     record.supportedEndpoints.some(value => normalizeEndpoint(value) === endpoint) &&
     (!requiresCodex || /(?:^|[-.])codex(?:$|[-.])/i.test(record.id)) &&

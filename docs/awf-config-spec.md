@@ -2465,6 +2465,34 @@ it is returned with HTTP `403` and `"retryable": false` so clients fail fast.
 Only transient OIDC readiness states, such as a token that has not been minted
 yet, use HTTP `503` and `"retryable": true`.
 
+### 12.2 Automatic Selection Requires Agent-Eligible Models
+
+Whenever AWF chooses a model the caller did not name, it MUST apply one shared
+provider-metadata eligibility rule using the model catalogue for the run:
+
+- Exclude a Copilot model when `model_picker_enabled` is explicitly `false`.
+- Exclude a model whose advertised `supported_endpoints` list contains none of
+  Chat Completions, Responses, or Messages. An empty list also excludes it.
+  Endpoint names may be bare or use `/` or `/v1/` prefixes;
+  `chat_completions` is also recognized.
+- Missing picker or endpoint metadata does not exclude a model.
+
+This rule applies to alias patterns containing `*` (including nested aliases),
+family-version replacement, middle-power fallback, provider-scoped `auto`,
+Copilot Responses `auto`, and automatic recovery. Existing endpoint, feature,
+model-policy, and harness checks still apply. An alias whose only matches are
+excluded MUST NOT be advertised through `/reflect` or `models.json`.
+
+Direct model IDs and alias entries without `*` are explicit choices and are not
+filtered by this rule. For example, `evals: ["copilot/gpt-6-luna-decisions"]`
+remains resolvable even if that model advertises only `/v1/decisions`.
+
+`/reflect` publishes `routing_models[].automatic_selection_eligible` for every
+discovered model. Clients that choose models before sending a request to AWF,
+including the gh-aw Copilot harness resolving `auto`, MUST consume that decision
+rather than reimplementing this rule. A `true` value is not a guarantee of
+compatibility with a particular request.
+
 ## 13a. Task-Level Model Routing
 
 Task-level model routing is **experimental and opt-in**. To enable it, set

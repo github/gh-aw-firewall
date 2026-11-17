@@ -7,6 +7,7 @@
  */
 
 const { getTierSortedModels } = require('./model-discovery');
+const { isAutomaticModelCandidate } = require('./automatic-model-eligibility');
 
 const DEFAULT_MODEL_FALLBACK = Object.freeze({
   enabled: true,
@@ -70,11 +71,12 @@ function inferModelFamilyPrefix(requestedModel) {
  * @param {object} modelFallbackConfig - Raw fallback config
  * @returns {{ resolvedModel: string, fallback: object } | null}
  */
-function selectMiddlePowerFallback(requestedModel, availableModels, currentProvider, reason, modelFallbackConfig) {
+function selectMiddlePowerFallback(requestedModel, availableModels, currentProvider, reason, modelFallbackConfig, runtimeCatalog) {
   const fallbackConfig = normalizeFallbackConfig(modelFallbackConfig);
   if (!fallbackConfig.enabled || fallbackConfig.strategy !== 'middle_power') return null;
 
-  const providerModels = Array.isArray(availableModels[currentProvider]) ? availableModels[currentProvider] : [];
+  const providerModels = (Array.isArray(availableModels[currentProvider]) ? availableModels[currentProvider] : [])
+    .filter(model => isAutomaticModelCandidate(model, currentProvider, runtimeCatalog));
   if (providerModels.length === 0) return null;
 
   const familyPrefix = inferModelFamilyPrefix(requestedModel);
@@ -113,9 +115,9 @@ function selectMiddlePowerFallback(requestedModel, availableModels, currentProvi
  * @param {string[]} log - Accumulator for resolution log messages (mutated in place)
  * @returns {{ resolvedModel: string, log: string[], fallback: object } | null}
  */
-function tryMiddlePowerFallback(requestedModel, availableModels, currentProvider, reason, fallbackConfig, log) {
+function tryMiddlePowerFallback(requestedModel, availableModels, currentProvider, reason, fallbackConfig, log, runtimeCatalog) {
   const middlePowerFallback = selectMiddlePowerFallback(
-    requestedModel, availableModels, currentProvider, reason, fallbackConfig
+    requestedModel, availableModels, currentProvider, reason, fallbackConfig, runtimeCatalog
   );
   if (middlePowerFallback) {
     log.push(`[model-resolver] middle-power fallback: "${requestedModel}" → "${middlePowerFallback.resolvedModel}"`);

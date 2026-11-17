@@ -139,6 +139,8 @@ test('recovers a concrete unavailable model but leaves valid requests byte-for-b
 
 test.each([
   ['wrong endpoint', { supportedEndpoints: ['/messages'] }, {}],
+  ['utility-only endpoint', { supportedEndpoints: ['/v1/decisions'] }, {}],
+  ['empty endpoint list', { supportedEndpoints: [] }, {}],
   ['effort', { supportedReasoningEfforts: ['low'] }, { reasoning_effort: 'high' }],
   ['tools', { capabilities: { supports: { tool_calls: false } } }, { tools: [{ type: 'function', function: { name: 'check' } }] }],
   ['native custom tools', {}, { tools: [{ type: 'custom', custom: { name: 'check' } }] }],

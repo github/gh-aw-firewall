@@ -27,6 +27,7 @@ const { getReasoningScope } = require('./model-reasoning');
 const { getModelRoutingChoices } = require('./routing-candidates');
 const { reflectScopedAuto } = require('./scoped-auto-model');
 const { projectModelDecisionDiagnostics } = require('./model-decision-diagnostics');
+const { isAutomaticModelEligible } = require('./automatic-model-eligibility');
 
 function filterModelCatalogue(entries, provider, modelPolicy, getModel) {
   if (!Array.isArray(entries) || !modelPolicy ||
@@ -74,6 +75,7 @@ function buildRoutingModelMetadata(provider, modelIds, runtimeRecords, scope) {
     const candidateMetadataComplete = getModelRoutingChoices(normalized, provider).length > 0;
     return {
       model_id: id,
+      automatic_selection_eligible: isAutomaticModelEligible(runtime),
       source: runtimeHasMetadata && hasMaintainedMetadata
         ? 'provider+maintained'
         : (runtimeHasMetadata ? 'provider' : (hasMaintainedMetadata ? 'maintained' : 'incomplete')),

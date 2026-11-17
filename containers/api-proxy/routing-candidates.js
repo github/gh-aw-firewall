@@ -6,6 +6,7 @@ const { stripRedundantProviderPrefix } = require('./model-utils');
 const { createRoutingError } = require('./routing-errors');
 const { isModelEligible } = require('./model-eligibility');
 const { getModelReasoning, pinModelReasoning, assessReasoningEffort } = require('./model-reasoning');
+const { isAutomaticModelEligible } = require('./automatic-model-eligibility');
 
 const PROVIDERS = Object.freeze({
   copilot: Object.freeze({ canonical: 'github-copilot', alias: 'copilot' }),
@@ -40,7 +41,7 @@ function protocolFor(provider, effort, protocols) {
 }
 
 function getModelRoutingChoices(providerModel, provider) {
-  if (provider === 'copilot' && providerModel.modelPickerEnabled === false) return [];
+  if (!isAutomaticModelEligible(providerModel)) return [];
   if (!Array.isArray(providerModel.protocols)) return [];
   const decision = getModelReasoning(providerModel, provider);
   const efforts = decision.support === 'unsupported' ? [undefined] : decision.selectableEfforts;

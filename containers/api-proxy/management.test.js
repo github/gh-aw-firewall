@@ -98,6 +98,7 @@ describe('routing metadata in /reflect', () => {
     expect(buildRoutingModelMetadata('openai', ['gpt-5.4', 'o3'], [])).toEqual([
       {
         model_id: 'gpt-5.4',
+        automatic_selection_eligible: true,
         source: 'maintained',
         supported_endpoints: ['chat_completions', 'responses'],
         supported_reasoning_efforts: ['none', 'low', 'medium', 'high', 'xhigh'],
@@ -106,6 +107,7 @@ describe('routing metadata in /reflect', () => {
       },
       {
         model_id: 'o3',
+        automatic_selection_eligible: true,
         source: 'incomplete',
         supported_endpoints: ['chat_completions', 'responses'],
         supported_reasoning_efforts: null,
@@ -270,6 +272,7 @@ describe('routing metadata in /reflect', () => {
       capabilities: { limits: { max_context_window_tokens: 900_000 } },
     }])).toEqual([{
       model_id: 'claude-opus-5-5',
+      automatic_selection_eligible: true,
       source: 'provider+maintained',
       supported_endpoints: ['/v1/messages'],
       supported_reasoning_efforts: ['low', 'medium', 'high', 'max'],
