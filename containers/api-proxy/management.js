@@ -27,6 +27,7 @@ const { getReasoningScope } = require('./model-reasoning');
 const { getModelRoutingChoices } = require('./routing-candidates');
 const { reflectScopedAuto } = require('./scoped-auto-model');
 const { projectModelDecisionDiagnostics } = require('./model-decision-diagnostics');
+const { getAutomaticSelectionBlock } = require('./automatic-selection');
 
 function filterModelCatalogue(entries, provider, modelPolicy, getModel) {
   if (!Array.isArray(entries) || !modelPolicy ||
@@ -72,6 +73,7 @@ function buildRoutingModelMetadata(provider, modelIds, runtimeRecords, scope) {
         runtime.capabilities.limits.max_context_window_tokens > 0);
     const hasMaintainedMetadata = maintained !== null;
     const candidateMetadataComplete = getModelRoutingChoices(normalized, provider).length > 0;
+    const automaticSelectionBlock = getAutomaticSelectionBlock(runtime);
     return {
       model_id: id,
       source: runtimeHasMetadata && hasMaintainedMetadata
@@ -85,6 +87,8 @@ function buildRoutingModelMetadata(provider, modelIds, runtimeRecords, scope) {
       ...(provider === 'copilot' && runtime?.modelPickerEnabled === false
         ? { candidate_metadata_reason: 'Model is not enabled in the Copilot model picker' }
         : {}),
+      automatic_selection_eligible: automaticSelectionBlock === null,
+      ...(automaticSelectionBlock ? { automatic_selection_reason: automaticSelectionBlock } : {}),
     };
   });
 }
