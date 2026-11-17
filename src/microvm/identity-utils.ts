@@ -17,8 +17,9 @@ export function parsePositiveInteger(value: string, label: string): number {
 }
 
 /**
- * Only ENOENT proves that a process is gone. Permission and I/O errors must
- * propagate so an unreadable live process never authorizes lock reclamation.
+ * ENOENT and ESRCH indicate that a process is gone; ESRCH can occur when a
+ * task is reaped between opening and reading its stat record. Permission,
+ * I/O, and malformed-record errors must propagate to keep reclamation safe.
  */
 export async function readProcessStartTime(
   pid: number,
@@ -28,7 +29,8 @@ export async function readProcessStartTime(
   try {
     return parseProcessStatStartTime(await readFile(`/proc/${pid}/stat`, 'utf8'));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ESRCH') return undefined;
     throw error;
   }
 }
