@@ -2486,7 +2486,9 @@ Absence of evidence is not a reason to exclude a model. A model whose provider
 publishes no picker state and no endpoint list stays selectable, so incomplete
 metadata never empties a catalogue. An empty endpoint list is evidence, not
 absence: it advertises no endpoint. Maintained catalogue data is not used for
-this decision.
+this decision. Endpoint names may be bare or use `/` or `/v1/` prefixes;
+`chat_completions` is also recognized. WebSocket-only endpoints do not qualify
+as an HTTP agent endpoint.
 
 The rule never changes an explicit choice. A model ID requested directly, and
 an alias entry written without `*` (for example
@@ -2494,8 +2496,11 @@ an alias entry written without `*` (for example
 
 Each `/reflect` `routing_models` entry publishes the decision as
 `automatic_selection_eligible` (boolean), with `automatic_selection_reason`
-present when it is `false`. Clients that resolve aliases themselves before
-calling the proxy SHOULD apply the same decision, so the two resolvers agree.
+present when it is `false`. Clients that resolve models before calling the
+proxy, including the gh-aw Copilot harness resolving `auto`, MUST consume this
+decision rather than independently infer eligibility. A `true` value does not
+guarantee compatibility with a particular request; endpoint, capability,
+policy, and harness checks still apply.
 
 Without this rule, a wildcard such as `copilot/gpt-6*` can match an evaluation
 model that only serves `/v1/decisions`, and every agent turn then fails before

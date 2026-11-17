@@ -13,13 +13,7 @@
  */
 
 const { getRuntimeModels } = require('./runtime-model-catalog');
-
-const AGENT_ENDPOINTS = new Set(['chat/completions', 'responses', 'messages']);
-
-function normalizeEndpoint(endpoint) {
-  const path = endpoint.replace(/^ws:/i, '').replace(/^\/?(?:v1\/)?/, '').replace(/\/+$/, '');
-  return path === 'chat_completions' ? 'chat/completions' : path;
-}
+const { isAutomaticModelEligible } = require('./automatic-model-eligibility');
 
 /**
  * Why a provider model record cannot be selected automatically, or null when
@@ -31,12 +25,7 @@ function normalizeEndpoint(endpoint) {
 function getAutomaticSelectionBlock(record) {
   if (!record || typeof record !== 'object') return null;
   if (record.modelPickerEnabled === false) return 'model_picker_disabled';
-  // An empty list advertises no endpoint; only an absent list means unknown.
-  if (Array.isArray(record.supportedEndpoints) && !record.supportedEndpoints.some(endpoint =>
-    typeof endpoint === 'string' && AGENT_ENDPOINTS.has(normalizeEndpoint(endpoint)))) {
-    return 'no_agent_endpoint';
-  }
-  return null;
+  return isAutomaticModelEligible(record) ? null : 'no_agent_endpoint';
 }
 
 /**
