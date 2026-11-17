@@ -3,7 +3,11 @@ import * as path from 'path';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import { parseImageTag } from '../image-tag';
 import type { WrapperConfig } from '../types';
-import { buildEnclaveMcpService, deriveDockerEnclaveRunnerConfig } from './enclave-mcp-service';
+import {
+  buildEnclaveMcpService,
+  deriveDockerEnclaveRunnerConfig,
+  enclaveMcpServiceTestHelpers,
+} from './enclave-mcp-service';
 import { generateDockerCompose } from '../compose-generator';
 import { resolveEnclavePaths } from '../enclave/paths';
 import type { EnclaveRepository, RawEnclaveEntry } from '../types/enclave-options';
@@ -33,6 +37,74 @@ const ghcr = {
 
 describe('buildEnclaveMcpService', () => {
   afterAll(() => fs.rmSync(workDir, { recursive: true, force: true }));
+
+  it('preserves image and path helpers through the original module export', () => {
+    expect(enclaveMcpServiceTestHelpers).toEqual({
+      ENCLAVE_SCRIPT_IMAGE_NAME: 'enclave-script',
+      ENCLAVE_AGENT_IMAGE_NAME: 'enclave-agent',
+      ENCLAVE_MCP_SERVER_IMAGE_NAME: 'enclave-mcp-server',
+      LOCAL_ENCLAVE_SCRIPT_IMAGE: 'awf-enclave-script:local',
+      LOCAL_ENCLAVE_AGENT_IMAGE: 'awf-enclave-agent:local',
+      LOCAL_ENCLAVE_MCP_SERVER_IMAGE: 'awf-enclave-mcp-server:local',
+      resolveAgentImage: expect.any(Function),
+      resolveScriptImage: expect.any(Function),
+      resolveServerImage: expect.any(Function),
+      toDaemonVisiblePath: expect.any(Function),
+    });
+    const pinnedImages = { ...ghcr, resolveImage: (name: string) => `registry.test/${name}@sha256:${'a'.repeat(64)}` };
+    for (const [name, resolve] of [
+      ['enclave-script', enclaveMcpServiceTestHelpers.resolveScriptImage],
+      ['enclave-agent', enclaveMcpServiceTestHelpers.resolveAgentImage],
+    ] as const) {
+      expect(resolve(pinnedImages)).toEqual({
+        imageRef: pinnedImages.resolveImage(name),
+        source: { image: pinnedImages.resolveImage(name) },
+      });
+      expect(resolve(pinnedImages, 'reviewed:test')).toEqual({
+        imageRef: 'reviewed:test', source: { image: 'reviewed:test' },
+      });
+    }
+    expect(enclaveMcpServiceTestHelpers.resolveServerImage(pinnedImages))
+      .toEqual({ image: pinnedImages.resolveImage('enclave-mcp-server') });
+    expect(enclaveMcpServiceTestHelpers.toDaemonVisiblePath('/workspace', '/host')).toBe('/host/workspace');
+  });
+
+  it.each(['docker', 'gvisor'] as const)('retains both executor contributions for %s', (runtime) => {
+    const repos: EnclaveRepository[] = [{ repo: 'octo/private', sensitivity: 'internal' }];
+    const result = buildEnclaveMcpService({
+      config: config({
+        enableApiProxy: true,
+        enclaves: normalizeEnclavesConfig([
+          { script: { maxScriptBytes: 4096 }, runtime, repos, timeout: 12 },
+          { agent: { model: 'trusted-model', maxTaskBytes: 2048 }, runtime, repos, timeout: 24 },
+        ]),
+      }),
+      imageConfig: ghcr,
+      networkConfig: {
+        subnet: '172.30.0.0/24', squidIp: '172.30.0.10', agentIp: '172.30.0.20', proxyIp: '172.30.0.30',
+      },
+    });
+    expect(result.service.depends_on).toEqual({
+      'enclave-script-image': { condition: 'service_completed_successfully' },
+      'enclave-agent-image': { condition: 'service_completed_successfully' },
+      'enclave-agent-api-proxy': { condition: 'service_healthy' },
+    });
+    expect(result.service.environment).toMatchObject({
+      AWF_ENCLAVE_SCRIPT_ENABLED: 'true',
+      AWF_ENCLAVE_AGENT_ENABLED: 'true',
+      AWF_ENCLAVE_BACKEND: runtime,
+      AWF_ENCLAVE_AGENT_BACKEND: runtime,
+      AWF_ENCLAVE_TIMEOUT: '12',
+      AWF_ENCLAVE_AGENT_TIMEOUT: '24',
+      AWF_ENCLAVE_MAX_SCRIPT_BYTES: '4096',
+      AWF_ENCLAVE_AGENT_MAX_PROMPT_BYTES: '2048',
+      AWF_ENCLAVE_IMAGE: 'ghcr.io/github/gh-aw-firewall/enclave-script:v1',
+      AWF_ENCLAVE_AGENT_IMAGE: 'ghcr.io/github/gh-aw-firewall/enclave-agent:v1',
+    });
+    expect(result.scriptImageService).toBeDefined();
+    expect(result.agentImageService).toBeDefined();
+    expect(result.agentApiProxyService).toBeDefined();
+  });
 
   it('builds a gateway-only no-egress server without exposing it to the primary agent', () => {
     const result = buildEnclaveMcpService({ config: config(), imageConfig: ghcr });
