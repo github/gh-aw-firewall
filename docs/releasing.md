@@ -339,7 +339,8 @@ in [github/gh-aw#76902](https://github.com/github/gh-aw/issues/76902).
 An explicit checksum-only `sandbox.agent` mode must require an independently
 reviewed compiler-pinned manifest digest and an explicit version, fail before
 installation if either is absent or mismatched, and skip Sigstore only when
-selected. Attestation must remain the default, with no fallback on failure.
+selected. Attestation must remain the default, with no fallback on failure;
+the checksum-only adoption guidance below applies only when that mode is selected.
 
 The downstream `actions/setup/sh/install_awf_binary.sh` can adopt this contract
 for ordinary CLI installation, including helper-capable releases: keep its
