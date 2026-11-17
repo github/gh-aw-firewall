@@ -94,4 +94,26 @@ describe('NVX deterministic tree copy', () => {
       .rejects.toThrow(/symlink target.*escapes/);
     await expect(fs.lstat(path.join(destination, 'escape'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
+
+  linuxIt('rejects special filesystem entries without copying them', async () => {
+    const socket = (await import('net')).createServer();
+    const sourceSocket = path.join(source, 'socket');
+    await new Promise<void>((resolve, reject) => {
+      socket.once('error', reject);
+      socket.listen(sourceSocket, resolve);
+    });
+    try {
+      await expect(copyDeterministicTree(source, destination, [], [], 0))
+        .rejects.toThrow(/Special filesystem entry is not safe for NVX layer/);
+      await expect(fs.lstat(path.join(destination, 'socket')))
+        .rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        socket.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+    }
+  });
 });
