@@ -59,7 +59,12 @@ function buildToolDirectoryMounts(params: HomeMountsParams): string[] {
     const source = relative !== undefined
       ? path.join(`${config.workDir}-chroot-home`, relative)
       : runnerToolCacheDir;
-    mounts.push(`${source}:/host${runnerToolCacheDir}:ro`);
+    const targets = [runnerToolCacheDir];
+    if (relative !== undefined) {
+      const homeRelativeTarget = path.join(effectiveHome, relative);
+      if (!targets.includes(homeRelativeTarget)) targets.push(homeRelativeTarget);
+    }
+    for (const target of targets) mounts.push(`${source}:/host${target}:ro`);
   }
 
   return mounts;
