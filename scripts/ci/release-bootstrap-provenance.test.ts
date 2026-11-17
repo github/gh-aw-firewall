@@ -79,7 +79,10 @@ printf '%s\\n' "$*" >> "$CASE_DIR/gh.log"
 [[ "$*" == *"--signer-workflow github/gh-aw-firewall/.github/workflows/release.yml"* ]] || exit 54
 [[ "$*" == *"--cert-oidc-issuer https://token.actions.githubusercontent.com"* ]] || exit 55
 [[ "$*" == *"--deny-self-hosted-runners"* ]] || exit 56
-if [ -n "\${FAIL_ATTESTATION:-}" ] && [[ "$3" == *"$FAIL_ATTESTATION"* ]]; then exit 57; fi
+if [ -n "\${FAIL_ATTESTATION:-}" ] && [[ "$3" == *"$FAIL_ATTESTATION"* ]]; then
+  echo "\${ATTESTATION_ERROR:-attestation rejected}" >&2
+  exit 57
+fi
 `,
     curl: `#!/bin/bash
 url=""
@@ -227,6 +230,21 @@ describe('release bootstrap authentication', () => {
     expect(result.status).toBe(0);
     expect(f.log('gh-invocations.log')).toBe('');
     expect(f.log('curl.log')).not.toMatch(/release-identity|enclave-storage-helper|latest/);
+    expect(fs.existsSync(path.join(f.directory, 'installed/awf'))).toBe(true);
+  });
+
+  it.each([false, true])('installs a pinned CLI when Sigstore is blocked (bundle=%s)', bundle => {
+    const f = fixture({ bundle });
+    const digest = hash(fs.readFileSync(path.join(f.assets, 'checksums.txt'), 'utf8'));
+    const result = f.run('installer', {
+      FAIL_ATTESTATION: '.',
+      ATTESTATION_ERROR: 'public good verifier is not available (initialization may have failed)',
+    }, ['--checksums-sha256', digest]);
+    expect(result.status).toBe(0);
+    expect(f.log('gh-invocations.log')).toBe('');
+    expect(f.log('curl.log').trim().split('\n')).toEqual([
+      'checksums.txt', bundle ? 'awf-bundle.js' : 'awf-linux-x64',
+    ]);
     expect(fs.existsSync(path.join(f.directory, 'installed/awf'))).toBe(true);
   });
 
@@ -424,6 +442,41 @@ describe('release bootstrap authentication', () => {
   });
 
   for (const target of ['installer', 'action'] as const) {
+    it(`${target} explains blocked Sigstore trust roots without falling back`, () => {
+      const f = fixture();
+      const message = 'public good verifier is not available (initialization may have failed)';
+      const result = f.run(target, {
+        FAIL_ATTESTATION: 'release-identity.txt',
+        ATTESTATION_ERROR: message,
+      });
+      expect(result.status).not.toBe(0);
+      const output = result.stderr + result.stdout;
+      expect(output).toContain(message);
+      expect(output).toContain('Sigstore public-good trust root could not be fetched');
+      for (const host of [
+        'api.github.com', 'tuf-repo.github.com', 'tuf-repo-cdn.sigstore.dev',
+      ]) expect(output).toContain(host);
+      for (const host of [
+        'sigstore-tuf-root.storage.googleapis.com', 'rekor.sigstore.dev', 'fulcio.sigstore.dev',
+      ]) expect(output).not.toContain(host);
+      expect(f.log('gh.log').trim().split('\n')).toHaveLength(1);
+      expect(f.log('github-path')).toBe('');
+      expect(fs.existsSync(path.join(f.directory, 'installed/awf'))).toBe(false);
+      expect(fs.existsSync(path.join(f.directory, 'awf-bin/awf'))).toBe(false);
+    });
+
+    it(`${target} preserves other attestation errors without blaming the trust root`, () => {
+      const f = fixture();
+      const result = f.run(target, {
+        FAIL_ATTESTATION: 'release-identity.txt',
+        ATTESTATION_ERROR: 'certificate identity mismatch',
+      });
+      expect(result.status).not.toBe(0);
+      const output = result.stderr + result.stdout;
+      expect(output).toContain('certificate identity mismatch');
+      expect(output).not.toContain('trust root could not be fetched');
+    });
+
     it(`${target} requires a trusted, attestation-capable verifier before any download`, () => {
       const f = fixture();
       const result = f.run(target, { GH_NO_SUPPORT: '1' });

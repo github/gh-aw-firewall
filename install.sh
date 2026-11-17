@@ -323,12 +323,19 @@ download_file() {
 # A checksum fetched over the same TLS connection as a payload is not authentication.
 verify_provenance() {
     local asset="$1"
-    if ! gh attestation verify "$asset" \
+    local verification_output
+    if verification_output=$(gh attestation verify "$asset" \
         --hostname github.com \
         --repo "$REPO" \
         --signer-workflow "${REPO}/.github/workflows/release.yml" \
         --cert-oidc-issuer https://token.actions.githubusercontent.com \
-        --deny-self-hosted-runners; then
+        --deny-self-hosted-runners 2>&1); then
+        printf '%s\n' "$verification_output"
+    else
+        printf '%s\n' "$verification_output" >&2
+        if [[ "$verification_output" == *"public good verifier is not available"* ]]; then
+            error "The Sigstore public-good trust root could not be fetched or initialized. Check corporate-proxy HTTPS access to api.github.com, tuf-repo.github.com, and tuf-repo-cdn.sigstore.dev."
+        fi
         error "Release provenance verification failed for $(basename "$asset")"
         error "An attested release and a trusted, authenticated gh CLI are required; legacy unattested releases are not supported"
         exit 1
