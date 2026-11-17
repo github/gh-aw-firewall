@@ -19,8 +19,8 @@
   "status": "fixed",
   "rootCause": "Codex's default nested bubblewrap sandbox cannot run inside the already hardened, zero-capability enclave, so its shell tool fails while the CLI still exits 0. The fix makes AWF the sole owner of the execution policy: the shared provider environment sets AWF_ENCLAVE_AGENT_CODEX_BYPASS_APPROVALS=true for Docker, gVisor and Cloud Hypervisor, and the entrypoint then runs codex exec with --dangerously-bypass-approvals-and-sandbox. Task text, request fields and ambient environment cannot select or override it.",
   "probe": {
-    "command": "jq '{failure: .session.failure, lastEvent: .session.lastEvent}' path/to/protected/diagnostics.json",
-    "expect": "A Codex enclave failure with category result-empty after an engine-result event with exitCode 0 matches this finding. The projection never contains raw engine output or bwrap text, so a historical failure without the projection is unknown, not confirmed.",
+    "command": "jq '{failure: .session.failure, engineResults: [.session.events[]? | select(.event == \"engine-result\") | {event, exitCode}], dropped: .session.dropped}' path/to/protected/diagnostics.json",
+    "expect": "For a Codex enclave, an observed engine-result with exitCode 0 and a result-empty failure is consistent with this failure mode, but also occurs for other missing-output failures; it does not establish a nested-bubblewrap cause or successful inference. Corroborate the affected launch's missing trusted external-sandbox opt-in before selecting this finding. Missing engine-result evidence, including events dropped by the retention limit, leaves the engine outcome unknown. The projection contains only allowlisted metadata, never raw engine output or bwrap text.",
     "readOnly": true,
     "secretSafe": true
   },
