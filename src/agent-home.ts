@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { runtimeUsesComposeAgent } from './container-runtime';
+import { CREDENTIAL_ENTRIES, HOME_FORBIDDEN_SUBDIRS } from './config/mount-policy';
 import { getRealUserHome } from './host-identity';
 import { WrapperConfig } from './types';
 
@@ -8,6 +9,27 @@ type AgentHomeConfig = Pick<WrapperConfig, 'homeDir' | 'containerRuntime' | 'run
 
 function hasUnsafePathCharacters(value: string): boolean {
   return [':', '\r', '\n', '\0'].some(character => value.includes(character));
+}
+
+function rejectUnmaskableCredentialDirectories(home: string): void {
+  const unmaskable = new Set([
+    ...HOME_FORBIDDEN_SUBDIRS,
+    ...CREDENTIAL_ENTRIES.filter((entry) => entry.type === 'dir' && !entry.files?.length)
+      .map((entry) => entry.path),
+  ]);
+  for (const relative of unmaskable) {
+    const credentialPath = path.join(home, relative);
+    try {
+      fs.lstatSync(credentialPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw homePreparationError(credentialPath, error);
+    }
+    throw new Error(
+      `Refusing to use --home containing an unmaskable credential directory: ${credentialPath}. ` +
+      'Use a fresh job-scoped directory without existing credentials.',
+    );
+  }
 }
 
 export function resolveAgentHome(config: AgentHomeConfig): string {
@@ -56,6 +78,7 @@ export function resolveAgentHome(config: AgentHomeConfig): string {
   if (config.chrootIdentity?.home && config.chrootIdentity.home !== resolved) {
     throw new Error('--home must match chroot.identity.home when both are configured');
   }
+  rejectUnmaskableCredentialDirectories(resolved);
   return resolved;
 }
 

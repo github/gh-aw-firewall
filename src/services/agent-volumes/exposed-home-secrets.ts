@@ -60,7 +60,9 @@ export function buildExposedHomeSecretOverlays(
         (bind.reference === undefined ? undefined : relativeWithin(home, bind.reference));
       if (suffix === undefined) continue;
       let candidate = bind.canonical;
-      for (const part of suffix.split(path.sep).filter(Boolean)) candidate = path.dirname(candidate);
+      for (let remaining = suffix.split(path.sep).filter(Boolean).length; remaining > 0; remaining -= 1) {
+        candidate = path.dirname(candidate);
+      }
       if (path.resolve(candidate, suffix) === bind.canonical) homeRoots.add(candidate);
     }
 

@@ -65,6 +65,15 @@ describe('agent home override', () => {
     expect(resolveAgentHome({ homeDir: home })).toBe(fs.realpathSync(home));
   });
 
+  it.each(['.ssh', '.gnupg', '.aws', '.config/op', '.config/heroku', '.local/state/sandboxes'])(
+    'rejects an existing unmaskable credential directory %s',
+    (relative) => {
+      fs.mkdirSync(path.join(home, relative), { recursive: true });
+      expect(() => resolveAgentHome({ homeDir: home }))
+        .toThrow('unmaskable credential directory');
+    },
+  );
+
   it.each([
     { effectiveUid: 1001, sudoUid: '2001', owner: 1001, accepted: true },
     { effectiveUid: 1001, sudoUid: '2001', owner: 2001, accepted: false },

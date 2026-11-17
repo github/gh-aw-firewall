@@ -17,6 +17,7 @@ import { logger } from './logger';
 import { startContainers, runAgentCommand } from './container-lifecycle';
 
 jest.mock('./container-startup-diagnostics', () => ({
+  credentialMountPreparationError: jest.fn().mockReturnValue(undefined),
   didContainerFailStartup: jest.fn().mockResolvedValue(false),
   handleHealthcheckError: jest.fn().mockResolvedValue(undefined),
   logContainerLogsToStderr: jest.fn().mockResolvedValue(undefined),

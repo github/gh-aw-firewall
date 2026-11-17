@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { prepareChrootHomeMounts } from './chroot-home-setup';
 import { preserveIptablesAudit } from './artifact-preservation';
-import { getRealUserHome } from './host-env';
+import { getRealUserHome } from './host-identity';
 import { logger } from './logger';
 import { baseConfig, useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
 import { mockExecaSync } from './test-helpers/mock-execa.test-utils';
@@ -11,6 +11,8 @@ import { mockExecaSync } from './test-helpers/mock-execa.test-utils';
 jest.mock('fs', () => require('./test-helpers/fs-mock-factory.test-utils').fsMockFactory());
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('./host-identity', () => require('./test-helpers/fs-mock-factory.test-utils').hostIdentityMockFactory());
 jest.mock('./host-env', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { hostEnvMockFactory } = require('./test-helpers/fs-mock-factory.test-utils');
