@@ -157,19 +157,24 @@ export class Cleanup {
   }
 
   /**
-   * Remove temporary work directories (/tmp/awf-*)
+   * Remove temporary work directories (/tmp/awf-* and /tmp/gh-aw)
    */
   async removeWorkDirectories(): Promise<void> {
     this.log('Removing temporary work directories...');
 
     const pattern = '/tmp/awf-*';
-    const dirs = glob.sync(pattern);
+    const dirs = [...glob.sync(pattern), '/tmp/gh-aw'];
 
     for (const dir of dirs) {
       try {
         await fs.rm(dir, { recursive: true, force: true });
       } catch (error) {
-        // Ignore errors
+        if (dir !== '/tmp/gh-aw') continue;
+        try {
+          await execa('sudo', ['-n', 'rm', '-rf', '--', dir]);
+        } catch {
+          // The subsequent AWF invocation reports the blocking owner and path.
+        }
       }
     }
   }

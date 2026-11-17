@@ -3,6 +3,13 @@ import * as path from 'path';
 import execa from 'execa';
 import type { MicrovmNetworkPlan } from '../microvm/network';
 import {
+  exists,
+  validatePendingAccountGroup,
+  validatePendingAccountPasswd,
+} from './cleanup-account-validation';
+import { bridgeForwardRule, requireNetwork, sameInterface } from './cleanup-network-state';
+import { captureProcessIdentity, sameProcess } from './cleanup-process-identity';
+import {
   NVX_CLEANUP_SCHEMA_VERSION,
   type NvxCleanupDeviceAclIdentity,
   type NvxCleanupFileIdentity,
@@ -160,109 +167,154 @@ export class DurableNvxCleanupRegistry implements NvxCleanupRegistry {
     record: NvxCleanupRecord,
     ipPath: string,
   ): NvxCleanupHandle {
-    const update = async (): Promise<void> => {
-      record.updatedAt = new Date().toISOString();
-      await this.dependencies.store.update(record);
-    };
     return {
       record,
-      captureArtifactSnapshot: async (directory) => {
-        if (path.resolve(directory) !== layout.artifactSnapshotDirectory) {
-          throw new Error('NVX artifact snapshot is outside the run layout');
-        }
-        record.resources.artifactSnapshot = await this.captureFile(directory);
-        record.stages.artifactSnapshotCreated = true;
-        await update();
-      },
-      prepareAccount: async (name) => {
-        if (record.vmmIdentity) throw new Error('NVX cleanup account is already prepared');
-        record.vmmIdentity = { state: 'pending', name };
-        await update();
-      },
-      captureIdentity: async (identity) => {
-        if (record.vmmIdentity?.state !== 'pending' || record.vmmIdentity.name !== identity.name) {
-          throw new Error('NVX cleanup account does not match its pending identity');
-        }
-        record.vmmIdentity = { state: 'live', ...identity };
-        record.stages.accountCreated = true;
-        await update();
-      },
-      prepareDeviceAcl: async (identity) => {
-        if (!record.resources.deviceAcls.some(({ path: aclPath }) => aclPath === identity.path)) {
-          record.resources.deviceAcls.push(identity);
-        }
-        record.stages.deviceAclsGranted = record.resources.deviceAcls.length > 0;
-        await update();
-      },
-      releaseDeviceAcl: async (identity) => {
-        const index = record.resources.deviceAcls.findIndex(({ path: aclPath }) =>
-          aclPath === identity.path);
-        if (index >= 0) record.resources.deviceAcls.splice(index, 1);
-        record.stages.deviceAclsGranted = record.resources.deviceAcls.length > 0;
-        await update();
-      },
-      captureNetworkPlan: async (plan) => {
-        if (plan.runId !== record.runId || plan.namespaceName !== layout.networkNamespace) {
-          throw new Error('NVX cleanup network plan is not bound to the run');
-        }
-        record.network = {
-          resourceToken: plan.resourceToken,
-          namespaceName: plan.namespaceName,
-          netnsPath: plan.netnsPath,
-          hostVethName: plan.hostVethName,
-          namespaceVethName: plan.namespaceVethName,
-          tapName: plan.tapName,
-          infrastructureBridge: plan.infrastructureBridge,
-          hostForwardRuleComment: plan.hostForwardRuleComment,
-        };
-        if (plan.reservationPath) {
-          record.resources.networkReservation = await this.captureFile(plan.reservationPath);
-        }
-        await update();
-      },
-      captureNetworkResource: async (resource) => {
-        const network = requireNetwork(record);
-        if (resource === 'netns') {
-          record.resources.networkNamespace = await this.captureFile(network.netnsPath);
-          record.stages.networkCreated = true;
-        } else {
-          const identity = await this.captureInterface(
-            network[resource === 'hostVeth'
-              ? 'hostVethName'
-              : resource === 'namespaceVeth'
-                ? 'namespaceVethName'
-                : 'tapName'],
-            resource === 'hostVeth' ? undefined : network.namespaceName,
-            ipPath,
-          );
-          record.resources[resource] = identity;
-        }
-        await update();
-      },
-      captureRunDirectory: async () => {
-        record.resources.runDirectory = await this.captureFile(layout.runDirectory);
-        record.stages.runDirectoryCreated = true;
-        await update();
-      },
-      captureCgroup: async () => {
-        record.resources.cgroup = await this.captureFile(layout.cgroupPath);
-        record.stages.cgroupCreated = true;
-        await update();
-      },
-      captureProcess: async (kind, pid) => {
-        const identity = await captureProcessIdentity(pid, this.dependencies);
-        record.resources[kind] = identity;
-        if (kind === 'launcher') record.stages.processStarted = true;
-        await update();
-        return identity;
-      },
-      captureMountNamespace: async (inode) => {
-        if (!/^\d+$/.test(inode)) throw new Error('NVX mount namespace inode is invalid');
-        record.resources.mountNamespaceInode = inode;
-        await update();
-      },
+      captureArtifactSnapshot: (directory) => this.captureArtifactSnapshot(record, layout, directory),
+      prepareAccount: (name) => this.prepareAccount(record, name),
+      captureIdentity: (identity) => this.captureIdentity(record, identity),
+      prepareDeviceAcl: (identity) => this.prepareDeviceAcl(record, identity),
+      releaseDeviceAcl: (identity) => this.releaseDeviceAcl(record, identity),
+      captureNetworkPlan: (plan) => this.captureNetworkPlan(record, layout, plan),
+      captureNetworkResource: (resource) => this.captureNetworkResource(record, resource, ipPath),
+      captureRunDirectory: () => this.captureRunDirectory(record, layout),
+      captureCgroup: () => this.captureCgroup(record, layout),
+      captureProcess: (kind, pid) => this.captureProcess(record, kind, pid),
+      captureMountNamespace: (inode) => this.captureMountNamespace(record, inode),
       complete: () => this.dependencies.store.remove(record.runId),
     };
+  }
+
+  private async updateRecord(record: NvxCleanupRecord): Promise<void> {
+    record.updatedAt = new Date().toISOString();
+    await this.dependencies.store.update(record);
+  }
+
+  private async captureArtifactSnapshot(
+    record: NvxCleanupRecord,
+    layout: NvxRunLayout,
+    directory: string,
+  ): Promise<void> {
+    if (path.resolve(directory) !== layout.artifactSnapshotDirectory) {
+      throw new Error('NVX artifact snapshot is outside the run layout');
+    }
+    record.resources.artifactSnapshot = await this.captureFile(directory);
+    record.stages.artifactSnapshotCreated = true;
+    await this.updateRecord(record);
+  }
+
+  private async prepareAccount(record: NvxCleanupRecord, name: string): Promise<void> {
+    if (record.vmmIdentity) throw new Error('NVX cleanup account is already prepared');
+    record.vmmIdentity = { state: 'pending', name };
+    await this.updateRecord(record);
+  }
+
+  private async captureIdentity(record: NvxCleanupRecord, identity: NvxVmmIdentity): Promise<void> {
+    if (record.vmmIdentity?.state !== 'pending' || record.vmmIdentity.name !== identity.name) {
+      throw new Error('NVX cleanup account does not match its pending identity');
+    }
+    record.vmmIdentity = { state: 'live', ...identity };
+    record.stages.accountCreated = true;
+    await this.updateRecord(record);
+  }
+
+  private async prepareDeviceAcl(
+    record: NvxCleanupRecord,
+    identity: NvxCleanupDeviceAclIdentity,
+  ): Promise<void> {
+    if (!record.resources.deviceAcls.some(({ path: aclPath }) => aclPath === identity.path)) {
+      record.resources.deviceAcls.push(identity);
+    }
+    record.stages.deviceAclsGranted = record.resources.deviceAcls.length > 0;
+    await this.updateRecord(record);
+  }
+
+  private async releaseDeviceAcl(
+    record: NvxCleanupRecord,
+    identity: NvxCleanupDeviceAclIdentity,
+  ): Promise<void> {
+    const index = record.resources.deviceAcls.findIndex(({ path: aclPath }) =>
+      aclPath === identity.path);
+    if (index >= 0) record.resources.deviceAcls.splice(index, 1);
+    record.stages.deviceAclsGranted = record.resources.deviceAcls.length > 0;
+    await this.updateRecord(record);
+  }
+
+  private async captureNetworkPlan(
+    record: NvxCleanupRecord,
+    layout: NvxRunLayout,
+    plan: MicrovmNetworkPlan,
+  ): Promise<void> {
+    if (plan.runId !== record.runId || plan.namespaceName !== layout.networkNamespace) {
+      throw new Error('NVX cleanup network plan is not bound to the run');
+    }
+    record.network = {
+      resourceToken: plan.resourceToken,
+      namespaceName: plan.namespaceName,
+      netnsPath: plan.netnsPath,
+      hostVethName: plan.hostVethName,
+      namespaceVethName: plan.namespaceVethName,
+      tapName: plan.tapName,
+      infrastructureBridge: plan.infrastructureBridge,
+      hostForwardRuleComment: plan.hostForwardRuleComment,
+    };
+    if (plan.reservationPath) {
+      record.resources.networkReservation = await this.captureFile(plan.reservationPath);
+    }
+    await this.updateRecord(record);
+  }
+
+  private async captureNetworkResource(
+    record: NvxCleanupRecord,
+    resource: 'netns' | 'hostVeth' | 'namespaceVeth' | 'tap',
+    ipPath: string,
+  ): Promise<void> {
+    const network = requireNetwork(record);
+    if (resource === 'netns') {
+      record.resources.networkNamespace = await this.captureFile(network.netnsPath);
+      record.stages.networkCreated = true;
+    } else {
+      const identity = await this.captureInterface(
+        network[resource === 'hostVeth'
+          ? 'hostVethName'
+          : resource === 'namespaceVeth'
+            ? 'namespaceVethName'
+            : 'tapName'],
+        resource === 'hostVeth' ? undefined : network.namespaceName,
+        ipPath,
+      );
+      record.resources[resource] = identity;
+    }
+    await this.updateRecord(record);
+  }
+
+  private async captureRunDirectory(record: NvxCleanupRecord, layout: NvxRunLayout): Promise<void> {
+    record.resources.runDirectory = await this.captureFile(layout.runDirectory);
+    record.stages.runDirectoryCreated = true;
+    await this.updateRecord(record);
+  }
+
+  private async captureCgroup(record: NvxCleanupRecord, layout: NvxRunLayout): Promise<void> {
+    record.resources.cgroup = await this.captureFile(layout.cgroupPath);
+    record.stages.cgroupCreated = true;
+    await this.updateRecord(record);
+  }
+
+  private async captureProcess(
+    record: NvxCleanupRecord,
+    kind: 'launcher' | 'openvmm',
+    pid: number,
+  ): Promise<NvxCleanupProcessIdentity> {
+    const identity = await captureProcessIdentity(pid, this.dependencies);
+    record.resources[kind] = identity;
+    if (kind === 'launcher') record.stages.processStarted = true;
+    await this.updateRecord(record);
+    return identity;
+  }
+
+  private async captureMountNamespace(record: NvxCleanupRecord, inode: string): Promise<void> {
+    if (!/^\d+$/.test(inode)) throw new Error('NVX mount namespace inode is invalid');
+    record.resources.mountNamespaceInode = inode;
+    await this.updateRecord(record);
   }
 
   private async cleanupRecord(record: NvxCleanupRecord, tools: NvxCleanupToolPaths): Promise<void> {
@@ -504,132 +556,6 @@ export class DurableNvxCleanupRegistry implements NvxCleanupRegistry {
     if (result.exitCode !== 0) {
       throw new Error(`${command} ${args.join(' ')} failed: ${result.stderr || result.stdout}`);
     }
-  }
-}
-
-async function captureProcessIdentity(
-  pid: number,
-  dependencies: Pick<NvxCleanupRegistryDependencies, 'readFile' | 'readlink' | 'stat'> = {
-    readFile: fs.readFile,
-    readlink: fs.readlink,
-    stat: fs.stat,
-  },
-): Promise<NvxCleanupProcessIdentity> {
-  if (!Number.isSafeInteger(pid) || pid <= 1) throw new Error(`Unsafe NVX process id: ${pid}`);
-  const statText = await dependencies.readFile(`/proc/${pid}/stat`, 'utf8');
-  const fields = statText.slice(statText.lastIndexOf(')') + 2).trim().split(/\s+/);
-  const status = await dependencies.readFile(`/proc/${pid}/status`, 'utf8');
-  const executableLink = `/proc/${pid}/exe`;
-  const executableStat = await dependencies.stat(executableLink, { bigint: true });
-  return {
-    pid,
-    startTimeTicks: fields[19],
-    executable: (await dependencies.readlink(executableLink)).replace(/ \(deleted\)$/, ''),
-    executableDevice: executableStat.dev.toString(),
-    executableInode: executableStat.ino.toString(),
-    uid: parseStatusIdentity(status, 'Uid'),
-    gid: parseStatusIdentity(status, 'Gid'),
-    networkNamespace: await dependencies.readlink(`/proc/${pid}/ns/net`),
-  };
-}
-
-function parseStatusIdentity(status: string, field: 'Uid' | 'Gid'): number {
-  const values = status.split(/\r?\n/)
-    .find((line) => line.startsWith(`${field}:`))
-    ?.slice(field.length + 1).trim().split(/\s+/);
-  if (!values || values.length !== 4 || values.some((value) => value !== values[0])) {
-    throw new Error(`NVX process ${field} identities are unstable`);
-  }
-  return Number(values[0]);
-}
-
-function sameProcess(
-  left: NvxCleanupProcessIdentity,
-  right: NvxCleanupProcessIdentity,
-): boolean {
-  return left.pid === right.pid &&
-    left.startTimeTicks === right.startTimeTicks &&
-    left.executable === right.executable &&
-    left.executableDevice === right.executableDevice &&
-    left.executableInode === right.executableInode &&
-    left.uid === right.uid &&
-    left.gid === right.gid &&
-    left.networkNamespace === right.networkNamespace;
-}
-
-function sameInterface(
-  current: NvxCleanupInterfaceIdentity,
-  expected: NvxCleanupInterfaceIdentity | undefined,
-): boolean {
-  return expected !== undefined &&
-    current.name === expected.name &&
-    current.namespace === expected.namespace &&
-    current.ifindex === expected.ifindex;
-}
-
-function requireNetwork(record: NvxCleanupRecord): NonNullable<NvxCleanupRecord['network']> {
-  if (!record.network) throw new Error('NVX cleanup network plan is not committed');
-  return record.network;
-}
-
-function bridgeForwardRule(
-  operation: '-C' | '-D',
-  bridge: string,
-  comment: string,
-): string[] {
-  return [
-    '-t', 'filter', operation, 'DOCKER-USER',
-    '-i', bridge, '-o', bridge,
-    '-m', 'comment', '--comment', comment,
-    '-j', 'ACCEPT',
-  ];
-}
-
-function validatePendingAccountPasswd(
-  contents: string,
-  name: string,
-  runId: string,
-): { uid: number; gid: number } {
-  const fields = contents.trim().split(':');
-  if (
-    fields.length !== 7 ||
-    fields[0] !== name ||
-    !/^\d+$/.test(fields[2]) ||
-    !/^\d+$/.test(fields[3]) ||
-    fields[4] !== `AWF NVX ${runId}` ||
-    fields[5] !== '/nonexistent' ||
-    fields[6] !== '/usr/sbin/nologin'
-  ) {
-    throw new Error(`Refusing to remove unverified pending NVX account ${name}`);
-  }
-  return { uid: Number(fields[2]), gid: Number(fields[3]) };
-}
-
-function validatePendingAccountGroup(
-  contents: string,
-  name: string,
-  expectedGid: number | undefined,
-): void {
-  const fields = contents.trim().split(':');
-  if (
-    fields.length !== 4 ||
-    fields[0] !== name ||
-    !/^\d+$/.test(fields[2]) ||
-    fields[3] !== '' ||
-    expectedGid === undefined ||
-    Number(fields[2]) !== expectedGid
-  ) {
-    throw new Error(`Refusing to remove unverified pending NVX group ${name}`);
-  }
-}
-
-async function exists(filePath: string, lstat: typeof fs.lstat): Promise<boolean> {
-  try {
-    await lstat(filePath);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
-    throw error;
   }
 }
 

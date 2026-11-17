@@ -7,6 +7,8 @@ import {
   type NvxCleanupToolPaths,
 } from './cleanup-registry';
 import { NvxCleanupStore, type NvxCleanupStoreDependencies } from './cleanup-store';
+import type { MicrovmNetworkPlan } from '../microvm/network';
+import { createNvxRunLayout } from './run-layout';
 
 const RUN_ID = 'c'.repeat(32);
 const tools: NvxCleanupToolPaths = {
@@ -26,16 +28,27 @@ describe('DurableNvxCleanupRegistry', () => {
   let registry: DurableNvxCleanupRegistry;
   let store: NvxCleanupStore;
   let withDeviceAclLock: jest.Mock;
+  let capturedFiles: Map<string, { device: number; inode: number }>;
 
   beforeEach(async () => {
     root = path.join(process.cwd(), `.nvx-cleanup-test-${process.pid}-${Date.now()}`);
     ownerAlive = true;
+    capturedFiles = new Map();
     const lstat: typeof fs.lstat = (async (filePath: PathLike, options?: unknown) => {
       if (String(filePath) === '/dev/kvm') {
         return {
           dev: (options as { bigint?: boolean } | undefined)?.bigint ? 8n : 8,
           ino: (options as { bigint?: boolean } | undefined)?.bigint ? 10n : 10,
           uid: (options as { bigint?: boolean } | undefined)?.bigint ? 0n : 0,
+        } as never;
+      }
+      const capturedFile = capturedFiles.get(String(filePath));
+      if (capturedFile) {
+        const bigint = (options as { bigint?: boolean } | undefined)?.bigint;
+        return {
+          dev: bigint ? BigInt(capturedFile.device) : capturedFile.device,
+          ino: bigint ? BigInt(capturedFile.inode) : capturedFile.inode,
+          uid: bigint ? 0n : 0,
         } as never;
       }
       const value = await fs.lstat(filePath, options as never);
@@ -289,6 +302,128 @@ describe('DurableNvxCleanupRegistry', () => {
       await expect(handle.captureNetworkResource('netns')).rejects.toThrow();
     });
 
+    it('persists the network plan and all captured network resources', async () => {
+      const ipPath = '/custom/sbin/ip';
+      const handle = await registry.createPending(RUN_ID, ipPath);
+      const layout = createNvxRunLayout(RUN_ID);
+      const resourceToken = 'e'.repeat(12);
+      const reservationPath =
+        `/run/awf-microvm-network/reservations/${resourceToken}.json`;
+      const plan: MicrovmNetworkPlan = {
+        runId: RUN_ID,
+        resourceToken,
+        reservationPath,
+        namespaceName: layout.networkNamespace,
+        netnsPath: `/var/run/netns/${layout.networkNamespace}`,
+        nftTableName: `awf_${RUN_ID}`,
+        hostForwardRuleComment: `awf-microvm-${resourceToken}`,
+        infrastructureBridge: 'awfbr0',
+        hostVethName: 'awf-host0',
+        namespaceVethName: 'awf-ns0',
+        tapName: 'awf-tap0',
+        infrastructureIp: '10.200.0.1',
+        infrastructureCidr: '10.200.0.0/24',
+        hostGatewayIp: '10.200.0.1',
+        guestSubnet: '192.168.100.0/24',
+        guestIp: '192.168.100.2',
+        guestGatewayIp: '192.168.100.1',
+        guestPrefixLength: 24,
+        guestMac: '02:00:00:00:00:01',
+        tapOwnerUid: 0,
+        tapOwnerGid: 0,
+        tapVnetHdr: false,
+        allowedEndpoints: [],
+        networkInterface: { iface_id: 'eth0', host_dev_name: 'awf-tap0' },
+      };
+      capturedFiles.set(reservationPath, { device: 8, inode: 11 });
+      capturedFiles.set(plan.netnsPath, { device: 8, inode: 12 });
+      await handle.captureNetworkPlan(plan);
+
+      expect(await store.read(path.join(root, `${RUN_ID}.json`))).toMatchObject({
+        network: {
+          resourceToken: plan.resourceToken,
+          namespaceName: layout.networkNamespace,
+          netnsPath: plan.netnsPath,
+          hostVethName: plan.hostVethName,
+          namespaceVethName: plan.namespaceVethName,
+          tapName: plan.tapName,
+          infrastructureBridge: plan.infrastructureBridge,
+          hostForwardRuleComment: plan.hostForwardRuleComment,
+        },
+        resources: { networkReservation: { path: reservationPath, device: '8', inode: '11' } },
+        stages: { networkCreated: false },
+      });
+
+      run.mockImplementation(async (_command: string, args: readonly string[]) => ({
+        exitCode: 0,
+        stdout: JSON.stringify([{ ifname: args[args.length - 1], ifindex: 17 }]),
+        stderr: '',
+      }));
+      await handle.captureNetworkResource('netns');
+      expect(await store.read(path.join(root, `${RUN_ID}.json`))).toMatchObject({
+        resources: {
+          networkNamespace: { path: plan.netnsPath, device: '8', inode: '12' },
+        },
+        stages: { networkCreated: true },
+      });
+
+      await handle.captureNetworkResource('hostVeth');
+      expect(await store.read(path.join(root, `${RUN_ID}.json`))).toMatchObject({
+        resources: { hostVeth: { name: plan.hostVethName, ifindex: 17 } },
+      });
+      await handle.captureNetworkResource('namespaceVeth');
+      expect(await store.read(path.join(root, `${RUN_ID}.json`))).toMatchObject({
+        resources: {
+          namespaceVeth: {
+            name: plan.namespaceVethName,
+            namespace: layout.networkNamespace,
+            ifindex: 17,
+          },
+        },
+      });
+      await handle.captureNetworkResource('tap');
+      expect(await store.read(path.join(root, `${RUN_ID}.json`))).toMatchObject({
+        resources: {
+          tap: { name: plan.tapName, namespace: layout.networkNamespace, ifindex: 17 },
+        },
+      });
+      expect(run.mock.calls).toEqual([
+        [ipPath, ['-json', 'link', 'show', 'dev', plan.hostVethName]],
+        [
+          ipPath,
+          [
+            'netns', 'exec', layout.networkNamespace, ipPath,
+            '-json', 'link', 'show', 'dev', plan.namespaceVethName,
+          ],
+        ],
+        [
+          ipPath,
+          [
+            'netns', 'exec', layout.networkNamespace, ipPath,
+            '-json', 'link', 'show', 'dev', plan.tapName,
+          ],
+        ],
+      ]);
+    });
+
+    it('persists run-directory and cgroup identities and their stage flags', async () => {
+      const handle = await registry.createPending(RUN_ID);
+      const layout = createNvxRunLayout(RUN_ID);
+      capturedFiles.set(layout.runDirectory, { device: 8, inode: 21 });
+      capturedFiles.set(layout.cgroupPath, { device: 8, inode: 22 });
+
+      await handle.captureRunDirectory();
+      expect(await store.read(path.join(root, `${RUN_ID}.json`))).toMatchObject({
+        resources: { runDirectory: { path: layout.runDirectory, device: '8', inode: '21' } },
+        stages: { runDirectoryCreated: true },
+      });
+      await handle.captureCgroup();
+      expect(await store.read(path.join(root, `${RUN_ID}.json`))).toMatchObject({
+        resources: { cgroup: { path: layout.cgroupPath, device: '8', inode: '22' } },
+        stages: { cgroupCreated: true },
+      });
+    });
+
     it('validates mount namespace inodes', async () => {
       const handle = await registry.createPending(RUN_ID);
       await expect(handle.captureMountNamespace('abc')).rejects.toThrow(/inode is invalid/);
@@ -303,6 +438,28 @@ describe('DurableNvxCleanupRegistry', () => {
       await expect(fs.access(path.join(root, `${RUN_ID}.json`))).rejects.toMatchObject({
         code: 'ENOENT',
       });
+    });
+
+    it('persists handle mutations and process stages on the same record', async () => {
+      const handle = await registry.createPending(RUN_ID);
+      const record = handle.record;
+      const readRecord = () => store.read(path.join(root, `${RUN_ID}.json`));
+      const updatedAt = '2000-01-01T00:00:00.000Z';
+      record.updatedAt = updatedAt;
+      await handle.prepareAccount(name);
+      expect((await readRecord()).vmmIdentity).toEqual({ state: 'pending', name });
+      expect(record.updatedAt).not.toBe(updatedAt);
+      await handle.captureIdentity({ name, uid: 23001, gid: 23002 });
+      expect((await readRecord()).stages.accountCreated).toBe(true);
+
+      const launcher = await handle.captureProcess('launcher', 4242);
+      expect((await readRecord()).resources.launcher).toEqual(launcher);
+      expect((await readRecord()).stages.processStarted).toBe(true);
+      const openvmm = await handle.captureProcess('openvmm', 4242);
+      expect((await readRecord()).resources.openvmm).toEqual(openvmm);
+      await handle.captureMountNamespace('4026531841');
+      expect((await readRecord()).resources.mountNamespaceInode).toBe('4026531841');
+      expect(handle.record).toBe(record);
     });
   });
 });
