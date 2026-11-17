@@ -55,7 +55,7 @@ For a firewall that wraps every AI agent invocation, these seconds compound acro
 
 ### Filesystem sharing is trivial
 
-The agent needs full access to the repository checkout and tool configurations (`.claude.json`, `.npm`, `.cargo`, etc.). Docker provides this through bind mounts:
+The agent needs full access to the repository checkout and tool configurations (`.claude`, `.npm`, `.cargo`, etc.). Docker provides this through bind mounts:
 
 ```yaml
 # Simplified example: AWF selectively mounts the workspace and specific paths,
