@@ -238,6 +238,31 @@ their guarantees. Pins do not establish freshness or revoke previously reviewed
 releases automatically. Neither a checksum fetched alongside a payload nor a
 failed attestation is an independent trust anchor.
 
+#### Corporate proxies and Sigstore availability
+
+Attested installation requires runner-side HTTPS access (TCP 443) to GitHub
+and the Sigstore public-good services. Allow these hosts through the corporate
+proxy, in addition to the GitHub release/API download hosts:
+
+- `tuf-repo-cdn.sigstore.dev` — TUF trust-root metadata, including `/targets/root.json`
+- `sigstore-tuf-root.storage.googleapis.com` — Sigstore trust-root storage
+- `rekor.sigstore.dev` — transparency log, including `/api/v1/log`
+- `fulcio.sigstore.dev` — certificate authority, including `/api/v1/rootCert`
+
+`public good verifier is not available (initialization may have failed)` can
+mean the verifier could not fetch or initialize its public-good trust root.
+Check the runner's proxy policy and trust configuration; a proxy-generated 403
+is not a missing AWF release. Verification still fails closed, with no automatic
+checksum-only retry. These requests occur before the agent starts, so workflow
+`network:` settings cannot unblock them.
+
+For ordinary CLI installation on restricted runners, explicitly select the
+reviewed manifest-pin path above. It verifies both the pinned `checksums.txt`
+digest and the selected payload checksum without contacting Sigstore. Never
+derive a replacement pin from the same untrusted download just to bypass a
+failure. The setup action and privileged-helper provisioning still require
+attestations.
+
 #### Trusted release-pin review
 
 Before approving a new version/digest pair, reviewers authenticate the release
@@ -302,6 +327,17 @@ establish freshness of the unauthenticated `latest` API response. Pin an
 explicit known release version when rollback resistance is needed.
 
 #### gh-aw adoption
+
+The `sandbox.agent` schema/compiler and
+`actions/setup/sh/install_awf_binary.sh` belong to `github/gh-aw`, not this
+repository. In gh-aw v1.2.2, `checksums-sha256` alone does not disable the
+version-based Sigstore requirement for AWF v0.29.5 or newer. This installer does
+not add a frontmatter switch to that compiler; downstream adoption is tracked
+in [github/gh-aw#76902](https://github.com/github/gh-aw/issues/76902).
+An explicit checksum-only `sandbox.agent` mode must require an independently
+reviewed compiler-pinned manifest digest and an explicit version, fail before
+installation if either is absent or mismatched, and skip Sigstore only when
+selected. Attestation must remain the default, with no fallback on failure.
 
 The downstream `actions/setup/sh/install_awf_binary.sh` can adopt this contract
 for ordinary CLI installation, including helper-capable releases: keep its

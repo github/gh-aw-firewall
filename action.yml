@@ -62,12 +62,19 @@ runs:
         fi
 
         verify_provenance() {
-          if ! gh attestation verify "$1" \
+          local verification_output
+          if verification_output=$(gh attestation verify "$1" \
               --hostname github.com \
               --repo "$REPO" \
               --signer-workflow "${REPO}/.github/workflows/release.yml" \
               --cert-oidc-issuer https://token.actions.githubusercontent.com \
-              --deny-self-hosted-runners; then
+              --deny-self-hosted-runners 2>&1); then
+            printf '%s\n' "$verification_output"
+          else
+            printf '%s\n' "$verification_output" >&2
+            if [[ "$verification_output" == *"public good verifier is not available"* ]]; then
+              echo "::error::The Sigstore public-good trust root could not be fetched or initialized. Check corporate-proxy HTTPS access to tuf-repo-cdn.sigstore.dev, sigstore-tuf-root.storage.googleapis.com, rekor.sigstore.dev, and fulcio.sigstore.dev."
+            fi
             echo "::error::Release provenance verification failed for $(basename "$1"). Legacy unattested releases are not supported; use an attested release and a trusted, authenticated gh CLI."
             exit 1
           fi
