@@ -140,9 +140,11 @@ All of the following are requirements for a future opt-in backend, not claims
 that the current implementation meets them:
 
 1. **Seatbelt enforcement.** Generate a `sandbox-exec` profile that denies
-   network access except outbound TCP to the proxy's exact numeric loopback
-   address and port. Do not allow arbitrary localhost traffic, inbound listeners,
-   direct IPv4/IPv6 connections, UDP/QUIC, or agent-side DNS. Apply restrictions
+   network access except outbound TCP to `localhost` on the proxy's designated
+   port. Seatbelt's remote filters accept `localhost` or `*`, not a numeric
+   loopback address; use `pf` to enforce the proxy's exact loopback address.
+   Do not allow arbitrary localhost ports, inbound listeners, direct IPv4/IPv6
+   connections, UDP/QUIC, ICMP echo, or agent-side DNS. Apply restrictions
    before executing any agent-controlled command, including shell startup files
    and build scripts, and verify inheritance across child processes. Start from
    deny-by-default policy with explicit filesystem and IPC permissions; escape
@@ -170,11 +172,12 @@ that the current implementation meets them:
    or reusable runner credentials. Launch with a minimal environment, private
    home/tmp, and no inherited network sockets or privileged file descriptors.
    Before launch, install and verify an AWF-owned `pf` anchor restricting that
-   UID's egress to the designated proxy endpoint, with IPv4/IPv6 coverage.
+   UID's TCP/UDP egress to the designated proxy endpoint, with IPv4/IPv6 coverage.
    Do not assume a syntactically valid rule is effective: existing quick rules,
    state entries, loopback `set skip`, and UID attribution can defeat the
-   intended fence. UID filtering cannot constrain traffic sent by a system
-   daemon on the agent's behalf; Seatbelt/IPC restrictions remain essential.
+   intended fence. This UID-scoped rule does not cover ICMP echo, which Seatbelt
+   must block, or constrain traffic sent by a system daemon on the agent's behalf;
+   Seatbelt/IPC restrictions remain essential.
    The proxy UID must remain able to reach upstreams. Isolate per-run anchors
    and serialize privileged setup/cleanup so concurrent runs cannot remove
    each other's protections. Never flush the host ruleset, globally disable
@@ -251,11 +254,11 @@ snapshots cannot substitute for these checks:
 | Area | Required positive and adversarial checks |
 |------|-----------------------------------------|
 | Network policy | Allowed HTTP/HTTPS succeeds; denied hosts, sibling/suffix tricks, blocked-over-allowed rules, redirects, malformed CONNECT/Host authorities, CONNECT/SNI disagreement, unauthorized ports, and IP literals fail. Prove rejected hostnames are not resolved. |
-| Bypass resistance | Unset all proxy variables; attempt raw TCP, IPv4/IPv6, UDP/QUIC, DNS over UDP/TCP, system-resolver IPC, non-proxy localhost ports, private/metadata targets, rebinding, Unix sockets, and Mach/XPC deputies. Each must fail without widening policy. |
-| Independent layers | In trusted test fixtures, exercise Seatbelt and the UID-scoped `pf` fence separately, as well as together, including loopback skip, existing states, and rule ordering. Record any coverage differences rather than claiming interchangeable enforcement. |
+| Bypass resistance | Unset all proxy variables; attempt raw TCP, IPv4/IPv6, UDP/QUIC, ICMP echo, DNS over UDP/TCP, system-resolver IPC, non-proxy localhost ports, private/metadata targets, rebinding, Unix sockets, and Mach/XPC deputies. Each must fail without widening policy. |
+| Independent layers | In trusted test fixtures, exercise Seatbelt and the UID-scoped TCP/UDP `pf` fence separately, as well as together, including loopback skip, existing states, and rule ordering. Verify Seatbelt blocks ICMP echo; record that ICMP is outside the UID-scoped `pf` guarantee and note any other coverage differences rather than claiming interchangeable enforcement. |
 | Identity and files | Agent and grandchildren cannot sudo, switch UID, inspect proxy credentials, read runner secrets/keychains, modify policy/binaries, signal trusted services, or write Actions control files. Check symlink/path aliases and shared caches. |
 | Native tools | Fetch an allowlisted SwiftPM dependency and reject a denied one; run `xcodebuild` build/test and simulator launch/test under the dedicated UID. Check build plugins and simulator/system-daemon traffic, not just command exit status. |
-| Failure and cleanup | Missing `sandbox-exec`, unavailable privileges, invalid profile/anchor, proxy death, port squatting, partial startup, timeout, cancellation, and supervisor death never produce unrestricted execution. Prove descendants/delegated work are reaped and unrelated host rules survive cleanup. |
+| Failure and cleanup | Missing `sandbox-exec`, unavailable privileges, invalid profile/anchor, proxy death, port squatting (including listeners on the designated port at both `127.0.0.1` and `::1`), partial startup, timeout, cancellation, and supervisor death never produce unrestricted execution. Prove descendants/delegated work are reaped and unrelated host rules survive cleanup. |
 | Workflow handoff | Native agent results reach Linux threat detection/safe outputs without exposing write tokens or running agent-supplied code outside the sandbox. Unsupported Docker-only features fail before agent launch. |
 
 Proceed to a separately reviewed experimental backend only if those gates pass
