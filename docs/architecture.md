@@ -85,7 +85,7 @@ The firewall uses a containerized architecture with Squid proxy for L7 (HTTP/HTT
 
 ### Agent Execution Container (`containers/agent/`)
 - Based on `ubuntu:22.04` with iptables, curl, git, nodejs, npm
-- Mounts only selected host paths: read-only system directories and `/etc` files under `/host`, the workspace, `/tmp`, an empty chroot home with allowlisted `$HOME` tool directories, and AWF's log/state directories. The real `$HOME` is not mounted; the Docker socket is hidden behind a `/dev/null` overlay unless `--enable-dind` is set (see [Selective Mounting](./selective-mounting.md) and [Sandbox Mount Policy](./mount-policy.md))
+- Mounts only selected host paths: read-only system directories and `/etc` files under `/host`, the workspace, a private tmpfs `/tmp` (the host `/tmp` is not shared), the narrow `/tmp/gh-aw` handoff, an empty chroot home with allowlisted `$HOME` tool directories, and AWF's log/state directories. The real `$HOME` is not mounted; the Docker socket is hidden behind a `/dev/null` overlay unless `--enable-dind` is set (see [Selective Mounting](./selective-mounting.md) and [Sandbox Mount Policy](./mount-policy.md))
 - `NET_ADMIN` capability required for iptables setup during initialization
 - **Security:** `NET_ADMIN` is dropped via `capsh --drop=cap_net_admin` before executing user commands, preventing malicious code from modifying iptables rules
 - **Chroot Mode:** User commands run inside `chroot /host` for transparent host binary access. See [Chroot Mode](./chroot-mode.md) for details.

@@ -141,8 +141,11 @@ identical to default Docker mode*: AWF applies selective bind mounts under
 - `/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/opt`, `/sys`, `/dev` → `/host/*`
   read-only (system libraries and toolchains come from the host, unlike the sbx
   and Cloud Hypervisor guest-image models).
-- `<workspaceDir>` → `/host<workspaceDir>` read-write; `/tmp` → `/host/tmp`
-  read-write.
+- `<workspaceDir>` → `/host<workspaceDir>` read-write; `/tmp` and `/host/tmp`
+  are private tmpfs mounts, so the host `/tmp` root is not mounted wholesale.
+  AWF separately bind-mounts selected paths, including the `/tmp/gh-aw` handoff,
+  configured runner binaries at `/host/tmp/awf-runner-bin`, and configured
+  log/state paths when they reside under `/tmp`.
 - When `chroot.binariesSourcePath` is configured, that tool directory is additionally
   mounted at **`/host/tmp/awf-runner-bin`** (ro), and `entrypoint.sh` prepends it
   to `PATH`. This is especially useful for DinD/ARC staged filesystems where the

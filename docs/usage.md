@@ -192,7 +192,7 @@ Commands:
 same absolute path as on the host (typically `$GITHUB_WORKSPACE`).
 
 AWF makes sure that directory is actually reachable inside the sandbox: if it is
-not already covered by the workspace mount, `/tmp`, a read-only system mount, a
+not already covered by the workspace mount, a read-only system mount, a
 mounted `$HOME` tool directory, or an explicit `--mount`, AWF bind-mounts it as
 well. This keeps the in-container path identical to the host path, so agents
 that were told where the repository lives can `cd` into it directly instead of

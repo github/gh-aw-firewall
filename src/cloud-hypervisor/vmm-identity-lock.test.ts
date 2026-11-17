@@ -194,6 +194,7 @@ describe('CloudHypervisorVmmIdentityManager locking', () => {
       }),
       sleep: jest.fn(async () => {
         lockExists = false;
+        reaperExists = false;
       }),
     });
     const manager = new CloudHypervisorVmmIdentityManager('reaper-lock', tools, base.deps);
@@ -376,11 +377,12 @@ describe('CloudHypervisorVmmIdentityManager locking', () => {
 
   it('backs off when a competing reaper disappears', async () => {
     let lockExists = true;
+    let reaperVanished = false;
     const owner = { pid: 4321, startTime: '77', nonce: 'a'.repeat(32) };
     let ownerContents = `${JSON.stringify(owner)}\n`;
     const base = dependencies({
       mkdir: jest.fn(async (directory) => {
-        if (directory.endsWith('.reaper')) {
+        if (directory.endsWith('.reaper') && !reaperVanished) {
           throw Object.assign(new Error('exists'), { code: 'EEXIST' });
         }
         if (directory.endsWith('.account-lock')) {
@@ -401,6 +403,7 @@ describe('CloudHypervisorVmmIdentityManager locking', () => {
       processStartTime: jest.fn(async (pid) => pid === owner.pid ? 'stale' : '99'),
       sleep: jest.fn(async () => {
         lockExists = false;
+        reaperVanished = true;
       }),
     });
     await expect(new CloudHypervisorVmmIdentityManager(
@@ -465,16 +468,21 @@ describe('CloudHypervisorVmmIdentityManager locking', () => {
     });
     base.deps.readFile = jest.fn(async () => ownerContents);
     base.deps.lstat = jest.fn(async (filePath) => {
+      if (filePath.includes('.account-lock.stale-')) {
+        return { uid: 0, gid: 0, ino: 42, mtimeMs: 0 };
+      }
       if (filePath.endsWith('.reaper') && !reaperExists) {
         throw Object.assign(new Error('missing'), { code: 'ENOENT' });
       }
       if (!lockExists) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
       return { uid: 0, gid: 0, ino: 42, mtimeMs: 0 };
     });
+    base.deps.rename = jest.fn(async () => {
+      lockExists = false;
+    });
     base.deps.rm = jest.fn(async (filePath) => {
       if (filePath.endsWith('.account-lock')) {
         lockExists = false;
-        reaperExists = false;
       }
     });
     base.deps.rmdir = jest.fn(async () => {
@@ -486,6 +494,10 @@ describe('CloudHypervisorVmmIdentityManager locking', () => {
     await expect(manager.allocate()).resolves.toMatchObject({ uid: 23001, gid: 23002 });
     expect(base.deps.rm).toHaveBeenCalledWith(
       '/run/awf-cloud-hypervisor/.account-lock',
+      { recursive: true, force: true },
+    );
+    expect(base.deps.rm).toHaveBeenCalledWith(
+      expect.stringMatching(/\.account-lock\.stale-[a-f0-9]{32}$/),
       { recursive: true, force: true },
     );
   });

@@ -132,6 +132,19 @@ function makeModelBodyTransform(
   return async (body, req) => {
     const eligibilityRequest = req || {};
     pinRequestEligibility(eligibilityRequest);
+    const updateResolutionMetadata = () => {
+      const currentRuntimePricing = captureRuntimePricing();
+      if (Object.hasOwn(currentRuntimePricing, provider)) {
+        eligibilityRequest.awfRuntimePricing = {
+          ...(eligibilityRequest.awfRuntimePricing || {}),
+          [provider]: currentRuntimePricing[provider],
+        };
+      }
+    };
+    const refreshModels = async () => {
+      await refreshProviderModelsForResolution(provider);
+      updateResolutionMetadata();
+    };
     const requestedModel = parseBodyAsObject(body)?.model;
     // Keep an explicit incompatible model intact so the normal guard order
     // reports it; alias or family fallback must not silently replace it.
@@ -148,7 +161,7 @@ function makeModelBodyTransform(
       );
       result = resolveScopedAuto();
       if (!result) {
-        await refreshProviderModelsForResolution(provider);
+        await refreshModels();
         result = resolveScopedAuto();
       }
       if (!result) {
@@ -173,7 +186,7 @@ function makeModelBodyTransform(
       );
       result = getAutoResolution();
       if (!result) {
-        await refreshProviderModelsForResolution(provider);
+        await refreshModels();
         result = getAutoResolution();
       }
       if (!result) {
@@ -196,7 +209,7 @@ function makeModelBodyTransform(
       } catch (error) {
         if (error.code !== 'unsupported_model_selector' || error.catalogRefreshable === false ||
           Array.isArray(parsed?.model)) throw error;
-        await refreshProviderModelsForResolution(provider);
+        await refreshModels();
         selectedModel = selectModel();
       }
       if (selectedModel) {
@@ -223,7 +236,7 @@ function makeModelBodyTransform(
     if (!result && MODEL_ALIASES) {
       result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, resolvableModels(), providerModelFallback, MODEL_POLICY_CONFIG, eligibilityRequest);
       if (!result || (result.fallback && result.fallback.activated)) {
-        await refreshProviderModelsForResolution(provider);
+        await refreshModels();
         result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, resolvableModels(), providerModelFallback, MODEL_POLICY_CONFIG, eligibilityRequest);
       }
     }
@@ -234,15 +247,7 @@ function makeModelBodyTransform(
     })) {
       req.awfModelRecoveryDisabled = true;
     }
-    if (req) {
-      const currentRuntimePricing = captureRuntimePricing();
-      if (Object.hasOwn(currentRuntimePricing, provider)) {
-        req.awfRuntimePricing = {
-          ...(req.awfRuntimePricing || {}),
-          [provider]: currentRuntimePricing[provider],
-        };
-      }
-    }
+    if (req) updateResolutionMetadata();
     if (!result) return null;
     if (req && (result.automaticReplacement === true || result.fallback?.activated === true ||
         result.fallback?.reason === 'family_version_fallback')) {

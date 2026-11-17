@@ -3,6 +3,7 @@
 const { createRoutingError } = require('./routing-errors');
 const { lookupModelEndpoints, lookupModelRoutingMetadata } = require('./model-api-mapping');
 const { resolveModelReasoning, pinModelReasoning, NATIVE_PROVIDER_HOSTS } = require('./model-reasoning');
+const { isAutomaticModelEligible } = require('./automatic-model-eligibility');
 
 function isNativeAdapter(adapter, provider) {
   if (
@@ -51,7 +52,7 @@ function normalizeModel(id, metadata, provider, scope, records, reasoningOptions
     : endpointMapping?.endpoints.map(endpoint => endpointMapping.endpointPaths?.[endpoint] || endpoint);
   const protocols = Array.isArray(supportedEndpoints)
     ? supportedEndpoints.flatMap(endpoint => {
-      if (typeof endpoint !== 'string') return [];
+      if (typeof endpoint !== 'string' || endpoint.includes(':')) return [];
       if (endpoint === 'responses' || /\/responses$/.test(endpoint)) return ['responses'];
       if (endpoint === 'chat_completions' || /\/chat\/completions$/.test(endpoint)) return ['chat-completions'];
       if (endpoint === 'messages' || /\/messages$/.test(endpoint)) return ['messages'];
@@ -71,6 +72,7 @@ function normalizeModel(id, metadata, provider, scope, records, reasoningOptions
     ...(efforts === undefined ? {} : { efforts }),
     ...(Number.isInteger(contextWindow) && contextWindow > 0 ? { contextWindow } : {}),
     ...(Array.isArray(protocols) ? { protocols: [...new Set(protocols.filter(protocol => providerProtocols.has(protocol)))] } : {}),
+    ...(!isAutomaticModelEligible(metadata) ? { automaticSelectionEligible: false } : {}),
     ...(typeof metadata?.modelPickerEnabled === 'boolean'
       ? { modelPickerEnabled: metadata.modelPickerEnabled }
       : {}),

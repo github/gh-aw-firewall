@@ -37,6 +37,44 @@ describe('isInternalAwfDomain', () => {
     });
   });
 
+  describe('relocated awf-net subnet override (--network-subnet from policy manifest)', () => {
+    const relocated = '10.88.0.0/24';
+
+    it('returns true for an IP inside the relocated subnet', () => {
+      expect(isInternalAwfDomain('10.88.0.20', undefined, relocated)).toBe(true);
+      expect(isInternalAwfDomain('10.88.0.0', undefined, relocated)).toBe(true);
+      expect(isInternalAwfDomain('10.88.0.255', undefined, relocated)).toBe(true);
+    });
+
+    it('returns false for an IP in the default 172.30.0.0/24 once the subnet is relocated', () => {
+      // The default range no longer belongs to awf-net; a denial for it is external.
+      expect(isInternalAwfDomain('172.30.0.20', undefined, relocated)).toBe(false);
+    });
+
+    it('returns false for an IP just outside the relocated subnet boundary', () => {
+      expect(isInternalAwfDomain('10.88.1.1', undefined, relocated)).toBe(false);
+      expect(isInternalAwfDomain('10.87.255.255', undefined, relocated)).toBe(false);
+    });
+
+    it('honours non-/24 prefix lengths in the override', () => {
+      // /16 covers 10.88.0.0 – 10.88.255.255
+      expect(isInternalAwfDomain('10.88.200.7', undefined, '10.88.0.0/16')).toBe(true);
+      expect(isInternalAwfDomain('10.89.0.1', undefined, '10.88.0.0/16')).toBe(false);
+    });
+
+    it('keeps the default subnet when no override is supplied', () => {
+      expect(isInternalAwfDomain('172.30.0.20', undefined, undefined)).toBe(true);
+      expect(isInternalAwfDomain('10.88.0.20', undefined, undefined)).toBe(false);
+    });
+
+    it('still applies single-label and topology-peer checks alongside a relocated subnet', () => {
+      const peers = new Set(['mcp.gateway-01']);
+      expect(isInternalAwfDomain('awmg-mcpg', undefined, relocated)).toBe(true);
+      expect(isInternalAwfDomain('mcp.gateway-01', peers, relocated)).toBe(true);
+      expect(isInternalAwfDomain('evil.com', peers, relocated)).toBe(false);
+    });
+  });
+
   describe('single-label Docker container hostnames (no dots)', () => {
     it('returns true for the MCP Gateway hostname (awmgmcpg)', () => {
       expect(isInternalAwfDomain('awmgmcpg')).toBe(true);

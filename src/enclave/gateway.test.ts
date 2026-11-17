@@ -19,6 +19,17 @@ import {
   resolveEnclaveGatewayContract,
   shutdownEnclaveGateway,
 } from './gateway';
+import * as gateway from './gateway';
+import * as gatewayContract from './gateway-contract';
+import { connectEnclaveGateway as connectGateway, inspectGateway } from './gateway-network';
+import {
+  assertEnclaveGatewayReady as assertGatewayReady,
+  proveGatewayReadiness,
+  remainingRequestBudget,
+} from './gateway-readiness-proof';
+import {
+  canonicalJson, canonicalToolSet, GatewayReadinessError, postJsonRpc,
+} from './gateway-transport';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const enclaveProtocol = require(path.join(
@@ -86,17 +97,21 @@ function listen(
   endpoint: string;
   initializeAttempts: () => number;
   authorizationHeaders: () => Array<string | undefined>;
+  requests: () => Array<{ headers: http.IncomingHttpHeaders; body: string }>;
   close: () => Promise<void>;
 }> {
   return new Promise((resolve) => {
     let initializeAttempts = 0;
     const authorizationHeaders: Array<string | undefined> = [];
+    const requests: Array<{ headers: http.IncomingHttpHeaders; body: string }> = [];
     const server = http.createServer((request, response) => {
       authorizationHeaders.push(request.headers.authorization);
       const chunks: Buffer[] = [];
       request.on('data', (chunk: Buffer) => chunks.push(chunk));
       request.on('end', () => {
-        const message = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+        const body = Buffer.concat(chunks).toString('utf8');
+        requests.push({ headers: request.headers, body });
+        const message = JSON.parse(body) as {
           id?: number;
           method: string;
         };
@@ -180,11 +195,123 @@ function listen(
         endpoint: `http://127.0.0.1:${address.port}/mcp/awf-enclave`,
         initializeAttempts: () => initializeAttempts,
         authorizationHeaders: () => authorizationHeaders,
+        requests: () => requests,
         close: () => new Promise<void>((done) => server.close(() => done())),
       });
     });
   });
 }
+
+describe('enclave gateway module boundaries', () => {
+  it('preserves the exact facade exports and extracted function and helper identities', () => {
+    expect(Object.keys(gateway).sort()).toEqual([
+      'ENCLAVE_MCP_CAPABILITY_ENV',
+      'ENCLAVE_MCP_GATEWAY_CONTAINER_ENV',
+      'ENCLAVE_MCP_GATEWAY_ENDPOINT_ENV',
+      'ENCLAVE_MCP_GATEWAY_IDENTITY_ENV',
+      'ENCLAVE_MCP_GATEWAY_RUN_LABEL',
+      'ENCLAVE_MCP_READINESS_TIMEOUT_ENV',
+      'ENCLAVE_MCP_SERVER_NAME',
+      'ENCLAVE_MCP_UPSTREAM_URL',
+      'assertEnclaveGatewayReady',
+      'buildEnclaveMcpgUpstreamContract',
+      'connectEnclaveGateway',
+      'enclaveGatewayTestHelpers',
+      'resolveEnclaveGatewayContract',
+      'shutdownEnclaveGateway',
+    ].sort());
+    expect(buildEnclaveMcpgUpstreamContract).toBe(gatewayContract.buildEnclaveMcpgUpstreamContract);
+    expect(resolveEnclaveGatewayContract).toBe(gatewayContract.resolveEnclaveGatewayContract);
+    expect(connectEnclaveGateway).toBe(connectGateway);
+    expect(assertEnclaveGatewayReady).toBe(assertGatewayReady);
+    expect(Object.keys(enclaveGatewayTestHelpers).sort()).toEqual([
+      'agentTool', 'canonicalJson', 'canonicalToolSet', 'expectedRoutedTools', 'expectedTools',
+      'inspectGateway', 'proveGatewayReadiness', 'remainingRequestBudget', 'scriptTool',
+    ].sort());
+    expect(enclaveGatewayTestHelpers).toEqual({
+      agentTool: gatewayContract.agentTool,
+      canonicalJson,
+      canonicalToolSet,
+      expectedRoutedTools: gatewayContract.expectedRoutedTools,
+      expectedTools: gatewayContract.expectedTools,
+      inspectGateway,
+      proveGatewayReadiness,
+      remainingRequestBudget,
+      scriptTool: gatewayContract.scriptTool,
+    });
+  });
+
+  it('loads the pure contract without HTTP or Docker dependencies', () => {
+    const unexpectedImport = jest.fn(() => {
+      throw new Error('Contract loaded an HTTP or Docker dependency');
+    });
+    // Clear the cached file-level execa mock before installing import guards.
+    jest.resetModules();
+    jest.doMock('http', unexpectedImport);
+    jest.doMock('https', unexpectedImport);
+    jest.doMock('execa', unexpectedImport);
+    jest.doMock('../docker-host', unexpectedImport);
+    try {
+      jest.isolateModules(() => {
+        const contract = jest.requireActual<typeof import('./gateway-contract')>('./gateway-contract');
+        expect(contract.buildEnclaveMcpgUpstreamContract(config()).server.tools)
+          .toEqual(['enclave_run_script']);
+      });
+      expect(unexpectedImport).not.toHaveBeenCalled();
+    } finally {
+      jest.dontMock('http');
+      jest.dontMock('https');
+      jest.doMock('execa', () => ({ __esModule: true, default: mockExeca }));
+      jest.dontMock('../docker-host');
+    }
+  });
+
+  it.each([false, true])('preserves JSON-RPC framing and session headers (SSE: %s)', async (sse) => {
+    const server = await listen([], { sse });
+    const endpoint = new URL(server.endpoint);
+    const apiKey = env().MCP_GATEWAY_API_KEY!;
+    const messages = [
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo: { name: 'readiness-é' } } },
+      { jsonrpc: '2.0', method: 'notifications/initialized' },
+      { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
+    ];
+    try {
+      const initialized = await postJsonRpc(endpoint, messages[0], 1000, apiKey);
+      expect(initialized.sessionId).toBe('session-1');
+      expect(initialized.response.result).toMatchObject({ serverInfo: { name: 'awmg-awf-enclave' } });
+      const notified = await postJsonRpc(endpoint, messages[1], 1000, apiKey, initialized.sessionId);
+      expect(notified).toEqual({ response: {}, sessionId: 'session-1' });
+      const listed = await postJsonRpc(endpoint, messages[2], 1000, apiKey, initialized.sessionId);
+      expect(listed.response).toEqual({ jsonrpc: '2.0', id: 2, result: { tools: [] } });
+      expect(server.requests()).toEqual(messages.map((message, index) => ({
+        body: JSON.stringify(message),
+        headers: expect.objectContaining({
+          accept: 'application/json, text/event-stream',
+          'content-type': 'application/json',
+          'content-length': String(Buffer.byteLength(JSON.stringify(message))),
+          authorization: apiKey,
+          ...(index ? { 'mcp-session-id': 'session-1' } : {}),
+        }),
+      })));
+      expect(server.requests()[0].headers['mcp-session-id']).toBeUndefined();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('uses the same readiness error class for transport framing and request deadlines', async () => {
+    expect(() => remainingRequestBudget(Date.now() - 1)).toThrow(GatewayReadinessError);
+    const server = await listen([], { oversizedInitialization: true });
+    try {
+      await expect(postJsonRpc(
+        new URL(server.endpoint), { jsonrpc: '2.0', id: 1, method: 'initialize' },
+        1000, env().MCP_GATEWAY_API_KEY!,
+      )).rejects.toBeInstanceOf(GatewayReadinessError);
+    } finally {
+      await server.close();
+    }
+  });
+});
 
 describe('enclave mcpg handoff', () => {
   beforeEach(() => mockExeca.mockReset());

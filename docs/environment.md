@@ -69,6 +69,29 @@ The gh-aw `copy_copilot_session_state.sh` collector is maintained in
 without falling back to the runner's global `$HOME/.copilot/session-state`;
 that upstream change is tracked by [github/gh-aw#76904](https://github.com/github/gh-aw/issues/76904).
 
+For Docker/gVisor Compose agents whose effective home is on **root-squashed NFS**,
+AWF stages allowlisted home tool directories in its local, disposable chroot
+home instead of bind-mounting them from NFS. Credential stores are excluded
+before copying; Docker does not create credential-mask mountpoints in the real
+home. The runner user must be able to read the tool state. No sudo or home
+ownership changes are required.
+Allowlisted tool roots must be real directories, not symlinks; symlinks within
+them are preserved without copying their targets.
+
+Use a private `--work-dir` on a **local filesystem outside the NFS home**,
+writable by the runner and accessible to the Docker daemon (the default
+`/tmp/awf-*` normally meets this requirement). Allow enough space for the
+allowlisted tool caches and installations, including any runner tool cache
+under the home directory. Home-state changes in the sandbox
+are discarded at cleanup rather than written back to NFS; configured session
+state and log directories remain separate live mounts. Workspace, tool-cache
+sources outside the home, custom mount, session-state, and log sources must
+still be accessible to Docker; use local workspace/log storage when NFS denies
+Docker access.
+This automatic staging does not apply to ARC/DinD or non-compose runtimes. Using
+`--home` selects a job-scoped home without copying the runner's tool state or
+credentials.
+
 Variables from `--env` flags override other environment values, except the home
 identity selected by `--home`.
 

@@ -1270,6 +1270,18 @@ time before reclaiming stale state, preventing PID reuse from stealing a live
 lock. Cleanup validates the exact account uid/gid before deletion and revokes
 only that run's ACL entries, so concurrent sibling runs remain untouched.
 
+Cloud Hypervisor and NVX share the directory-lock protocol for accounts and
+device ACLs. A sibling `<lock>.reaper` directory serializes reclamation,
+admission, and release; stale state is renamed to a unique quarantine path and
+deleted only after inode and full owner-token revalidation. `ENOENT` or `ESRCH`
+while reading `/proc/<pid>/stat` indicates that a process is gone; permission,
+I/O, and malformed-record errors stop reclamation. Reaper claims are never
+stolen based on age, since a paused holder may resume. If a process is killed
+while holding a claim, stop all users of that lock before manually removing
+its orphaned `<lock>.reaper` directory. A failed quarantine verification
+preserves the quarantine path reported in the error for inspection rather than
+deleting it.
+
 The guest command still uses the invoking workspace uid/gid. That guest
 identity is carried separately through the supervisor protocol and is never
 reused as the host VMM identity.

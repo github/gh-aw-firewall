@@ -7,6 +7,7 @@ import { homePreparationError, resolveAgentHome } from './agent-home';
 import { createMissingOwnedDirectorySegments } from './fs-utils';
 import { resolveRunnerToolCachePath } from './runner-tool-cache';
 import { HOME_TOOL_PATHS } from './config/mount-policy';
+import { stageNfsHome, usesNfsHome } from './nfs-home';
 
 function descriptorPath(fd: number): string {
   return `/proc/self/fd/${fd}`;
@@ -110,13 +111,18 @@ function prepareHomeMountsWithFd(
     (toolPath) =>
       toolPath !== '.gemini' || Boolean(config.geminiApiKey || config.googleApiKey),
   );
+  const nfsHome = usesNfsHome(config, effectiveHome);
+  if (nfsHome) {
+    stageNfsHome(config, effectiveHome, emptyHomeDir);
+    logger.debug('Staged NFS home tool state locally without host credential stores');
+  }
   for (const toolPath of hostHomeMountSourcePaths) {
     const toolPathSource = path.join(effectiveHome, toolPath);
     const existed = fs.existsSync(toolPathSource);
-    createMissingOwnedDirectorySegments(toolPathSource, uid, gid);
-    if (!existed) {
+    if (!nfsHome) createMissingOwnedDirectorySegments(toolPathSource, uid, gid);
+    if (!nfsHome && !existed) {
       logger.debug(`Created host home tool path: ${toolPathSource} (${uid}:${gid})`);
-    } else if (toolPath === '.gemini') {
+    } else if (!nfsHome && toolPath === '.gemini') {
       // Repair existing .gemini ownership for Gemini/Vertex runs where prior
       // root-owned bind mounts can break atomic writes in the CLI.
       const geminiFd = openRealDirectory(toolPathSource);
@@ -147,7 +153,7 @@ function prepareHomeMountsWithFd(
   } catch {
     copilotHomeAccessible = false;
   }
-  if (copilotHomeAccessible) {
+  if (!nfsHome && copilotHomeAccessible) {
     for (const name of ['session-state', 'logs']) {
       createMissingOwnedDirectorySegments(path.join(copilotHomeDir, name), uid, gid);
     }
@@ -156,7 +162,7 @@ function prepareHomeMountsWithFd(
   // Source-side prep: this only applies when the config file explicitly names
   // a runner tool-cache source path that does not exist yet. Create that host
   // source so Docker has something real to bind-mount later.
-  if (config.runnerToolCachePath && !fs.existsSync(config.runnerToolCachePath)) {
+  if (!nfsHome && config.runnerToolCachePath && !fs.existsSync(config.runnerToolCachePath)) {
     const relToHome = path.relative(effectiveHome, config.runnerToolCachePath);
     const isUnderHome = relToHome && !relToHome.startsWith('..') && !path.isAbsolute(relToHome);
 
@@ -229,7 +235,7 @@ export function prepareChrootHomeMounts(config: WrapperConfig): void {
   // NOTE: Must be outside workDir to avoid being hidden by the tmpfs overlay
   const emptyHomeDir = `${config.workDir}-chroot-home`;
   if (!fs.existsSync(emptyHomeDir)) {
-    fs.mkdirSync(emptyHomeDir, { recursive: true });
+    fs.mkdirSync(emptyHomeDir, { recursive: true, mode: 0o700 });
   }
   const emptyHomeFd = openRealDirectory(emptyHomeDir);
   try {

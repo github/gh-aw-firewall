@@ -2,6 +2,7 @@
 
 const { createRoutingCatalogue, normalizeModel } = require('./routing-catalogue');
 const { buildRoutingCandidates, getModelRoutingChoices } = require('./routing-candidates');
+const { buildRoutingModelMetadata } = require('./management');
 const { createCopilotAdapter } = require('./providers/copilot');
 
 describe('Decisions catalogue protocols', () => {
@@ -47,6 +48,30 @@ function dependencies(overrides = {}) {
 }
 
 describe('routing catalogue', () => {
+  it('routes only eligible models over advertised HTTP endpoints', async () => {
+    const records = [
+      { id: 'websocket-only', supportedEndpoints: ['ws:/responses'], supportedReasoningEfforts: ['high'] },
+      { id: 'mixed', supportedEndpoints: ['ws:/responses', '/chat/completions'], supportedReasoningEfforts: ['high'] },
+      { id: 'disabled', supportedEndpoints: ['/responses'], supportedReasoningEfforts: ['high'], modelPickerEnabled: false },
+      { id: 'responses', supportedEndpoints: ['/responses'], supportedReasoningEfforts: ['high'] },
+    ];
+    const snapshot = await createRoutingCatalogue(dependencies({
+      getDiscoveredModels: () => records.map(record => record.id),
+      getRuntimeModels: () => records,
+    })).getSnapshot();
+    const reflected = buildRoutingModelMetadata('copilot', records.map(record => record.id), records);
+    expect(reflected.map(model => model.automatic_selection_eligible)).toEqual([false, true, false, true]);
+    expect(reflected.map(model => model.candidate_metadata_complete)).toEqual([false, true, false, true]);
+    expect(getModelRoutingChoices(snapshot.models[0], 'copilot')).toEqual([]);
+    expect(() => buildRoutingCandidates({ catalogue: snapshot, candidateModels: ['websocket-only'] }))
+      .toThrow(expect.objectContaining({ code: 'no_route' }));
+    const result = buildRoutingCandidates({ catalogue: snapshot });
+    expect(result.choices.map(choice => choice.model)).toEqual([
+      'github-copilot/mixed', 'github-copilot/responses',
+    ]);
+    expect(result.choices.map(choice => result.byId[choice.id].protocol)).toEqual(['chat-completions', 'responses']);
+  });
+
   it('takes one frozen snapshot from authoritative discovery and private metadata', async () => {
     const deps = dependencies();
     const catalogue = createRoutingCatalogue(deps);
@@ -56,7 +81,7 @@ describe('routing catalogue', () => {
       models: [
         { id: 'gpt-test', efforts: ['high', 'low'], protocols: ['responses', 'chat-completions', 'messages'], contextWindow: 128_000 },
         { id: 'missing' },
-        { id: 'empty', efforts: [], protocols: [] },
+        { id: 'empty', efforts: [], protocols: [], automaticSelectionEligible: false },
         { id: 'no-reasoning', efforts: [], protocols: ['chat-completions'] },
       ],
     });
