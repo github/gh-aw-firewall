@@ -636,7 +636,7 @@
                 "type": "string",
                 "pattern": "^(github-copilot|openai|anthropic)/[A-Za-z0-9][A-Za-z0-9._-]*$"
               },
-              "description": "Soft exclusions of canonical base model IDs for the primary selection only. An empty list requests the private ranked options summary without excluding anything. If none survive, the ordinary policy-eligible pick is kept."
+              "description": "Soft exclusions of canonical base model IDs for the primary selection only. IDs must be unique ignoring case. An empty list requests the private ranked options summary without excluding anything. If none survive, the ordinary policy-eligible pick is kept."
             },
             "objective": {
               "type": "object",

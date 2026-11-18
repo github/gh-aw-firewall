@@ -73,8 +73,8 @@ function parseRoutingConfig(raw) {
     const list = value.excludedModels;
     if (!Array.isArray(list) || list.length > 32 ||
         list.some(model => typeof model !== 'string' || !CANONICAL_BASE_MODEL.test(model)) ||
-        new Set(list).size !== list.length) {
-      throw configurationError('routing.excludedModels must be an array of at most 32 unique canonical base model IDs');
+        new Set(list.map(model => model.toLowerCase())).size !== list.length) {
+      throw configurationError('routing.excludedModels must be an array of at most 32 unique canonical base model IDs (case-insensitive)');
     }
   }
 

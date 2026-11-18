@@ -2606,7 +2606,7 @@ apiProxy:
 |-------|----------------|-------------|
 | `provider` | `copilot` (default), `openai`, `anthropic` | Restricts routing to one configured native API-proxy provider; AWF does not switch credentials or translate across providers. |
 | `candidateModels` | non-empty array of model glob patterns | Limits router/classifier choices without widening the request policy; defaults to `apiProxy.allowedModels`. |
-| `excludedModels` | array of up to 32 unique `provider/model` IDs | Sets aside all efforts of each named base for the primary pick only. Use `github-copilot`, `openai`, or `anthropic` as the prefix, not a provider alias, glob or effort suffix. |
+| `excludedModels` | array of up to 32 `provider/model` IDs, unique ignoring case | Sets aside all efforts of each named base for the primary pick only. Use `github-copilot`, `openai`, or `anthropic` as the prefix, not a provider alias, glob or effort suffix. |
 | `objective.goal` | `cost`, `cost-speed` | Optimization goal used by the router |
 | `objective.mode` | `economy`, `balanced`, `robust`, `auto` | Fixed routing profile, or `auto` classification |
 | `task.conversationFile` | non-empty string | Host path to the task conversation whose description the router classifies |

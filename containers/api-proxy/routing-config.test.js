@@ -87,6 +87,8 @@ describe('routing configuration', () => {
   it('accepts only a bounded array of literal canonical base IDs as primary exclusions', () => {
     const base = { objective: { goal: 'cost', mode: 'balanced' }, task: { conversationFile: '/private/task' } };
     const parse = excludedModels => parseRoutingConfig(JSON.stringify({ ...base, excludedModels }));
+    expect(() => parse(['openai/model-a', 'openai/Model-A'])).toThrow('routing.excludedModels');
+    expect(parse(['openai/Model-A']).excludedModels).toEqual(['openai/Model-A']);
     const max = Array.from({ length: 32 }, (_, i) => `github-copilot/model-${i}`);
     for (const list of [[], ['openai/model-a', 'anthropic/model-a'], max]) {
       expect(parse(list).excludedModels).toEqual(list);

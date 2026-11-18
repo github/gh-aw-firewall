@@ -312,6 +312,9 @@ describe('validateAwfFileConfig', () => {
     const validateExclusions = (excludedModels: unknown) => validateAwfFileConfig({
       experimental: { modelRouting: true }, apiProxy: { routing: { ...valid, excludedModels } },
     });
+    expect(validateExclusions(['openai/model-a', 'openai/Model-A']))
+      .toContain('config.apiProxy.routing.excludedModels must be unique (case-insensitive)');
+    expect(validateExclusions(['openai/Model-A'])).toEqual([]);
     const max = Array.from({ length: 32 }, (_, i) => `github-copilot/model-${i}`);
     for (const list of [[], max, ['openai/model-a', 'anthropic/model-a']]) expect(validateExclusions(list)).toEqual([]);
     for (const list of [null, [...max, 'openai/extra'], ['copilot/a'], ['openai/a*'], ['openai/a:low'],
