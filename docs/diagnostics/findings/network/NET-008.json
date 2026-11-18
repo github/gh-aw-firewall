@@ -1,0 +1,37 @@
+{
+  "$schema": "../../schema.json",
+  "id": "NET-008",
+  "boundary": "network",
+  "title": "Denied hostname lookups reach the resolver because a Squid IP exception resolves names",
+  "symptoms": [
+    "Resolver or DNS-policy logs show lookups for a hostname the agent was denied (TCP_DENIED / 403) in default mode",
+    "A hostname is refused by Squid but its name still appears in DNS telemetry"
+  ],
+  "conditions": [
+    "The generated squid.conf contains an API-proxy or explicit-IP destination exception (allow_api_proxy_ip or allow_ip_*) declared as dst without -n",
+    "The exception is evaluated before the domain deny, so Squid resolves the requested hostname to test it against the IP",
+    "Direct DNS queries from the agent, and lookups of allowlisted names, are outside this finding; they are governed by the trusted --dns-servers policy (NET-002)"
+  ],
+  "affects": { "runner": "any", "runtime": "runc|chroot", "provider": "any", "authMode": "any" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "fixed",
+  "rootCause": "A Squid dst ACL without -n resolves a hostname destination before matching it against an IP, so evaluating the exception ahead of the domain deny issued a DNS query for an unlisted name even though HTTP access was then refused. dst -n matches literal IPs only, so a hostname is never resolved and does not inherit the IP exception. Only the API-proxy and explicit-IP http_access exceptions were verified; other dst ACLs were not reviewed for this finding.",
+  "probe": {
+    "command": "grep -nE '^acl (allow_api_proxy_ip|allow_ip_[0-9_]+) dst' path/to/squid.conf",
+    "expect": "Every matched ACL line carries -n (for example 'dst -n 172.30.0.30'). A line without -n indicates a build that predates the fix; no traffic is sent and no credentials or environment are read.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use source containing numeric-only (dst -n) API-proxy and explicit-IP exceptions and regenerate the configuration. Keep the domain allowlist, raw-IP deny rules and rule ordering unchanged, and do not widen the allowlist or disable DNS filtering. This does not filter direct DNS queries or lookups of allowlisted names; use a policy-enforcing resolver through --dns-servers if those need control. If a denied name reaches the resolver with the fixed ACLs in place, escalate with redacted evidence under SEC-001 instead of reproducing it publicly.",
+  "references": [
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11562", "title": "Prevent DNS leaks from Squid IP access exceptions" },
+    { "kind": "issue", "ref": "https://github.com/github/gh-aw-firewall/issues/11561" },
+    { "kind": "code", "ref": "src/squid/config-sections.ts", "title": "generateApiProxySection() and generateAllowedIpSection() emit dst -n" },
+    { "kind": "test", "ref": "src/squid/config-sections.test.ts", "title": "Literal-only api-proxy and allowlisted-IP ACL assertions" },
+    { "kind": "test", "ref": "src/squid-config-core.test.ts" },
+    { "kind": "doc", "ref": "docs/egress-filtering.md", "title": "Squid IP exceptions and DNS lookups" }
+  ],
+  "related": ["NET-001", "NET-002", "SEC-001"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-11-17"
+}
