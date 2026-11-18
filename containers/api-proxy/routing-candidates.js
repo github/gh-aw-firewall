@@ -75,6 +75,20 @@ function makePairKey(model, effort) {
   return `${model.toLowerCase()}\u0000${effort === undefined ? '' : effort}`;
 }
 
+// Shortlist only: costs, incumbents and probes still refer to exact choices in eligibleRank.
+function shortlistPrimaryOptions(eligibleRank, suspendedBases = []) {
+  const skipBases = new Set(Array.from(suspendedBases, model => model.toLowerCase()));
+  const options = [];
+  for (const choice of eligibleRank) {
+    const base = choice.model.toLowerCase();
+    if (skipBases.has(base)) continue;
+    options.push(choice);
+    if (options.length === 3) break;
+    skipBases.add(base);
+  }
+  return Object.freeze(options);
+}
+
 // Only consume the rank accepted by validateRouteResponse, never the (potentially
 // larger) catalogue or offered pool. Resolve IDs to the immutable offered choices.
 function buildPrimaryRouteOptions(rankedChoices, pool, excludedModels = []) {
@@ -94,7 +108,7 @@ function buildPrimaryRouteOptions(rankedChoices, pool, excludedModels = []) {
     fullRank: Object.freeze(fullRank),
     ordinaryPick: fullRank[0],
     eligibleRank: Object.freeze(eligibleRank),
-    options: Object.freeze(eligibleRank.slice(0, 3)),
+    options: shortlistPrimaryOptions(eligibleRank),
     excludedFallback: eligibleRank.length === 0,
   });
 }
@@ -187,6 +201,7 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, eligi
 
 module.exports = {
   buildPrimaryRouteOptions,
+  shortlistPrimaryOptions,
   buildRoutingCandidates,
   getModelRoutingChoices,
   normalizePolicyList,

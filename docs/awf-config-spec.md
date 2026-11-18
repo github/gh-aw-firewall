@@ -2677,16 +2677,17 @@ a denylist it must also match an explicit allow rule.
 
 When `excludedModels` is present, the proxy keeps the router's ordinary first
 pick separately. It removes the named bases (case-insensitive exact match)
-from the **full validated primary rank**, then takes up to three surviving
-model/effort pairs in order. For `A:low, A:medium, A:high, B:high`, the first
-three are all A. Excluding A leaves just `B:high`, which becomes the primary
-pick. The classifier can still use A. If no pair survives, the proxy keeps
+from the **full validated primary rank**, then walks it in order, keeping the
+first effort for each of up to three distinct provider-qualified models. For
+`A:low, A:medium, A:high, B:high, C:medium`, the options are `A:low, B:high,
+C:medium`. If only A and B are permitted, the list stops at two. Excluding A
+makes `B:high` the primary pick; the classifier can still use A. If no pair survives, the proxy keeps
 the ordinary pick from that rank, not a model outside the permitted shortlist.
 An empty hard-policy pool, invalid rank, or failed final guard still fails.
 
 The trusted host can read `routeOptions` in the private `selection.json`:
-`ordinaryPick` is the original pair, `options` lists the surviving first
-three (possibly empty), and `excludedFallback: true` means every ranked
+`ordinaryPick` is the original pair, `options` lists those distinct-base
+choices (possibly empty), and `excludedFallback: true` means every ranked
 pair was set aside. Each pair carries only `model` and the offered `effort`
 if present. Rank is not a price. The summary shares the existing 16 KiB
 result limit and is not exposed by `/reflect`. Set `excludedModels: []` for

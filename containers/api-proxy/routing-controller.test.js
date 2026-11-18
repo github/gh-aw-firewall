@@ -103,7 +103,8 @@ function createHarness(overrides = {}) {
 function replayRank(overrides = {}) {
   const model = (id, efforts) => ({ id, efforts, protocols: ['responses'], contextWindow: 128_000 });
   return createHarness({
-    models: [model('model-a', ['low', 'medium', 'high']), model('model-b', ['high']), model('outside', ['high'])],
+    models: [model('model-a', ['low', 'medium', 'high']), model('model-b', ['high']),
+      model('model-c', ['medium']), model('outside', ['high'])],
     routeResponse: () => ({ ranked_choices: rankFixture.fullRank }),
     ...overrides,
     config: { candidateModels: ['model-*'], ...overrides.config },
@@ -140,7 +141,7 @@ describe('routing controller', () => {
         router: { name: 'gh-aw-router', version: '1.0.0' },
         ranked_choices: rankFixture.fullRank.map(({ model, effort }) => ({ model, effort })),
         selected_id: selected.id, selected_model: selected.model, selected_effort: selected.effort,
-        degraded_classification: false, degraded_reason: null, classifier_attempts: 1, eligible_choices: 4,
+        degraded_classification: false, degraded_reason: null, classifier_attempts: 1, eligible_choices: 5,
         conversation_sha256: expect.stringMatching(/^[0-9a-f]{64}$/), catalogue_overlap: 0, latency_ms: expect.any(Number),
       },
     ]);
@@ -168,15 +169,17 @@ describe('routing controller', () => {
     expect(records[1]).not.toHaveProperty('routeOptions');
   });
 
-  it('keeps only the returned choices when two survive or soft exclusions exhaust that rank', async () => {
-    const two = rankFixture.fullRank.slice(1, 3);
-    for (const excludedModels of [[], ['github-copilot/model-a']]) {
-      const { controller } = replayRank({ config: { excludedModels }, routeResponse: () => ({ ranked_choices: two }) });
+  it('reports only two distinct bases on a two-base permitted shortlist, or none if both are set aside', async () => {
+    const rank = rankFixture.fullRank.slice(0, 4);
+    for (const excludedModels of [[], ['github-copilot/model-a', 'github-copilot/model-b']]) {
+      const { controller } = replayRank({
+        config: { excludedModels, candidateModels: ['model-a', 'model-b'] }, routeResponse: () => ({ ranked_choices: rank }),
+      });
       const { selection, routeOptions } = await controller.run();
-      expect(selection.choice).toEqual(two[0]);
+      expect(selection.choice).toEqual(rank[0]);
       expect(routeOptions).toEqual({
-        ordinaryPick: { model: two[0].model, effort: two[0].effort },
-        options: excludedModels.length ? [] : two.map(({ model, effort }) => ({ model, effort })),
+        ordinaryPick: rankFixture.ordinaryPick,
+        options: excludedModels.length ? [] : [rankFixture.ordinaryPick, { model: 'github-copilot/model-b', effort: 'high' }],
         excludedFallback: excludedModels.length > 0,
       });
     }

@@ -1,6 +1,6 @@
 'use strict';
 
-const { buildPrimaryRouteOptions, buildRoutingCandidates, normalizePolicyList } = require('./routing-candidates');
+const { buildPrimaryRouteOptions, buildRoutingCandidates, normalizePolicyList, shortlistPrimaryOptions } = require('./routing-candidates');
 const { createRoutingCatalogue } = require('./routing-catalogue');
 const { toRouteCandidates, validateRouteResponse } = require('./routing-contract');
 
@@ -17,16 +17,26 @@ function build(models, policy, provider = 'copilot', candidateModels) {
 }
 
 describe('routing candidates', () => {
-  it('retains the original and eligible ranks below the three-option boundary', () => {
+  it('keeps the first effort per base without removing sibling efforts from the full eligible rank', () => {
     const { fullRank } = require('./fixtures/routing-options/three-efforts.json');
-    const pool = build([model('model-a', { efforts: ['low', 'medium', 'high'] }), model('model-b', { efforts: ['high'] })]);
+    const pool = build([model('model-a', { efforts: ['low', 'medium', 'high'] }),
+      model('model-b', { efforts: ['high'] }), model('model-c', { efforts: ['medium'] })]);
     const route = validateRouteResponse({ ranked_choices: fullRank }, pool.choices);
     // Same native name in another provider is not an exclusion of this arm.
     const primary = buildPrimaryRouteOptions(route.ranked_choices, pool, ['openai/model-b']);
     expect(primary.fullRank).toEqual(fullRank);
     expect(primary.ordinaryPick).toBe(pool.byId[fullRank[0].id].choice);
-    expect(primary.options).toEqual(fullRank.slice(0, 3));
-    expect(primary.eligibleRank[3]).toBe(pool.byId[fullRank[3].id].choice);
+    expect(primary.options).toEqual([fullRank[0], fullRank[3], fullRank[4]]);
+    expect(primary.eligibleRank).toEqual(fullRank);
+  });
+
+  it('refills from the full eligible rank after suspensions and preserves provider and effort', () => {
+    const { fullRank } = require('./fixtures/routing-options/three-efforts.json');
+    const otherProvider = { id: 'fourth-base', model: 'openai/model-a', effort: 'high' };
+    const rank = [...fullRank, otherProvider];
+    expect(shortlistPrimaryOptions(rank)).toEqual([fullRank[0], fullRank[3], fullRank[4]]);
+    expect(shortlistPrimaryOptions(rank, ['github-copilot/model-a'])).toEqual([fullRank[3], fullRank[4], otherProvider]);
+    expect(shortlistPrimaryOptions(rank, rank.map(choice => choice.model))).toEqual([]);
   });
 
   it('excludes retired Copilot candidates without changing public IDs or native mappings', () => {
