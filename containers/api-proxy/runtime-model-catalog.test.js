@@ -376,15 +376,15 @@ describe('runtime model catalog', () => {
         expect(getRuntimeCatalogSnapshot({ now }).copilot[0]).not.toHaveProperty('promotion');
         expect(resolveRuntimePricing('copilot', 'gpt-test', 0, undefined, { now }))
           .not.toHaveProperty('promotion');
-        expect(getRuntimePromotion('copilot', 'gpt-test', capture, { now }))
-          .toMatchObject({ discountPercent: 25, active: true });
+        expect(getRuntimePromotion('copilot', 'gpt-test', capture, { now })).toBeNull();
         const fact = getRuntimePricingFact('copilot', 'gpt-test', capture, { now });
         for (const [prices, numerator] of [[fact.default, 10000n], [fact.longContext, 20000n]]) {
           expect(exact.rate(prices, 'input')).toEqual({ n: numerator, d: 3n });
         }
+        expect(fact).not.toHaveProperty('metadata');
         for (const [tokens, numerator] of [[1000, 10000n], [1001, 20000n]]) {
           const result = resolveRuntimePricing('copilot', 'gpt-test', tokens, capture, { now });
-          expect(result.promotion).toMatchObject({ discountPercent: 25, active: true });
+          expect(result).not.toHaveProperty('promotion');
           expect(exact.rate(result.pricing, 'input')).toEqual({ n: numerator, d: 3n });
         }
         if (refresh !== 'complete rates') {

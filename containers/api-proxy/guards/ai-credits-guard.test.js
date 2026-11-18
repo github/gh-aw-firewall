@@ -19,6 +19,7 @@ const {
   parseProviderModelMetadata,
   replaceRuntimeModels,
   clearRuntimeModels,
+  captureRuntimePricing,
 } = require('../runtime-model-catalog');
 const { resetProviderPricingOverlaysForTests } = require('../provider-pricing-overlays');
 const { resetModelPricingCatalogForTests } = require('../model-pricing-catalog');
@@ -940,6 +941,22 @@ describe('ai-credits-guard', () => {
       expect(usage).not.toHaveProperty('pricingPromotion');
       expect(getAiCreditsReflectState().by_model['promotion-model'])
         .not.toHaveProperty('pricing_promotion');
+    });
+
+    it('stops applying withdrawn promotions to requests with pinned tariffs', () => {
+      installPromotion({ percent: 100 });
+      const pinnedTariffs = captureRuntimePricing();
+      replaceRuntimeModels('copilot', parseProviderModelMetadata('copilot', {
+        data: [{ id: 'promotion-model' }],
+      }));
+
+      const usage = applyAiCreditsUsage(tokens, 'promotion-model', PROVIDER_COPILOT, {
+        catalogue: null, runtimeCatalog: pinnedTariffs, now: () => activeTime,
+      });
+
+      expect(usage.aiCreditsThisResponse).toBe(1.27);
+      expect(usage.pricingSource).toBe('provider');
+      expect(usage).not.toHaveProperty('pricingPromotion');
     });
 
     it('never discounts fallback cache components of a partial provider tariff', () => {

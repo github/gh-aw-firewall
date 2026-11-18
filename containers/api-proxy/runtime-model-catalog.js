@@ -281,7 +281,9 @@ function findRuntimeModel(provider, model, catalog = runtimeCatalog) {
 }
 
 function getRuntimePromotion(provider, model, catalog = runtimeCatalog, options = {}) {
-  const promotion = normalizePromotion(findRuntimeModel(provider, model, catalog)?.promotion);
+  const isCapturedCatalog = captureTimes.has(catalog) || captureTimes.has(catalog?.[provider]);
+  const promotionCatalog = isCapturedCatalog ? runtimeCatalog : catalog;
+  const promotion = normalizePromotion(findRuntimeModel(provider, model, promotionCatalog)?.promotion);
   if (!promotion) return null;
   const now = (options.now || Date.now)();
   return {
