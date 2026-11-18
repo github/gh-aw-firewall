@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -19,7 +20,7 @@ var contractChoices = []string{"github-copilot/router-fast", "github-copilot/rou
 
 func contractDocuments() map[string]map[string]any {
 	docs := map[string]map[string]any{}
-	for _, p := range Profiles {
+	for _, p := range tableProfiles {
 		doc := syntheticDocument(contractChoices...)
 		doc["profile"] = map[string]any{"goal": string(p.Goal), "mode": string(p.Mode)}
 		reversed := []any{contractChoices[1], contractChoices[0]}
@@ -177,7 +178,7 @@ func TestRoutingContractCorpusCoverage(t *testing.T) {
 			if err := json.Unmarshal(c.Request, &req); err != nil {
 				t.Fatalf("%s: %v", c.ID, err)
 			}
-			if !slices.Contains(Profiles, req.Objective) {
+			if !slices.Contains(tableProfiles, req.Objective) {
 				t.Errorf("%s routes with %s, which isn't a profile", c.ID, req.Objective.Key())
 			}
 			explicit[req.Objective] = true
@@ -198,23 +199,28 @@ func TestRoutingContractCorpusCoverage(t *testing.T) {
 // TestRoutingContractCorpus replays every corpus case through the HTTP handler.
 func TestRoutingContractCorpus(t *testing.T) {
 	docs := contractDocuments()
-	for _, c := range loadCorpus(t) {
-		t.Run(c.ID, func(t *testing.T) {
-			names := c.Profiles
-			if names == nil {
-				names = slices.Collect(maps.Keys(docs))
-			}
-			var served []*Table
-			for _, name := range slices.Sorted(slices.Values(names)) {
-				served = append(served, mustTable(t, docs[name]))
-			}
-			service, err := NewService(served)
-			if err != nil {
-				t.Fatal(err)
-			}
-			s, _ := newTestServerFor(t, service, nil)
-			r := serveRequest(t, s, c.Method, c.Path, c.header(), bytes.NewReader(c.body()))
-			checkCorpusResponse(t, c, r.status, r.body)
-		})
+	for _, legacy := range []bool{false, true} {
+		for _, c := range loadCorpus(t) {
+			t.Run(fmt.Sprintf("legacy=%t/%s", legacy, c.ID), func(t *testing.T) {
+				names := c.Profiles
+				if names == nil {
+					names = slices.Collect(maps.Keys(docs))
+					if !legacy {
+						names = slices.DeleteFunc(names, func(name string) bool { return strings.HasPrefix(name, "cost-speed-") })
+					}
+				}
+				var served []*Table
+				for _, name := range slices.Sorted(slices.Values(names)) {
+					served = append(served, mustTable(t, docs[name]))
+				}
+				service, err := NewService(served)
+				if err != nil {
+					t.Fatal(err)
+				}
+				s, _ := newTestServerFor(t, service, nil)
+				r := serveRequest(t, s, c.Method, c.Path, c.header(), bytes.NewReader(c.body()))
+				checkCorpusResponse(t, c, r.status, r.body)
+			})
+		}
 	}
 }

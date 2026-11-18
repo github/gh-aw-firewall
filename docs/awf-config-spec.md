@@ -394,6 +394,7 @@ points, configured limit, and remaining budget.
 
 - *(no config equivalent)* → `--reflect` *(CLI-only; starts AWF, queries the API proxy `/reflect` endpoint, and prints its JSON response instead of running a command; mutually exclusive with a command argument)*
 - *(no config equivalent)* → `--input-dir <path>` *(CLI-only; repeatable; each absolute sandbox-visible path must be a non-empty, readable directory before the command runs, otherwise the run fails closed; does not grant engine file scope)*
+- *(no config equivalent)* → `--home <path>` *(CLI-only; uses an existing local job-scoped directory as the agent `HOME` and source for tool mounts, credential masks, and routing storage instead of the runner home; Compose agents only, unsupported for microVM and ARC/DinD; see `docs/environment.md`)*
 - *(no config equivalent)* → `--capture-command-output <directory>` *(CLI-only; captures raw command stdout/stderr into a new absolute host-only directory outside agent-visible mounts; non-TTY Compose runtimes only; see `docs/protected-command-output.md`)*
 - *(no config equivalent)* → `--capture-command-output-max-bytes <bytes>` *(CLI-only; requires `--capture-command-output`; default and maximum 67108864)*
 - `platform.type` → *(config-only; maps to `AWF_PLATFORM_TYPE`)*
@@ -2607,9 +2608,14 @@ apiProxy:
 | `provider` | `copilot` (default), `openai`, `anthropic` | Restricts routing to one configured native API-proxy provider; AWF does not switch credentials or translate across providers. |
 | `candidateModels` | non-empty array of model glob patterns | Limits router/classifier choices without widening the request policy; defaults to `apiProxy.allowedModels`. |
 | `excludedModels` | array of up to 32 `provider/model` IDs, unique ignoring case | Sets aside all efforts of each named base for the primary pick only. Use `github-copilot`, `openai`, or `anthropic` as the prefix, not a provider alias, glob or effort suffix. |
-| `objective.goal` | `cost`, `cost-speed` | Optimization goal used by the router |
+| `objective.goal` | `cost` | Optimization goal used by the router; `cost-speed` is unsupported and MUST NOT be aliased to `cost` |
 | `objective.mode` | `economy`, `balanced`, `robust`, `auto` | Fixed routing profile, or `auto` classification |
 | `task.conversationFile` | non-empty string | Host path to the task conversation whose description the router classifies |
+
+The cost-only contract targets router `0.4.0`; its release is pending.
+The legacy six-file routing bundle remains packaged until a supporting reader
+is released and the compiler migration window is complete. No removal deadline
+has been announced. Retaining those files does not enable `cost-speed` requests.
 
 The task conversation must be written by the workflow host before AWF starts.
 Callers are responsible for preparing task-relevant conversation content before

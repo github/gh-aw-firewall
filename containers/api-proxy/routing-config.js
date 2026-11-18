@@ -3,7 +3,7 @@
 const { createRoutingError } = require('./routing-errors');
 const { normalizePolicyList } = require('./routing-candidates');
 
-const ROUTING_GOALS = new Set(['cost', 'cost-speed']);
+const ROUTING_GOALS = new Set(['cost']);
 const ROUTING_MODES = new Set(['economy', 'balanced', 'robust', 'auto']);
 const ROUTING_PROVIDERS = new Set(['copilot', 'openai', 'anthropic']);
 const CANONICAL_BASE_MODEL = /^(github-copilot|openai|anthropic)\/[A-Za-z0-9][A-Za-z0-9._-]*$/;

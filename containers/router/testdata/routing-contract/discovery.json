@@ -3,14 +3,11 @@
   {
     "id": "capabilities", "method": "GET", "path": "/capabilities", "status": 200,
     "response": {
-      "name": "gh-aw-router", "version": "0.3.1",
+      "name": "gh-aw-router", "version": "0.4.0",
       "routing_profiles": [
         {"goal": "cost", "mode": "economy"},
         {"goal": "cost", "mode": "balanced"},
-        {"goal": "cost", "mode": "robust"},
-        {"goal": "cost-speed", "mode": "economy"},
-        {"goal": "cost-speed", "mode": "balanced"},
-        {"goal": "cost-speed", "mode": "robust"}
+        {"goal": "cost", "mode": "robust"}
       ],
       "execution_catalogue": {"models": [
         {"model": "github-copilot/router-fast", "efforts": []},

@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1.7
 
-ARG VERSION=0.3.1
+ARG VERSION=0.4.0
 
 # The builder runs on the build machine and cross-compiles, so multi-platform builds need no
 # emulation. The runtime image has no shell, so every check runs here.
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS build
 
 ARG VERSION
 ARG OPENAPI_SHA256
@@ -26,6 +26,7 @@ RUN CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" \
 # Fails the build unless the label matches the shipped contract, so the label cannot drift from it.
 COPY openapi.yaml /out/app/openapi.yaml
 RUN printf '%s  /out/app/openapi.yaml\n' "${OPENAPI_SHA256}" | sha256sum -c -s
+# Keep the legacy six-table producer bundle until the compatible reader is released.
 COPY routing/cost-*.json /out/routing/
 # AWF's CA distrust policy filters the bundle the runtime image ships.
 COPY trust/ /opt/awf/trust/

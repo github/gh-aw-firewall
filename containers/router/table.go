@@ -80,7 +80,7 @@ func ParseTable(data []byte) (*Table, error) {
 	switch {
 	case doc.Profile == nil:
 		return nil, errors.New("profile: field required")
-	case !slices.Contains(Profiles, *doc.Profile):
+	case !slices.Contains(tableProfiles, *doc.Profile):
 		return nil, errors.New("routing table must declare a fixed cost or cost-speed profile")
 	case doc.Repository == "":
 		return nil, errors.New("repository: must not be empty")

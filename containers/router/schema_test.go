@@ -86,8 +86,8 @@ func TestSchemaMatchesRuntime(t *testing.T) {
 			profiles = append(profiles, Profile{Goal: goal, Mode: mode})
 		}
 	}
-	if !slices.Equal(profiles, Profiles) {
-		t.Errorf("schema profiles %v, want %v", profiles, Profiles)
+	if !slices.Equal(profiles, tableProfiles) {
+		t.Errorf("schema profiles %v, want readable table profiles %v", profiles, tableProfiles)
 	}
 
 	labelPattern := schema.Defs["labelKey"].Pattern
@@ -125,7 +125,7 @@ func TestSchemaMatchesRuntime(t *testing.T) {
 		}
 		docs[filepath.ToSlash(path)] = doc
 	}
-	if want := len(Profiles) + len(bundled); len(docs) != want {
+	if want := len(tableProfiles) + len(bundled); len(docs) != want {
 		t.Fatalf("checking %d tables, want %d", len(docs), want)
 	}
 	for name, doc := range docs {

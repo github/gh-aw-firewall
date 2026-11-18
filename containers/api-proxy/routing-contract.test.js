@@ -91,7 +91,7 @@ describe('routing contracts', () => {
         expect(validateCapabilities(
           testCase.response,
           { goal: 'cost', mode: 'auto' },
-          { name: 'gh-aw-router', version: '0.1.1' },
+          { name: 'gh-aw-router', version: '0.4.0' },
         )).toBe(testCase.response);
       } else if (testCase.path === '/classify') {
         expect(validateClassifyResponse(testCase.response, testCase.request.models))
@@ -243,10 +243,22 @@ describe('routing contracts', () => {
     }))).toBeNull();
   });
 
-  it.each(['cost', 'cost-speed'])('accepts the recorded capabilities for %s/auto', (goal) => {
+  it.each(['auto', 'economy', 'balanced', 'robust'])('accepts the recorded capabilities for cost/%s', mode => {
     expect(validateCapabilities(
       corpusCase('capabilities').response,
-      { goal, mode: 'auto' },
+      { goal: 'cost', mode },
     )).toBe(corpusCase('capabilities').response);
+  });
+
+  it('rejects capabilities advertising the retired cost-speed goal', () => {
+    const capabilities = corpusCase('capabilities').response;
+    expect(() => validateCapabilities({
+      ...capabilities,
+      routing_profiles: [
+        ...capabilities.routing_profiles,
+        { goal: 'cost-speed', mode: 'balanced' },
+      ],
+    }, { goal: 'cost', mode: 'auto' }))
+      .toThrow('The router capabilities response is invalid');
   });
 });

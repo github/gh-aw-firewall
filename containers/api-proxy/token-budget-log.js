@@ -5,7 +5,7 @@ const { applyMaxCacheMissesUsage } = require('./guards/max-cache-misses-guard');
 
 /**
  * Apply the AI-credits usage guard, emit a token_budget_usage
- * log entry when AI credits are consumed, and return the budget fields to be
+ * log entry when usage is priced (including zero credits), and return the budget fields to be
  * persisted in the token-usage JSONL record.
  *
  * Extracted from the identical `onUsage` callbacks in upstream-response.js and
@@ -37,6 +37,10 @@ function computeTokenBudgetUsage(context, normalizedUsage, model) {
       ...(aiCreditsUsage.pricingCatalogVersion
         ? { pricing_catalog_version: aiCreditsUsage.pricingCatalogVersion }
         : {}),
+      ...(aiCreditsUsage.pricingDiscountPercent !== undefined
+        ? { pricing_discount_percent: aiCreditsUsage.pricingDiscountPercent }
+        : {}),
+      ...(aiCreditsUsage.pricingPromotion ? { pricing_promotion: aiCreditsUsage.pricingPromotion } : {}),
       accounting_policy: aiCreditsUsage.accountingPolicy,
       fallback_pricing_used: aiCreditsUsage.fallbackPricingUsed,
       dynamic_selector: aiCreditsUsage.dynamicSelector,
@@ -69,6 +73,9 @@ function computeTokenBudgetUsage(context, normalizedUsage, model) {
     }
     if (aiCreditsUsage.pricingDiscountPercent !== undefined) {
       budgetFields.ai_credits_pricing_discount_percent = aiCreditsUsage.pricingDiscountPercent;
+    }
+    if (aiCreditsUsage.pricingPromotion) {
+      budgetFields.ai_credits_pricing_promotion = aiCreditsUsage.pricingPromotion;
     }
   }
   return Object.keys(budgetFields).length > 0 ? budgetFields : undefined;

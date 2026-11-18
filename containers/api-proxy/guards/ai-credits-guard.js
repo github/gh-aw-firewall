@@ -283,7 +283,8 @@ function resolveModelPricing(model, state = aiCreditsState, provider = undefined
     operator: () => provider ? getProviderPricingFact(provider, pricingModel) : null,
     configured: () => provider ? getConfiguredPricingFact(provider, pricingModel) : null,
     runtime: () => {
-      capture.runtimeFact = provider ? getRuntimePricingFact(provider, pricingModel, options.runtimeCatalog) : null;
+      capture.runtimeFact = provider
+        ? getRuntimePricingFact(provider, pricingModel, options.runtimeCatalog, { now: options.now }) : null;
       catalogue = Object.hasOwn(options, 'catalogue') ? options.catalogue : getCatalogueLoader().capture();
       capture.time = catalogue?.time ?? null;
       capture.maxAge = catalogue?.maxAge ?? null;
@@ -335,7 +336,7 @@ function resolveModelPricing(model, state = aiCreditsState, provider = undefined
   if (resolution.missingModelPricing && !options.quiet) {
     warnSelectedModelPricing(model, provider, resolution.result, state);
   }
-  return resolution.result;
+  return resolution.result ? { ...resolution.result, componentSources: resolution.componentSources } : null;
 }
 
 function warnSelectedModelPricing(model, provider, result, state = aiCreditsState) {
@@ -441,6 +442,28 @@ function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, prov
   }
   const { pricing } = pricingResolution;
   const dynamicSelector = getDynamicSelectorDescriptor(model, provider);
+  const promotion = pricingResolution.promotion;
+  const discountedComponents = promotion?.active && promotion.discountPercent > 0
+    ? Object.entries(pricingResolution.componentSources)
+      .filter(([, provenance]) => provenance.source === 'provider')
+      .map(([field]) => field)
+    : [];
+  const percent = promotion?.discountPercent ?? 0;
+  const hundred = exact.decimal(100);
+  const discount = exact.decimal(percent);
+  const discountFactor = exact.divide({
+    n: hundred.n * discount.d - discount.n * hundred.d,
+    d: hundred.d * discount.d,
+  }, hundred);
+  const pricingPromotion = promotion ? {
+    ...promotion,
+    applied: discountedComponents.length > 0,
+    discountedComponents,
+    listPriceSource: pricingResolution.source,
+    listPriceTier: pricingResolution.tier,
+    effectivePriceSource: discountedComponents.length > 0 ? 'provider_promotion' : pricingResolution.source,
+    effectivePriceTier: pricingResolution.tier,
+  } : undefined;
 
   // input_tokens semantics differ by provider:
   //  - Anthropic and Copilot's precise copilot_usage report input_tokens as the
@@ -459,8 +482,9 @@ function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, prov
   const charge = (tokens, field) => {
     if (!Number.isSafeInteger(tokens) || tokens < 0) throw new Error('pricing_invalid_token_count');
     const price = exact.rate(pricing, field);
-    return price === null ? exact.ZERO
-      : exact.divide(exact.multiply(exact.decimal(tokens), price), exact.decimal(CREDIT_DENOMINATOR));
+    if (price === null) return exact.ZERO;
+    const credits = exact.divide(exact.multiply(exact.decimal(tokens), price), exact.decimal(CREDIT_DENOMINATOR));
+    return discountedComponents.includes(field) ? exact.multiply(credits, discountFactor) : credits;
   };
   const inputCredits = charge(nonCachedInput, 'input');
   const cachedInputCredits = charge(cacheReadTokens, 'cachedInput');
@@ -485,7 +509,8 @@ function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, prov
     pricingTier: pricingResolution.tier,
     pricingObservedAt: pricingResolution.observedAt,
     pricingApiVersion: pricingResolution.apiVersion,
-    pricingDiscountPercent: pricingResolution.discountPercent,
+    pricingDiscountPercent: promotion?.discountPercent,
+    pricingPromotion,
     pricingCatalogId: pricingResolution.pricingCatalogId,
     pricingCatalogVersion: pricingResolution.pricingCatalogVersion,
     pricingEstimate: pricingResolution.estimate,
@@ -560,6 +585,7 @@ function applyExactAiCreditsUsage(normalizedUsage, model, provider = undefined, 
   modelBucket.fallbackPricingUsed = calc.usedFallbackPricing;
   modelBucket.dynamicSelector = calc.dynamicSelector;
   modelBucket.pricingEstimate = calc.pricingEstimate;
+  modelBucket.pricingPromotion = calc.pricingPromotion;
   aiCreditsState.totalAiCredits = total;
   if (options.purpose !== 'routing_classification') {
     aiCreditsState.recentRequestCosts.push(calc.totalCredits);
@@ -583,6 +609,7 @@ function applyExactAiCreditsUsage(normalizedUsage, model, provider = undefined, 
     ...(calc.pricingCatalogId ? { pricingCatalogId: calc.pricingCatalogId } : {}),
     ...(calc.pricingCatalogVersion ? { pricingCatalogVersion: calc.pricingCatalogVersion } : {}),
     ...(calc.pricingEstimate ? { pricingEstimate: calc.pricingEstimate } : {}),
+    ...(calc.pricingPromotion ? { pricingPromotion: calc.pricingPromotion } : {}),
     accountingPolicy: calc.accountingPolicy,
     fallbackPricingUsed: calc.usedFallbackPricing,
     dynamicSelector: calc.dynamicSelector,
@@ -620,6 +647,7 @@ function buildAiCreditsReflectState() {
       ...(usage.pricingCatalogId ? { pricing_catalog_id: usage.pricingCatalogId } : {}),
       ...(usage.pricingCatalogVersion ? { pricing_catalog_version: usage.pricingCatalogVersion } : {}),
       ...(usage.pricingEstimate ? { pricing_estimate: usage.pricingEstimate } : {}),
+      ...(usage.pricingPromotion ? { pricing_promotion: usage.pricingPromotion } : {}),
       accounting_policy: usage.accountingPolicy || null,
       fallback_pricing_used: usage.fallbackPricingUsed === true,
       dynamic_selector: usage.dynamicSelector || null,

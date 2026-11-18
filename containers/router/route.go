@@ -165,9 +165,11 @@ type Service struct {
 // file at path.
 func LoadService(path string) (*Service, error) {
 	paths := []string{path}
+	directory := false
 	if info, err := os.Stat(path); err != nil {
 		return nil, err
 	} else if info.IsDir() {
+		directory = true
 		// ReadDir rather than Glob, so a directory name holding [, * or ? still works.
 		entries, err := os.ReadDir(path)
 		if err != nil {
@@ -191,7 +193,18 @@ func LoadService(path string) (*Service, error) {
 		}
 		tables[i] = t
 	}
-	return NewService(tables)
+	s, err := NewService(tables)
+	if err != nil {
+		return nil, err
+	}
+	if directory {
+		for _, p := range Profiles {
+			if s.tables[p] == nil {
+				return nil, fmt.Errorf("routing table bundle is missing required profile %s", p.Key())
+			}
+		}
+	}
+	return s, nil
 }
 
 // NewService indexes tables by profile, rejecting a profile served twice and
@@ -200,16 +213,27 @@ func NewService(tables []*Table) (*Service, error) {
 	if len(tables) == 0 {
 		return nil, errors.New("a service requires at least one routing table")
 	}
-	s := &Service{tables: map[Profile]*Table{}, primary: tables[0]}
+	s := &Service{tables: map[Profile]*Table{}}
+	seen := map[Profile]bool{}
 	for _, t := range tables {
-		if _, ok := s.tables[t.Profile]; ok {
+		if seen[t.Profile] {
 			return nil, fmt.Errorf("more than one routing table declares %s", t.Profile.Key())
+		}
+		seen[t.Profile] = true
+		if t.Profile.Goal == GoalCostSpeed {
+			continue
+		}
+		if s.primary == nil {
+			s.primary = t
 		}
 		if t.Repository != s.primary.Repository || !sameCatalogue(t.Pairs, s.primary.Pairs) ||
 			!slices.Equal(t.Classification, s.primary.Classification) {
 			return nil, errors.New("routing profiles must share one repository, model catalogue, and classifier order")
 		}
 		s.tables[t.Profile] = t
+	}
+	if s.primary == nil {
+		return nil, errors.New("a service requires at least one cost routing table")
 	}
 	return s, nil
 }
@@ -262,6 +286,9 @@ func (s *Service) Classify(req *ClassifyRequest) (*ClassifyResponse, error) {
 // Route resolves automatic mode and ranks the offered models with the profile's
 // table.
 func (s *Service) Route(req *RouteRequest) (*RouteResponse, error) {
+	if req.Objective.Goal != GoalCost {
+		return nil, requestError(BadRequest, "%s", unsupportedGoalDetail(req.Objective.Goal))
+	}
 	profile := resolvedProfile(req)
 	t := s.tables[profile]
 	if t == nil {
