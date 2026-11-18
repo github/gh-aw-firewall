@@ -1,6 +1,7 @@
 'use strict';
 
 const { createHash } = require('crypto');
+const { getModelMultiplierCapBlockState } = require('./guards/max-model-multiplier-guard');
 const { buildRoutingCandidates, filterPrimaryRank, resolvePrimaryRank, shortlistPrimaryOptions } = require('./routing-candidates');
 const { pinRequestEligibility, proxyEligibilityStore } = require('./model-eligibility');
 const { getModelReasoning } = require('./model-reasoning');
@@ -301,11 +302,19 @@ function createRoutingController(dependencies) {
       const excludedFallback = eligibleRank.length === 0;
       const selectedChoice = eligibleRank[0] ?? ordinaryPick;
       const selection = createSelection(selectedChoice, pool.byId[selectedChoice.id]);
-      const routeOptions = reportOptions ? deepFreezeJson({
-        ordinaryPick: modelEffortPair(ordinaryPick),
-        options: shortlistPrimaryOptions(eligibleRank, config.topK).map(modelEffortPair),
-        excludedFallback,
-      }) : undefined;
+      let routeOptions;
+      if (reportOptions) {
+        // The cap matches native wire IDs, not router IDs. It must not steer the primary past a guard veto.
+        const withinCap = eligibleRank.filter(({ id }) => {
+          const { wireModel, provider } = pool.byId[id];
+          return !getModelMultiplierCapBlockState(wireModel, provider);
+        });
+        routeOptions = deepFreezeJson({
+          ordinaryPick: modelEffortPair(ordinaryPick),
+          options: shortlistPrimaryOptions(withinCap, config.topK).map(modelEffortPair),
+          excludedFallback,
+        });
+      }
 
       await runPhase(({ signal: phaseSignal }) =>
         executor.checkBeforePrimary({

@@ -212,6 +212,34 @@ describe('routing controller', () => {
     }
   });
 
+  it('refills past a multiplier-capped alternative but never substitutes for a blocked primary', async () => {
+    const env = jest.replaceProperty(process, 'env', {
+      ...process.env, AWF_MAX_MODEL_MULTIPLIER: '2', AWF_DEFAULT_MODEL_MULTIPLIER: '1',
+      AWF_MODEL_MULTIPLIERS: JSON.stringify({ 'model-b': 3 }),
+    });
+    try {
+      const { checkBeforePrimary } = require('./routing-provider-executor').createRoutingProviderExecutor({
+        getAdapter: jest.fn(), proxyRequest: jest.fn(), checkRateLimit: jest.fn(),
+      });
+      const { controller, calls, records } = replayRank({ config: { topK: 2 }, checkBeforePrimary });
+      const { selection, routeOptions } = await controller.run();
+      expect(selection.choice).toEqual(rankFixture.fullRank[0]);
+      expect(routeOptions).toEqual({
+        ordinaryPick: rankFixture.ordinaryPick, excludedFallback: false,
+        options: [rankFixture.ordinaryPick, { model: 'github-copilot/model-c', effort: 'medium' }],
+      });
+      expect(records[1].ranked_choices).toEqual(rankFixture.fullRank.map(({ model, effort }) => ({ model, effort })));
+      expect(calls.classify[0].models).toContainEqual(rankFixture.fullRank[3]);
+      expect(calls.checkBeforePrimary).toHaveLength(1);
+
+      const blocked = replayRank({ config: { topK: 2, excludedModels: ['github-copilot/model-a'] }, checkBeforePrimary });
+      await expect(blocked.controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'model_multiplier_cap_exceeded' } });
+      expect(blocked.calls.checkBeforePrimary.map(call => call.selection.wire_model)).toEqual(['model-b']);
+    } finally {
+      env.restore();
+    }
+  });
+
   it.each([
     [{ dependencies: { policy: { disallowedModels: ['*'] } } }, 'model_policy_violation'],
     [{ config: { candidateModels: ['missing'] } }, 'no_route'],

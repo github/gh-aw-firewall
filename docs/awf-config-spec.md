@@ -2702,7 +2702,9 @@ to every effort. The proxy filters the **full validated primary rank** before
 taking the first effort for each distinct remaining model. It never pads
 the list, widens discovery, or runs a second primary. If exclusions exhaust
 the rank, only the ordinary permitted pick may run, still subject to the
-final guard. An empty hard-policy pool, invalid rank or failed guard still fails.
+final guard. The list skips models blocked by the configured multiplier cap,
+but never substitutes an alternative for a primary that fails its guard.
+An empty hard-policy pool, invalid rank or failed guard still fails.
 
 Only `topK` adds `routeOptions` to the trusted host's private `selection.json`.
 `ordinaryPick` is the original pair; `options` is the ordered list;
