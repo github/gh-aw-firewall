@@ -31,4 +31,4 @@ runs:
       env:
         CHROOT_BROWSER: ${{ inputs.browser }}
         CHROOT_CACHE_VARIANT: ${{ github.job }}-${{ inputs.runner-variant }}-${{ runner.arch }}
-      run: bash scripts/ci/build-chroot-images.sh
+      run: exec bash scripts/ci/build-chroot-images.sh
