@@ -1,0 +1,39 @@
+{
+  "$schema": "../../schema.json",
+  "id": "CI-011",
+  "boundary": "ci",
+  "title": "Daily primary-agent regression fails at the guest credential or Codex invocation contract",
+  "symptoms": [
+    "Copilot credential is not isolated",
+    "Copilot placeholder contract is unavailable",
+    "Codex regression stalls on inherited stdin",
+    "Codex attempts direct OpenAI inference with a placeholder credential under Cloud Hypervisor or NVX"
+  ],
+  "conditions": [
+    "The failure occurs in the primary-agent regression guest before a proof/response can be validated, not at the later completion or routing evidence gate",
+    "Older Copilot guest checks compared credential variables with the log-redacted placeholder text instead of the canonical COPILOT_PLACEHOLDER_TOKEN, so the intended placeholder was rejected before inference",
+    "Older Codex invocations inherited an open stdin and selected no explicit provider, so Codex stalled under Docker or used the default OpenAI endpoint with a placeholder credential under Cloud Hypervisor and NVX",
+    "The pinned Codex CLI is 0.159.3; other versions are unknown"
+  ],
+  "affects": { "runner": "github-hosted", "runtime": "any", "provider": "any", "authMode": "any" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "fixed",
+  "rootCause": "The shared guest harness encoded the Copilot placeholder as a duplicated, log-redacted literal and invoked Codex without closing stdin or pinning its Responses provider to the AWF sidecar. The guest now loads the compiled canonical placeholder constant and accepts only an absent, empty or exact-placeholder value for all three Copilot credential variables, and runs Codex with stdin closed and an explicit awf provider (sidecar base URL, placeholder key, WebSocket support) so both transports use the sidecar and real credentials stay in the proxy.",
+  "probe": {
+    "command": "grep -n -e 'COPILOT_PLACEHOLDER_TOKEN' -e 'model_provider' -e 'dev/null' scripts/ci/run-agent-regression-guest.sh",
+    "expect": "Source that contains the canonical placeholder load, the explicit awf provider selection and the closed-stdin Codex invocation carries the fix. The probe inspects source only; it does not read credential values. A historical run without guest output is unknown.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use source whose guest loads the compiled canonical placeholder, accepts only absent, empty or exact-placeholder Copilot credential values, and launches Codex non-interactively against the sidecar URL. Keep the exact proof and response checks and the nonzero-exit rejection. Do not weaken isolation to accept a real credential, and do not point Codex at a non-sidecar endpoint. Use codex-routing.json to judge routing (see CI-005). Hosted acceptance remains separate.",
+  "references": [
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11159" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11161" },
+    { "kind": "code", "ref": "scripts/ci/run-agent-regression-guest.sh" },
+    { "kind": "code", "ref": "scripts/ci/collect-agent-regression-evidence.cjs" },
+    { "kind": "test", "ref": "scripts/ci/agent-runtime-regression.test.ts" }
+  ],
+  "related": ["CI-005"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-02-12"
+}
