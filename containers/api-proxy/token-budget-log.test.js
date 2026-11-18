@@ -4,6 +4,130 @@ const { computeTokenBudgetUsage } = require('./token-budget-log');
 const { resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard');
 const { resetModelPricingCatalogForTests } = require('./model-pricing-catalog');
 const { resetProviderPricingOverlaysForTests } = require('./provider-pricing-overlays');
+const { mergeBudgetFields } = require('./token-tracker-shared');
+
+describe('promotion metadata propagation', () => {
+  const baseUsage = {
+    aiCreditsThisResponse: 2,
+    totalAiCredits: 3,
+    pricingSource: 'runtime_catalog',
+    pricingTier: 'default',
+    accountingPolicy: 'exact',
+    fallbackPricingUsed: false,
+    dynamicSelector: null,
+  };
+  const promotion = {
+    discountPercent: 50,
+    id: 'launch-offer',
+    startsAt: '2026-11-01T00:00:00Z',
+    endsAt: '2026-12-01T00:00:00Z',
+    active: true,
+    applied: true,
+    discountedComponents: ['input', 'cachedInput', 'cacheWrite', 'output', 'reasoning'],
+    listPriceSource: 'runtime_catalog',
+    listPriceTier: 'default',
+    effectivePriceSource: 'runtime_catalog',
+    effectivePriceTier: 'default',
+  };
+
+  function computeWithGuardResult(guardResult, logRequest) {
+    let result;
+    jest.isolateModules(() => {
+      const guard = require('./guards/ai-credits-guard');
+      const spy = jest.spyOn(guard, 'applyAiCreditsUsage').mockReturnValue(guardResult);
+      try {
+        const { computeTokenBudgetUsage: compute } = require('./token-budget-log');
+        result = compute(
+          { logRequest, requestId: 'req-promotion', provider: 'openai' },
+          { input_tokens: 1000, output_tokens: 500 },
+          'promotional-model',
+        );
+      } finally {
+        spy.mockRestore();
+      }
+    });
+    return result;
+  }
+
+  it.each([
+    ['active', promotion, 1],
+    ['expired', {
+      ...promotion,
+      active: false,
+      applied: false,
+      discountedComponents: [],
+      effectivePriceSource: 'curated',
+      effectivePriceTier: 'long_context',
+    }, 2],
+    ['100% discount', { ...promotion, discountPercent: 100 }, 0],
+  ])('logs and persists %s promotion metadata without changing advertised discounts', (_name, pricingPromotion, credits) => {
+    const logRequest = jest.fn();
+    const fields = computeWithGuardResult({
+      ...baseUsage,
+      aiCreditsThisResponse: credits,
+      totalAiCredits: credits,
+      pricingDiscountPercent: pricingPromotion.discountPercent,
+      pricingPromotion,
+    }, logRequest);
+
+    expect(logRequest).toHaveBeenCalledTimes(1);
+    expect(logRequest).toHaveBeenCalledWith('info', 'token_budget_usage', expect.objectContaining({
+      ai_credits_this_response: credits,
+      ai_credits_total: credits,
+      pricing_discount_percent: pricingPromotion.discountPercent,
+      pricing_promotion: pricingPromotion,
+    }));
+    expect(fields).toMatchObject({
+      ai_credits_this_response: credits,
+      ai_credits_total: credits,
+      ai_credits_pricing_discount_percent: pricingPromotion.discountPercent,
+      ai_credits_pricing_promotion: pricingPromotion,
+    });
+
+    const record = { model: 'promotional-model' };
+    mergeBudgetFields(record, { ...fields, unrelated: 'not persisted' });
+    const persistedFields = { ...fields };
+    delete persistedFields.ai_credits_dynamic_selector;
+    expect(JSON.parse(JSON.stringify(record))).toEqual({ model: 'promotional-model', ...persistedFields });
+    expect(record.ai_credits_pricing_promotion).toEqual(pricingPromotion);
+  });
+
+  it('preserves the existing record and structured-log shapes without a promotion', () => {
+    const logRequest = jest.fn();
+    const fields = computeWithGuardResult(baseUsage, logRequest);
+    expect(fields).toEqual({
+      ai_credits_this_response: 2,
+      ai_credits_total: 3,
+      ai_credits_pricing_source: 'runtime_catalog',
+      ai_credits_pricing_tier: 'default',
+      ai_credits_accounting_policy: 'exact',
+      ai_credits_fallback_pricing_used: false,
+      ai_credits_dynamic_selector: null,
+    });
+    expect(logRequest).toHaveBeenCalledWith('info', 'token_budget_usage', {
+      request_id: 'req-promotion',
+      provider: 'openai',
+      model: 'promotional-model',
+      ai_credits_this_response: 2,
+      ai_credits_total: 3,
+      pricing_source: 'runtime_catalog',
+      pricing_tier: 'default',
+      accounting_policy: 'exact',
+      fallback_pricing_used: false,
+      dynamic_selector: null,
+    });
+  });
+
+  it('logs an advertised zero discount without adding absent promotion metadata', () => {
+    const logRequest = jest.fn();
+    const fields = computeWithGuardResult({ ...baseUsage, pricingDiscountPercent: 0 }, logRequest);
+
+    expect(fields.ai_credits_pricing_discount_percent).toBe(0);
+    expect(fields).not.toHaveProperty('ai_credits_pricing_promotion');
+    expect(logRequest.mock.calls[0][2].pricing_discount_percent).toBe(0);
+    expect(logRequest.mock.calls[0][2]).not.toHaveProperty('pricing_promotion');
+  });
+});
 
 describe('computeTokenBudgetUsage', () => {
   let logRequest;

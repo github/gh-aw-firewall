@@ -432,7 +432,77 @@
       "type": "number",
       "minimum": 0,
       "maximum": 100,
-      "description": "Promotional discount percentage applied to this model's pricing, when known. Present only when apiProxy.maxAiCredits is configured and a promotion is active."
+      "description": "Advertised provider promotion discount percentage, whether active or not. This does not indicate that a discount was applied; consult ai_credits_pricing_promotion.applied. Present only when apiProxy.maxAiCredits is configured and a valid promotion is advertised."
+    },
+    "ai_credits_pricing_promotion": {
+      "type": "object",
+      "description": "Provider promotion metadata used for AI-credit accounting. The applied flag indicates whether eligible provider-priced components were discounted.",
+      "properties": {
+        "discountPercent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Advertised promotion discount percentage."
+        },
+        "id": {
+          "type": "string",
+          "description": "Provider promotion identifier, when supplied."
+        },
+        "startsAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Inclusive promotion start timestamp, when supplied."
+        },
+        "endsAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Exclusive promotion expiry timestamp."
+        },
+        "active": {
+          "type": "boolean",
+          "description": "Whether the promotion was within its advertised time window."
+        },
+        "applied": {
+          "type": "boolean",
+          "description": "Whether at least one eligible provider-priced component was discounted."
+        },
+        "discountedComponents": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["input", "output", "cachedInput", "cacheWrite", "reasoning"]
+          },
+          "description": "Price components eligible for and receiving the discount."
+        },
+        "listPriceSource": {
+          "type": "string",
+          "description": "Pricing source selected before applying a promotion."
+        },
+        "listPriceTier": {
+          "type": "string",
+          "description": "Pricing tier selected before applying a promotion."
+        },
+        "effectivePriceSource": {
+          "type": "string",
+          "description": "Pricing source after applying a promotion, when applicable."
+        },
+        "effectivePriceTier": {
+          "type": "string",
+          "description": "Pricing tier used after applying a promotion."
+        }
+      },
+      "required": [
+        "discountPercent",
+        "endsAt",
+        "active",
+        "applied",
+        "discountedComponents",
+        "listPriceSource",
+        "listPriceTier",
+        "effectivePriceSource",
+        "effectivePriceTier"
+      ],
+      "additionalProperties": true
     },
     "ai_credits_pricing_estimate": {
       "type": "object",
