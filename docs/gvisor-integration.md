@@ -181,7 +181,7 @@ for free; a new microVM runtime must define its own sharing scheme.
 
 gVisor's userspace netstack has an isolated sandbox loopback that **cannot reach
 Docker's embedded DNS resolver at `127.0.0.11`**
-([google/gvisor#7469](https://github.com/google/gvisor/issues/7469)). So any
+([gVisor networking documentation](https://gvisor.dev/docs/architecture_guide/networking/)). So any
 lookup of a compose service name by DNS fails inside a `runsc` agent.
 
 AWF sidesteps this in two complementary ways:
@@ -366,7 +366,7 @@ service.
   ([platforms](https://gvisor.dev/docs/architecture_guide/platforms/),
   [networking / netstack](https://gvisor.dev/docs/architecture_guide/networking/))
 - `runsc` install: <https://gvisor.dev/docs/user_guide/install/>
-- netstack DNS limitation: <https://github.com/google/gvisor/issues/7469>
+- netstack DNS behavior: <https://gvisor.dev/docs/architecture_guide/networking/>
 - AWF source: `src/container-runtime.ts`, `src/services/agent-service.ts`,
   `src/topology.ts`, `src/services/agent-environment/tool-specific-environment.ts`
 - Archived workflow examples: `.github/disabled-workflows/test-gvisor-compat.yml`,
