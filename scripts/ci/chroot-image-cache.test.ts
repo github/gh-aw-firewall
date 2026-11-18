@@ -96,6 +96,10 @@ describe('chroot cached image wiring', () => {
     expect(action.runs.steps[2].env?.CHROOT_CACHE_VARIANT)
       .toBe('${{ github.job }}-${{ inputs.runner-variant }}-${{ runner.arch }}');
   });
+
+  it('execs the builder so it receives cancellation signals from the runner', () => {
+    expect(action.runs.steps[2].run).toBe('exec bash scripts/ci/build-chroot-images.sh');
+  });
 });
 
 describe('cached chroot image builder', () => {
@@ -105,8 +109,50 @@ describe('cached chroot image builder', () => {
     fs.writeFileSync(path.join(temp, 'docker'), `#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> "$TRACE"
+if [[ "$*" == "buildx build"* ]]; then
+  image="\${!#}"
+  image="\${image#containers/}"
+  image="\${image%/}"
+  touch "$MOCK_STATE/started-$image"
+  images=(squid agent)
+  if [[ "$CHROOT_BROWSER" == true ]]; then images+=(api-proxy); fi
+  for peer in "\${images[@]}"; do
+    for ((attempt=0; attempt<100; attempt++)); do
+      [[ -f "$MOCK_STATE/started-$peer" ]] && break
+      sleep 0.01
+    done
+    [[ -f "$MOCK_STATE/started-$peer" ]] || exit 97
+  done
+  echo "Build output for $image"
+  if [[ "$image" == squid && -n "\${CANCEL_SIGNAL:-}" ]]; then
+    # Keep squid running until the agent has finished, then interrupt the parent's wait.
+    for ((attempt=0; attempt<200; attempt++)); do
+      if grep -qs 'Chroot image agent wall time:' "$TMPDIR"/tmp.*/agent.log; then
+        kill -s "$CANCEL_SIGNAL" "$BUILD_SCRIPT_PID"
+        for ((check=0; check<200; check++)); do
+          kill -0 "$BUILD_SCRIPT_PID" 2>/dev/null || exit 0
+          sleep 0.01
+        done
+        exit 96
+      fi
+      sleep 0.01
+    done
+    exit 96
+  fi
+  touch "$MOCK_STATE/finished-$image"
+fi
 if [[ "$*" == "buildx build"* && "$*" == *"/agent:latest"* && "\${FAILURE:-}" == build ]]; then exit 17; fi
 if [[ "$*" == "image inspect"* && "\${FAILURE:-}" == inspect ]]; then exit 18; fi
+if [[ "$*" == "image inspect"* && "$*" == *"/squid:latest"* && "\${FAILURE:-}" == multiple ]]; then exit 18; fi
+if [[ "$*" == "buildx build"* && "$*" == *"/agent:latest"* && "\${FAILURE:-}" == multiple ]]; then exit 17; fi
+if [[ "$*" == "builder prune"* || "$*" == "image rm"* ]]; then
+  for peer in squid agent; do
+    [[ -f "$MOCK_STATE/finished-$peer" ]] || exit 98
+  done
+  if [[ "$CHROOT_BROWSER" == true ]]; then
+    [[ -f "$MOCK_STATE/finished-api-proxy" ]] || exit 98
+  fi
+fi
 if [[ "$*" == "builder prune"* && "\${FAILURE:-}" == prune ]]; then exit 19; fi
 `, { mode: 0o755 });
     fs.writeFileSync(path.join(temp, 'date'), `#!/usr/bin/env bash
@@ -117,13 +163,19 @@ printf '%s\\n' "$FIXTURE_DAY"
   afterEach(() => fs.rmSync(temp, { recursive: true, force: true }));
 
   function run(extra: NodeJS.ProcessEnv = {}) {
-    return spawnSync('bash', [path.join(root, 'scripts/ci/build-chroot-images.sh')], {
+    const script = path.join(root, 'scripts/ci/build-chroot-images.sh');
+    const args = extra.CANCEL_SIGNAL
+      ? ['-c', `export BUILD_SCRIPT_PID=$$; ${action.runs.steps[2].run}`]
+      : [script];
+    return spawnSync('bash', args, {
+      cwd: root,
       encoding: 'utf8',
       timeout: 5000,
       env: {
         ...process.env,
         PATH: `${temp}${path.delimiter}${process.env.PATH}`,
         TRACE: path.join(temp, 'trace'),
+        MOCK_STATE: temp,
         FIXTURE_DAY: '2026-11-04',
         GITHUB_ACTIONS: 'true',
         RUNNER_ENVIRONMENT: 'github-hosted',
@@ -145,25 +197,49 @@ printf '%s\\n' "$FIXTURE_DAY"
     expect(result.status).toBe(0);
     expect(result.stdout + result.stderr).not.toContain('fixture-token');
     const calls = trace();
-    expect(calls).toHaveLength(6);
-    ['squid', 'agent'].forEach((image, index) => {
+    expect(calls).toHaveLength(5);
+    ['squid', 'agent'].forEach(image => {
       const scope = `chroot-v1-test-chroot-languages-ubuntu-latest-X64-${image}-${day}`;
-      expect(calls[index * 3]).toBe(
+      expect(calls).toContain(
         'buildx build --load --pull --progress=plain '
         + `--cache-from type=gha,version=2,scope=${scope} `
         + `--cache-to type=gha,version=2,mode=max,scope=${scope} `
         + `--tag ghcr.io/github/gh-aw-firewall/${image}:latest containers/${image}/`,
       );
-      expect(calls[index * 3 + 1]).toBe(`image inspect ghcr.io/github/gh-aw-firewall/${image}:latest`);
-      expect(calls[index * 3 + 2]).toBe('builder prune --all --force');
+      expect(calls).toContain(`image inspect ghcr.io/github/gh-aw-firewall/${image}:latest`);
+      expect(result.stdout).toMatch(new RegExp(`Chroot image ${image} wall time: \\d+ s \\(exit 0\\)`));
     });
+    expect(calls[calls.length - 1]).toBe('builder prune --all --force');
     expect(calls.join('\n')).not.toMatch(/image rm|image prune|system prune|ignore-error/);
   });
 
   it('includes the browser API proxy but no other unrelated images', () => {
-    expect(run({ CHROOT_BROWSER: 'true' }).status).toBe(0);
+    const result = run({ CHROOT_BROWSER: 'true' });
+    expect(result.status).toBe(0);
     expect(trace().filter(call => call.startsWith('buildx build'))).toHaveLength(3);
-    expect(trace()[7]).toBe('image inspect ghcr.io/github/gh-aw-firewall/api-proxy:latest');
+    expect(trace()).toContain('image inspect ghcr.io/github/gh-aw-firewall/api-proxy:latest');
+    expect(trace().filter(call => call === 'builder prune --all --force')).toHaveLength(1);
+    expect(result.stdout).toMatch(/Chroot image api-proxy wall time: \d+ s \(exit 0\)/);
+    const groups = result.stdout.match(/::group::[\s\S]*?::endgroup::/g)!;
+    expect(groups).toHaveLength(3);
+    ['squid', 'agent', 'api-proxy'].forEach((image, index) => {
+      expect(groups[index]).toContain(`Build chroot image ${image}`);
+      expect(groups[index]).toContain(`Build output for ${image}`);
+      expect(groups[index].match(/Build output for /g)).toHaveLength(1);
+    });
+  });
+
+  it.each([['INT', 130], ['TERM', 143]])('replays pending logs and exits on SIG%s', (signal, code) => {
+    const result = run({ CANCEL_SIGNAL: signal, TMPDIR: temp });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(code);
+    const groups = result.stdout.match(/::group::[\s\S]*?::endgroup::/g);
+    expect(groups).toEqual([
+      expect.stringContaining('Build output for squid'),
+      expect.stringMatching(/Build output for agent\nChroot image agent wall time: \d+ s \(exit 0\)/),
+    ]);
+    expect(trace().join('\n')).not.toMatch(/image rm|builder prune/);
+    expect(fs.readdirSync(temp).filter(name => name.startsWith('tmp.'))).toEqual([]);
   });
 
   it.each([
@@ -172,7 +248,8 @@ printf '%s\\n' "$FIXTURE_DAY"
     const result = run({ FAILURE: String(failure), CHROOT_BROWSER: 'true' });
     expect(result.status).toBe(code);
     const calls = trace();
-    expect(calls.join('\n')).not.toContain('api-proxy');
+    expect(calls).toContain('image inspect ghcr.io/github/gh-aw-firewall/api-proxy:latest');
+    expect(calls.filter(call => call === 'builder prune --all --force')).toHaveLength(1);
     if (failure === 'build') {
       expect(result.stderr).toContain('::error::Chroot image build/cache export/inspection failed for agent');
       expect(calls.slice(-2)).toEqual([
@@ -180,10 +257,26 @@ printf '%s\\n' "$FIXTURE_DAY"
       ]);
     }
     if (failure === 'inspect') {
-      expect(calls.slice(-2)).toEqual([
-        'image rm --force ghcr.io/github/gh-aw-firewall/squid:latest', 'builder prune --all --force',
+      expect(calls.slice(-4)).toEqual([
+        'image rm --force ghcr.io/github/gh-aw-firewall/squid:latest',
+        'image rm --force ghcr.io/github/gh-aw-firewall/agent:latest',
+        'image rm --force ghcr.io/github/gh-aw-firewall/api-proxy:latest',
+        'builder prune --all --force',
       ]);
     }
+  });
+
+  it('reports every failed image and preserves the first failure status after waiting for all builds', () => {
+    const result = run({ FAILURE: 'multiple', CHROOT_BROWSER: 'true' });
+    expect(result.status).toBe(18);
+    expect(result.stderr).toContain('failed for squid (exit 18)');
+    expect(result.stderr).toContain('failed for agent (exit 17)');
+    expect(result.stdout).toContain('Chroot image api-proxy wall time:');
+    expect(trace().slice(-3)).toEqual([
+      'image rm --force ghcr.io/github/gh-aw-firewall/squid:latest',
+      'image rm --force ghcr.io/github/gh-aw-firewall/agent:latest',
+      'builder prune --all --force',
+    ]);
   });
 
   it.each([
