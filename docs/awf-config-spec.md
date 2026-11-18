@@ -250,6 +250,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `experimental.modelRouting` → *(config-only; experimental opt-in required for `apiProxy.routing`; defaults to off)*
 - `apiProxy.routing` → *(config-only; requires `experimental.modelRouting: true`; task-level routing objective and task conversation input)*
 - `apiProxy.routing.candidateModels` → *(optional glob patterns that limit router/classifier choices; intersected with the model policy; defaults to `apiProxy.allowedModels`)*
+- `apiProxy.routing.excludedModels` → *(optional canonical base IDs to set aside for the primary pick, not the classifier; `[]` requests ranked options without exclusions)*
 - `apiProxy.modelRouter.providerType` → *(config-only; maps to `COPILOT_PROVIDER_TYPE`)*
 - `apiProxy.modelRouter.baseUrl` → *(config-only; maps to `COPILOT_PROVIDER_BASE_URL`)*
 - `apiProxy.allowedModels` → *(config-only; maps to `AWF_ALLOWED_MODELS` — JSON array of glob patterns; only matching models are permitted)*
@@ -2605,6 +2606,7 @@ apiProxy:
 |-------|----------------|-------------|
 | `provider` | `copilot` (default), `openai`, `anthropic` | Restricts routing to one configured native API-proxy provider; AWF does not switch credentials or translate across providers. |
 | `candidateModels` | non-empty array of model glob patterns | Limits router/classifier choices without widening the request policy; defaults to `apiProxy.allowedModels`. |
+| `excludedModels` | array of up to 32 unique `provider/model` IDs | Sets aside all efforts of each named base for the primary pick only. Use `github-copilot`, `openai`, or `anthropic` as the prefix, not a provider alias, glob or effort suffix. |
 | `objective.goal` | `cost`, `cost-speed` | Optimization goal used by the router |
 | `objective.mode` | `economy`, `balanced`, `robust`, `auto` | Fixed routing profile, or `auto` classification |
 | `task.conversationFile` | non-empty string | Host path to the task conversation whose description the router classifies |
@@ -2624,8 +2626,8 @@ task **description**, which the router classifies once per run. The resulting
 routing profile) selects the one model and effort the agent is seeded with for
 the whole run. The router is not invoked again per request or per sub-agent.
 
-The routing object is closed: `objective` and `task` are required, `provider`
-and `candidateModels` are optional, and unknown properties are rejected.
+The routing object is closed: `objective` and `task` are required; `provider`,
+`candidateModels` and `excludedModels` are optional. Unknown properties are rejected.
 Omitting `provider` preserves Copilot routing. OpenAI and Anthropic routing
 require the matching provider to be configured for the agent and currently
 require the native `api.openai.com` or `api.anthropic.com` target; AWF does not
@@ -2673,6 +2675,25 @@ case-insensitive with `*` wildcards, and deny rules take precedence. A
 provider-prefixed `auto` remains subject to dynamic-model verification: under
 a denylist it must also match an explicit allow rule.
 
+When `excludedModels` is present, the proxy keeps the router's ordinary first
+pick separately. It removes the named bases (case-insensitive exact match)
+from the **full validated primary rank**, then takes up to three surviving
+model/effort pairs in order. For `A:low, A:medium, A:high, B:high`, the first
+three are all A. Excluding A leaves just `B:high`, which becomes the primary
+pick. The classifier can still use A. If no pair survives, the proxy keeps
+the ordinary pick from that rank, not a model outside the permitted shortlist.
+An empty hard-policy pool, invalid rank, or failed final guard still fails.
+
+The trusted host can read `routeOptions` in the private `selection.json`:
+`ordinaryPick` is the original pair, `options` lists the surviving first
+three (possibly empty), and `excludedFallback: true` means every ranked
+pair was set aside. Each pair carries only `model` and the offered `effort`
+if present. Rank is not a price. The summary shares the existing 16 KiB
+result limit and is not exposed by `/reflect`. Set `excludedModels: []` for
+the summary alone; omit the field for the existing selection format. Neither
+case adds a router or classifier call. The [synthetic rank fixture](../containers/api-proxy/fixtures/routing-options/three-efforts.json)
+shows both the unfiltered and refilled options.
+
 ### 13a.1 Model-routing audit records
 
 When task-level routing is active, the proxy MUST attempt to persist `model-routing.jsonl`
@@ -2699,6 +2720,11 @@ Every selection record MUST include:
   serialization of the validated staged conversation;
 - `interaction_id` from the existing Copilot interaction-ID builder; and
 - `github_repository` and `github_workflow_ref` when available.
+
+If all soft exclusions fell back, the selection record also includes
+`excluded_fallback: true`. `ranked_choices` still records the original router
+order, not the bounded options. Inspect `selected_model` and `selected_effort`
+for the guarded primary pick.
 
 Every request record MUST retain the advisory comparison (`routed`,
 `deviations`, `unavailable`, `selected_model`, `selected_effort`, `selected_provider`,

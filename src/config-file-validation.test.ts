@@ -309,6 +309,13 @@ describe('validateAwfFileConfig', () => {
       experimental: { modelRouting: true },
       apiProxy: { routing: { ...valid, candidateModels: [] } },
     })).toContain('config.apiProxy.routing.candidateModels must NOT have fewer than 1 items');
+    const validateExclusions = (excludedModels: unknown) => validateAwfFileConfig({
+      experimental: { modelRouting: true }, apiProxy: { routing: { ...valid, excludedModels } },
+    });
+    const max = Array.from({ length: 32 }, (_, i) => `github-copilot/model-${i}`);
+    for (const list of [[], max, ['openai/model-a', 'anthropic/model-a']]) expect(validateExclusions(list)).toEqual([]);
+    for (const list of [null, [...max, 'openai/extra'], ['copilot/a'], ['openai/a*'], ['openai/a:low'],
+      ['openai/a?effort=low'], ['openai/a', 'openai/a']]) expect(validateExclusions(list)).not.toEqual([]);
     for (const experimental of [undefined, { modelRouting: false }, {}]) {
       expect(validateAwfFileConfig({ experimental, apiProxy: { routing: valid } }))
         .toContain('config.apiProxy.routing requires experimental.modelRouting: true');

@@ -75,6 +75,30 @@ function makePairKey(model, effort) {
   return `${model.toLowerCase()}\u0000${effort === undefined ? '' : effort}`;
 }
 
+// Only consume the rank accepted by validateRouteResponse, never the (potentially
+// larger) catalogue or offered pool. Resolve IDs to the immutable offered choices.
+function buildPrimaryRouteOptions(rankedChoices, pool, excludedModels = []) {
+  const seen = new Set();
+  const fullRank = rankedChoices.map(({ id }) => {
+    const choice = pool.byId[id].choice;
+    const key = makePairKey(choice.model, choice.effort);
+    if (seen.has(key)) {
+      throw createRoutingError('routing_contract_error', 'The router route response returned a duplicate model and effort');
+    }
+    seen.add(key);
+    return choice;
+  });
+  const excluded = new Set(excludedModels.map(model => model.toLowerCase()));
+  const eligibleRank = excluded.size ? fullRank.filter(choice => !excluded.has(choice.model.toLowerCase())) : fullRank;
+  return Object.freeze({
+    fullRank: Object.freeze(fullRank),
+    ordinaryPick: fullRank[0],
+    eligibleRank: Object.freeze(eligibleRank),
+    options: Object.freeze(eligibleRank.slice(0, 3)),
+    excludedFallback: eligibleRank.length === 0,
+  });
+}
+
 function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, eligibilityRequest = {} }) {
   const provider = catalogue?.provider;
   const providerInfo = Object.hasOwn(PROVIDERS, provider) ? PROVIDERS[provider] : null;
@@ -162,6 +186,7 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, eligi
 }
 
 module.exports = {
+  buildPrimaryRouteOptions,
   buildRoutingCandidates,
   getModelRoutingChoices,
   normalizePolicyList,

@@ -69,6 +69,13 @@ describe('routing persistence', () => {
       stage: 'request', request_id: 'request-1', outcome: 'failed', status: 400,
       error_code: 'unsupported_reasoning_effort', error_type: 'invalid_request_error', error_source: 'awf',
     });
+
+    test('records an exhausted soft exclusion without publishing the private summary', () => {
+      writeRoutingRecord({ stage: 'selection', excluded_fallback: true, routeOptions: { options: [] } });
+      const [record] = readRecords();
+      expect(record.excluded_fallback).toBe(true);
+      expect(record).not.toHaveProperty('routeOptions');
+    });
     expect(readRecords()[0]).toMatchObject({
       stage: 'request', request_id: 'request-1', outcome: 'failed', status: 400,
       error_code: 'unsupported_reasoning_effort', error_type: 'invalid_request_error', error_source: 'awf',

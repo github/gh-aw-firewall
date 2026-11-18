@@ -83,4 +83,18 @@ describe('routing configuration', () => {
     expect(() => parseRoutingConfig(JSON.stringify({ ...base, provider: null })))
       .toThrow('routing.provider is not supported');
   });
+
+  it('accepts only a bounded array of literal canonical base IDs as primary exclusions', () => {
+    const base = { objective: { goal: 'cost', mode: 'balanced' }, task: { conversationFile: '/private/task' } };
+    const parse = excludedModels => parseRoutingConfig(JSON.stringify({ ...base, excludedModels }));
+    const max = Array.from({ length: 32 }, (_, i) => `github-copilot/model-${i}`);
+    for (const list of [[], ['openai/model-a', 'anthropic/model-a'], max]) {
+      expect(parse(list).excludedModels).toEqual(list);
+      expect(Object.isFrozen(parse(list).excludedModels)).toBe(true);
+    }
+    for (const list of [null, 'openai/model-a', [...max, 'openai/extra'], [1], ['openai/a', 'openai/a'],
+      ['model-a'], ['copilot/a'], ['openai/a*'], ['openai/a?effort=low'], ['openai/a:low'], ['openai/a/b']]) {
+      expect(() => parse(list)).toThrow('routing.excludedModels');
+    }
+  });
 });

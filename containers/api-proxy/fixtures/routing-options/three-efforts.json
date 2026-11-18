@@ -1,0 +1,30 @@
+{
+  "fullRank": [
+    { "id": "choice-0002", "model": "github-copilot/model-a", "effort": "low" },
+    { "id": "choice-0003", "model": "github-copilot/model-a", "effort": "medium" },
+    { "id": "choice-0001", "model": "github-copilot/model-a", "effort": "high" },
+    { "id": "choice-0004", "model": "github-copilot/model-b", "effort": "high" }
+  ],
+  "ordinaryPick": { "model": "github-copilot/model-a", "effort": "low" },
+  "cases": [
+    {
+      "excludedModels": [],
+      "options": [
+        { "model": "github-copilot/model-a", "effort": "low" },
+        { "model": "github-copilot/model-a", "effort": "medium" },
+        { "model": "github-copilot/model-a", "effort": "high" }
+      ],
+      "excludedFallback": false
+    },
+    {
+      "excludedModels": ["github-copilot/model-a"],
+      "options": [{ "model": "github-copilot/model-b", "effort": "high" }],
+      "excludedFallback": false
+    },
+    {
+      "excludedModels": ["github-copilot/model-a", "github-copilot/model-b"],
+      "options": [],
+      "excludedFallback": true
+    }
+  ]
+}

@@ -7,6 +7,8 @@ const {
   ROUTING_BOOTSTRAP_TIMEOUT_MS,
   createRoutingController,
 } = require('./routing-controller');
+const rankFixture = require('./fixtures/routing-options/three-efforts.json');
+const { createRoutingError } = require('./routing-errors');
 
 const CONVERSATION = [{ role: 'user', parts: [{ text: 'add a test' }] }];
 
@@ -57,6 +59,7 @@ function createHarness(overrides = {}) {
     }),
     route: jest.fn(async request => {
       calls.route.push(request);
+      if (overrides.routeResponse) return overrides.routeResponse(request);
       return { ranked_choices: [{ ...request.models[0], context_window: undefined }].map(choice => {
         const copy = { id: choice.id, model: choice.model };
         if (Object.hasOwn(choice, 'effort')) copy.effort = choice.effort;
@@ -84,6 +87,7 @@ function createHarness(overrides = {}) {
       provider: overrides.provider || 'copilot',
       objective: { goal: 'cost', mode: 'balanced' },
       task: { conversationFile: '/tmp/conversation.json' },
+      ...overrides.config,
     },
     planner,
     catalogue: { getSnapshot: jest.fn(async () => snapshot(models, overrides.provider || 'copilot')) },
@@ -96,7 +100,127 @@ function createHarness(overrides = {}) {
   return { controller, planner, executor, calls, records };
 }
 
+function replayRank(overrides = {}) {
+  const model = (id, efforts) => ({ id, efforts, protocols: ['responses'], contextWindow: 128_000 });
+  return createHarness({
+    models: [model('model-a', ['low', 'medium', 'high']), model('model-b', ['high']), model('outside', ['high'])],
+    routeResponse: () => ({ ranked_choices: rankFixture.fullRank }),
+    ...overrides,
+    config: { candidateModels: ['model-*'], ...overrides.config },
+  });
+}
+
 describe('routing controller', () => {
+  it('replays the ordinary route without opt-in: same pick, calls, planning bodies and log shape', async () => {
+    const { controller, calls, records } = replayRank();
+    const result = await controller.run();
+    const selected = rankFixture.fullRank[0];
+    expect(result).toEqual({
+      ok: true, degradedClassification: false,
+      selection: {
+        schema: 'awf-routing-selection/v1', engine: 'copilot', provider: 'copilot',
+        choice: selected, wire_model: 'model-a', endpoint: '/responses',
+      },
+    });
+    const offered = [...rankFixture.fullRank].sort((a, b) => a.id.localeCompare(b.id));
+    expect(calls.classify).toEqual([{ conversation: CONVERSATION, models: offered }]);
+    expect(calls.route).toEqual([{
+      conversation: CONVERSATION, classification: VALID_CLASSIFICATION, objective: { goal: 'cost', mode: 'balanced' },
+      models: offered.map(choice => ({ ...choice, context_window: 128_000 })),
+    }]);
+    expect(calls.execute).toHaveLength(1);
+    expect(calls.checkBeforePrimary).toHaveLength(1);
+    expect(calls.checkBeforePrimary[0].selection).toEqual(result.selection);
+    expect(records).toEqual([
+      { stage: 'classification', purpose: PURPOSE, attempt: 1, classifier_model: offered[0].model, classifier_effort: 'high' },
+      {
+        stage: 'selection', objective: { goal: 'cost', mode: 'balanced' }, provider: 'copilot',
+        selected_provider: 'copilot', wire_model: 'model-a', endpoint: '/responses',
+        labels: VALID_CLASSIFICATION.labels, mode: 'balanced', classifier_model: offered[0].model, classifier_effort: 'high',
+        router: { name: 'gh-aw-router', version: '1.0.0' },
+        ranked_choices: rankFixture.fullRank.map(({ model, effort }) => ({ model, effort })),
+        selected_id: selected.id, selected_model: selected.model, selected_effort: selected.effort,
+        degraded_classification: false, degraded_reason: null, classifier_attempts: 1, eligible_choices: 4,
+        conversation_sha256: expect.stringMatching(/^[0-9a-f]{64}$/), catalogue_overlap: 0, latency_ms: expect.any(Number),
+      },
+    ]);
+  });
+
+  it.each(rankFixture.cases)('filters the full primary rank for exclusions $excludedModels', async ({
+    excludedModels, options, excludedFallback,
+  }) => {
+    const { controller, calls, records } = replayRank({ config: { excludedModels } });
+    const { selection, routeOptions } = await controller.run();
+    expect(routeOptions).toEqual({ ordinaryPick: rankFixture.ordinaryPick, options, excludedFallback });
+    const selected = options[0] ?? rankFixture.ordinaryPick;
+    expect(selection.choice).toEqual(rankFixture.fullRank.find(c => c.model === selected.model && c.effort === selected.effort));
+    expect(calls.checkBeforePrimary).toHaveLength(1);
+    expect(calls.checkBeforePrimary[0].selection).toBe(selection);
+    const offered = [...rankFixture.fullRank].sort((a, b) => a.id.localeCompare(b.id));
+    expect(calls.classify).toHaveLength(1);
+    expect(calls.classify[0].models).toEqual(offered);
+    expect(calls.route).toHaveLength(1);
+    expect(calls.route[0].models).toEqual(offered.map(c => ({ ...c, context_window: 128_000 })));
+    expect(calls.execute).toHaveLength(1);
+    expect(calls.execute[0].body.model).toBe('model-a');
+    expect(records[1].ranked_choices).toEqual(rankFixture.fullRank.map(({ model, effort }) => ({ model, effort })));
+    expect(records[1].excluded_fallback).toBe(excludedFallback || undefined);
+    expect(records[1]).not.toHaveProperty('routeOptions');
+  });
+
+  it('keeps only the returned choices when two survive or soft exclusions exhaust that rank', async () => {
+    const two = rankFixture.fullRank.slice(1, 3);
+    for (const excludedModels of [[], ['github-copilot/model-a']]) {
+      const { controller } = replayRank({ config: { excludedModels }, routeResponse: () => ({ ranked_choices: two }) });
+      const { selection, routeOptions } = await controller.run();
+      expect(selection.choice).toEqual(two[0]);
+      expect(routeOptions).toEqual({
+        ordinaryPick: { model: two[0].model, effort: two[0].effort },
+        options: excludedModels.length ? [] : two.map(({ model, effort }) => ({ model, effort })),
+        excludedFallback: excludedModels.length > 0,
+      });
+    }
+  });
+
+  it.each([
+    [{ dependencies: { policy: { disallowedModels: ['*'] } } }, 'model_policy_violation'],
+    [{ config: { candidateModels: ['missing'] } }, 'no_route'],
+    [{ planner: { route: async () => { throw { statusCode: 422, body: { code: 'no_route' } }; } } }, 'no_route'],
+    [{ routeResponse: () => ({ ranked_choices: [...rankFixture.fullRank, rankFixture.fullRank[0]] }) }, 'routing_contract_error'],
+    [{ routeResponse: () => ({ ranked_choices: [...rankFixture.fullRank, { id: 'foreign', model: 'openai/model-b' }] }) }, 'routing_contract_error'],
+  ])('does not soften a hard failure: %s', async (overrides, code) => {
+    const { controller, calls } = replayRank({
+      ...overrides, config: { ...overrides.config, excludedModels: rankFixture.cases[2].excludedModels },
+    });
+    await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code } });
+    expect(calls.checkBeforePrimary).toHaveLength(0);
+  });
+
+  it('rejects a repeated pair even under different offered IDs', async () => {
+    const models = ['model-b', 'github-copilot/model-b'].map(id =>
+      ({ id, efforts: ['high'], protocols: ['responses'], contextWindow: 128_000 }));
+    const { controller, calls } = createHarness({
+      models,
+      routeResponse: req => ({ ranked_choices: req.models.map(({ id, model, effort }) => ({ id, model, effort })) }),
+    });
+    await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'routing_contract_error' } });
+    expect(calls.route[0].models.map(c => c.id)).toEqual(['choice-0001', 'choice-0002']);
+    expect(calls.checkBeforePrimary).toHaveLength(0);
+  });
+
+  it.each(rankFixture.cases.slice(1))('a final guard veto is terminal, including on fallback', async ({
+    excludedModels, options,
+  }) => {
+    const { controller, calls, records } = replayRank({
+      config: { excludedModels },
+      checkBeforePrimary: () => { throw createRoutingError('model_policy_violation', 'Final guard veto'); },
+    });
+    await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'model_policy_violation' } });
+    expect(calls.checkBeforePrimary).toHaveLength(1);
+    expect(calls.checkBeforePrimary[0].selection.choice).toMatchObject(options[0] ?? rankFixture.ordinaryPick);
+    expect(records.map(r => r.stage)).toEqual(['classification', 'failure']);
+  });
+
   it('pins trusted eligibility before discovery and shares it with classifier retries and the final preflight', async () => {
     const { proxyEligibilityStore, evaluateModelEligibility } = require('./model-eligibility');
     const { resolveModelIdentity } = require('./model-identity');

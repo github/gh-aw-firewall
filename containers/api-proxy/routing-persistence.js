@@ -11,7 +11,7 @@ const FIELDS = new Set([
   'selected_provider', 'selected_endpoint', 'wire_model', 'endpoint',
   'degraded_classification', 'degraded_reason', 'classifier_attempts',
   'eligible_choices', 'catalogue_overlap', 'latency_ms', 'labels', 'mode',
-  'router', 'ranked_choices', 'conversation_sha256', 'phase', 'code', 'detail',
+  'router', 'ranked_choices', 'excluded_fallback', 'conversation_sha256', 'phase', 'code', 'detail',
   'request_id', 'routed', 'deviations', 'unavailable', 'method', 'pathname',
   'requested_model', 'requested_effort', 'requested_endpoint', 'upstream_endpoint', 'outcome', 'status',
   'error_code', 'error_type', 'error_source', 'agent_name', 'caller_source',

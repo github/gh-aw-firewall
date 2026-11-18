@@ -1,7 +1,7 @@
 'use strict';
 
 const { createHash } = require('crypto');
-const { buildRoutingCandidates } = require('./routing-candidates');
+const { buildPrimaryRouteOptions, buildRoutingCandidates } = require('./routing-candidates');
 const { pinRequestEligibility, proxyEligibilityStore } = require('./model-eligibility');
 const { getModelReasoning } = require('./model-reasoning');
 const { extractClassifierOutput, preflightClassifierRequest } = require('./routing-classifier');
@@ -63,16 +63,19 @@ function classifierTimeoutError() {
   return error;
 }
 
+function modelEffortPair(choice) {
+  return {
+    model: choice.model,
+    ...(Object.hasOwn(choice, 'effort') ? { effort: choice.effort } : {}),
+  };
+}
+
 function createSelection(choice, mapping) {
   return deepFreezeJson({
     schema: 'awf-routing-selection/v1',
     engine: 'copilot',
     provider: mapping.provider,
-    choice: {
-      id: choice.id,
-      model: choice.model,
-      ...(Object.hasOwn(choice, 'effort') ? { effort: choice.effort } : {}),
-    },
+    choice: { id: choice.id, ...modelEffortPair(choice) },
     wire_model: mapping.wireModel,
     endpoint: {
       responses: '/responses',
@@ -290,7 +293,8 @@ function createRoutingController(dependencies) {
         mapPlannerFailure(error, 'route');
       }
       const route = validateRouteResponse(rawRoute, pool.choices);
-      const selectedChoice = route.ranked_choices[0];
+      const primary = buildPrimaryRouteOptions(route.ranked_choices, pool, config.excludedModels);
+      const selectedChoice = primary.excludedFallback ? primary.ordinaryPick : primary.options[0];
       const selection = createSelection(selectedChoice, pool.byId[selectedChoice.id]);
 
       await runPhase(({ signal: phaseSignal }) =>
@@ -311,10 +315,11 @@ function createRoutingController(dependencies) {
         classifier_model: successfulClassifier?.model ?? null,
         classifier_effort: successfulClassifier?.effort ?? null,
         router: { name: rawCapabilities.name, version: rawCapabilities.version },
-        ranked_choices: route.ranked_choices.map(choice => ({
+        ranked_choices: primary.fullRank.map(choice => ({
           model: choice.model,
           effort: choice.effort ?? null,
         })),
+        ...(primary.excludedFallback ? { excluded_fallback: true } : {}),
         conversation_sha256: createHash('sha256').update(JSON.stringify(conversation)).digest('hex'),
         selected_id: selection.choice.id,
         selected_model: selection.choice.model,
@@ -330,6 +335,11 @@ function createRoutingController(dependencies) {
       return Object.freeze({
         ok: true,
         selection,
+        ...(config.excludedModels !== undefined ? { routeOptions: deepFreezeJson({
+          ordinaryPick: modelEffortPair(primary.ordinaryPick),
+          options: primary.options.map(modelEffortPair),
+          excludedFallback: primary.excludedFallback,
+        }) } : {}),
         degradedClassification: classification === null,
         ...(degradedReason ? { degradedReason } : {}),
       });

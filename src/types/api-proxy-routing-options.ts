@@ -9,6 +9,8 @@ export type ModelRoutingProvider = 'copilot' | 'openai' | 'anthropic';
 export interface ModelRoutingConfig {
   provider?: ModelRoutingProvider;
   candidateModels?: string[];
+  /** Primary-only soft exclusions. An empty list requests the private options summary without excluding a model. */
+  excludedModels?: string[];
   objective: {
     goal: ModelRoutingGoal;
     mode: ModelRoutingMode;

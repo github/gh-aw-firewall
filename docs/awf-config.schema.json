@@ -628,6 +628,16 @@
               },
               "description": "Optional model-pattern allowlist for router/classifier candidates. Candidates are still intersected with apiProxy.allowedModels and apiProxy.disallowedModels for policy enforcement. When omitted, apiProxy.allowedModels continues to supply the routing candidates."
             },
+            "excludedModels": {
+              "type": "array",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^(github-copilot|openai|anthropic)/[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "description": "Soft exclusions of canonical base model IDs for the primary selection only. An empty list requests the private ranked options summary without excluding anything. If none survive, the ordinary policy-eligible pick is kept."
+            },
             "objective": {
               "type": "object",
               "additionalProperties": false,

@@ -6,6 +6,7 @@ const { normalizePolicyList } = require('./routing-candidates');
 const ROUTING_GOALS = new Set(['cost', 'cost-speed']);
 const ROUTING_MODES = new Set(['economy', 'balanced', 'robust', 'auto']);
 const ROUTING_PROVIDERS = new Set(['copilot', 'openai', 'anthropic']);
+const CANONICAL_BASE_MODEL = /^(github-copilot|openai|anthropic)\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 function configurationError(detail) {
   return createRoutingError('routing_configuration_error', detail);
@@ -47,7 +48,7 @@ function parseRoutingConfig(raw) {
     throw configurationError('AWF_ROUTING_CONFIG must contain valid JSON');
   }
 
-  requireClosedObject(value, 'routing', ['objective', 'task'], ['objective', 'task', 'provider', 'candidateModels']);
+  requireClosedObject(value, 'routing', ['objective', 'task'], ['objective', 'task', 'provider', 'candidateModels', 'excludedModels']);
   requireClosedObject(value.objective, 'routing.objective', ['goal', 'mode']);
   requireClosedObject(value.task, 'routing.task', ['conversationFile']);
 
@@ -68,10 +69,19 @@ function parseRoutingConfig(raw) {
     }
     candidateModels = normalizePolicyList(value.candidateModels, 'routing.candidateModels');
   }
+  if (Object.hasOwn(value, 'excludedModels')) {
+    const list = value.excludedModels;
+    if (!Array.isArray(list) || list.length > 32 ||
+        list.some(model => typeof model !== 'string' || !CANONICAL_BASE_MODEL.test(model)) ||
+        new Set(list).size !== list.length) {
+      throw configurationError('routing.excludedModels must be an array of at most 32 unique canonical base model IDs');
+    }
+  }
 
   const config = {
     provider,
     ...(candidateModels ? { candidateModels: Object.freeze(candidateModels) } : {}),
+    ...(value.excludedModels ? { excludedModels: Object.freeze(value.excludedModels) } : {}),
     objective: Object.freeze({
       goal: value.objective.goal,
       mode: value.objective.mode,
