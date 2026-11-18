@@ -21,26 +21,85 @@ esac
 
 # Import only today's package layers; never freeze apt/apk security updates.
 cache_day=$(date -u +%F)
-for image in "${images[@]}"; do
-  tag="ghcr.io/github/gh-aw-firewall/${image}:latest"
-  scope="chroot-v1-${CHROOT_CACHE_VARIANT}-${image}-${cache_day}"
+log_dir=$(mktemp -d)
+trap 'rm -rf "$log_dir"' EXIT
+
+replay_log() {
+  local image=$1 status=0
   echo "::group::Build chroot image ${image}"
-  status=0
-  docker buildx build --load --pull --progress=plain \
-    --cache-from "type=gha,version=2,scope=${scope}" \
-    --cache-to "type=gha,version=2,mode=max,scope=${scope}" \
-    --tag "$tag" "containers/${image}/" || status=$?
+  cat "${log_dir}/${image}.log" || status=$?
   echo "::endgroup::"
-  if (( status == 0 )); then
-    docker image inspect "$tag" >/dev/null || status=$?
-  fi
+  return "$status"
+}
+
+next_log=0
+cancel_status=0
+replaying=false
+cancel_builds() {
+  local image
+  cancel_status=$1
+  # Finish an open log group before replaying the remaining logs.
+  if "$replaying"; then return; fi
+  trap '' INT TERM
+  # Don't wait on cancelled builds; print whatever they've buffered so far.
+  for image in "${images[@]:next_log}"; do
+    if [[ -f "${log_dir}/${image}.log" ]]; then
+      replay_log "$image" || true
+    fi
+  done
+  exit "$cancel_status"
+}
+trap 'cancel_builds 130' INT
+trap 'cancel_builds 143' TERM
+
+pids=()
+for image in "${images[@]}"; do
+  (
+    started=$SECONDS
+    tag="ghcr.io/github/gh-aw-firewall/${image}:latest"
+    scope="chroot-v1-${CHROOT_CACHE_VARIANT}-${image}-${cache_day}"
+    status=0
+    docker buildx build --load --pull --progress=plain \
+      --cache-from "type=gha,version=2,scope=${scope}" \
+      --cache-to "type=gha,version=2,mode=max,scope=${scope}" \
+      --tag "$tag" "containers/${image}/" || status=$?
+    if (( status == 0 )); then
+      docker image inspect "$tag" >/dev/null || status=$?
+    fi
+    echo "Chroot image ${image} wall time: $((SECONDS - started)) s (exit ${status})"
+    exit "$status"
+  ) >"${log_dir}/${image}.log" 2>&1 &
+  pids+=("$!")
+done
+
+result=0
+failed_images=()
+for index in "${!images[@]}"; do
+  image=${images[$index]}
+  tag="ghcr.io/github/gh-aw-firewall/${image}:latest"
+  status=0
+  wait "${pids[$index]}" || status=$?
+  replaying=true
+  replay_status=0
+  replay_log "$image" || replay_status=$?
+  next_log=$((index + 1))
+  replaying=false
+  if (( cancel_status != 0 )); then cancel_builds "$cancel_status"; fi
+  if (( replay_status != 0 )); then exit "$replay_status"; fi
   if (( status != 0 )); then
     echo "::error::Chroot image build/cache export/inspection failed for ${image} (exit ${status})" >&2
-    # Export can fail after --load has already created the tag.
-    docker image rm --force "$tag" >/dev/null 2>&1 || true
-    docker builder prune --all --force || true
-    exit "$status"
+    failed_images+=("$tag")
+    if (( result == 0 )); then result=$status; fi
   fi
-  # Retain exact loaded images for integration tests, not intermediate layers.
-  docker builder prune --all --force
 done
+
+if (( result != 0 )); then
+  # Wait for all builds before cleanup; export can fail after --load creates a tag.
+  for tag in "${failed_images[@]}"; do
+    docker image rm --force "$tag" >/dev/null 2>&1 || true
+  done
+  docker builder prune --all --force || true
+  exit "$result"
+fi
+# Retain exact loaded images for integration tests, not intermediate layers.
+docker builder prune --all --force

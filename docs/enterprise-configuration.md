@@ -7,6 +7,12 @@ This guide explains AWF endpoint and firewall configuration for GitHub Enterpris
 
 GitHub deployment and runner topology are separate choices. For self-hosted ARC/DinD runners on either GHEC or GHES, also follow [ARC/DinD configuration](arc-dind.md); configuring enterprise endpoints does not satisfy its filesystem, Docker, and tool-staging requirements.
 
+For self-hosted runners, including ARC/DinD, also allow the
+[runner setup egress](arc-dind.md#runner-egress-for-copilot-workflows):
+`api.github.com` is required for Copilot CLI release-age metadata by default,
+even with a cached CLI. Enterprise inference endpoint configuration does not
+redirect this installer request; see the linked GHES caveat and cooldown guidance.
+
 ## Overview
 
 AWF automatically detects your GitHub environment and configures the appropriate API endpoints. The API proxy sidecar intelligently routes GitHub Copilot API traffic based on your `GITHUB_SERVER_URL` environment variable.
