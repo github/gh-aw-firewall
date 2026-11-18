@@ -25,8 +25,9 @@ name: Supply Chain Scan
 #     until the next release / upstream bump).
 #
 # All scanners run via Docker (pre-installed on `ubuntu-latest`).
-# Compile once, then run PR-image CVE, published-image CVE, and license scans
-# on separate runners. Shard PR builds across independent runners, keeping builds
+# Run PR-image CVE scans alongside compilation; only published-image CVE and
+# license scans wait for the compiled inventory. The required gate checks compile
+# and both scan groups. Shard PR builds across independent runners, keeping builds
 # sequential within each shard to bound disk use. Build-tools and enclave-agent
 # share a shard so the exact local base survives until its dependent build finishes.
 #
@@ -132,9 +133,8 @@ jobs:
               output.write('images=' + json.dumps(sorted(images)) + '\n')
           PYEOF
 
-  image-scans:
+  pr-image-scans:
     name: Scan / ${{ matrix.scan }}
-    needs: [compile]
     runs-on: ubuntu-latest
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
@@ -155,10 +155,6 @@ jobs:
             pr-images: true
             images: [api-proxy, router, cli-proxy, gh-aw-node, enclave-script, enclave-mcp-server]
             timeout: 60
-          - scan: published-cves
-            timeout: 40
-          - scan: licenses
-            timeout: 40
 
     steps:
       - name: Checkout repository
@@ -200,15 +196,6 @@ jobs:
       - name: Prepare pinned Grype scanner
         if: matrix.scan != 'licenses'
         run: docker pull ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821
-
-      - name: Prepare pinned Grant scanner
-        if: matrix.scan == 'licenses'
-        run: docker pull ghcr.io/anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237
-
-      - name: Authenticate to GHCR for image scanning
-        # Only registry-based scans need credentials; PR scans use local archives.
-        if: matrix.pr-images != true
-        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       # Persist Grype's vulnerability DB across runs. The unique run_id key never
       # hits exactly, so each run restores the newest prior DB via restore-keys,
@@ -254,49 +241,6 @@ jobs:
         with:
           path: ${{ runner.temp }}/grype-db
           key: grype-db-v6-${{ github.run_id }}-${{ matrix.scan }}
-
-      - name: Scan published & third-party images for CVEs (report-only, Grype v0.116.0)
-        if: matrix.scan == 'published-cves'
-        # Scans the immutable image digests recorded in the compiled .lock.yml
-        # gh-aw-manifest headers: already-published first-party images plus
-        # upstream third-party images that a PR cannot rebuild. Findings are
-        # REPORTED as warnings but do NOT fail the job. The blocking CVE gate is
-        # the "Build and scan PR container images" step below.
-        # ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821 = v0.116.0
-        env:
-          GRYPE_DB: ${{ runner.temp }}/grype-db
-          MANIFEST_IMAGES: ${{ needs.compile.outputs.images }}
-        run: |
-          python3 - <<'PYEOF'
-          import json, os, subprocess, sys
-          images = json.loads(os.environ['MANIFEST_IMAGES'])
-          home = os.path.expanduser('~')
-          db_cache = os.environ['GRYPE_DB']
-          cwd = os.getcwd()
-          flagged = []
-          for image in sorted(images):
-              print(f'::group::grype {image}', flush=True)
-              r = subprocess.run([
-                  'docker', 'run', '--rm',
-                  '-v', f'{home}/.docker/config.json:/root/.docker/config.json:ro',
-                  '-v', f'{db_cache}:/cache',
-                  '-e', 'GRYPE_DB_CACHE_DIR=/cache',
-                  '-e', 'GRYPE_DB_AUTO_UPDATE=false',
-                  '-e', 'GRYPE_CHECK_FOR_APP_UPDATE=false',
-                  '-v', f'{cwd}/.grype.yaml:/root/.grype.yaml:ro',
-                  'ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
-                  f'registry:{image}', '--fail-on', 'high',
-                  '--config', '/root/.grype.yaml',
-              ])
-              print('::endgroup::', flush=True)
-              if r.returncode != 0:
-                  flagged.append(image)
-          if flagged:
-              print(f'::warning::{len(flagged)} published/third-party image(s) have High/Critical CVEs '
-                    f'(report-only, not blocking): ' + ', '.join(flagged), flush=True)
-          # Report-only: never fail the job on immutable published / third-party images.
-          sys.exit(0)
-          PYEOF
 
       - name: Build and scan PR container images (BLOCKING gate, Grype v0.116.0)
         if: matrix.pr-images == true
@@ -427,6 +371,116 @@ jobs:
           sys.exit(rc)
           PYEOF
 
+  manifest-scans:
+    name: Scan / ${{ matrix.scan }}
+    needs: [compile]
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scan: published-cves
+            timeout: 40
+          - scan: licenses
+            timeout: 40
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Configure Docker Hub cache
+        run: bash scripts/ci/configure-docker-mirror.sh
+
+      - name: Prepare pinned Grype scanner
+        if: matrix.scan != 'licenses'
+        run: docker pull ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821
+
+      - name: Prepare pinned Grant scanner
+        if: matrix.scan == 'licenses'
+        run: docker pull ghcr.io/anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237
+
+      - name: Authenticate to GHCR for image scanning
+        # Only registry-based scans need credentials; PR scans use local archives.
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # Use the same DB cache policy as PR scans, with distinct per-shard keys.
+      - name: Restore Grype vulnerability DB cache
+        if: matrix.scan != 'licenses'
+        id: grype-cache-restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/grype-db
+          key: grype-db-v6-${{ github.run_id }}-${{ matrix.scan }}
+          restore-keys: |
+            grype-db-v6-
+
+      - name: Warm Grype vulnerability DB
+        if: matrix.scan != 'licenses'
+        env:
+          GRYPE_DB: ${{ runner.temp }}/grype-db
+        run: |
+          mkdir -p "$GRYPE_DB"
+          docker run --rm \
+            -v "$GRYPE_DB:/cache" \
+            -e GRYPE_DB_CACHE_DIR=/cache \
+            ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821 \
+            db update
+          sudo chown -R "$(id -u):$(id -g)" "$GRYPE_DB"
+          chmod -R u+rwX "$GRYPE_DB"
+
+      - name: Save Grype vulnerability DB cache
+        if: matrix.scan != 'licenses'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/grype-db
+          key: grype-db-v6-${{ github.run_id }}-${{ matrix.scan }}
+
+      - name: Scan published & third-party images for CVEs (report-only, Grype v0.116.0)
+        if: matrix.scan == 'published-cves'
+        # Scans the immutable image digests recorded in the compiled .lock.yml
+        # gh-aw-manifest headers: already-published first-party images plus
+        # upstream third-party images that a PR cannot rebuild. Findings are
+        # REPORTED as warnings but do NOT fail the job. The blocking CVE gate is
+        # the "Build and scan PR container images" step in pr-image-scans.
+        # ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821 = v0.116.0
+        env:
+          GRYPE_DB: ${{ runner.temp }}/grype-db
+          MANIFEST_IMAGES: ${{ needs.compile.outputs.images }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, subprocess, sys
+          images = json.loads(os.environ['MANIFEST_IMAGES'])
+          home = os.path.expanduser('~')
+          db_cache = os.environ['GRYPE_DB']
+          cwd = os.getcwd()
+          flagged = []
+          for image in sorted(images):
+              print(f'::group::grype {image}', flush=True)
+              r = subprocess.run([
+                  'docker', 'run', '--rm',
+                  '-v', f'{home}/.docker/config.json:/root/.docker/config.json:ro',
+                  '-v', f'{db_cache}:/cache',
+                  '-e', 'GRYPE_DB_CACHE_DIR=/cache',
+                  '-e', 'GRYPE_DB_AUTO_UPDATE=false',
+                  '-e', 'GRYPE_CHECK_FOR_APP_UPDATE=false',
+                  '-v', f'{cwd}/.grype.yaml:/root/.grype.yaml:ro',
+                  'ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
+                  f'registry:{image}', '--fail-on', 'high',
+                  '--config', '/root/.grype.yaml',
+              ])
+              print('::endgroup::', flush=True)
+              if r.returncode != 0:
+                  flagged.append(image)
+          if flagged:
+              print(f'::warning::{len(flagged)} published/third-party image(s) have High/Critical CVEs '
+                    f'(report-only, not blocking): ' + ', '.join(flagged), flush=True)
+          # Report-only: never fail the job on immutable published / third-party images.
+          sys.exit(0)
+          PYEOF
+
       - name: Check image licenses (report-only, Grant v0.6.8)
         if: matrix.scan == 'licenses'
         # License findings on the immutable published / third-party manifest
@@ -463,7 +517,7 @@ jobs:
 
   scan:
     name: Compile + Syft/Grype/Grant
-    needs: [compile, image-scans]
+    needs: [compile, pr-image-scans, manifest-scans]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 1
@@ -471,8 +525,10 @@ jobs:
       - name: Require compilation and all scan jobs to succeed
         env:
           COMPILE_RESULT: ${{ needs.compile.result }}
-          SCANS_RESULT: ${{ needs.image-scans.result }}
+          PR_SCANS_RESULT: ${{ needs.pr-image-scans.result }}
+          MANIFEST_SCANS_RESULT: ${{ needs.manifest-scans.result }}
         run: |
-          echo "Compilation: $COMPILE_RESULT; scans: $SCANS_RESULT"
+          echo "Compilation: $COMPILE_RESULT; PR scans: $PR_SCANS_RESULT; manifest scans: $MANIFEST_SCANS_RESULT"
           test "$COMPILE_RESULT" = success
-          test "$SCANS_RESULT" = success
+          test "$PR_SCANS_RESULT" = success
+          test "$MANIFEST_SCANS_RESULT" = success

@@ -64,13 +64,17 @@ describe('CI registry retrieval', () => {
     expect(buildTools).toContain('test "$(gosu nobody id -u)" = 65534');
   });
 
-  const prShards = jobs('supply-chain-scan.yml')['image-scans'].strategy!.matrix.include
+  const prShards = jobs('supply-chain-scan.yml')['pr-image-scans'].strategy!.matrix.include
     .filter(shard => shard['pr-images']);
 
   it('authenticates registry scans without making local PR-image scans depend on GHCR login', () => {
-    const steps = jobs('supply-chain-scan.yml')['image-scans'].steps;
-    const login = steps.find(step => step.name === 'Authenticate to GHCR for image scanning')!;
-    expect(login.if).toBe('matrix.pr-images != true');
+    const workflow = jobs('supply-chain-scan.yml');
+    const steps = workflow['pr-image-scans'].steps;
+    expect(steps.some(step => step.name === 'Authenticate to GHCR for image scanning')).toBe(false);
+    const login = workflow['manifest-scans'].steps.find(
+      step => step.name === 'Authenticate to GHCR for image scanning',
+    )!;
+    expect(login.if).toBeUndefined();
     expect(login.run).toContain('docker login ghcr.io');
     expect(login['continue-on-error']).toBeUndefined();
     const blocking = steps.find(step => step.name?.startsWith('Build and scan PR container images'))!;
@@ -87,7 +91,7 @@ describe('CI registry retrieval', () => {
   ].map(([failure, day]) => [shard.scan, failure, day, shard.images!] as const)))(
     'retains exact bases and bounds disk use in %s on %s (%s)',
     (_shard, failure, day, images) => {
-      const step = jobs('supply-chain-scan.yml')['image-scans'].steps.find(
+      const step = jobs('supply-chain-scan.yml')['pr-image-scans'].steps.find(
         (entry) => entry.name?.startsWith('Build and scan PR container images'),
       )!;
       const python = step.run!.split("<<'PYEOF'\n")[1].split('\nPYEOF')[0];
@@ -230,7 +234,7 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
 
   it('sets up an external-cache-capable Docker driver before pulling scanners', () => {
     const workflow = jobs('supply-chain-scan.yml');
-    const steps = workflow['image-scans'].steps;
+    const steps = workflow['pr-image-scans'].steps;
     const mirror = steps.findIndex(step => step.name === 'Configure Docker Hub cache');
     expect(steps[mirror].env?.AWF_DOCKER_CONTAINERD_SNAPSHOTTER)
       .toBe("${{ matrix.pr-images == true && 'true' || 'false' }}");
@@ -249,7 +253,7 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
   it.each(['complete', 'missing-token', 'missing-url'])(
     'masks the runtime token and fails closed on missing Buildx cache credentials (%s)',
     state => {
-      const step = jobs('supply-chain-scan.yml')['image-scans'].steps.find(
+      const step = jobs('supply-chain-scan.yml')['pr-image-scans'].steps.find(
         entry => entry.name === 'Expose GitHub Actions cache runtime for Buildx CLI',
       )!;
       expect(step.if).toBe('matrix.pr-images == true');
@@ -290,7 +294,7 @@ console.log(JSON.stringify(calls));
   it.each(['success', 'warm-failure', 'chown-failure'])(
     'repairs Grype cache ownership and traversal before saving (%s)',
     failure => {
-      const steps = jobs('supply-chain-scan.yml')['image-scans'].steps;
+      const steps = jobs('supply-chain-scan.yml')['pr-image-scans'].steps;
       const warm = steps.findIndex(step => step.name === 'Warm Grype vulnerability DB');
       expect(steps[warm + 1].name).toBe('Save Grype vulnerability DB cache');
       const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-grype-cache-'));
@@ -344,7 +348,8 @@ echo "$*" >> "$TRACE"
     ['test-examples.yml', 'test-examples'],
     ['test-cloud-hypervisor.yml', 'build-test-artifacts'],
     ['supply-chain-scan.yml', 'compile'],
-    ['supply-chain-scan.yml', 'image-scans'],
+    ['supply-chain-scan.yml', 'pr-image-scans'],
+    ['supply-chain-scan.yml', 'manifest-scans'],
   ];
 
   it.each(affected)('configures the runner mirror before Docker use in %s / %s', (file, job) => {
@@ -367,10 +372,11 @@ echo "$*" >> "$TRACE"
     expect(prepare).toBeLessThan(compile);
     expect(compileSteps[prepare].run).toContain(`docker pull ${syft}`);
     expect(compileSteps[prepare]['continue-on-error']).toBeUndefined();
-    const steps = workflow['image-scans'].steps;
+    const steps = workflow['pr-image-scans'].steps;
+    const manifestSteps = workflow['manifest-scans'].steps;
     for (const image of [grype, grant]) {
       expect(image).toMatch(/@sha256:[a-f0-9]{64}$/);
-      expect(steps.some((step) => step.run?.includes(`docker pull ${image}`))).toBe(true);
+      expect([...steps, ...manifestSteps].some((step) => step.run?.includes(`docker pull ${image}`))).toBe(true);
     }
     const blocking = steps.find((step) => step.name?.startsWith('Build and scan PR container images'));
     expect(blocking?.run).toContain(grype);
@@ -388,7 +394,7 @@ echo "$*" >> "$TRACE"
     expect(steps[free].if).toBe('matrix.pr-images == true');
     expect(steps[free].run).not.toContain('docker');
     expect(steps[free].run).not.toContain('hostedtoolcache/go');
-    expect(steps.find((step) => step.run?.includes(`'${grant}'`))?.run).toContain(grant);
+    expect(manifestSteps.find((step) => step.run?.includes(`'${grant}'`))?.run).toContain(grant);
   });
 
   it('builds the reviewed prerelease compiler before scanning', () => {
@@ -414,10 +420,13 @@ echo "$*" >> "$TRACE"
     }
   });
 
-  it('fans scans out after one compilation without cancelling sibling scans', () => {
+  it('starts PR scans independently and waits for compilation only for manifest scans', () => {
     const workflow = jobs('supply-chain-scan.yml');
-    const scans = workflow['image-scans'];
-    expect(scans.needs).toEqual(['compile']);
+    const scans = workflow['pr-image-scans'];
+    const manifestScans = workflow['manifest-scans'];
+    expect(scans.needs).toBeUndefined();
+    expect(JSON.stringify(scans)).not.toContain('needs.compile');
+    expect(manifestScans.needs).toEqual(['compile']);
     expect(scans.strategy).toEqual({
       'fail-fast': false,
       matrix: {
@@ -429,12 +438,22 @@ echo "$*" >> "$TRACE"
             images: ['api-proxy', 'router', 'cli-proxy', 'gh-aw-node', 'enclave-script', 'enclave-mcp-server'],
             timeout: 60,
           },
+        ],
+      },
+    });
+    expect(manifestScans.strategy).toEqual({
+      'fail-fast': false,
+      matrix: {
+        include: [
           { scan: 'published-cves', timeout: 40 },
           { scan: 'licenses', timeout: 40 },
         ],
       },
     });
-    expect(scans['timeout-minutes']).toBe('${{ matrix.timeout }}');
+    for (const job of [scans, manifestScans]) {
+      expect(job.name).toBe('Scan / ${{ matrix.scan }}');
+      expect(job['timeout-minutes']).toBe('${{ matrix.timeout }}');
+    }
     const images = prShards.flatMap(shard => shard.images!);
     expect([...images].sort()).toEqual([
       'agent', 'api-proxy', 'build-tools', 'cli-proxy', 'enclave-agent',
@@ -447,7 +466,8 @@ echo "$*" >> "$TRACE"
       ['Check image licenses', "matrix.scan == 'licenses'"],
     ];
     for (const [prefix, selector] of selectors) {
-      const step = scans.steps.find((entry) => entry.name?.startsWith(prefix))!;
+      const steps = prefix === 'Build and scan PR container images' ? scans.steps : manifestScans.steps;
+      const step = steps.find((entry) => entry.name?.startsWith(prefix))!;
       expect(step.if).toBe(selector);
       expect(step['continue-on-error']).toBeUndefined();
       if (prefix === 'Build and scan PR container images') {
@@ -458,12 +478,14 @@ echo "$*" >> "$TRACE"
         expect(step.run).toContain('sys.exit(0)');
       }
     }
-    const databaseSteps = scans.steps.filter((step) => step.name?.includes('Grype vulnerability DB'));
-    expect(databaseSteps).toHaveLength(3);
-    for (const step of databaseSteps) {
-      expect(step.if).toBe("matrix.scan != 'licenses'");
-      if (step.with) {
-        expect(step.with.key).toBe('grype-db-v6-${{ github.run_id }}-${{ matrix.scan }}');
+    for (const job of [scans, manifestScans]) {
+      const databaseSteps = job.steps.filter((step) => step.name?.includes('Grype vulnerability DB'));
+      expect(databaseSteps).toHaveLength(3);
+      for (const step of databaseSteps) {
+        expect(step.if).toBe("matrix.scan != 'licenses'");
+        if (step.with) {
+          expect(step.with.key).toBe('grype-db-v6-${{ github.run_id }}-${{ matrix.scan }}');
+        }
       }
     }
     expect(workflow.compile.outputs?.images).toBe('${{ steps.inventory.outputs.images }}');
@@ -474,7 +496,7 @@ echo "$*" >> "$TRACE"
   it.each([[], ['unknown'], ['enclave-agent'], 'agent', null])(
     'rejects invalid PR image shard %j before any Docker command',
     images => {
-      const step = jobs('supply-chain-scan.yml')['image-scans'].steps.find(
+      const step = jobs('supply-chain-scan.yml')['pr-image-scans'].steps.find(
         entry => entry.name?.startsWith('Build and scan PR container images'),
       )!;
       const python = step.run!.split("<<'PYEOF'\n")[1].split('\nPYEOF')[0];
@@ -517,7 +539,7 @@ with patch.dict(os.environ, {'GRYPE_DB': '/tmp/mock-db', 'PR_IMAGES': sys.argv[1
       const images = JSON.parse(fs.readFileSync(output, 'utf8').trim().slice('images='.length)) as string[];
       expect(images).toEqual([pinned, 'example.com/helper:v1']);
       for (const prefix of ['Scan published & third-party images', 'Check image licenses']) {
-        const step = workflow['image-scans'].steps.find((entry) => entry.name?.startsWith(prefix))!;
+        const step = workflow['manifest-scans'].steps.find((entry) => entry.name?.startsWith(prefix))!;
         const python = step.run!.split("<<'PYEOF'\n")[1].split('\nPYEOF')[0];
         const scan = spawnSync('python3', ['-c', `
 import contextlib, io, json, subprocess, sys
@@ -556,25 +578,28 @@ print(json.dumps({'calls': calls, 'exit': exit_code, 'output': output.getvalue()
     }
   });
 
-  it.each([
-    ['success', 'success', 0],
-    ['failure', 'success', 1],
-    ['success', 'failure', 1],
-    ['success', 'cancelled', 1],
-    ['cancelled', 'skipped', 1],
-  ])('preserves the required check for compile=%s scans=%s', (compile, scans, status) => {
+  const results = ['success', 'failure', 'cancelled', 'skipped'];
+  it.each(results.flatMap(compile => results.flatMap(prScans =>
+    results.map(manifestScans => [compile, prScans, manifestScans]),
+  )))('preserves the required check for compile=%s PR=%s manifest=%s', (compile, prScans, manifestScans) => {
     const gate = jobs('supply-chain-scan.yml').scan;
     expect(gate.name).toBe('Compile + Syft/Grype/Grant');
-    expect(gate.needs).toEqual(['compile', 'image-scans']);
+    expect(gate.needs).toEqual(['compile', 'pr-image-scans', 'manifest-scans']);
     expect(gate.if).toBe('always()');
     expect(gate.steps[0].env).toEqual({
       COMPILE_RESULT: '${{ needs.compile.result }}',
-      SCANS_RESULT: '${{ needs.image-scans.result }}',
+      PR_SCANS_RESULT: '${{ needs.pr-image-scans.result }}',
+      MANIFEST_SCANS_RESULT: '${{ needs.manifest-scans.result }}',
     });
     const result = spawnSync('bash', ['-e', '-c', gate.steps[0].run!], {
-      env: { ...process.env, COMPILE_RESULT: compile, SCANS_RESULT: scans },
+      env: {
+        ...process.env,
+        COMPILE_RESULT: compile,
+        PR_SCANS_RESULT: prScans,
+        MANIFEST_SCANS_RESULT: manifestScans,
+      },
     });
-    expect(result.status).toBe(status);
+    expect(result.status).toBe([compile, prScans, manifestScans].every(result => result === 'success') ? 0 : 1);
   });
 });
 
