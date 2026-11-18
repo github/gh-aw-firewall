@@ -1708,6 +1708,26 @@ providers continue to use bundled pricing because their model-list APIs do not
 currently advertise token prices. Failed or empty refreshes retain the last
 successful snapshot.
 
+Validated Copilot `billing.promo` discounts apply to provider-priced credit
+components after default or long-context tier selection. `discount_percent`
+must be a finite number from 0 to 100, `ends_at` must be an RFC3339 instant,
+and optional `starts_at` must precede it. The start is inclusive and expiry is
+exclusive, evaluated when accounting resolves pricing. Expired, future, malformed,
+or subsequently removed promotions do not discount usage. Canonical runtime
+rates remain list prices; operator overrides, configured catalogs/defaults, and
+fallback components are never implicitly discounted.
+
+Runtime `model_metadata[].promotion` describes the advertised promotion and its
+current `active` status; `applied: false` means the catalog's displayed prices
+remain undiscounted. Its banner is generated from validated fields and the model
+display name, not a provider-supplied message. Usage logs expose `pricing_promotion`
+and token-usage JSONL records expose `ai_credits_pricing_promotion`, including
+`applied`, `discountedComponents`, promotion ID/expiry, and list/effective source
+and tier. The standalone discount percentage is advertised metadata, not proof
+that a discount was applied. Reflection's `ai_credits.by_model[].pricing_promotion`
+describes the latest priced request, while credit totals aggregate the run.
+A 100% promotion records zero credits and still emits pricing metadata.
+
 Explicit `apiProxy.providers` model-cost overlays take precedence over all other
 pricing sources. A versioned `apiProxy.modelPricingCatalog` takes precedence
 over runtime and bundled pricing and records its catalog ID and version with

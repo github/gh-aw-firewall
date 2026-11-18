@@ -177,12 +177,16 @@ test('partial provider merge uses its selected tier, preserves zero/null, and dr
   });
 });
 
-test('complete provider discounts stay informational and never reduce AI-credit budget charges', () => {
+test('complete provider discounts reduce exact AI-credit budget charges', () => {
   const catalog = runtime();
   catalog.copilot[0].promotion = { discountPercent: 100, endsAt: '2027-01-01T00:00:00Z' };
   process.env.AWF_MAX_AI_CREDITS = '1';
-  expect(charge('fixture', { runtimeCatalog: catalog }).aiCreditsThisResponse).toBe(200);
-  expect(getAiCreditsBlockState().maxExceeded).toBe(true);
+  const usage = charge('fixture', {
+    runtimeCatalog: catalog, now: () => Date.parse('2026-12-01T00:00:00Z'),
+  });
+  expect(usage.aiCreditsThisResponse).toBe(0);
+  expect(usage.pricingPromotion.applied).toBe(true);
+  expect(getAiCreditsBlockState().maxExceeded).toBe(false);
 });
 
 test.each([199999, 200000, 200001])('central long-context strict boundary %s and expired-tier rejection', tokens => {

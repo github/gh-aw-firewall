@@ -45,6 +45,7 @@ function mergeBudgetFields(record, budgetResult) {
     'ai_credits_pricing_observed_at',
     'ai_credits_pricing_api_version',
     'ai_credits_pricing_discount_percent',
+    'ai_credits_pricing_promotion',
   ]) {
     if (budgetResult[field] != null) record[field] = budgetResult[field];
   }

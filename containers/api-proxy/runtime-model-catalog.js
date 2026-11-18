@@ -88,16 +88,36 @@ function normalizeCopilotPricing(entry) {
   };
 }
 
-function normalizePromotion(entry) {
-  const promo = entry?.billing?.promo;
-  const discountPercent = Number(promo?.discount_percent);
-  if (!promo || !Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent > 100) {
+function promotionTimestamp(value) {
+  if (typeof value !== 'string') return NaN;
+  const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-](\d{2}):(\d{2}))$/i.exec(value);
+  if (!parts) return NaN;
+  const [, year, month, day, hour, minute, second, , offsetHour = '0', offsetMinute = '0'] = parts;
+  const leapYear = +year % 4 === 0 && (+year % 100 !== 0 || +year % 400 === 0);
+  const monthDays = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (+month < 1 || +month > 12 || +day < 1 || +day > monthDays[+month - 1] ||
+      +hour > 23 || +minute > 59 || +second > 59 || +offsetHour > 23 || +offsetMinute > 59) {
+    return NaN;
+  }
+  return Date.parse(value);
+}
+
+function normalizePromotion(promo) {
+  if (!promo || typeof promo !== 'object') return null;
+  const { discountPercent, endsAt, startsAt, id } = promo;
+  const end = promotionTimestamp(endsAt);
+  const start = startsAt === undefined ? undefined : promotionTimestamp(startsAt);
+  if (typeof discountPercent !== 'number' || !Number.isFinite(discountPercent) ||
+      discountPercent < 0 || discountPercent > 100 || !Number.isFinite(end) ||
+      (startsAt !== undefined && (!Number.isFinite(start) || start >= end)) ||
+      (id !== undefined && (typeof id !== 'string' || id.trim().length === 0))) {
     return null;
   }
   return {
     discountPercent,
-    ...(typeof promo.id === 'string' ? { id: promo.id } : {}),
-    ...(typeof promo.ends_at === 'string' ? { endsAt: promo.ends_at } : {}),
+    ...(id !== undefined ? { id } : {}),
+    endsAt,
+    ...(startsAt !== undefined ? { startsAt } : {}),
   };
 }
 
@@ -128,7 +148,13 @@ function parseProviderModelMetadata(provider, json, options = {}) {
       // accounting cannot silently reuse old/lower-priority/free pricing.
       pricingError = true;
     }
-    const promotion = format === 'copilot' ? normalizePromotion(entry) : null;
+    const promo = entry?.billing?.promo;
+    const promotion = format === 'copilot' && promo ? normalizePromotion({
+      discountPercent: promo.discount_percent,
+      endsAt: promo.ends_at,
+      startsAt: promo.starts_at,
+      id: promo.id,
+    }) : null;
     const displayName = entry.display_name || entry.displayName || (entry.id ? entry.name : null);
     return {
       provider,
@@ -254,54 +280,80 @@ function findRuntimeModel(provider, model, catalog = runtimeCatalog) {
   return records.find(record => canonicalizeModel(record.id) === canonical) || null;
 }
 
-function getRuntimePricingFact(provider, model, catalog = runtimeCatalog) {
+function getRuntimePromotion(provider, model, catalog = runtimeCatalog, options = {}) {
+  const promotion = normalizePromotion(findRuntimeModel(provider, model, catalog)?.promotion);
+  if (!promotion) return null;
+  const now = (options.now || Date.now)();
+  return {
+    ...promotion,
+    active: Number.isFinite(now) &&
+      (promotion.startsAt === undefined || now >= promotionTimestamp(promotion.startsAt)) &&
+      now < promotionTimestamp(promotion.endsAt),
+  };
+}
+
+function getRuntimePricingFact(provider, model, catalog = runtimeCatalog, options = {}) {
   const record = findRuntimeModel(provider, model, catalog);
   if (record?.pricingError) throw new Error('pricing_resolution_invalid_tariff');
   if (!record?.pricing?.default) return null;
   const longContext = record.pricing.longContext;
   const threshold = record.pricing.default.threshold;
+  const promotion = getRuntimePromotion(provider, model, catalog, options);
   return {
     source: 'provider', ...record.pricing, threshold: threshold || undefined,
+    ...(promotion ? { metadata: { promotion } } : {}),
     defaultMetadata: getTierProvenance(record, 'default'),
     longMetadata: longContext ? getTierProvenance(record, 'longContext') : undefined,
   };
 }
 
-function resolveRuntimePricing(provider, model, inputTokens = 0, catalog = runtimeCatalog) {
-  return selectPricingFact(getRuntimePricingFact(provider, model, catalog), inputTokens);
+function resolveRuntimePricing(provider, model, inputTokens = 0, catalog = runtimeCatalog, options = {}) {
+  return selectPricingFact(getRuntimePricingFact(provider, model, catalog, options), inputTokens);
 }
 
-function getRuntimeCatalogSnapshot() {
+function getRuntimeCatalogSnapshot(options = {}) {
+  const now = (options.now || Date.now)();
   const snapshot = {};
   for (const [provider, records] of Object.entries(runtimeCatalog)) {
-    snapshot[provider] = records.map(record => ({
-      id: record.id,
-      source: record.source,
-      observed_at: record.observedAt,
-      ...(record.apiVersion ? { api_version: record.apiVersion } : {}),
-      ...(record.pricingError ? { pricing_error: 'pricing_resolution_error' } : {}),
-      ...getWireApiReflectFields(record),
-      ...(Array.isArray(record.supportedEndpoints)
-        ? { supported_endpoints: [...record.supportedEndpoints] } : {}),
-      ...(record.pricing ? {
-        pricing: {
-          default: record.pricing.default,
-          ...(record.pricing.longContext ? { long_context: record.pricing.longContext } : {}),
-        },
-      } : {}),
-      ...(record.promotion ? {
-        promotion: {
-          discount_percent: record.promotion.discountPercent,
-          ...(record.promotion.id ? { id: record.promotion.id } : {}),
-          ...(record.promotion.endsAt ? { ends_at: record.promotion.endsAt } : {}),
-        },
-      } : {}),
-    }));
+    snapshot[provider] = records.map(record => {
+      const promotion = getRuntimePromotion(provider, record.id, runtimeCatalog, { now: () => now });
+      return {
+        id: record.id,
+        source: record.source,
+        observed_at: record.observedAt,
+        ...(record.apiVersion ? { api_version: record.apiVersion } : {}),
+        ...(record.pricingError ? { pricing_error: 'pricing_resolution_error' } : {}),
+        ...getWireApiReflectFields(record),
+        ...(Array.isArray(record.supportedEndpoints)
+          ? { supported_endpoints: [...record.supportedEndpoints] } : {}),
+        ...(record.pricing ? {
+          pricing: {
+            default: record.pricing.default,
+            ...(record.pricing.longContext ? { long_context: record.pricing.longContext } : {}),
+          },
+        } : {}),
+        ...(promotion ? {
+          promotion: {
+            discount_percent: promotion.discountPercent,
+            ...(promotion.id !== undefined ? { id: promotion.id } : {}),
+            ends_at: promotion.endsAt,
+            ...(promotion.startsAt !== undefined ? { starts_at: promotion.startsAt } : {}),
+            active: promotion.active,
+            applied: false,
+            banner: `${record.displayName || record.id}: ${promotion.discountPercent}% promotion ` +
+              `(${promotion.active ? 'active' : 'inactive'})` +
+              `${promotion.startsAt ? ` from ${promotion.startsAt}` : ''} until ${promotion.endsAt}. ` +
+              'Canonical prices shown; discount not applied.',
+          },
+        } : {}),
+      };
+    });
   }
   return snapshot;
 }
 
 module.exports = {
+  getRuntimePromotion,
   getRuntimePricingFact,
   canonicalizeModel,
   parseProviderModelMetadata,

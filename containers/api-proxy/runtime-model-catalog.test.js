@@ -7,7 +7,11 @@ const {
   resolveRuntimePricing,
   getRuntimeCatalogSnapshot,
   getRuntimeModels,
+  getRuntimePromotion,
+  getRuntimePricingFact,
+  captureRuntimePricing,
 } = require('./runtime-model-catalog');
+const exact = require('./catalogue-contract/exact-pricing');
 
 describe('runtime model catalog', () => {
   afterEach(() => clearRuntimeModels());
@@ -199,37 +203,196 @@ describe('runtime model catalog', () => {
       .toEqual({ input: 0, output: 0, cachedInput: 0, cacheWrite: 0 });
   });
 
-  it('exposes an advertised promotion without applying it to pricing', () => {
-    const records = parseProviderModelMetadata('copilot', {
-      data: [{
-        id: 'gpt-test',
-        billing: {
-          token_prices: {
-            batch_size: 500_000,
-            default: {
-              input_price: 100,
-              output_price: 400,
-              cache_read_price: 10,
-              cache_write_price: 0,
+  describe('runtime promotions', () => {
+    const startsAt = '2026-07-28T00:00:00Z';
+    const endsAt = '2026-08-01T00:00:00Z';
+    const now = () => Date.parse('2026-07-29T00:00:00Z');
+    const defaultPrices = { input: 2, output: 8, cachedInput: 0.2, cacheWrite: 0, threshold: 1000 };
+    const longPrices = { input: 4, output: 16, cachedInput: 0.4, cacheWrite: 0 };
+
+    function install(promo = {}, entry = {}) {
+      const records = parseProviderModelMetadata('copilot', {
+        data: [{
+          id: 'gpt-test',
+          display_name: 'GPT Test',
+          billing: {
+            token_prices: {
+              batch_size: 500_000,
+              default: {
+                input_price: 100, output_price: 400, cache_read_price: 10,
+                cache_write_price: 0, max_prompt_tokens: 1000,
+              },
+              long_context: {
+                input_price: 200, output_price: 800, cache_read_price: 20, cache_write_price: 0,
+              },
+            },
+            promo: { discount_percent: 25, ends_at: endsAt, ...promo },
+          },
+          ...entry,
+        }],
+      }, { observedAt: startsAt });
+      replaceRuntimeModels('copilot', records);
+      return records;
+    }
+
+    it.each([
+      ['before start', Date.parse(startsAt) - 1, false],
+      ['at start', Date.parse(startsAt), true],
+      ['during promotion', now(), true],
+      ['before expiration', Date.parse(endsAt) - 1, true],
+      ['at expiration', Date.parse(endsAt), false],
+      ['after expiration', Date.parse(endsAt) + 1, false],
+    ])('carries modifier status %s on both canonical pricing tiers', (_label, time, active) => {
+      install({ starts_at: startsAt, id: 'summer', message: 'untrusted banner' });
+      const options = { now: () => time };
+      const promotion = { discountPercent: 25, startsAt, endsAt, id: 'summer', active };
+      expect(getRuntimePromotion('copilot', 'gpt-test', undefined, options)).toEqual(promotion);
+      expect(getRuntimePricingFact('copilot', 'gpt-test', undefined, options).metadata)
+        .toEqual({ promotion });
+      for (const [tokens, tier, pricing] of [[1000, 'default', defaultPrices], [1001, 'long_context', longPrices]]) {
+        expect(resolveRuntimePricing('copilot', 'gpt-test', tokens, undefined, options))
+          .toMatchObject({ tier, pricing, promotion });
+      }
+      const snapshot = getRuntimeCatalogSnapshot(options).copilot[0];
+      expect(snapshot.pricing).toEqual({ default: defaultPrices, long_context: longPrices });
+      expect(snapshot.promotion).toEqual({
+        discount_percent: 25, starts_at: startsAt, ends_at: endsAt, id: 'summer',
+        active, applied: false,
+        banner: `GPT Test: 25% promotion (${active ? 'active' : 'inactive'}) from ${startsAt} until ${endsAt}. ` +
+          'Canonical prices shown; discount not applied.',
+      });
+      expect(JSON.stringify({ records: getRuntimeModels('copilot'), snapshot }))
+        .not.toContain('untrusted banner');
+      expect(snapshot).not.toHaveProperty('billing');
+    });
+
+    it.each([0, 100])('accepts a %s%% modifier without discounting canonical rates', discount => {
+      install({ discount_percent: discount });
+      expect(getRuntimePromotion('copilot', 'gpt-test', undefined, { now })).toEqual({
+        discountPercent: discount, endsAt, active: true,
+      });
+      for (const [tokens, pricing] of [[1, defaultPrices], [1001, longPrices]]) {
+        expect(resolveRuntimePricing('copilot', 'gpt-test', tokens, undefined, { now }))
+          .toMatchObject({ pricing, promotion: { discountPercent: discount, active: true } });
+      }
+    });
+
+    it.each([
+      undefined, null, true, false, '', ' ', '25', 'invalid', [], [25], {}, NaN, Infinity, -Infinity, -1, 101,
+    ])('rejects invalid discount_percent %p without affecting pricing', discount => {
+      install({ discount_percent: discount });
+      expect(getRuntimePromotion('copilot', 'gpt-test', undefined, { now })).toBeNull();
+      expect(getRuntimePricingFact('copilot', 'gpt-test', undefined, { now })).not.toHaveProperty('metadata');
+      expect(resolveRuntimePricing('copilot', 'gpt-test', 0, undefined, { now }))
+        .toMatchObject({ pricing: defaultPrices });
+      expect(getRuntimeCatalogSnapshot({ now }).copilot[0]).not.toHaveProperty('promotion');
+    });
+
+    it.each([
+      undefined, null, false, 0, '', '2026-08-01', '2026-08-01T00:00:00',
+      '2026-08-01 00:00:00Z', '2026-08-01T24:00:00Z', '2026-08-01T00:60:00Z',
+      '2026-08-01T00:00:61Z', '2026-08-01T00:00:00+24:00', '2026-08-01T00:00:00+01:60',
+      '2026-00-01T00:00:00Z', '2026-13-01T00:00:00Z', '2026-08-00T00:00:00Z',
+      '2026-04-31T00:00:00Z', '2026-02-29T00:00:00Z', '2100-02-29T00:00:00Z',
+      '2026-08-32T00:00:00Z', ' 2026-08-01T00:00:00Z',
+    ])('rejects invalid required ends_at %p', ends_at => {
+      install({ ends_at });
+      expect(getRuntimeModels('copilot')[0]).not.toHaveProperty('promotion');
+      expect(getRuntimePromotion('copilot', 'gpt-test', undefined, { now })).toBeNull();
+    });
+
+    it.each([
+      null, false, 0, '', 'invalid', '2026-02-30T00:00:00Z',
+      endsAt, '2026-08-02T00:00:00Z', '2026-08-01T01:00:00+01:00',
+    ])('rejects invalid or non-increasing starts_at %p', starts_at => {
+      install({ starts_at });
+      expect(getRuntimePromotion('copilot', 'gpt-test', undefined, { now })).toBeNull();
+    });
+
+    it.each([null, false, 0, '', ' ', {}])('rejects malformed optional id %p', id => {
+      install({ id });
+      expect(getRuntimePromotion('copilot', 'gpt-test', undefined, { now })).toBeNull();
+    });
+
+    it.each([
+      ['2028-02-29T01:00:00.123+01:00', '2028-02-29T00:00:00.123Z'],
+      ['2000-02-29t00:00:00z', '2000-02-29T00:00:00Z'],
+      ['2026-07-27T19:00:00-05:00', startsAt],
+    ])('accepts a valid leap date, fraction or timezone: %s', (end, boundary) => {
+      install({ ends_at: end });
+      expect(getRuntimePromotion('copilot', 'gpt-test', undefined, {
+        now: () => Date.parse(boundary) - 1,
+      })).toMatchObject({ endsAt: end, active: true });
+      expect(getRuntimePromotion('copilot', 'gpt-test', undefined, {
+        now: () => Date.parse(boundary),
+      })).toMatchObject({ active: false });
+    });
+
+    it('uses Date.now by default and generates banner text using the model id when needed', () => {
+      install({}, { display_name: undefined });
+      const clock = jest.spyOn(Date, 'now').mockImplementation(now);
+      try {
+        expect(getRuntimePromotion('copilot', 'gpt-test').active).toBe(true);
+        expect(getRuntimeCatalogSnapshot().copilot[0].promotion.banner)
+          .toBe(`gpt-test: 25% promotion (active) until ${endsAt}. Canonical prices shown; discount not applied.`);
+      } finally {
+        clock.mockRestore();
+      }
+      expect(getRuntimePromotion('copilot', 'missing', undefined, { now })).toBeNull();
+      expect(getRuntimePromotion('openai', 'gpt-test', undefined, { now })).toBeNull();
+    });
+
+    it.each(['missing billing', 'incomplete rates', 'complete rates'])(
+      'removes old promotion metadata on refresh with %s, retaining captured exact pricing',
+      refresh => {
+        install({ starts_at: startsAt }, {
+          billing: {
+            promo: { discount_percent: 25, ends_at: endsAt },
+            token_prices: {
+              batch_size: 3,
+              default: {
+                input_price: 1, output_price: 2, cache_read_price: 1,
+                cache_write_price: 0, max_prompt_tokens: 1000,
+              },
+              long_context: { input_price: 2, output_price: 4, cache_read_price: 2, cache_write_price: 0 },
             },
           },
-          promo: { discount_percent: 25, message: 'not retained' },
-        },
-      }],
-    }, { format: 'copilot', observedAt: '2026-07-28T00:00:00Z' });
-    replaceRuntimeModels('copilot', records);
-
-    expect(resolveRuntimePricing('copilot', 'gpt-test').pricing).toEqual({
-      input: 2,
-      cachedInput: 0.2,
-      cacheWrite: 0,
-      output: 8,
-    });
-    expect(getRuntimeCatalogSnapshot().copilot[0].promotion).toEqual({
-      discount_percent: 25,
-    });
-    expect(getRuntimeCatalogSnapshot().copilot[0]).not.toHaveProperty('billing');
-    expect(JSON.stringify(getRuntimeCatalogSnapshot())).not.toContain('not retained');
+        });
+        const capture = captureRuntimePricing();
+        const records = parseProviderModelMetadata('copilot', { data: [{
+          id: 'gpt-test',
+          ...(refresh === 'missing billing' ? {} : {
+            billing: { token_prices: {
+              batch_size: 500_000,
+              default: {
+                input_price: 100, output_price: 400,
+                ...(refresh === 'complete rates' ? { cache_read_price: 10, cache_write_price: 0 } : {}),
+              },
+            } },
+          }),
+        }] });
+        replaceRuntimeModels('copilot', records);
+        expect(getRuntimePromotion('copilot', 'gpt-test', undefined, { now })).toBeNull();
+        expect(getRuntimeCatalogSnapshot({ now }).copilot[0]).not.toHaveProperty('promotion');
+        expect(resolveRuntimePricing('copilot', 'gpt-test', 0, undefined, { now }))
+          .not.toHaveProperty('promotion');
+        expect(getRuntimePromotion('copilot', 'gpt-test', capture, { now }))
+          .toMatchObject({ discountPercent: 25, active: true });
+        const fact = getRuntimePricingFact('copilot', 'gpt-test', capture, { now });
+        for (const [prices, numerator] of [[fact.default, 10000n], [fact.longContext, 20000n]]) {
+          expect(exact.rate(prices, 'input')).toEqual({ n: numerator, d: 3n });
+        }
+        for (const [tokens, numerator] of [[1000, 10000n], [1001, 20000n]]) {
+          const result = resolveRuntimePricing('copilot', 'gpt-test', tokens, capture, { now });
+          expect(result.promotion).toMatchObject({ discountPercent: 25, active: true });
+          expect(exact.rate(result.pricing, 'input')).toEqual({ n: numerator, d: 3n });
+        }
+        if (refresh !== 'complete rates') {
+          expect(exact.rate(resolveRuntimePricing('copilot', 'gpt-test', 0, undefined, { now }).pricing, 'input'))
+            .toEqual({ n: 10000n, d: 3n });
+        }
+      },
+    );
   });
 
   it('retains complete pricing when a later refresh omits billing fields', () => {
