@@ -221,13 +221,13 @@
     "response": {
       "ranked_choices": [
         {
-          "id": "fast",
-          "model": "github-copilot/router-fast"
+          "id": "reasoning-medium",
+          "model": "github-copilot/router-reasoning",
+          "effort": "medium"
         },
         {
-          "effort": "medium",
-          "id": "reasoning-medium",
-          "model": "github-copilot/router-reasoning"
+          "id": "fast",
+          "model": "github-copilot/router-fast"
         }
       ]
     },
