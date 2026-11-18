@@ -23,6 +23,35 @@ esac
 cache_day=$(date -u +%F)
 log_dir=$(mktemp -d)
 trap 'rm -rf "$log_dir"' EXIT
+
+replay_log() {
+  local image=$1 status=0
+  echo "::group::Build chroot image ${image}"
+  cat "${log_dir}/${image}.log" || status=$?
+  echo "::endgroup::"
+  return "$status"
+}
+
+next_log=0
+cancel_status=0
+replaying=false
+cancel_builds() {
+  local image
+  cancel_status=$1
+  # Finish an open log group before replaying the remaining logs.
+  if "$replaying"; then return; fi
+  trap '' INT TERM
+  # Don't wait on cancelled builds; print whatever they've buffered so far.
+  for image in "${images[@]:next_log}"; do
+    if [[ -f "${log_dir}/${image}.log" ]]; then
+      replay_log "$image" || true
+    fi
+  done
+  exit "$cancel_status"
+}
+trap 'cancel_builds 130' INT
+trap 'cancel_builds 143' TERM
+
 pids=()
 for image in "${images[@]}"; do
   (
@@ -50,9 +79,13 @@ for index in "${!images[@]}"; do
   tag="ghcr.io/github/gh-aw-firewall/${image}:latest"
   status=0
   wait "${pids[$index]}" || status=$?
-  echo "::group::Build chroot image ${image}"
-  cat "${log_dir}/${image}.log"
-  echo "::endgroup::"
+  replaying=true
+  replay_status=0
+  replay_log "$image" || replay_status=$?
+  next_log=$((index + 1))
+  replaying=false
+  if (( cancel_status != 0 )); then cancel_builds "$cancel_status"; fi
+  if (( replay_status != 0 )); then exit "$replay_status"; fi
   if (( status != 0 )); then
     echo "::error::Chroot image build/cache export/inspection failed for ${image} (exit ${status})" >&2
     failed_images+=("$tag")
