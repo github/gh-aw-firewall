@@ -585,6 +585,58 @@ describe('upstream-http', () => {
     expect(httpsRequest.mock.calls[1][0].headers.authorization).toBe('signed-{"ok":true}');
   });
 
+  test('retains budget body rewrites and signs the final body on connection-error fallback', () => {
+    const requests = [];
+    const httpsRequest = jest.fn(() => {
+      const request = Object.assign(new EventEmitter(), { write: jest.fn(), end: jest.fn() });
+      requests.push(request);
+      return request;
+    });
+    const injected = { max_tokens: 321, stream_options: { include_usage: true } };
+    const settleMissing = jest.fn();
+    const modelBudget = {
+      beginAttempt: jest.fn(({ body }) => ({
+        allowed: true,
+        body: Buffer.from(JSON.stringify({ ...JSON.parse(body), ...injected })),
+        settleMissing,
+      })),
+    };
+    const requestSigner = jest.fn(({ headers }) => ({ ...headers, authorization: 'signed-final-body' }));
+    const handleRequestError = jest.fn();
+    const originalBody = Buffer.from('{"model":"first","messages":[]}');
+    const send = createSendUpstreamRequest({
+      https: { request: httpsRequest }, proxyAgent: {},
+      handleUpstreamResponse: jest.fn(), sleep: jest.fn(),
+      otel: { endSpanError: jest.fn() }, handleRequestError,
+      metrics: { increment: jest.fn(), observe: jest.fn() },
+      getFallbackModels: () => ['second-model'], modelBudget,
+    });
+
+    send({ 'Content-Length': String(originalBody.length), 'Transfer-Encoding': 'chunked' }, createContext({
+      body: originalBody, requestBytes: originalBody.length, requestSigner,
+      req: { method: 'POST', url: '/v1/chat/completions' },
+    }));
+    requests[0].emit('error', new Error('ECONNRESET'));
+
+    expect(httpsRequest).toHaveBeenCalledTimes(2);
+    expect(modelBudget.beginAttempt).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(modelBudget.beginAttempt.mock.calls[1][0].body)).toEqual({
+      model: 'second-model', messages: [], ...injected,
+    });
+    for (const [index, model] of ['first', 'second-model'].entries()) {
+      const written = requests[index].write.mock.calls[0][0];
+      expect(JSON.parse(written)).toEqual({ model, messages: [], ...injected });
+      expect(requestSigner.mock.calls[index][0]).toMatchObject({
+        body: written, headers: { 'content-length': String(written.length) },
+      });
+      expect(httpsRequest.mock.calls[index][0].headers).toEqual({
+        'content-length': String(written.length), authorization: 'signed-final-body',
+      });
+    }
+    expect(settleMissing).toHaveBeenCalledTimes(1);
+    expect(handleRequestError).not.toHaveBeenCalled();
+  });
+
   test('fails closed without opening an upstream request when signing fails', () => {
     const httpsRequest = jest.fn();
     const handleRequestError = jest.fn();
