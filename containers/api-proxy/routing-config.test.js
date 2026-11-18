@@ -97,6 +97,19 @@ describe('routing configuration', () => {
       .toThrow('routing.provider is not supported');
   });
 
+  it('accepts an explicit bounded integer topK independently of exclusions', () => {
+    const base = { objective: { goal: 'cost', mode: 'balanced' }, task: { conversationFile: '/private/task' } };
+    const parse = fields => parseRoutingConfig(JSON.stringify({ ...base, ...fields }));
+    expect(parse({ excludedModels: [] })).not.toHaveProperty('topK');
+    for (const topK of [1, 3, 32]) {
+      expect(parse({ topK }).topK).toBe(topK);
+      expect(parse({ topK })).not.toHaveProperty('excludedModels');
+    }
+    for (const topK of [0, -1, 33, 1.5, '3', null, true]) {
+      expect(() => parse({ topK })).toThrow('routing.topK');
+    }
+  });
+
   it('accepts only a bounded array of literal canonical base IDs as primary exclusions', () => {
     const base = { objective: { goal: 'cost', mode: 'balanced' }, task: { conversationFile: '/private/task' } };
     const parse = excludedModels => parseRoutingConfig(JSON.stringify({ ...base, excludedModels }));

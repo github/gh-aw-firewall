@@ -63,7 +63,7 @@ class FakeResponse extends EventEmitter {
  * picks whichever offered choice `pick` returns, or `pick` may return a
  * fabricated choice to exercise contract rejection.
  */
-async function runRoutedSession({ models = DEFAULT_MODELS, pick, excludedModels }) {
+async function runRoutedSession({ models = DEFAULT_MODELS, pick, topK }) {
   const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-routing-efforts-'));
   const records = [];
   const routed = [];
@@ -71,7 +71,7 @@ async function runRoutedSession({ models = DEFAULT_MODELS, pick, excludedModels 
   const createController = () => createRoutingController({
     config: {
       provider: 'copilot',
-      excludedModels,
+      topK,
       objective: { goal: 'cost', mode: 'balanced' },
       task: { conversationFile: '/tmp/conversation.json' },
     },
@@ -118,7 +118,7 @@ const byEffort = effort => choices => choices.find(choice =>
 
 describe('routed reasoning efforts', () => {
   it('publishes the bounded summary only to the private host, without inventing an effort', async () => {
-    const { result, session, outputDir } = await runRoutedSession({ pick: byEffort(undefined), excludedModels: [] });
+    const { result, session, outputDir } = await runRoutedSession({ pick: byEffort(undefined), topK: 3 });
     const pair = { model: 'github-copilot/chat-test' };
     expect(readResult(outputDir, 'selection.json')).toEqual({
       ...result.selection, routeOptions: { ordinaryPick: pair, options: [pair], excludedFallback: false },

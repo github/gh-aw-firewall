@@ -531,6 +531,7 @@ it('buildModelPolicyEnv no longer sets AWF_ROUTING_CONFIG when modelRouting is c
         experimentalModelRouting: true,
         modelRouting: {
           candidateModels: ['gpt-5.6-luna'],
+          topK: 2,
           excludedModels: ['github-copilot/model-a'],
           objective: { goal: 'cost', mode: 'balanced' },
           task: { conversationFile: '/host/conversation.json' },
@@ -545,7 +546,7 @@ it('buildModelPolicyEnv no longer sets AWF_ROUTING_CONFIG when modelRouting is c
         },
       });
       expect(env.AWF_ROUTING_CONFIG).toBe(
-        '{"candidateModels":["gpt-5.6-luna"],"excludedModels":["github-copilot/model-a"],"objective":{"goal":"cost","mode":"balanced"},"task":{"conversationFile":"/run/awf-routing/input/conversation.json"}}'
+        '{"candidateModels":["gpt-5.6-luna"],"topK":2,"excludedModels":["github-copilot/model-a"],"objective":{"goal":"cost","mode":"balanced"},"task":{"conversationFile":"/run/awf-routing/input/conversation.json"}}'
       );
     });
 

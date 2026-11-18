@@ -75,25 +75,41 @@ function makePairKey(model, effort) {
   return `${model.toLowerCase()}\u0000${effort === undefined ? '' : effort}`;
 }
 
+const PILOT_TOP_K = 3;
+const MAX_TOP_K = 32;
+
+function assertValidTopK(topK) {
+  if (!Number.isInteger(topK) || topK < 1 || topK > MAX_TOP_K) {
+    throw createRoutingError('routing_configuration_error', `routing.topK must be an integer from 1 to ${MAX_TOP_K}`);
+  }
+}
+
+function filterPrimaryRank(rank, excludedModels = []) {
+  const excluded = new Set(Array.from(excludedModels, model => model.toLowerCase()));
+  if (!excluded.size) return rank;
+  return Object.freeze(rank.filter(choice => !excluded.has(choice.model.toLowerCase())));
+}
+
 // Shortlist only: costs, incumbents and probes still refer to exact choices in eligibleRank.
-function shortlistPrimaryOptions(eligibleRank, suspendedBases = []) {
-  const skipBases = new Set(Array.from(suspendedBases, model => model.toLowerCase()));
+function shortlistPrimaryOptions(eligibleRank, topK = PILOT_TOP_K) {
+  assertValidTopK(topK);
+  const seenBases = new Set();
   const options = [];
   for (const choice of eligibleRank) {
     const base = choice.model.toLowerCase();
-    if (skipBases.has(base)) continue;
+    if (seenBases.has(base)) continue;
+    seenBases.add(base);
     options.push(choice);
-    if (options.length === 3) break;
-    skipBases.add(base);
+    if (options.length === topK) break;
   }
   return Object.freeze(options);
 }
 
 // Only consume the rank accepted by validateRouteResponse, never the (potentially
 // larger) catalogue or offered pool. Resolve IDs to the immutable offered choices.
-function buildPrimaryRouteOptions(rankedChoices, pool, excludedModels = []) {
+function resolvePrimaryRank(rankedChoices, pool) {
   const seen = new Set();
-  const fullRank = rankedChoices.map(({ id }) => {
+  return Object.freeze(rankedChoices.map(({ id }) => {
     const choice = pool.byId[id].choice;
     const key = makePairKey(choice.model, choice.effort);
     if (seen.has(key)) {
@@ -101,16 +117,7 @@ function buildPrimaryRouteOptions(rankedChoices, pool, excludedModels = []) {
     }
     seen.add(key);
     return choice;
-  });
-  const excluded = new Set(excludedModels.map(model => model.toLowerCase()));
-  const eligibleRank = excluded.size ? fullRank.filter(choice => !excluded.has(choice.model.toLowerCase())) : fullRank;
-  return Object.freeze({
-    fullRank: Object.freeze(fullRank),
-    ordinaryPick: fullRank[0],
-    eligibleRank: Object.freeze(eligibleRank),
-    options: shortlistPrimaryOptions(eligibleRank),
-    excludedFallback: eligibleRank.length === 0,
-  });
+  }));
 }
 
 function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, eligibilityRequest = {} }) {
@@ -200,7 +207,10 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, eligi
 }
 
 module.exports = {
-  buildPrimaryRouteOptions,
+  PILOT_TOP_K,
+  assertValidTopK,
+  filterPrimaryRank,
+  resolvePrimaryRank,
   shortlistPrimaryOptions,
   buildRoutingCandidates,
   getModelRoutingChoices,
