@@ -2697,8 +2697,11 @@ choices (possibly empty), and `excludedFallback: true` means every ranked
 pair was set aside. Each pair carries only `model` and the offered `effort`
 if present. Rank is not a price. The summary shares the existing 16 KiB
 result limit and is not exposed by `/reflect`. Set `excludedModels: []` for
-the summary alone; omit the field for the existing selection format. Neither
-case adds a router or classifier call. The [synthetic rank fixture](../containers/api-proxy/fixtures/routing-options/three-efforts.json)
+the summary alone. When the summary is requested, two different choice IDs
+for the same model and effort are a routing error, even if that model is
+excluded. Omit the field for ordinary routing: those IDs stay in the rank,
+the first ranked ID wins, and the selection format is unchanged. Neither case
+adds a router or classifier call. The [synthetic rank fixture](../containers/api-proxy/fixtures/routing-options/three-efforts.json)
 shows both the unfiltered and refilled options.
 
 ### 13a.1 Model-routing audit records

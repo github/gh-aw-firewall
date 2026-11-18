@@ -199,16 +199,37 @@ describe('routing controller', () => {
     expect(calls.checkBeforePrimary).toHaveLength(0);
   });
 
-  it('rejects a repeated pair even under different offered IDs', async () => {
+  describe('two offered IDs for the same model and effort', () => {
     const models = ['model-b', 'github-copilot/model-b'].map(id =>
       ({ id, efforts: ['high'], protocols: ['responses'], contextWindow: 128_000 }));
-    const { controller, calls } = createHarness({
-      models,
-      routeResponse: req => ({ ranked_choices: req.models.map(({ id, model, effort }) => ({ id, model, effort })) }),
+    const routeResponse = req => ({
+      ranked_choices: req.models.map(({ id, model, effort }) => ({ id, model, effort })).reverse(),
     });
-    await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'routing_contract_error' } });
-    expect(calls.route[0].models.map(c => c.id)).toEqual(['choice-0001', 'choice-0002']);
-    expect(calls.checkBeforePrimary).toHaveLength(0);
+
+    it('keeps the first ranked ID, its wire mapping and both log entries without opt-in', async () => {
+      const { controller, calls, records } = createHarness({ models, routeResponse });
+      const result = await controller.run();
+      const pair = { model: 'github-copilot/model-b', effort: 'high' };
+      expect(result.ok).toBe(true);
+      expect(result).not.toHaveProperty('routeOptions');
+      expect(result.selection).toMatchObject({
+        choice: { id: 'choice-0002', ...pair }, wire_model: 'github-copilot/model-b',
+      });
+      expect(records[1].ranked_choices).toEqual([pair, pair]);
+      expect(records[1]).not.toHaveProperty('excluded_fallback');
+      expect(calls.classify).toHaveLength(1);
+      expect(calls.execute).toHaveLength(1);
+      expect(calls.route).toHaveLength(1);
+      expect(calls.checkBeforePrimary.map(call => call.selection)).toEqual([result.selection]);
+    });
+
+    it.each([{ excludedModels: [] }, { excludedModels: ['github-copilot/model-b'] }])(
+      'rejects the duplicate pair before applying exclusions $excludedModels when options are requested', async config => {
+        const { controller, calls } = createHarness({ models, routeResponse, config });
+        await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'routing_contract_error' } });
+        expect(calls.checkBeforePrimary).toHaveLength(0);
+      },
+    );
   });
 
   it.each(rankFixture.cases.slice(1))('a final guard veto is terminal, including on fallback', async ({

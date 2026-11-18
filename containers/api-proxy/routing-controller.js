@@ -293,8 +293,11 @@ function createRoutingController(dependencies) {
         mapPlannerFailure(error, 'route');
       }
       const route = validateRouteResponse(rawRoute, pool.choices);
-      const primary = buildPrimaryRouteOptions(route.ranked_choices, pool, config.excludedModels);
-      const selectedChoice = primary.excludedFallback ? primary.ordinaryPick : primary.options[0];
+      // Ordinary routing uses choice IDs; only the opt-in options contract requires unique pairs.
+      const primary = config.excludedModels === undefined
+        ? null
+        : buildPrimaryRouteOptions(route.ranked_choices, pool, config.excludedModels);
+      const selectedChoice = primary?.options[0] ?? route.ranked_choices[0];
       const selection = createSelection(selectedChoice, pool.byId[selectedChoice.id]);
 
       await runPhase(({ signal: phaseSignal }) =>
@@ -315,11 +318,11 @@ function createRoutingController(dependencies) {
         classifier_model: successfulClassifier?.model ?? null,
         classifier_effort: successfulClassifier?.effort ?? null,
         router: { name: rawCapabilities.name, version: rawCapabilities.version },
-        ranked_choices: primary.fullRank.map(choice => ({
+        ranked_choices: route.ranked_choices.map(choice => ({
           model: choice.model,
           effort: choice.effort ?? null,
         })),
-        ...(primary.excludedFallback ? { excluded_fallback: true } : {}),
+        ...(primary?.excludedFallback ? { excluded_fallback: true } : {}),
         conversation_sha256: createHash('sha256').update(JSON.stringify(conversation)).digest('hex'),
         selected_id: selection.choice.id,
         selected_model: selection.choice.model,
@@ -335,7 +338,7 @@ function createRoutingController(dependencies) {
       return Object.freeze({
         ok: true,
         selection,
-        ...(config.excludedModels !== undefined ? { routeOptions: deepFreezeJson({
+        ...(primary ? { routeOptions: deepFreezeJson({
           ordinaryPick: modelEffortPair(primary.ordinaryPick),
           options: primary.options.map(modelEffortPair),
           excludedFallback: primary.excludedFallback,
