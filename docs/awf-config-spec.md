@@ -2605,9 +2605,14 @@ apiProxy:
 |-------|----------------|-------------|
 | `provider` | `copilot` (default), `openai`, `anthropic` | Restricts routing to one configured native API-proxy provider; AWF does not switch credentials or translate across providers. |
 | `candidateModels` | non-empty array of model glob patterns | Limits router/classifier choices without widening the request policy; defaults to `apiProxy.allowedModels`. |
-| `objective.goal` | `cost`, `cost-speed` | Optimization goal used by the router |
+| `objective.goal` | `cost` | Optimization goal used by the router; `cost-speed` is unsupported and MUST NOT be aliased to `cost` |
 | `objective.mode` | `economy`, `balanced`, `robust`, `auto` | Fixed routing profile, or `auto` classification |
 | `task.conversationFile` | non-empty string | Host path to the task conversation whose description the router classifies |
+
+The cost-only contract targets router `0.4.0`; its release is pending.
+The legacy six-file routing bundle remains packaged until a supporting reader
+is released and the compiler migration window is complete. No removal deadline
+has been announced. Retaining those files does not enable `cost-speed` requests.
 
 The task conversation must be written by the workflow host before AWF starts.
 Callers are responsible for preparing task-relevant conversation content before

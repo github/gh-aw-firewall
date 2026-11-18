@@ -39,21 +39,9 @@
         {
           "goal": "cost",
           "mode": "robust"
-        },
-        {
-          "goal": "cost-speed",
-          "mode": "economy"
-        },
-        {
-          "goal": "cost-speed",
-          "mode": "balanced"
-        },
-        {
-          "goal": "cost-speed",
-          "mode": "robust"
         }
       ],
-      "version": "0.1.1"
+      "version": "0.4.0"
     },
     "status": 200
   },
@@ -198,7 +186,7 @@
     "status": 200
   },
   {
-    "id": "explicit-cost-speed-robust",
+    "id": "explicit-cost-robust",
     "method": "POST",
     "path": "/route",
     "request": {
@@ -225,11 +213,11 @@
         }
       ],
       "objective": {
-        "goal": "cost-speed",
+        "goal": "cost",
         "mode": "robust"
       }
     },
-    "request_body": "{\"classification\":null,\"conversation\":[{\"parts\":[{\"text\":\"Proceed.\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"github-copilot/router-fast\"},{\"effort\":\"medium\",\"id\":\"reasoning-medium\",\"model\":\"github-copilot/router-reasoning\"}],\"objective\":{\"goal\":\"cost-speed\",\"mode\":\"robust\"}}\n",
+    "request_body": "{\"classification\":null,\"conversation\":[{\"parts\":[{\"text\":\"Proceed.\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"github-copilot/router-fast\"},{\"effort\":\"medium\",\"id\":\"reasoning-medium\",\"model\":\"github-copilot/router-reasoning\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"robust\"}}\n",
     "response": {
       "ranked_choices": [
         {

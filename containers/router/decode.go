@@ -63,8 +63,8 @@ func DecodeRouteRequest(data []byte) (*RouteRequest, error) {
 	if err := validateConversation(req.Conversation); err != nil {
 		return nil, err
 	}
-	if !slices.Contains([]Goal{GoalCost, GoalCostSpeed}, req.Objective.Goal) {
-		return nil, invalid("objective.goal: must be cost or cost-speed")
+	if req.Objective.Goal != GoalCost {
+		return nil, invalid(unsupportedGoalDetail(req.Objective.Goal))
 	}
 	if !slices.Contains([]Mode{ModeEconomy, ModeBalanced, ModeRobust, ModeAuto}, req.Objective.Mode) {
 		return nil, invalid("objective.mode: must be economy, balanced, robust or auto")

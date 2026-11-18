@@ -8,7 +8,7 @@
     "status": 200, "response_file": "classify-response.json"
   },
   {
-    "id": "classify-profile-independent", "method": "POST", "path": "/classify", "profiles": ["cost-speed-robust.json"],
+    "id": "classify-profile-independent", "method": "POST", "path": "/classify", "profiles": ["cost-robust.json"],
     "request": {
       "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
       "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}]

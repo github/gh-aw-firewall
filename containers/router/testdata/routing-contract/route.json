@@ -26,8 +26,8 @@
       "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
       "objective": {"goal": "cost-speed", "mode": "auto"}
     },
-    "status": 200,
-    "response": {"ranked_choices": [{"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}, {"id": "fast", "model": "github-copilot/router-fast"}]}
+    "status": 422,
+    "response": {"code": "invalid_json", "detail": "objective.goal: unsupported routing goal \"cost-speed\"; only cost is supported; choose cost explicitly and recompile existing workflow locks"}
   },
   {
     "id": "auto-null-unknown-cost-speed", "method": "POST", "path": "/route",
@@ -36,8 +36,8 @@
       "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
       "objective": {"goal": "cost-speed", "mode": "auto"}, "classification": null
     },
-    "status": 200,
-    "response": {"ranked_choices": [{"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}, {"id": "fast", "model": "github-copilot/router-fast"}]}
+    "status": 422,
+    "response": {"code": "invalid_json", "detail": "objective.goal: unsupported routing goal \"cost-speed\"; only cost is supported; choose cost explicitly and recompile existing workflow locks"}
   },
   {
     "id": "auto-heuristic-fix", "method": "POST", "path": "/route",
@@ -155,8 +155,8 @@
       "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
       "objective": {"goal": "cost-speed", "mode": "economy"}, "classification": null
     },
-    "status": 200,
-    "response": {"ranked_choices": [{"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}, {"id": "fast", "model": "github-copilot/router-fast"}]}
+    "status": 422,
+    "response": {"code": "invalid_json", "detail": "objective.goal: unsupported routing goal \"cost-speed\"; only cost is supported; choose cost explicitly and recompile existing workflow locks"}
   },
   {
     "id": "explicit-cost-speed-balanced", "method": "POST", "path": "/route",
@@ -165,8 +165,8 @@
       "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
       "objective": {"goal": "cost-speed", "mode": "balanced"}, "classification": null
     },
-    "status": 200,
-    "response": {"ranked_choices": [{"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}, {"id": "fast", "model": "github-copilot/router-fast"}]}
+    "status": 422,
+    "response": {"code": "invalid_json", "detail": "objective.goal: unsupported routing goal \"cost-speed\"; only cost is supported; choose cost explicitly and recompile existing workflow locks"}
   },
   {
     "id": "explicit-cost-speed-robust", "method": "POST", "path": "/route",
@@ -175,8 +175,8 @@
       "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
       "objective": {"goal": "cost-speed", "mode": "robust"}, "classification": null
     },
-    "status": 200,
-    "response": {"ranked_choices": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}]}
+    "status": 422,
+    "response": {"code": "invalid_json", "detail": "objective.goal: unsupported routing goal \"cost-speed\"; only cost is supported; choose cost explicitly and recompile existing workflow locks"}
   },
   {
     "id": "context-excludes-current", "method": "POST", "path": "/route",

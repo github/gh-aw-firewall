@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG VERSION=0.3.1
+ARG VERSION=0.4.0
 
 # The builder runs on the build machine and cross-compiles, so multi-platform builds need no
 # emulation. The runtime image has no shell, so every check runs here.
@@ -26,6 +26,7 @@ RUN CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" \
 # Fails the build unless the label matches the shipped contract, so the label cannot drift from it.
 COPY openapi.yaml /out/app/openapi.yaml
 RUN printf '%s  /out/app/openapi.yaml\n' "${OPENAPI_SHA256}" | sha256sum -c -s
+# Keep the legacy six-table producer bundle until the compatible reader is released.
 COPY routing/cost-*.json /out/routing/
 # AWF's CA distrust policy filters the bundle the runtime image ships.
 COPY trust/ /opt/awf/trust/

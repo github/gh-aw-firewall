@@ -272,6 +272,7 @@ func TestLoadService(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "tables [x]")
 		write(t, filepath.Join(dir, "b.json"), withMode("balanced"))
 		write(t, filepath.Join(dir, "a.json"), withMode("economy"))
+		write(t, filepath.Join(dir, "c.json"), withMode("robust"))
 		write(t, filepath.Join(dir, "nested", "c.json"), withMode("robust"))
 		if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("not a table"), 0o644); err != nil {
 			t.Fatal(err)
@@ -280,7 +281,7 @@ func TestLoadService(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if s.primary.Profile.Key() != "cost/economy" || len(s.tables) != 2 {
+		if s.primary.Profile.Key() != "cost/economy" || len(s.tables) != 3 {
 			t.Errorf("primary %s, %d tables", s.primary.Profile.Key(), len(s.tables))
 		}
 	})
@@ -311,6 +312,112 @@ func TestLoadService(t *testing.T) {
 			t.Errorf("err = %v", err)
 		}
 	})
+}
+
+// copyBundle stages unchanged published table bytes, with or without legacy profiles.
+func copyBundle(t testing.TB, legacy bool) string {
+	t.Helper()
+	dir := t.TempDir()
+	profiles := Profiles
+	if legacy {
+		profiles = tableProfiles
+	}
+	for _, p := range profiles {
+		name := string(p.Goal) + "-" + string(p.Mode) + ".json"
+		data, err := os.ReadFile(filepath.Join("routing", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func TestBundleShapesPreserveCostRouting(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(map[bool]string{false: "cost-only", true: "legacy-six"}[legacy], func(t *testing.T) {
+			dir := copyBundle(t, legacy)
+			s, err := LoadService(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := s.Capabilities().RoutingProfiles; !slices.Equal(got, Profiles) {
+				t.Fatalf("profiles = %v, want cost only", got)
+			}
+			summary := runCLI(t, nil, "", "--routing-tables", dir, "validate-data")
+			if summary.code != 0 || strings.Contains(summary.stdout, "cost-speed") {
+				t.Fatalf("validate-data = %+v", summary)
+			}
+			var models List[ModelCandidate]
+			for _, p := range s.primary.Pairs {
+				models = append(models, candidate(p.String(), p.Model, p.Effort))
+			}
+			for _, profile := range Profiles {
+				table, err := LoadTable(filepath.Join(dir, string(profile.Goal)+"-"+string(profile.Mode)+".json"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, labels := range labelCellsForTest() {
+					req := &RouteRequest{
+						Objective: &profile, Models: models,
+						Conversation:   List[Message]{userText("Fix this function")},
+						Classification: &ClassifierOutput{Labels: labels, Mode: Recommendation(profile.Mode)},
+					}
+					want := ids(table.Route(req))
+					if got := ids(s.Route(req)); !slices.Equal(got, want) || len(got) == 0 {
+						t.Fatalf("%s %s: ranked %v, want %v", profile.Key(), labels.Key(), got, want)
+					}
+					req.Objective = &Profile{GoalCost, ModeAuto}
+					if got := ids(s.Route(req)); !slices.Equal(got, want) {
+						t.Fatalf("auto %s %s: ranked %v, want %v", profile.Key(), labels.Key(), got, want)
+					}
+				}
+			}
+			for _, mode := range []Mode{ModeEconomy, ModeBalanced, ModeRobust, ModeAuto} {
+				req := routeRequest("Fix this function", nil, models...)
+				req.Objective = &Profile{GoalCostSpeed, mode}
+				_, err := s.Route(req)
+				wantKind(t, err, BadRequest, `unsupported routing goal "cost-speed"`)
+			}
+		})
+	}
+}
+
+func labelCellsForTest() []Labels {
+	var labels []Labels
+	for _, task := range TaskTypes {
+		for _, scope := range TaskScopes {
+			for _, complexity := range TaskComplexities {
+				labels = append(labels, Labels{TaskType: task, Scope: scope, TaskComplexity: complexity})
+			}
+		}
+	}
+	return labels
+}
+
+func TestBundleRejectsMissingOrInvalidCostTables(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		for _, p := range Profiles {
+			for _, corrupt := range []bool{false, true} {
+				dir := copyBundle(t, legacy)
+				path := filepath.Join(dir, "cost-"+string(p.Mode)+".json")
+				var err error
+				if corrupt {
+					err = os.WriteFile(path, []byte("{}"), 0o600)
+				} else {
+					err = os.Remove(path)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := LoadService(dir); err == nil {
+					t.Fatalf("accepted legacy=%t corrupt=%t %s", legacy, corrupt, p.Key())
+				}
+			}
+		}
+	}
 }
 
 func TestBundledTables(t *testing.T) {

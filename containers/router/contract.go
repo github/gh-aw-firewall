@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -63,11 +64,18 @@ var TaskComplexities = []TaskComplexity{
 // Goal is a routing goal.
 type Goal string
 
-// The routing goals.
+// The routing goals. GoalCostSpeed is accepted only in legacy table bundles.
 const (
 	GoalCost      Goal = "cost"
 	GoalCostSpeed Goal = "cost-speed"
 )
+
+func unsupportedGoalDetail(goal Goal) string {
+	if goal == GoalCostSpeed {
+		return `objective.goal: unsupported routing goal "cost-speed"; only cost is supported; choose cost explicitly and recompile existing workflow locks`
+	}
+	return "objective.goal: unsupported routing goal; only cost is supported"
+}
 
 // Mode is a requested routing mode. ModeAuto resolves to a classifier recommendation.
 type Mode string
@@ -241,10 +249,15 @@ var Profiles = []Profile{
 	{GoalCost, ModeEconomy},
 	{GoalCost, ModeBalanced},
 	{GoalCost, ModeRobust},
-	{GoalCostSpeed, ModeEconomy},
-	{GoalCostSpeed, ModeBalanced},
-	{GoalCostSpeed, ModeRobust},
 }
+
+// tableProfiles includes retired profiles so existing bundles remain readable.
+var tableProfiles = append(slices.Clone(Profiles),
+	[]Profile{
+		{GoalCostSpeed, ModeEconomy},
+		{GoalCostSpeed, ModeBalanced},
+		{GoalCostSpeed, ModeRobust},
+	}...)
 
 // ClassifierOutput is the result of a classifier call.
 type ClassifierOutput struct {
