@@ -15,7 +15,7 @@ describe('enclave image contract', () => {
     expect(dockerfile).toContain('npm_config_ignore_scripts=false npm install --global --include=optional --install-strategy=nested');
     expect(dockerfile).toContain('"@openai/codex@${CODEX_VERSION}"');
     expect(dockerfile).toContain(
-      '"@openai/codex-linux-x64@npm:@openai/codex@${CODEX_VERSION}-linux-x64"',
+      '"@openai/codex-linux-${codex_arch}@npm:@openai/codex@${CODEX_VERSION}-linux-${codex_arch}"',
     );
     expect(dockerfile).toContain('"@anthropic-ai/claude-code@${CLAUDE_VERSION}"');
     for (const scope of ['@openai', '@anthropic-ai']) {
@@ -27,6 +27,25 @@ describe('enclave image contract', () => {
     expect(dockerfile).toContain('chmod -R a+rX,a-w /usr/local/lib/node_modules/@openai /usr/local/lib/node_modules/@anthropic-ai');
     expect(dockerfile).toContain('codex --version && claude --version');
     expect(dockerfile).toContain('LABEL io.github.awf.enclave.role="script"');
+  });
+
+  it('selects the Codex native package for every enclave-agent release architecture', () => {
+    const dockerfile = fs.readFileSync(dockerfilePath, 'utf8');
+    const release = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8');
+    const releaseJob = release.match(
+      /build-enclave-agent-platform:[\s\S]+?(?=\n {2}build-enclave-agent:)/,
+    )?.[0];
+    const architectures = [...(releaseJob?.matchAll(/^\s+- arch: (.+)$/gm) ?? [])]
+      .map((match) => match[1]);
+
+    expect(architectures).toEqual(['amd64', 'arm64']);
+    expect(dockerfile).toContain('ARG TARGETARCH');
+    expect(dockerfile).toContain('amd64) codex_arch=x64');
+    expect(dockerfile).toContain('arm64) codex_arch=arm64');
+    expect(dockerfile).toContain('Unsupported Codex architecture: $TARGETARCH');
+    expect(dockerfile).not.toContain(
+      '"@openai/codex-linux-x64@npm:@openai/codex@${CODEX_VERSION}-linux-x64"',
+    );
   });
 
   it('builds all three enclave images from one neutral Dockerfile', () => {
