@@ -161,6 +161,13 @@ Reuse these instead of duplicating their commands:
 | Supply Chain Scan image-scans job cancelled after exhausting its 40-minute timeout | CI-009 | ci | workaround |
 | PR-image scan stops during a container image build rather than at a Grype High/Critical finding | CI-009 | ci | workaround |
 | Slow apt index or package downloads dominate a build-tools image layer | CI-009 | ci | workaround |
+| bwrap: Failed to make / slave: Operation not permitted | CI-010 | ci | fixed |
+| Codex enclave agent exit 0 with failure category result-empty | CI-010 | ci | fixed |
+| Codex inference succeeds but the diagnostic shell command never runs | CI-010 | ci | fixed |
+| Copilot credential is not isolated | CI-011 | ci | fixed |
+| Copilot placeholder contract is unavailable | CI-011 | ci | fixed |
+| Codex regression stalls on inherited stdin | CI-011 | ci | fixed |
+| Codex attempts direct OpenAI inference with a placeholder credential under Cloud Hypervisor or NVX | CI-011 | ci | fixed |
 | The agent container can reach a domain that is not allowlisted | SEC-001 | security | needs-evidence |
 | A provider credential is observable inside the agent environment while the api-proxy is enabled | SEC-001 | security | needs-evidence |
 | Egress succeeds without a corresponding Squid access-log entry | SEC-001 | security | needs-evidence |
@@ -512,12 +519,12 @@ Reuse these instead of duplicating their commands:
 - **Affects:** runner=github-hosted, runtime=cloud-hypervisor, provider=any, auth=github-oidc
 - **Versions:** introduced=unknown, fixed=unknown
 - **Symptoms:** cloud-hypervisor-enclave-admission-token-acquisition · Cloud Hypervisor regression profiles reject before broker startup
-- **Discriminating conditions:** The authorized ordinary-workflow regression profile uses a regional HTTPS endpoint within .actions.githubusercontent.com · Older code accepts only the previously recognized Actions endpoint form · An old aggregate admission failure without a subreason does not prove this was its cause
+- **Discriminating conditions:** The authorized ordinary-workflow regression profile uses a regional HTTPS endpoint within .actions.githubusercontent.com · Older code accepts only the previously recognized Actions endpoint form · An earlier admission guard expected reusable-job OIDC claims that an ordinary workflow job does not present; current code requires the signed workflow_ref, workflow_sha, job_workflow_ref and job_workflow_sha to match the regression workflow at the compiled commit and rejects a differing (reusable) job workflow identity · An old aggregate admission failure without a subreason does not prove this was its cause
 - **Root cause:** The regression admission token acquisition guard was narrower than valid regional GitHub Actions OIDC endpoint shapes, so otherwise eligible runs could fail before broker or engine startup.
 - **Safe probe:** `jq '.diagnostic.earlyFailure' path/to/protected/startup.json` → Use only the existing allowlisted admission subreason and source/workflow profile metadata. Do not read, decode, print or exchange the Actions token or request URL. Historical aggregate reasons remain unknown.
 - **Action:** Use source containing regional endpoint validation and finite admission subreasons with the exact signed ordinary-workflow profile. Keep HTTPS namespace, signature, claims, source pins, runtime, artifact and storage requirements. Let AWF create its work directory so a harness-owned directory does not create secondary cleanup rejection. Hosted acceptance remains separate.
 - **Related:** AUTH-002, RT-004
-- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11223 · code: src/enclave/cloud-hypervisor-conformance-acceptance.ts · test: src/cloud-hypervisor/runtime-validation.test.ts · test: scripts/ci/enclave-agent-regression.test.ts · doc: docs/cloud-hypervisor-foundation.md
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11192 · pull-request: https://github.com/github/gh-aw-firewall/pull/11223 · code: src/enclave/cloud-hypervisor-conformance-acceptance.ts · test: src/cloud-hypervisor/runtime-validation.test.ts · test: scripts/ci/enclave-agent-regression.test.ts · doc: docs/cloud-hypervisor-foundation.md
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2026-12-09
 
 ### CI-004 — Enclave regression fails after a successful invocation at a finalization gate
@@ -602,6 +609,34 @@ Reuse these instead of duplicating their commands:
 - **Action:** Use source with the sharded PR-image matrix. Fix the classified step; do not disable or downgrade the blocking High/Critical gate, merge shards in a way that separates enclave-agent from build-tools, ignore cache-export failures, or raise one shared timeout to absorb all builds. Hosted acceptance remains separate; a repeat timeout at 60 minutes is new evidence, not covered by this finding.
 - **Related:** CI-008
 - **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11399 · code: .github/workflows/supply-chain-scan.yml · test: scripts/ci/docker-registry-ci.test.ts · doc: docs/INTEGRATION-TESTS.md#ci-image-retrieval
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-02-12
+
+### CI-010 — Codex enclave exits 0 but its shell tool fails in nested bubblewrap
+
+- **Boundary:** ci · **Status:** fixed
+- **Affects:** runner=any, runtime=any, provider=openai, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** bwrap: Failed to make / slave: Operation not permitted · Codex enclave agent exit 0 with failure category result-empty · Codex inference succeeds but the diagnostic shell command never runs
+- **Discriminating conditions:** The engine is Codex and the pinned CLI (0.159.3 in the enclave image) runs its default nested sandbox inside the hardened enclave · The CLI exit code is 0 and inference succeeded, but no schema-valid result reaches /awf/out, so the invocation fails with the canonical result-empty category · Older launches omitted the trusted external-sandbox opt-in, so the enclave entrypoint did not add --dangerously-bypass-approvals-and-sandbox · Raw bwrap text is not retained in diagnostics; only the finite failure category is, so an old aggregate failure alone does not identify this cause
+- **Root cause:** Codex's default nested bubblewrap sandbox cannot run inside the already hardened, zero-capability enclave, so its shell tool fails while the CLI still exits 0. The fix makes AWF the sole owner of the execution policy: the shared provider environment sets AWF_ENCLAVE_AGENT_CODEX_BYPASS_APPROVALS=true for Docker, gVisor and Cloud Hypervisor, and the entrypoint then runs codex exec with --dangerously-bypass-approvals-and-sandbox. Task text, request fields and ambient environment cannot select or override it.
+- **Safe probe:** `jq '{failure: .session.failure, engineResults: [.session.events[]? | select(.event == "engine-result") | {event, exitCode}], dropped: .session.dropped}' path/to/protected/diagnostics.json` → For a Codex enclave, an observed engine-result with exitCode 0 and a result-empty failure is consistent with this failure mode, but also occurs for other missing-output failures; it does not establish a nested-bubblewrap cause or successful inference. Corroborate the affected launch's missing trusted external-sandbox opt-in before selecting this finding. Missing engine-result evidence, including events dropped by the retention limit, leaves the engine outcome unknown. The projection contains only allowlisted metadata, never raw engine output or bwrap text.
+- **Action:** Use source whose shared provider environment sets the trusted bypass flag and whose entrypoint inserts --dangerously-bypass-approvals-and-sandbox. Keep the outer confinement (non-root identity, zero capabilities, no-new-privileges, read-only root and seed, bounded noexec writable paths, proxy-only network) and keep treating a missing or invalid /awf/out result as a failure even when the CLI exits 0. Do not accept a result-empty run as success and do not let a task or request field select the policy. Hosted acceptance remains separate.
+- **Related:** CI-004, CI-006
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11190 · pull-request: https://github.com/github/gh-aw-firewall/pull/11224 · code: containers/enclave/agent-executor/agent-provider-environment.js · code: containers/enclave/agent-entrypoint.py · test: src/enclave/agent-provider-environment.test.ts · test: src/enclave/agent-entrypoint-diagnostics.test.ts · doc: docs/enclaves-architecture.md
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-02-12
+
+### CI-011 — Daily primary-agent regression fails at the guest credential or Codex invocation contract
+
+- **Boundary:** ci · **Status:** fixed
+- **Affects:** runner=github-hosted, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Copilot credential is not isolated · Copilot placeholder contract is unavailable · Codex regression stalls on inherited stdin · Codex attempts direct OpenAI inference with a placeholder credential under Cloud Hypervisor or NVX
+- **Discriminating conditions:** The failure occurs in the primary-agent regression guest before a proof/response can be validated, not at the later completion or routing evidence gate · Older Copilot guest checks compared credential variables with the log-redacted placeholder text instead of the canonical COPILOT_PLACEHOLDER_TOKEN, so the intended placeholder was rejected before inference · Older Codex invocations inherited an open stdin and selected no explicit provider, so Codex stalled under Docker or used the default OpenAI endpoint with a placeholder credential under Cloud Hypervisor and NVX · The pinned Codex CLI is 0.159.3; other versions are unknown
+- **Root cause:** The shared guest harness encoded the Copilot placeholder as a duplicated, log-redacted literal and invoked Codex without closing stdin or pinning its Responses provider to the AWF sidecar. The guest now loads the compiled canonical placeholder constant and accepts only an absent, empty or exact-placeholder value for all three Copilot credential variables, and runs Codex with stdin closed and an explicit awf provider (sidecar base URL, placeholder key, WebSocket support) so both transports use the sidecar and real credentials stay in the proxy.
+- **Safe probe:** `grep -n -e 'COPILOT_PLACEHOLDER_TOKEN' -e 'model_provider' -e 'dev/null' scripts/ci/run-agent-regression-guest.sh` → Source that contains the canonical placeholder load, the explicit awf provider selection and the closed-stdin Codex invocation carries the fix. The probe inspects source only; it does not read credential values. A historical run without guest output is unknown.
+- **Action:** Use source whose guest loads the compiled canonical placeholder, accepts only absent, empty or exact-placeholder Copilot credential values, and launches Codex non-interactively against the sidecar URL. Keep the exact proof and response checks and the nonzero-exit rejection. Do not weaken isolation to accept a real credential, and do not point Codex at a non-sidecar endpoint. Use codex-routing.json to judge routing (see CI-005). Hosted acceptance remains separate.
+- **Related:** CI-005
+- **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11159 · pull-request: https://github.com/github/gh-aw-firewall/pull/11161 · code: scripts/ci/run-agent-regression-guest.sh · code: scripts/ci/collect-agent-regression-evidence.cjs · test: scripts/ci/agent-runtime-regression.test.ts
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-02-12
 
 ## Boundary: security
