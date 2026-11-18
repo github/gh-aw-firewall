@@ -639,8 +639,7 @@
                 "goal": {
                   "type": "string",
                   "enum": [
-                    "cost",
-                    "cost-speed"
+                    "cost"
                   ]
                 },
                 "mode": {

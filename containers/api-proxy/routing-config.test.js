@@ -9,7 +9,7 @@ describe('routing configuration', () => {
 
   it('returns a closed immutable copy', () => {
     const input = {
-      objective: { goal: 'cost-speed', mode: 'robust' },
+      objective: { goal: 'cost', mode: 'robust' },
       task: { conversationFile: '/tmp/gh-aw/conversation.json' },
     };
 
@@ -50,6 +50,19 @@ describe('routing configuration', () => {
     for (const [raw, message] of failures) {
       expect(() => parseRoutingConfig(raw)).toThrow(message);
     }
+  });
+
+  it.each(['auto', 'economy', 'balanced', 'robust'])('preserves cost/%s and rejects cost-speed without aliasing', mode => {
+    const input = {
+      objective: { goal: 'cost', mode },
+      task: { conversationFile: '/tmp/gh-aw/conversation.json' },
+    };
+
+    expect(parseRoutingConfig(JSON.stringify(input)).objective).toEqual(input.objective);
+    expect(() => parseRoutingConfig(JSON.stringify({
+      ...input,
+      objective: { goal: 'cost-speed', mode },
+    }))).toThrow('routing.objective.goal is not supported');
   });
 
   it('preserves a distinct non-empty candidate list', () => {

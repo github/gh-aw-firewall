@@ -286,7 +286,7 @@ func TestServiceResolvesAutoMode(t *testing.T) {
 		{ModeBalanced, RecommendEconomy, ModeBalanced},
 		{ModeRobust, RecommendBalanced, ModeRobust},
 	}
-	for _, goal := range []Goal{GoalCost, GoalCostSpeed} {
+	for _, goal := range []Goal{GoalCost} {
 		for _, c := range cases {
 			s, err := NewService(profileTables(t, Profile{goal, c.effective}))
 			if err != nil {
@@ -331,7 +331,7 @@ func TestServiceRejectsUnservedProfiles(t *testing.T) {
 		{ModeRobust, ptr(RecommendUnknown), ModeBalanced},
 		{ModeRobust, nil, ModeBalanced},
 	}
-	for _, goal := range []Goal{GoalCost, GoalCostSpeed} {
+	for _, goal := range []Goal{GoalCost} {
 		for _, c := range cases {
 			doc := syntheticDocument()
 			doc["profile"] = map[string]any{"goal": string(goal), "mode": string(c.served)}

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: gh-aw-router HTTP API
-  version: 0.3.1
+  version: 0.4.0
   license:
     name: MIT
     identifier: MIT
@@ -11,11 +11,12 @@ info:
     classifier prompts and dispatches one of the returned route choices.
     This document describes the matching router release. Clients pin a tested
     image digest; requests do not negotiate an independent API version.
-    Each route request supplies a goal, either cost or cost-speed, and a mode, either
+    Each route request supplies the goal cost and a mode, either
     economy, balanced, robust, or auto. Auto uses the supplied classification's mode,
     falling back to balanced when classification is absent or its mode is unknown.
     /capabilities lists the fixed profiles the loaded tables serve.
-    Routing tables (schema_version 2) each carry one fixed profile.
+    Routing tables (schema_version 2) each carry one fixed profile. Legacy cost-speed
+    tables remain readable for bundle upgrades, but are never advertised or served.
     Other schema versions are rejected. Unserved profiles return invalid_request without fallback.
     Planning requests contain only decision inputs. Execution identity and
     outcome correlation remain with the caller; the router stores no task state.
@@ -314,7 +315,8 @@ components:
 
     RoutingGoal:
       type: string
-      enum: [cost, cost-speed]
+      description: Retired goals, including cost-speed, fail explicitly; they are never aliases for cost.
+      enum: [cost]
 
     RoutingMode:
       type: string
