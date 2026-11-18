@@ -55,6 +55,8 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 | The awf-net subnet overlaps existing host route(s) | NET-006 | network | workaround |
 | a network with name awf-net exists but was not created for project "awf-<timestamp>" | NET-007 | network | fixed |
 | Compose fails before the agent or Squid starts, after a previous run was killed or timed out | NET-007 | network | fixed |
+| Resolver or DNS-policy logs show lookups for a hostname the agent was denied (TCP_DENIED / 403) in default mode | NET-008 | network | fixed |
+| A hostname is refused by Squid but its name still appears in DNS telemetry | NET-008 | network | fixed |
 | 400 Bad Request: Authorization header is badly formatted | AUTH-001 | auth | fixed |
 | Copilot requests fail immediately against api.enterprise.githubcopilot.com or api.business.githubcopilot.com | AUTH-001 | auth | fixed |
 | api-proxy reports that no OIDC token could be minted | AUTH-002 | auth | workaround |
@@ -335,6 +337,20 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 - **Related:** NET-006
 - **Provenance:** issue: awf-net Docker network collision breaks container startup (https://github.com/github/gh-aw-firewall/issues/7809) · pull-request: Reclaim orphaned fixed-name Docker networks before compose up (https://github.com/github/gh-aw-firewall/pull/7817) · code: removeConflictingComposeNetworks() orphan reclaim (src/compose-network-conflicts.ts) · code: Reclaim call before compose up (src/container-startup.ts) · test: Orphaned and unlabelled network reclaim tests (src/compose-network-conflicts.test.ts)
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-11-16
+
+### NET-008 — Denied hostname lookups reach the resolver because a Squid IP exception resolves names
+
+- **Boundary:** network · **Status:** fixed
+- **Affects:** runner=any, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Resolver or DNS-policy logs show lookups for a hostname the agent was denied (TCP_DENIED / 403) in default mode · A hostname is refused by Squid but its name still appears in DNS telemetry
+- **Discriminating conditions:** The generated squid.conf contains an API-proxy or explicit-IP destination exception (allow_api_proxy_ip or allow_ip_*) declared as dst without -n · The exception is evaluated before the domain deny, so Squid resolves the requested hostname to test it against the IP · Direct DNS queries from the agent, and lookups of allowlisted names, are outside this finding; they are governed by the trusted --dns-servers policy (NET-002)
+- **Root cause:** A Squid dst ACL without -n resolves a hostname destination before matching it against an IP, so evaluating the exception ahead of the domain deny issued a DNS query for an unlisted name even though HTTP access was then refused. dst -n matches literal IPs only, so a hostname is never resolved and does not inherit the IP exception. Only the API-proxy and explicit-IP http_access exceptions were verified; other dst ACLs were not reviewed for this finding.
+- **Safe probe:** `grep -nE '^acl (allow_api_proxy_ip|allow_ip_[0-9_]+) dst' path/to/squid.conf` → Every matched ACL line carries -n (for example 'dst -n 172.30.0.30'). A line without -n indicates a build that predates the fix; no traffic is sent and no credentials or environment are read.
+- **Action:** Use source containing numeric-only (dst -n) API-proxy and explicit-IP exceptions and regenerate the configuration. Keep the domain allowlist, raw-IP deny rules and rule ordering unchanged, and do not widen the allowlist or disable DNS filtering. This does not filter direct DNS queries or lookups of allowlisted names; use a policy-enforcing resolver through --dns-servers if those need control. If a denied name reaches the resolver with the fixed ACLs in place, escalate with redacted evidence under SEC-001 instead of reproducing it publicly.
+- **Related:** NET-001, NET-002, SEC-001
+- **Provenance:** pull-request: Prevent DNS leaks from Squid IP access exceptions (https://github.com/github/gh-aw-firewall/pull/11562) · issue: https://github.com/github/gh-aw-firewall/issues/11561 · code: generateApiProxySection() and generateAllowedIpSection() emit dst -n (src/squid/config-sections.ts) · test: Literal-only api-proxy and allowlisted-IP ACL assertions (src/squid/config-sections.test.ts) · test: src/squid-config-core.test.ts · doc: Squid IP exceptions and DNS lookups (docs/egress-filtering.md)
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-11-17
 
 ## Boundary: auth
 

@@ -12,7 +12,7 @@
     "The exception is evaluated before the domain deny, so Squid resolves the requested hostname to test it against the IP",
     "Direct DNS queries from the agent, and lookups of allowlisted names, are outside this finding; they are governed by the trusted --dns-servers policy (NET-002)"
   ],
-  "affects": { "runner": "any", "runtime": "runc|chroot", "provider": "any", "authMode": "any" },
+  "affects": { "runner": "any", "runtime": "any", "provider": "any", "authMode": "any" },
   "versions": { "introduced": "unknown", "fixed": "unknown" },
   "status": "fixed",
   "rootCause": "A Squid dst ACL without -n resolves a hostname destination before matching it against an IP, so evaluating the exception ahead of the domain deny issued a DNS query for an unlisted name even though HTTP access was then refused. dst -n matches literal IPs only, so a hostname is never resolved and does not inherit the IP exception. Only the API-proxy and explicit-IP http_access exceptions were verified; other dst ACLs were not reviewed for this finding.",
