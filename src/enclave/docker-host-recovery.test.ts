@@ -1,15 +1,91 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomBytes } from 'crypto';
-import { createDockerHostContext, type DockerHostContext } from './docker-host-context';
+import { createDockerHostContext, type DockerHostContext, type DockerHostExecutorEntry } from './docker-host-context';
 import {
   DockerHostRecoveryJournal, expectedDockerHostContainer, initializeDockerHostRecovery, type DockerHostRecoveryRecord,
+  buildDockerHostAuthoritySettlement, createDockerHostRecoveryRecord, settleDockerHostAuthority,
 } from './docker-host-recovery';
 import { createDockerHostEnclaveExecutor } from './docker-host-executor';
+import type { HostExecutorBackendResult, HostExecutorInvocationPlan } from './host-executor-server';
+import { HOST_EXECUTOR_MAX_RESULT_BYTES } from './host-executor-protocol';
 
 const runId = 'a'.repeat(32);
 const invocationId = 'b'.repeat(32);
 const describeLinux = process.platform === 'linux' ? describe : describe.skip;
+
+describe('Docker host recovery records and authority settlement', () => {
+  const plan: HostExecutorInvocationPlan = {
+    runId, invocationId, entryId: 'agent', executorKind: 'agent', timeoutMs: 1201,
+    requestHash: 'c'.repeat(64), admissionId: 'd'.repeat(32), schemaHash: 'e'.repeat(64),
+    schema: { type: 'boolean' }, payload: 'task', invocationHostDir: path.join(process.cwd(), invocationId),
+  };
+  const entry: DockerHostExecutorEntry = {
+    entryId: 'agent', executorKind: 'agent', hostWritableBytes: 4096, aggregateWritableBytes: 8192,
+    config: { maxOutputBytes: 8192, timeoutSeconds: 120 },
+  };
+
+  afterEach(() => jest.restoreAllMocks());
+
+  test.each([false, true])('creates the initial durable intent with publicDebug=%s', publicDebug => {
+    const owner = { pid: 123, startTicks: '456', bootId: 'test-owner' };
+    expect(createDockerHostRecoveryRecord(plan, entry, plan.invocationHostDir, owner, publicDebug)).toEqual({
+      version: 1, runId, entryId: 'agent', invocationId, storageTarget: plan.invocationHostDir,
+      storageSource: `awf-enclave-${runId}-agent-${invocationId}`, storageBytes: 4096, mountPending: true, owner,
+      ...(publicDebug ? { publicDebug: { pending: true, stage: 'setup', failure: 'setup-failed', exitCode: null } } : {}),
+    });
+  });
+
+  test('charges UTF-8 output bytes and rounds elapsed execution seconds up', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(10_001);
+    expect(buildDockerHostAuthoritySettlement(plan, entry, { outcome: 'success', result: '"é"' }, {
+      resolved: true, launchedAt: 9000,
+    })).toEqual({ outcome: 'success', uncertain: false, cleanupComplete: true, outputBytes: 4, executionSeconds: 2 });
+  });
+
+  test.each([undefined, 11_000])('charges zero elapsed time for absent or future launch time %s', launchedAt => {
+    jest.spyOn(Date, 'now').mockReturnValue(10_000);
+    expect(buildDockerHostAuthoritySettlement(plan, entry, { outcome: 'cancelled' }, { resolved: true, launchedAt }))
+      .toMatchObject({ uncertain: false, outputBytes: 0, executionSeconds: 0 });
+  });
+
+  test.each([
+    [false, undefined, true], [true, false, false], [false, false, false],
+  ] as [boolean, boolean | undefined, boolean][])(
+    'charges maximums for resolved=%s cleanupComplete=%s', (resolved, cleanupComplete, expectedCleanup) => {
+      const result: HostExecutorBackendResult = { outcome: 'executor-failure', cleanupComplete };
+      expect(buildDockerHostAuthoritySettlement(plan, entry, result, { resolved, launchedAt: Date.now() }))
+        .toEqual({
+          outcome: result.outcome, uncertain: true, cleanupComplete: expectedCleanup, outputBytes: 8192, executionSeconds: 120,
+        });
+      expect(buildDockerHostAuthoritySettlement({ ...plan, timeoutMs: 120_001 }, entry, result, { resolved }))
+        .toMatchObject({ executionSeconds: 121 });
+    },
+  );
+
+  test('uses protocol output and plan timeout bounds when configured limits are absent or zero', () => {
+    for (const config of [{}, { maxOutputBytes: 0, timeoutSeconds: 0 }]) {
+      expect(buildDockerHostAuthoritySettlement(plan, { ...entry, config }, { outcome: 'cancelled' }, { resolved: false }))
+        .toMatchObject({ outputBytes: HOST_EXECUTOR_MAX_RESULT_BYTES, executionSeconds: 2 });
+    }
+  });
+
+  test('releases the original result only after proved authority revocation', async () => {
+    const result: HostExecutorBackendResult = { outcome: 'success', result: 'true' };
+    const settle = jest.fn().mockResolvedValue({ revoked: true });
+    await expect(settleDockerHostAuthority(plan, entry, result, { resolved: true }, settle)).resolves.toBe(result);
+    expect(settle).toHaveBeenCalledWith(plan, {
+      outcome: 'success', uncertain: false, cleanupComplete: true, outputBytes: 4, executionSeconds: 0,
+    });
+  });
+
+  test.each(['not-revoked', 'exception'])('fails closed on revocation %s', async failure => {
+    const settle = failure === 'exception' ? jest.fn().mockRejectedValue(new Error('unavailable'))
+      : jest.fn().mockResolvedValue({ revoked: false });
+    await expect(settleDockerHostAuthority(plan, entry, { outcome: 'cancelled' }, { resolved: true }, settle))
+      .resolves.toEqual({ outcome: 'executor-failure', cleanupComplete: false });
+  });
+});
 
 describeLinux('Docker host recovery initialization', () => {
   let root: string;

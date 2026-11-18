@@ -5,7 +5,7 @@ import { HOST_EXECUTOR_ID_PATTERN, HOST_EXECUTOR_MAX_RESULT_BYTES } from './host
 import { readBoundedEnclaveResult } from './invocation-result';
 import { serializeFiniteSchema } from '../bounded-execution/finite-schema';
 import {
-  assertDockerHostPath, mountDockerHostStorage,
+  mountDockerHostStorage,
   ownDockerHostStorageFile,
 } from './docker-host-storage';
 import { dockerHelperStorageTarget } from './docker-storage-helper';
@@ -16,17 +16,21 @@ import {
 } from './public-debug-events';
 import { prepareRootOwnedDebugDirectory, writeAuditFile } from '../cloud-hypervisor/diagnostics';
 import {
-  removeDockerHostContainer, type DockerHostRecoveryRecord,
+  createDockerHostRecoveryRecord, removeDockerHostContainer, settleDockerHostAuthority,
 } from './docker-host-recovery';
 import {
   type DockerHostContext, type InvocationAuthorityState,
-  type DockerHostAgentAuthority, type DockerHostAuthoritySettlement,
+  type DockerHostAgentAuthority,
 } from './docker-host-context';
 import type { DockerHostContainerOperations } from './docker-host-container';
+import {
+  isDockerHostInvocationPathValid, isDockerHostPlanIdentityValid, isDockerHostSeedValid,
+} from './docker-host-plan-validation';
+import {
+  buildDockerHostLaunchArgs, buildDockerHostLaunchConfig, buildDockerHostStorageProbeArgs,
+} from './docker-host-launch-args';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { deriveQueryContainerSpec } = require('../../containers/enclave/script-executor/script-runner-spec.js');
-const { deriveEnclaveContainerSpec, withDynamicBinding } = require('../../containers/enclave/agent-executor/enclave-runner-spec.js');
 const { DockerEnclaveRunner } = require('../../containers/enclave/agent-executor/docker-enclave-runner.js');
 const { buildAgentTask } = require('../../containers/enclave/mcp-server/agent-executor.js');
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -50,14 +54,12 @@ export function createDockerHostExecution(
     const debugCheck = <T>(stage: PublicEnclaveOperationStage, operation: () => Promise<T> | T) =>
       diagnostic ? diagnostic.check(stage, operation) : Promise.resolve().then(operation);
     const entry = entries.get(plan.entryId);
-    if (!entry || plan.runId !== options.runId || plan.executorKind !== entry.executorKind
-      || !HOST_EXECUTOR_ID_PATTERN.test(plan.invocationId)) return { outcome: 'executor-failure' };
+    if (!entry || !isDockerHostPlanIdentityValid(plan, options.runId, entry)) return { outcome: 'executor-failure' };
     if (context.closed) return { outcome: 'cancelled' };
     await debugCheck('storage-preparation', () => (context.ready ||= initialize()));
     authorityState.prepared = true;
     if (context.closed || signal.aborted) return { outcome: 'cancelled' };
-    await debugCheck('storage-preparation', () => assertDockerHostPath(plan.invocationHostDir));
-    if (path.basename(plan.invocationHostDir) !== plan.invocationId) return { outcome: 'executor-failure' };
+    if (!await isDockerHostInvocationPathValid(plan, debugCheck)) return { outcome: 'executor-failure' };
     const storageTarget = helperStorage
       ? dockerHelperStorageTarget(plan.runId, plan.entryId, plan.invocationId) : plan.invocationHostDir;
     let authority: DockerHostAgentAuthority = {};
@@ -68,67 +70,11 @@ export function createDockerHostExecution(
     }
     else diagnostic?.event('authority-handoff', 'not-applicable');
     if (signal.aborted) return { outcome: 'cancelled' };
-    const config: Record<string, any> = {
-      ...entry.config,
-      hostWorkDir: path.dirname(storageTarget),
-      hostSeedsDir: plan.seedHostPath ? path.dirname(plan.seedHostPath) : '',
-      runLabelKey: 'awf.enclave.run', invocationLabelKey: 'awf.enclave.invocation',
-      containerPrefix: `awf-enclave-${entry.executorKind}-${entry.entryId}`,
-      querySeccompPath: path.join(storageTarget, 'seccomp.json'),
-      enclaveSeccompPath: path.join(storageTarget, 'seccomp.json'),
-    };
-    if (entry.executorKind === 'agent') {
-      if (Boolean(config.dynamicEnabled) !== (plan.selector !== undefined)) return { outcome: 'executor-failure' };
-      if (config.dynamicEnabled) {
-        if (authority.repository !== plan.selector || !authority.githubBearer) return { outcome: 'executor-failure' };
-        Object.assign(config, withDynamicBinding(config, { repository: authority.repository, readMode: authority.readMode }));
-      }
-    }
-    if (!config.dynamicEnabled && (!plan.seedId || !plan.seedHostPath)) return { outcome: 'executor-failure' };
-    if (plan.seedHostPath) await debugCheck('storage-preparation', () => assertDockerHostPath(plan.seedHostPath!));
-    const derived = entry.executorKind === 'script'
-      ? deriveQueryContainerSpec({ config, runId: plan.runId, invocationId: plan.invocationId, runtimeName: entry.runtimeName })
-      : deriveEnclaveContainerSpec({ config, runId: plan.runId, invocationId: plan.invocationId, seedId: plan.seedId, runtimeName: entry.runtimeName });
-    const args: string[] = [...derived.launchArgs];
-    // Retain the audited script entrypoint, mounting the immutable seed directly
-    // instead of making an unbounded host-side seed copy.
-    if (entry.executorKind === 'script') {
-      const source = `${storageTarget}/repo:/awf/seed:ro`;
-      args[args.indexOf(source)] = `${plan.seedHostPath}:/awf/seed:ro`;
-    }
-    args.splice(1, 0, '--log-driver', 'none');
-    const credential = (key: string, value: unknown): value is string => typeof value === 'string'
-      && /secret|token|bearer|authorization|api.?key/i.test(key)
-      && !/tokens|path|directory|file|budget|limit/i.test(key);
-    const debugSecrets = Object.entries(config).filter(([key, value]) => credential(key, value))
-      .map(([, value]) => value as string);
-    debugSecrets.push(
-      authority.githubAgentId || '', authority.githubBearer || '',
-      config.modelBudgetSecret || '', '******',
-    );
-    for (let i = 0; i < args.length; i++) {
-      if (args[i] === '--env') {
-        const value = args[i + 1] || '';
-        const at = value.indexOf('=');
-        const contents = value.slice(at + 1);
-        if (at > 0 && credential(value.slice(0, at), contents)) debugSecrets.push(contents);
-      }
-    }
-    if (options.publicDebug) {
-      args.splice(args.length - 1, 0, '--env', 'AWF_ENCLAVE_DEBUG_PUBLIC=true',
-        ...(entry.executorKind === 'agent' ? ['--env', 'AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS=true'] : []),
-        '-v', `${storageTarget}/stdout.log:/awf/stdout.log:rw`,
-        '-v', `${storageTarget}/stderr.log:/awf/stderr.log:rw`);
-    }
-    const record: DockerHostRecoveryRecord = {
-      version: 1, runId: plan.runId, entryId: plan.entryId, invocationId: plan.invocationId,
-      storageTarget,
-      storageSource: `awf-enclave-${plan.runId}-${plan.entryId}-${plan.invocationId}`,
-      storageBytes: entry.hostWritableBytes, mountPending: true, owner,
-      ...(options.publicDebug ? { publicDebug: {
-        pending: true, stage: 'setup' as const, failure: 'setup-failed' as const, exitCode: null,
-      } } : {}),
-    };
+    const config = buildDockerHostLaunchConfig(plan, entry, storageTarget, authority);
+    if (!config) return { outcome: 'executor-failure' };
+    if (!await isDockerHostSeedValid(plan, Boolean(config.dynamicEnabled), debugCheck)) return { outcome: 'executor-failure' };
+    const { args, debugSecrets } = buildDockerHostLaunchArgs(plan, entry, storageTarget, config, authority, options.publicDebug);
+    const record = createDockerHostRecoveryRecord(plan, entry, storageTarget, owner, options.publicDebug);
     authorityState.resourcesPossible = true;
     journal.write(record, true);
     let result: HostExecutorBackendResult;
@@ -146,19 +92,8 @@ export function createDockerHostExecution(
         fs.writeFileSync(path.join(record.storageTarget, 'seccomp.json'), entry.seccompProfile, { flag: 'wx', mode: 0o400 });
         return fs.statSync(record.storageTarget);
       });
-      const probeArgs = [...args];
-      const bindArgs: string[] = [];
-      for (let i = 0; i < probeArgs.length; i++) {
-        if (probeArgs[i] === '-v') { i++; continue; }
-        bindArgs.push(probeArgs[i]);
-      }
-      bindArgs[bindArgs.indexOf('--network') + 1] = 'none';
-      bindArgs[bindArgs.indexOf('--name') + 1] += '-probe';
-      bindArgs[bindArgs.indexOf('--entrypoint') + 1] = entry.executorKind === 'script' ? '/usr/bin/python3' : '/usr/bin/env';
-      bindArgs.splice(bindArgs.length - 3, 0, '-v', `${record.storageTarget}:/awf/host-storage-probe:ro`);
-      const probeCommand = [...(entry.executorKind === 'agent' ? ['python3'] : []), '-c', 'import os; p="/awf/host-storage-probe"; s=os.stat(p); v=os.statvfs(p); ' +
-        `assert s.st_dev==${stat.dev} and s.st_ino==${stat.ino} and v.f_blocks*v.f_frsize==${record.storageBytes}`];
-      const probe = await debugCheck('storage-probe', () => createContainer(record, bindArgs, probeCommand));
+      const probeArgs = buildDockerHostStorageProbeArgs(args, entry.executorKind, record.storageTarget, record.storageBytes, stat);
+      const probe = await debugCheck('storage-probe', () => createContainer(record, probeArgs.args, probeArgs.command));
       await debugCheck('storage-probe', async () => {
         if (await runContainer(record, probe, signal) !== 0) throw new Error('Docker daemon cannot see the verified invocation tmpfs');
       });
@@ -394,19 +329,8 @@ export function createDockerHostExecution(
     }
     if (state.attempted && options.settleAgentAuthority) {
       const entry = entries.get(plan.entryId)!;
-      const uncertain = result.cleanupComplete === false || !state.resolved;
-      const settlement: DockerHostAuthoritySettlement = {
-        outcome: result.outcome, uncertain, cleanupComplete: result.cleanupComplete !== false,
-        outputBytes: uncertain ? Number(entry.config.maxOutputBytes || HOST_EXECUTOR_MAX_RESULT_BYTES)
-          : result.result === undefined ? 0 : Buffer.byteLength(result.result),
-        executionSeconds: uncertain ? Math.max(Math.ceil(plan.timeoutMs / 1000), Number(entry.config.timeoutSeconds || 0))
-          : state.launchedAt === undefined ? 0 : Math.max(0, Math.ceil((Date.now() - state.launchedAt) / 1000)),
-      };
-      try {
-        if (!(await options.settleAgentAuthority(plan, settlement)).revoked) throw new Error('Dynamic enclave revocation remains unresolved');
-      } catch {
-        result = { outcome: 'executor-failure', cleanupComplete: false };
-      }
+      result = await settleDockerHostAuthority(plan, entry, result, state,
+        (invocation, settlement) => options.settleAgentAuthority!(invocation, settlement));
     }
     if (result.cleanupComplete === false) context.cleanupIncomplete = true;
     return result;
