@@ -16,6 +16,34 @@ Runner topology is independent of GitHub deployment: use [Enterprise configurati
 
 See the [version-specific prerequisites](compatibility.md#version-specific-prerequisites-and-optional-runtimes) before reusing older examples. Validate the actual pod, chart, daemon, and upstream component versions rather than treating hosted DinD checks as certification of your cluster.
 
+### Runner egress for Copilot workflows
+
+Self-hosted and ARC/DinD environments need outbound HTTPS access for setup
+and execution. Runner setup steps run **before the agent starts**, separately
+from the agent's AWF allowlist:
+
+| Destination | Purpose |
+|-------------|---------|
+| `github.com` | Copilot CLI release downloads |
+| `api.github.com` | Release-age metadata for Copilot CLI installs (default 3-day cooldown) |
+| `api.githubcopilot.com` | Copilot API access (use the [enterprise endpoints](enterprise-configuration.md) where applicable) |
+| `ghcr.io` | Container image pulls |
+| Hosts selected by `network.allowed` | Workflow-specific agent traffic |
+| `raw.githubusercontent.com` (optional for the Copilot CLI installer) | Installer download; a bundled fallback is available |
+
+The Copilot CLI installer checks release age on both cached and fresh installs.
+Blocking `api.github.com` causes
+`Cannot verify Copilot release age: GitHub release metadata is unavailable`
+before agent execution; changing `network.allowed` alone does not grant the
+runner access through an external firewall or Kubernetes network policy.
+See [engine cooldown](https://github.github.com/gh-aw/reference/engines/#cooldown):
+`engine.cooldown: 0` skips this metadata call but requires `strict: false`,
+disabling the release-age protection.
+
+**GHES caveat:** the installer hardcodes `api.github.com` for release metadata
+and does not honor `GH_HOST` for that request. Do not assume a GHES API endpoint
+replaces it; end-to-end GHES behavior remains unverified.
+
 ## Runner topology selector
 
 The simplest way to configure AWF for ARC/DinD is through the `runner.topology` config key:
