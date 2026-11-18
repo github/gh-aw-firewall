@@ -29,14 +29,16 @@ from the agent's AWF allowlist:
 | `api.githubcopilot.com` | Copilot API access (use the [enterprise endpoints](enterprise-configuration.md) where applicable) |
 | `ghcr.io` | Container image pulls |
 | Hosts selected by `network.allowed` | Workflow-specific agent traffic |
-| `raw.githubusercontent.com` (optional for the Copilot CLI installer) | Installer download; a bundled fallback is available |
+| `raw.githubusercontent.com` (optional for the Copilot CLI installer) | Compatibility metadata; a bundled fallback is available |
 
 The Copilot CLI installer checks release age on both cached and fresh installs.
-Blocking `api.github.com` causes
+Compiler-default releases that have already cleared cooldown review can skip
+the metadata request; caching alone does not bypass the check.
+When the check needs metadata, blocking `api.github.com` causes
 `Cannot verify Copilot release age: GitHub release metadata is unavailable`
 before agent execution; changing `network.allowed` alone does not grant the
 runner access through an external firewall or Kubernetes network policy.
-See [engine cooldown](https://github.github.com/gh-aw/reference/engines/#cooldown):
+See [engine cooldown](https://github.github.com/gh-aw/reference/engines/#engine-release-age-cooldown):
 `engine.cooldown: 0` skips this metadata call but requires `strict: false`,
 disabling the release-age protection.
 
