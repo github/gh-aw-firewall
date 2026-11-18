@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  buildRoutingCandidates, filterPrimaryRank, normalizePolicyList, resolvePrimaryRank, shortlistPrimaryOptions,
+  buildRoutingCandidates, normalizePolicyList, resolvePrimaryRank, shortlistPrimaryOptions,
 } = require('./routing-candidates');
 const { createRoutingCatalogue } = require('./routing-catalogue');
 const { toRouteCandidates, validateRouteResponse } = require('./routing-contract');
@@ -24,13 +24,10 @@ describe('routing candidates', () => {
     const pool = build([model('model-a', { efforts: ['low', 'medium', 'high'] }),
       model('model-b', { efforts: ['high'] }), model('model-c', { efforts: ['medium'] })]);
     const route = validateRouteResponse({ ranked_choices: fullRank }, pool.choices);
-    // Same native name in another provider is not an exclusion of this arm.
     const resolved = resolvePrimaryRank(route.ranked_choices, pool);
-    const eligible = filterPrimaryRank(resolved, ['openai/model-b']);
     expect(resolved).toEqual(fullRank);
     expect(resolved[0]).toBe(pool.byId[fullRank[0].id].choice);
-    expect(eligible).toEqual(fullRank);
-    expect(shortlistPrimaryOptions(eligible)).toEqual([fullRank[0], fullRank[3], fullRank[4]]);
+    expect(shortlistPrimaryOptions(resolved)).toEqual([fullRank[0], fullRank[3], fullRank[4]]);
   });
 
   it('refills from the full eligible rank after suspensions and supports K above the pilot value', () => {
@@ -39,9 +36,8 @@ describe('routing candidates', () => {
     const rank = [...fullRank, fourthBase];
     expect(shortlistPrimaryOptions(rank)).toEqual([fullRank[0], fullRank[3], fullRank[4]]);
     expect(shortlistPrimaryOptions(rank, 4)).toEqual([fullRank[0], fullRank[3], fullRank[4], fourthBase]);
-    const surviving = filterPrimaryRank(rank, new Set(['github-copilot/model-a']));
+    const surviving = rank.filter(choice => choice.model !== fullRank[0].model);
     expect(shortlistPrimaryOptions(surviving)).toEqual([fullRank[3], fullRank[4], fourthBase]);
-    expect(shortlistPrimaryOptions(filterPrimaryRank(rank, rank.map(choice => choice.model)))).toEqual([]);
   });
 
   it('excludes retired Copilot candidates without changing public IDs or native mappings', () => {

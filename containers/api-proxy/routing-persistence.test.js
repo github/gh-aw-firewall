@@ -76,10 +76,9 @@ describe('routing persistence', () => {
     });
   });
 
-  test('records an exhausted soft exclusion without publishing the private summary', () => {
-    writeRoutingRecord({ stage: 'selection', excluded_fallback: true, routeOptions: { options: [] } });
+  test('does not publish the private options summary in selection logs', () => {
+    writeRoutingRecord({ stage: 'selection', routeOptions: { options: [] } });
     const [record] = readRecords();
-    expect(record.excluded_fallback).toBe(true);
     expect(record).not.toHaveProperty('routeOptions');
   });
 

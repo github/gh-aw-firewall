@@ -251,7 +251,6 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.routing` → *(config-only; requires `experimental.modelRouting: true`; task-level routing objective and task conversation input)*
 - `apiProxy.routing.candidateModels` → *(optional glob patterns that limit router/classifier choices; intersected with the model policy; defaults to `apiProxy.allowedModels`)*
 - `apiProxy.routing.topK` → *(optional integer from 1 to 32; request this many distinct primary models in the private result, or fewer if the rank runs out)*
-- `apiProxy.routing.excludedModels` → *(optional canonical base IDs to set aside for the primary pick, not the classifier; does not request a list)*
 - `apiProxy.modelRouter.providerType` → *(config-only; maps to `COPILOT_PROVIDER_TYPE`)*
 - `apiProxy.modelRouter.baseUrl` → *(config-only; maps to `COPILOT_PROVIDER_BASE_URL`)*
 - `apiProxy.allowedModels` → *(config-only; maps to `AWF_ALLOWED_MODELS` — JSON array of glob patterns; only matching models are permitted)*
@@ -2609,7 +2608,6 @@ apiProxy:
 | `provider` | `copilot` (default), `openai`, `anthropic` | Restricts routing to one configured native API-proxy provider; AWF does not switch credentials or translate across providers. |
 | `candidateModels` | non-empty array of model glob patterns | Limits router/classifier choices without widening the request policy; defaults to `apiProxy.allowedModels`. |
 | `topK` | integer from 1 to 32 | Reports up to K distinct eligible models in the private result. The pilot requests `3`. Omit for no list. |
-| `excludedModels` | array of up to 32 `provider/model` IDs, unique ignoring case | Sets aside all efforts of each named base for the primary pick only. Use `github-copilot`, `openai`, or `anthropic` as the prefix, not a provider alias, glob or effort suffix. |
 | `objective.goal` | `cost` | Optimization goal used by the router; `cost-speed` is unsupported and MUST NOT be aliased to `cost` |
 | `objective.mode` | `economy`, `balanced`, `robust`, `auto` | Fixed routing profile, or `auto` classification |
 | `task.conversationFile` | non-empty string | Host path to the task conversation whose description the router classifies |
@@ -2635,7 +2633,7 @@ routing profile) selects the one model and effort the agent is seeded with for
 the whole run. The router is not invoked again per request or per sub-agent.
 
 The routing object is closed: `objective` and `task` are required; `provider`,
-`candidateModels`, `topK` and `excludedModels` are optional. Unknown properties are rejected.
+`candidateModels` and `topK` are optional. Unknown properties are rejected.
 Omitting `provider` preserves Copilot routing. OpenAI and Anthropic routing
 require the matching provider to be configured for the agent and currently
 require the native `api.openai.com` or `api.anthropic.com` target; AWF does not
@@ -2683,36 +2681,29 @@ case-insensitive with `*` wildcards, and deny rules take precedence. A
 provider-prefixed `auto` remains subject to dynamic-model verification: under
 a denylist it must also match an explicit allow rule.
 
-`topK` requests a list; `excludedModels` independently sets aside models.
-Neither changes what the classifier sees or adds a router or classifier call.
+`topK` requests a list. It does not change the primary pick, narrow the
+classifier candidates, or add a router or classifier call.
 For a validated rank of `A:low, A:medium, A:high, B:high, C:medium` from the
 configured provider, the ordinary pick is `A:low`:
 
 | Routing fields | Primary pick | Private list |
 |---|---|---|
-| Neither (or just `excludedModels: []`) | `A:low` | Not reported |
+| `topK` omitted | `A:low` | Not reported |
 | `topK: 1` | `A:low` | `A:low` |
 | `topK: 3` | `A:low` | `A:low, B:high, C:medium` |
-| Exclude A only | `B:high` | Not reported |
-| Exclude A and set `topK: 3` | `B:high` | `B:high, C:medium` |
-| Exclude A, B and C and set `topK: 3` | `A:low` (fallback) | Empty |
 
-Exclusions match the provider-qualified base ID case-insensitively and apply
-to every effort. The proxy filters the **full validated primary rank** before
-taking the first effort for each distinct remaining model. It never pads
-the list, widens discovery, or runs a second primary. If exclusions exhaust
-the rank, only the ordinary permitted pick may run, still subject to the
-final guard. The list skips models blocked by the configured multiplier cap,
-but never substitutes an alternative for a primary that fails its guard.
-An empty hard-policy pool, invalid rank or failed guard still fails.
+The proxy walks the full validated rank in order, skipping models blocked by
+the configured multiplier cap and keeping the first effort for each distinct
+provider-qualified base. If only two bases are eligible, asking for three
+returns two. It never widens discovery or runs an alternative when the primary
+fails its final guard. An empty policy pool or invalid rank still fails.
 
 Only `topK` adds `routeOptions` to the trusted host's private `selection.json`.
-`ordinaryPick` is the original pair; `options` is the ordered list;
-`excludedFallback` is true if every ranked pair was set aside. A pair contains
+`ordinaryPick` is the original pair and `options` is the ordered list. A pair contains
 only `model` and the offered `effort`, if present. The summary shares the
 existing 16 KiB result limit and is not exposed by `/reflect`. A summary
-request rejects different choice IDs for the same model and effort, even
-when excluded. Without `topK`, those IDs retain their ordinary wire mappings.
+request rejects different choice IDs for the same model and effort.
+Without `topK`, those IDs retain their ordinary wire mappings.
 See the [synthetic rank fixture](../containers/api-proxy/fixtures/routing-options/three-efforts.json)
 for the exact input and output pairs.
 
@@ -2743,9 +2734,8 @@ Every selection record MUST include:
 - `interaction_id` from the existing Copilot interaction-ID builder; and
 - `github_repository` and `github_workflow_ref` when available.
 
-If all soft exclusions fell back, the selection record also includes
-`excluded_fallback: true`. `ranked_choices` still records the original router
-order, not the bounded options. Inspect `selected_model` and `selected_effort`
+`ranked_choices` records the original router order, not the bounded options.
+Inspect `selected_model` and `selected_effort`
 for the guarded primary pick.
 
 Every request record MUST retain the advisory comparison (`routed`,

@@ -326,16 +326,9 @@ describe('validateAwfFileConfig', () => {
     });
     for (const k of [1, 3, 32]) expect(validateK(k)).toEqual([]);
     for (const k of [0, -1, 33, 1.5, '3', null, true]) expect(validateK(k)).not.toEqual([]);
-    const validateExclusions = (excludedModels: unknown) => validateAwfFileConfig({
-      experimental: { modelRouting: true }, apiProxy: { routing: { ...valid, excludedModels } },
-    });
-    expect(validateExclusions(['openai/model-a', 'openai/Model-A']))
-      .toContain('config.apiProxy.routing.excludedModels must be unique (case-insensitive)');
-    expect(validateExclusions(['openai/Model-A'])).toEqual([]);
-    const max = Array.from({ length: 32 }, (_, i) => `github-copilot/model-${i}`);
-    for (const list of [[], max, ['openai/model-a', 'anthropic/model-a']]) expect(validateExclusions(list)).toEqual([]);
-    for (const list of [null, [...max, 'openai/extra'], ['copilot/a'], ['openai/a*'], ['openai/a:low'],
-      ['openai/a?effort=low'], ['openai/a', 'openai/a']]) expect(validateExclusions(list)).not.toEqual([]);
+    expect(validateAwfFileConfig({
+      experimental: { modelRouting: true }, apiProxy: { routing: { ...valid, topK: 3, excludedModels: ['openai/model-a'] } },
+    })).toContain('config.apiProxy.routing.excludedModels is not supported');
     for (const experimental of [undefined, { modelRouting: false }, {}]) {
       expect(validateAwfFileConfig({ experimental, apiProxy: { routing: valid } }))
         .toContain('config.apiProxy.routing requires experimental.modelRouting: true');

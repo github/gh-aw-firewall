@@ -297,10 +297,6 @@ export function validateAwfFileConfig(config: unknown): string[] {
   const errors = validateWithSchema(normalized.config);
   if (errors.length) return errors;
   const apiProxy = (normalized.config as AwfFileConfig).apiProxy;
-  const excludedModels = apiProxy?.routing?.excludedModels;
-  if (excludedModels && new Set(excludedModels.map(model => model.toLowerCase())).size !== excludedModels.length) {
-    errors.push('config.apiProxy.routing.excludedModels must be unique (case-insensitive)');
-  }
   const steeringBudget = apiProxy?.steering?.budget;
   if (
     apiProxy?.enableTokenSteering !== undefined &&

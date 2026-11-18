@@ -11,8 +11,6 @@ export interface ModelRoutingConfig {
   candidateModels?: string[];
   /** Request a private shortlist of up to this many distinct eligible bases (1 through 32). */
   topK?: number;
-  /** Primary-only soft exclusions, independent of whether a shortlist is requested. */
-  excludedModels?: string[];
   objective: {
     goal: ModelRoutingGoal;
     mode: ModelRoutingMode;

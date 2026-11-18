@@ -295,7 +295,7 @@ describe('createProductionRoutingSession', () => {
     const outputDir = makeOutputDir();
     const pair = { model: `github-copilot/${'a'.repeat(5000)}` };
     const selection = { ...SELECTION, choice: { id: 'one', ...pair }, wire_model: pair.model.split('/')[1] };
-    const routeOptions = { ordinaryPick: pair, options: [pair], excludedFallback: false };
+    const routeOptions = { ordinaryPick: pair, options: [pair] };
     expect(Buffer.byteLength(JSON.stringify(selection))).toBeLessThan(16_384);
     const session = createProductionRoutingSession({
       rawConfig: '{}', outputDir, createController: controllerReturning({ ok: true, selection, routeOptions }),

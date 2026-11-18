@@ -97,32 +97,16 @@ describe('routing configuration', () => {
       .toThrow('routing.provider is not supported');
   });
 
-  it('accepts an explicit bounded integer topK independently of exclusions', () => {
+  it('accepts an explicit bounded integer topK without enabling a manual model override', () => {
     const base = { objective: { goal: 'cost', mode: 'balanced' }, task: { conversationFile: '/private/task' } };
     const parse = fields => parseRoutingConfig(JSON.stringify({ ...base, ...fields }));
-    expect(parse({ excludedModels: [] })).not.toHaveProperty('topK');
+    expect(parse({})).not.toHaveProperty('topK');
+    expect(() => parse({ topK: 3, excludedModels: ['openai/model-a'] })).toThrow('routing.excludedModels is not supported');
     for (const topK of [1, 3, 32]) {
       expect(parse({ topK }).topK).toBe(topK);
-      expect(parse({ topK })).not.toHaveProperty('excludedModels');
     }
     for (const topK of [0, -1, 33, 1.5, '3', null, true]) {
       expect(() => parse({ topK })).toThrow('routing.topK');
-    }
-  });
-
-  it('accepts only a bounded array of literal canonical base IDs as primary exclusions', () => {
-    const base = { objective: { goal: 'cost', mode: 'balanced' }, task: { conversationFile: '/private/task' } };
-    const parse = excludedModels => parseRoutingConfig(JSON.stringify({ ...base, excludedModels }));
-    expect(() => parse(['openai/model-a', 'openai/Model-A'])).toThrow('routing.excludedModels');
-    expect(parse(['openai/Model-A']).excludedModels).toEqual(['openai/Model-A']);
-    const max = Array.from({ length: 32 }, (_, i) => `github-copilot/model-${i}`);
-    for (const list of [[], ['openai/model-a', 'anthropic/model-a'], max]) {
-      expect(parse(list).excludedModels).toEqual(list);
-      expect(Object.isFrozen(parse(list).excludedModels)).toBe(true);
-    }
-    for (const list of [null, 'openai/model-a', [...max, 'openai/extra'], [1], ['openai/a', 'openai/a'],
-      ['model-a'], ['copilot/a'], ['openai/a*'], ['openai/a?effort=low'], ['openai/a:low'], ['openai/a/b']]) {
-      expect(() => parse(list)).toThrow('routing.excludedModels');
     }
   });
 });

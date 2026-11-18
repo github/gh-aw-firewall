@@ -2,7 +2,7 @@
 
 const { createHash } = require('crypto');
 const { getModelMultiplierCapBlockState } = require('./guards/max-model-multiplier-guard');
-const { buildRoutingCandidates, filterPrimaryRank, resolvePrimaryRank, shortlistPrimaryOptions } = require('./routing-candidates');
+const { buildRoutingCandidates, resolvePrimaryRank, shortlistPrimaryOptions } = require('./routing-candidates');
 const { pinRequestEligibility, proxyEligibilityStore } = require('./model-eligibility');
 const { getModelReasoning } = require('./model-reasoning');
 const { extractClassifierOutput, preflightClassifierRequest } = require('./routing-classifier');
@@ -295,24 +295,19 @@ function createRoutingController(dependencies) {
       }
       const route = validateRouteResponse(rawRoute, pool.choices);
       // Ordinary routing uses choice IDs; only the opt-in options contract requires unique pairs.
-      const reportOptions = config.topK !== undefined;
-      const fullRank = reportOptions ? resolvePrimaryRank(route.ranked_choices, pool) : route.ranked_choices;
-      const ordinaryPick = fullRank[0];
-      const eligibleRank = filterPrimaryRank(fullRank, config.excludedModels);
-      const excludedFallback = eligibleRank.length === 0;
-      const selectedChoice = eligibleRank[0] ?? ordinaryPick;
-      const selection = createSelection(selectedChoice, pool.byId[selectedChoice.id]);
+      const ordinaryPick = route.ranked_choices[0];
+      const selection = createSelection(ordinaryPick, pool.byId[ordinaryPick.id]);
       let routeOptions;
-      if (reportOptions) {
+      if (config.topK !== undefined) {
+        const fullRank = resolvePrimaryRank(route.ranked_choices, pool);
         // The cap matches native wire IDs, not router IDs. It must not steer the primary past a guard veto.
-        const withinCap = eligibleRank.filter(({ id }) => {
+        const withinCap = fullRank.filter(({ id }) => {
           const { wireModel, provider } = pool.byId[id];
           return !getModelMultiplierCapBlockState(wireModel, provider);
         });
         routeOptions = deepFreezeJson({
           ordinaryPick: modelEffortPair(ordinaryPick),
           options: shortlistPrimaryOptions(withinCap, config.topK).map(modelEffortPair),
-          excludedFallback,
         });
       }
 
@@ -338,7 +333,6 @@ function createRoutingController(dependencies) {
           model: choice.model,
           effort: choice.effort ?? null,
         })),
-        ...(excludedFallback ? { excluded_fallback: true } : {}),
         conversation_sha256: createHash('sha256').update(JSON.stringify(conversation)).digest('hex'),
         selected_id: selection.choice.id,
         selected_model: selection.choice.model,

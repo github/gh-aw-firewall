@@ -9,28 +9,25 @@
   "ordinaryPick": { "model": "github-copilot/model-a", "effort": "low" },
   "cases": [
     {
+      "topK": 1,
+      "options": [
+        { "model": "github-copilot/model-a", "effort": "low" }
+      ]
+    },
+    {
+      "topK": 2,
+      "options": [
+        { "model": "github-copilot/model-a", "effort": "low" },
+        { "model": "github-copilot/model-b", "effort": "high" }
+      ]
+    },
+    {
       "topK": 3,
       "options": [
         { "model": "github-copilot/model-a", "effort": "low" },
         { "model": "github-copilot/model-b", "effort": "high" },
         { "model": "github-copilot/model-c", "effort": "medium" }
-      ],
-      "excludedFallback": false
-    },
-    {
-      "topK": 3,
-      "excludedModels": ["github-copilot/model-a"],
-      "options": [
-        { "model": "github-copilot/model-b", "effort": "high" },
-        { "model": "github-copilot/model-c", "effort": "medium" }
-      ],
-      "excludedFallback": false
-    },
-    {
-      "topK": 3,
-      "excludedModels": ["github-copilot/model-a", "github-copilot/model-b", "github-copilot/model-c"],
-      "options": [],
-      "excludedFallback": true
+      ]
     }
   ]
 }

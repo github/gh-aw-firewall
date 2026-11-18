@@ -121,7 +121,7 @@ describe('routed reasoning efforts', () => {
     const { result, session, outputDir } = await runRoutedSession({ pick: byEffort(undefined), topK: 3 });
     const pair = { model: 'github-copilot/chat-test' };
     expect(readResult(outputDir, 'selection.json')).toEqual({
-      ...result.selection, routeOptions: { ordinaryPick: pair, options: [pair], excludedFallback: false },
+      ...result.selection, routeOptions: { ordinaryPick: pair, options: [pair] },
     });
     expect(session.getSelection()).not.toHaveProperty('routeOptions');
     expect(session.getReflectState().selection).toEqual({

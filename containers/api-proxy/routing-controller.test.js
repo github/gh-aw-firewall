@@ -147,14 +147,13 @@ describe('routing controller', () => {
     ]);
   });
 
-  it.each(rankFixture.cases)('reports top $topK options from the filtered rank: $options', async ({
-    topK, excludedModels, options, excludedFallback,
+  it.each(rankFixture.cases)('reports top $topK from the same rank without changing routing', async ({
+    topK, options,
   }) => {
-    const { controller, calls, records } = replayRank({ config: { topK, excludedModels } });
+    const { controller, calls, records } = replayRank({ config: { topK } });
     const { selection, routeOptions } = await controller.run();
-    expect(routeOptions).toEqual({ ordinaryPick: rankFixture.ordinaryPick, options, excludedFallback });
-    const selected = options[0] ?? rankFixture.ordinaryPick;
-    expect(selection.choice).toEqual(rankFixture.fullRank.find(c => c.model === selected.model && c.effort === selected.effort));
+    expect(routeOptions).toEqual({ ordinaryPick: rankFixture.ordinaryPick, options });
+    expect(selection.choice).toEqual(rankFixture.fullRank[0]);
     expect(calls.checkBeforePrimary).toHaveLength(1);
     expect(calls.checkBeforePrimary[0].selection).toBe(selection);
     const offered = [...rankFixture.fullRank].sort((a, b) => a.id.localeCompare(b.id));
@@ -165,51 +164,20 @@ describe('routing controller', () => {
     expect(calls.execute).toHaveLength(1);
     expect(calls.execute[0].body.model).toBe('model-a');
     expect(records[1].ranked_choices).toEqual(rankFixture.fullRank.map(({ model, effort }) => ({ model, effort })));
-    expect(records[1].excluded_fallback).toBe(excludedFallback || undefined);
     expect(records[1]).not.toHaveProperty('routeOptions');
   });
 
-  it.each([
-    { topK: 1, expected: [0] },
-    { topK: 2, expected: [0, 3] },
-    { topK: 32, expected: [0, 3, 4] },
-  ])('reports up to $topK distinct bases without changing the ordinary pick', async ({ topK, expected }) => {
-    const { controller } = replayRank({ config: { topK } });
-    const { selection, routeOptions } = await controller.run();
-    expect(selection.choice).toEqual(rankFixture.fullRank[0]);
-    expect(routeOptions.options).toEqual(expected.map(index => {
-      const { model, effort } = rankFixture.fullRank[index];
-      return { model, effort };
-    }));
-  });
-
-  it.each([
-    { excludedModels: [], selectedIndex: 0, fallback: false },
-    { excludedModels: ['github-copilot/MODEL-A'], selectedIndex: 3, fallback: false },
-    { excludedModels: rankFixture.cases[2].excludedModels, selectedIndex: 0, fallback: true },
-  ])('applies exclusions $excludedModels without reporting options', async ({ excludedModels, selectedIndex, fallback }) => {
-    const { controller, records, calls } = replayRank({ config: { excludedModels } });
-    const result = await controller.run();
-    expect(result.selection.choice).toEqual(rankFixture.fullRank[selectedIndex]);
-    expect(result).not.toHaveProperty('routeOptions');
-    expect(records[1].excluded_fallback).toBe(fallback || undefined);
-    expect(calls.checkBeforePrimary.map(call => call.selection)).toEqual([result.selection]);
-  });
-
-  it('reports only two distinct bases on a two-base permitted shortlist, or none if both are set aside', async () => {
+  it('reports only two distinct bases on a two-base permitted shortlist', async () => {
     const rank = rankFixture.fullRank.slice(0, 4);
-    for (const excludedModels of [[], ['github-copilot/model-a', 'github-copilot/model-b']]) {
-      const { controller } = replayRank({
-        config: { topK: 3, excludedModels, candidateModels: ['model-a', 'model-b'] }, routeResponse: () => ({ ranked_choices: rank }),
-      });
-      const { selection, routeOptions } = await controller.run();
-      expect(selection.choice).toEqual(rank[0]);
-      expect(routeOptions).toEqual({
-        ordinaryPick: rankFixture.ordinaryPick,
-        options: excludedModels.length ? [] : [rankFixture.ordinaryPick, { model: 'github-copilot/model-b', effort: 'high' }],
-        excludedFallback: excludedModels.length > 0,
-      });
-    }
+    const { controller } = replayRank({
+      config: { topK: 3, candidateModels: ['model-a', 'model-b'] }, routeResponse: () => ({ ranked_choices: rank }),
+    });
+    const { selection, routeOptions } = await controller.run();
+    expect(selection.choice).toEqual(rank[0]);
+    expect(routeOptions).toEqual({
+      ordinaryPick: rankFixture.ordinaryPick,
+      options: [rankFixture.ordinaryPick, { model: 'github-copilot/model-b', effort: 'high' }],
+    });
   });
 
   it('refills past a multiplier-capped alternative but never substitutes for a blocked primary', async () => {
@@ -225,16 +193,17 @@ describe('routing controller', () => {
       const { selection, routeOptions } = await controller.run();
       expect(selection.choice).toEqual(rankFixture.fullRank[0]);
       expect(routeOptions).toEqual({
-        ordinaryPick: rankFixture.ordinaryPick, excludedFallback: false,
+        ordinaryPick: rankFixture.ordinaryPick,
         options: [rankFixture.ordinaryPick, { model: 'github-copilot/model-c', effort: 'medium' }],
       });
       expect(records[1].ranked_choices).toEqual(rankFixture.fullRank.map(({ model, effort }) => ({ model, effort })));
       expect(calls.classify[0].models).toContainEqual(rankFixture.fullRank[3]);
       expect(calls.checkBeforePrimary).toHaveLength(1);
 
-      const blocked = replayRank({ config: { topK: 2, excludedModels: ['github-copilot/model-a'] }, checkBeforePrimary });
+      process.env.AWF_MODEL_MULTIPLIERS = JSON.stringify({ 'model-a': 3 });
+      const blocked = replayRank({ config: { topK: 2 }, checkBeforePrimary });
       await expect(blocked.controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'model_multiplier_cap_exceeded' } });
-      expect(blocked.calls.checkBeforePrimary.map(call => call.selection.wire_model)).toEqual(['model-b']);
+      expect(blocked.calls.checkBeforePrimary.map(call => call.selection.wire_model)).toEqual(['model-a']);
     } finally {
       env.restore();
     }
@@ -248,7 +217,7 @@ describe('routing controller', () => {
     [{ routeResponse: () => ({ ranked_choices: [...rankFixture.fullRank, { id: 'foreign', model: 'openai/model-b' }] }) }, 'routing_contract_error'],
   ])('does not soften a hard failure: %s', async (overrides, code) => {
     const { controller, calls } = replayRank({
-      ...overrides, config: { ...overrides.config, excludedModels: rankFixture.cases[2].excludedModels },
+      ...overrides, config: { ...overrides.config, topK: 3 },
     });
     await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code } });
     expect(calls.checkBeforePrimary).toHaveLength(0);
@@ -261,8 +230,8 @@ describe('routing controller', () => {
       ranked_choices: req.models.map(({ id, model, effort }) => ({ id, model, effort })).reverse(),
     });
 
-    it.each([{}, { excludedModels: ['github-copilot/model-b'] }])('keeps the first ID and wire mapping without topK: %j', async config => {
-      const { controller, calls, records } = createHarness({ models, routeResponse, config });
+    it('keeps the first ID and wire mapping without topK', async () => {
+      const { controller, calls, records } = createHarness({ models, routeResponse });
       const result = await controller.run();
       const pair = { model: 'github-copilot/model-b', effort: 'high' };
       expect(result.ok).toBe(true);
@@ -271,32 +240,27 @@ describe('routing controller', () => {
         choice: { id: 'choice-0002', ...pair }, wire_model: 'github-copilot/model-b',
       });
       expect(records[1].ranked_choices).toEqual([pair, pair]);
-      expect(records[1].excluded_fallback).toBe(config.excludedModels ? true : undefined);
       expect(calls.classify).toHaveLength(1);
       expect(calls.execute).toHaveLength(1);
       expect(calls.route).toHaveLength(1);
       expect(calls.checkBeforePrimary.map(call => call.selection)).toEqual([result.selection]);
     });
 
-    it.each([{ topK: 1 }, { topK: 2, excludedModels: ['github-copilot/model-b'] }])(
-      'rejects the duplicate pair before applying exclusions $excludedModels when options are requested', async config => {
-        const { controller, calls } = createHarness({ models, routeResponse, config });
-        await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'routing_contract_error' } });
-        expect(calls.checkBeforePrimary).toHaveLength(0);
-      },
-    );
+    it('rejects a duplicate pair even when only one option is requested', async () => {
+      const { controller, calls } = createHarness({ models, routeResponse, config: { topK: 1 } });
+      await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'routing_contract_error' } });
+      expect(calls.checkBeforePrimary).toHaveLength(0);
+    });
   });
 
-  it.each(rankFixture.cases.slice(1))('a final guard veto is terminal, including on fallback', async ({
-    excludedModels, options,
-  }) => {
+  it('a final guard veto is terminal even when alternatives are reported', async () => {
     const { controller, calls, records } = replayRank({
-      config: { topK: 3, excludedModels },
+      config: { topK: 3 },
       checkBeforePrimary: () => { throw createRoutingError('model_policy_violation', 'Final guard veto'); },
     });
     await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'model_policy_violation' } });
     expect(calls.checkBeforePrimary).toHaveLength(1);
-    expect(calls.checkBeforePrimary[0].selection.choice).toMatchObject(options[0] ?? rankFixture.ordinaryPick);
+    expect(calls.checkBeforePrimary[0].selection.choice).toMatchObject(rankFixture.ordinaryPick);
     expect(records.map(r => r.stage)).toEqual(['classification', 'failure']);
   });
 

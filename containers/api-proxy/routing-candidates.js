@@ -84,12 +84,6 @@ function assertValidTopK(topK) {
   }
 }
 
-function filterPrimaryRank(rank, excludedModels = []) {
-  const excluded = new Set(Array.from(excludedModels, model => model.toLowerCase()));
-  if (!excluded.size) return rank;
-  return Object.freeze(rank.filter(choice => !excluded.has(choice.model.toLowerCase())));
-}
-
 // Shortlist only: costs, incumbents and probes still refer to exact choices in eligibleRank.
 function shortlistPrimaryOptions(eligibleRank, topK = PILOT_TOP_K) {
   assertValidTopK(topK);
@@ -209,7 +203,6 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, eligi
 module.exports = {
   PILOT_TOP_K,
   assertValidTopK,
-  filterPrimaryRank,
   resolvePrimaryRank,
   shortlistPrimaryOptions,
   buildRoutingCandidates,
