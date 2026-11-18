@@ -28,6 +28,12 @@
 import { generateAccessRules } from './access-rules';
 import { parseDomainConfig } from './domain-acl';
 
+// Compare whole rule lines: `allowed_http_only` is a substring of `allowed_http_only_regex`,
+// so a substring match would accept the wrong ACL rule.
+function ruleLines(section: string): string[] {
+  return section.split('\n');
+}
+
 describe('generateAccessRules', () => {
   // ── denyRule generation ─────────────────────────────────────────────────────
 
@@ -96,14 +102,14 @@ describe('generateAccessRules', () => {
       const { domainsByProto, patternsByProto } = parseDomainConfig(['http://metrics.example.com']);
       const { accessRulesSection } = generateAccessRules(domainsByProto, patternsByProto, []);
 
-      expect(accessRulesSection).toContain('http_access allow !CONNECT allowed_http_only');
+      expect(ruleLines(accessRulesSection)).toContain('http_access allow !CONNECT allowed_http_only');
     });
 
     it('generates "allow !CONNECT allowed_http_only_regex" for HTTP-only patterns', () => {
       const { domainsByProto, patternsByProto } = parseDomainConfig(['http://*.metrics.example.com']);
       const { accessRulesSection } = generateAccessRules(domainsByProto, patternsByProto, []);
 
-      expect(accessRulesSection).toContain('http_access allow !CONNECT allowed_http_only_regex');
+      expect(ruleLines(accessRulesSection)).toContain('http_access allow !CONNECT allowed_http_only_regex');
     });
 
     it('generates both !CONNECT rules when HTTP-only domains and patterns coexist', () => {
@@ -113,8 +119,8 @@ describe('generateAccessRules', () => {
       ]);
       const { accessRulesSection } = generateAccessRules(domainsByProto, patternsByProto, []);
 
-      expect(accessRulesSection).toContain('http_access allow !CONNECT allowed_http_only');
-      expect(accessRulesSection).toContain('http_access allow !CONNECT allowed_http_only_regex');
+      expect(ruleLines(accessRulesSection)).toContain('http_access allow !CONNECT allowed_http_only');
+      expect(ruleLines(accessRulesSection)).toContain('http_access allow !CONNECT allowed_http_only_regex');
     });
   });
 
@@ -125,14 +131,14 @@ describe('generateAccessRules', () => {
       const { domainsByProto, patternsByProto } = parseDomainConfig(['https://secure.example.com']);
       const { accessRulesSection } = generateAccessRules(domainsByProto, patternsByProto, []);
 
-      expect(accessRulesSection).toContain('http_access allow CONNECT allowed_https_only');
+      expect(ruleLines(accessRulesSection)).toContain('http_access allow CONNECT allowed_https_only');
     });
 
     it('generates "allow CONNECT allowed_https_only_regex" for HTTPS-only patterns', () => {
       const { domainsByProto, patternsByProto } = parseDomainConfig(['https://*.secure.example.com']);
       const { accessRulesSection } = generateAccessRules(domainsByProto, patternsByProto, []);
 
-      expect(accessRulesSection).toContain('http_access allow CONNECT allowed_https_only_regex');
+      expect(ruleLines(accessRulesSection)).toContain('http_access allow CONNECT allowed_https_only_regex');
     });
 
     it('generates both CONNECT rules when HTTPS-only domains and patterns coexist', () => {
@@ -142,8 +148,8 @@ describe('generateAccessRules', () => {
       ]);
       const { accessRulesSection } = generateAccessRules(domainsByProto, patternsByProto, []);
 
-      expect(accessRulesSection).toContain('http_access allow CONNECT allowed_https_only');
-      expect(accessRulesSection).toContain('http_access allow CONNECT allowed_https_only_regex');
+      expect(ruleLines(accessRulesSection)).toContain('http_access allow CONNECT allowed_https_only');
+      expect(ruleLines(accessRulesSection)).toContain('http_access allow CONNECT allowed_https_only_regex');
     });
   });
 
