@@ -821,7 +821,7 @@ describe('trusted publication workflow graph', () => {
     expect(build.steps.find(step => step.uses?.startsWith('actions/upload-artifact@'))?.with?.path)
       .toContain('${{ runner.temp }}/pricing-v1.json');
     expect(build.steps.some(step => step.run ===
-      'npm test --prefix containers/api-proxy -- --runInBand catalogue-loader.test.js catalogue-proxy.test.js guards/ai-credits-guard.test.js runtime-model-catalog.test.js token-budget-log.test.js upstream-token.test.js upstream-http.test.js model-api-mapping.test.js routing-catalogue.test.js wire-api-compat.test.js server.decisions.test.js')).toBe(true);
+      'npm test --prefix containers/api-proxy -- --runInBand catalogue-loader.test.js catalogue-proxy.test.js guards/ai-credits-tariff.test.js guards/ai-credits-notices.test.js guards/ai-credits-promotions.test.js guards/ai-credits-pricing-fallback.test.js runtime-model-catalog.test.js token-budget-log.test.js upstream-token.test.js upstream-http.test.js model-api-mapping.test.js routing-catalogue.test.js wire-api-compat.test.js server.decisions.test.js')).toBe(true);
     expect(writer.steps.filter(step => step.run).map(step => step.run)).toEqual([
       'node scripts/model-information/publish.cjs "$RUNNER_TEMP/model-catalogue/snapshot.json" "$RUNNER_TEMP/model-catalogue/snapshot-v2.json" "$RUNNER_TEMP/model-catalogue/pricing-v1.json"',
     ]);

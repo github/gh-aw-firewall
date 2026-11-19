@@ -1213,7 +1213,9 @@ Phase 2 validation: `npm run build`, `npm run type-check`,
 src/copilot-model.test.ts src/copilot-model-catalog-sync.test.ts`; separately,
 `cd containers/api-proxy && npm test -- --runInBand
 model-information-contract.test.js model-metadata-characterization.test.js
-guards/ai-credits-guard.test.js`. Phase 3 consumes schemas and identity for
+guards/ai-credits-tariff.test.js guards/ai-credits-notices.test.js
+guards/ai-credits-promotions.test.js guards/ai-credits-pricing-fallback.test.js`.
+Phase 3 consumes schemas and identity for
 deterministic compilation; Phases 4–6 integrate consumers and compare legacy
 decisions; Phase 7 adds resolved data through `/reflect` only.
 
