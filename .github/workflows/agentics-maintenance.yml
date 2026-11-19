@@ -111,6 +111,8 @@ jobs:
       - name: Checkout actions folder
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: github/gh-aw
+          ref: v1.2.2
           sparse-checkout: |
             actions
           clean: false
@@ -142,6 +144,8 @@ jobs:
       - name: Checkout actions folder
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: github/gh-aw
+          ref: v1.2.2
           sparse-checkout: |
             actions
           clean: false
@@ -173,6 +177,8 @@ jobs:
       - name: Checkout actions folder
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: github/gh-aw
+          ref: v1.2.2
           sparse-checkout: |
             actions
           clean: false
@@ -205,6 +211,8 @@ jobs:
       - name: Checkout actions folder
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: github/gh-aw
+          ref: v1.2.2
           sparse-checkout: |
             actions
           clean: false
@@ -244,7 +252,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw-actions/setup@8126d6cb07dea9221848de275af8a41474d839ca # v1.3.0
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -260,21 +268,17 @@ jobs:
             const { main } = require(path.join(actionsDir, 'check_team_member.cjs'));
             await main();
 
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Install gh-aw
+        uses: github/gh-aw-actions/setup-cli@8126d6cb07dea9221848de275af8a41474d839ca # v1.3.0
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build gh-aw
-        run: make build
+          version: v1.3.0
 
       - name: Run operation
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_AW_OPERATION: ${{ inputs.operation }}
-          GH_AW_CMD_PREFIX: ./gh-aw
+          GH_AW_CMD_PREFIX: gh aw
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -303,6 +307,8 @@ jobs:
       - name: Checkout actions folder
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: github/gh-aw
+          ref: v1.2.2
           sparse-checkout: |
             actions
           clean: false
@@ -356,6 +362,8 @@ jobs:
       - name: Checkout actions folder
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: github/gh-aw
+          ref: v1.2.2
           sparse-checkout: |
             actions
           clean: false
@@ -416,7 +424,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw-actions/setup@8126d6cb07dea9221848de275af8a41474d839ca # v1.3.0
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -432,19 +440,15 @@ jobs:
             const { main } = require(path.join(actionsDir, 'check_team_member.cjs'));
             await main();
 
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Install gh-aw
+        uses: github/gh-aw-actions/setup-cli@8126d6cb07dea9221848de275af8a41474d839ca # v1.3.0
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build gh-aw
-        run: make build
+          version: v1.3.0
 
       - name: Create missing labels
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          GH_AW_CMD_PREFIX: ./gh-aw
+          GH_AW_CMD_PREFIX: gh aw
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -472,7 +476,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw-actions/setup@8126d6cb07dea9221848de275af8a41474d839ca # v1.3.0
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -488,14 +492,10 @@ jobs:
             const { main } = require(path.join(actionsDir, 'check_team_member.cjs'));
             await main();
 
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Install gh-aw
+        uses: github/gh-aw-actions/setup-cli@8126d6cb07dea9221848de275af8a41474d839ca # v1.3.0
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build gh-aw
-        run: make build
+          version: v1.3.0
 
       - name: Restore activity report logs cache
         id: activity_report_logs_cache
@@ -511,7 +511,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_AW_CMD_PREFIX: ./gh-aw
+          GH_AW_CMD_PREFIX: gh aw
         run: |
           ${GH_AW_CMD_PREFIX} logs \
             --repo "$GITHUB_REPOSITORY" \
@@ -585,7 +585,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw-actions/setup@8126d6cb07dea9221848de275af8a41474d839ca # v1.3.0
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -601,14 +601,10 @@ jobs:
             const { main } = require(path.join(actionsDir, 'check_team_member.cjs'));
             await main();
 
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Install gh-aw
+        uses: github/gh-aw-actions/setup-cli@8126d6cb07dea9221848de275af8a41474d839ca # v1.3.0
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build gh-aw
-        run: make build
+          version: v1.3.0
 
       - name: Restore forecast report logs cache
         id: forecast_report_logs_cache
@@ -626,7 +622,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_AW_CMD_PREFIX: ./gh-aw
+          GH_AW_CMD_PREFIX: gh aw
         run: |
           mkdir -p ./.cache/gh-aw/forecast
           set +e
@@ -688,6 +684,8 @@ jobs:
       - name: Checkout actions folder
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: github/gh-aw
+          ref: v1.2.2
           sparse-checkout: |
             actions
           clean: false
@@ -737,7 +735,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw-actions/setup@8126d6cb07dea9221848de275af8a41474d839ca # v1.3.0
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -753,19 +751,15 @@ jobs:
             const { main } = require(path.join(actionsDir, 'check_team_member.cjs'));
             await main();
 
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Install gh-aw
+        uses: github/gh-aw-actions/setup-cli@8126d6cb07dea9221848de275af8a41474d839ca # v1.3.0
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build gh-aw
-        run: make build
+          version: v1.3.0
 
       - name: Validate workflows and file issue on findings
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          GH_AW_CMD_PREFIX: ./gh-aw
+          GH_AW_CMD_PREFIX: gh aw
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -793,27 +787,23 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Install gh-aw
+        uses: github/gh-aw-actions/setup-cli@8126d6cb07dea9221848de275af8a41474d839ca # v1.3.0
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build gh-aw
-        run: make build
+          version: v1.3.0
 
       - name: Pre-compile validation
         run: |
-          ./gh-aw compile --validate --no-emit --verbose
+          gh aw compile --validate --no-emit --verbose
           echo "✓ Pre-compile validation passed"
 
       - name: Compile workflows
         run: |
-          ./gh-aw compile --validate --verbose
+          gh aw compile --validate --verbose
           echo "✓ All workflows compiled successfully"
 
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw-actions/setup@8126d6cb07dea9221848de275af8a41474d839ca # v1.3.0
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -839,6 +829,8 @@ jobs:
       - name: Checkout actions folder
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: github/gh-aw
+          ref: v1.2.2
           sparse-checkout: |
             actions
           clean: false
