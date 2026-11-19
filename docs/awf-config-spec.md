@@ -601,6 +601,7 @@ When the API proxy sidecar is enabled, the following rules apply:
    | `GOOGLE_GEMINI_BASE_URL` | `http://172.30.0.30:10003` | Routes Gemini calls to sidecar |
    | `GEMINI_API_BASE_URL` | `http://172.30.0.30:10003` | Alias for compatibility |
    | `GOOGLE_VERTEX_BASE_URL` | `http://172.30.0.30:10004` | Routes Vertex AI calls to sidecar |
+   | `FOUNDRY_BASE_URL` | `http://172.30.0.30:10005` | Routes Azure Foundry calls to the optional adapter when configured |
 
 5. The API proxy sidecar SHALL inject the real credentials into upstream
    requests. Sidecar port assignments: 10000 (OpenAI), 10001 (Anthropic),

@@ -4,7 +4,7 @@
   "boundary": "auth",
   "title": "Copilot /v1/decisions rejects a personal access token with a plain-text HTTP 400",
   "symptoms": [
-    "Copilot Decisions (evals) request returns HTTP 400 with a plain-text body containing \"Personal Access Tokens are not supported for this endpoint\"",
+    "Copilot Decisions (evals) request using the reported fine-grained PAT returns HTTP 400 with a plain-text body containing \"Personal Access Tokens are not supported for this endpoint\"",
     "A standalone gh-aw evals judge fails as an opaque \"Decisions request failed (HTTP 400)\" and the run stays green",
     "The same 400 occurs for every model name, including invalid ones, because the token is rejected before model validation"
   ],
@@ -24,10 +24,10 @@
     "fixed": "unknown"
   },
   "status": "workaround",
-  "rootCause": "The Copilot Decisions endpoint does not accept personal access tokens. AWF forwards the configured credential unchanged and does not exchange a PAT for an OAuth or GitHub App token, so the upstream rejection is returned to the caller. The sidecar classifies the fully captured body as pat_unsupported in logs only. Standalone gh-aw evals run on the host runner outside AWF and cannot be fixed by proxy changes.",
+  "rootCause": "In the reported reproduction, a fine-grained PAT configured as COPILOT_GITHUB_TOKEN was rejected by the Copilot /v1/decisions endpoint. AWF forwards the configured credential unchanged and does not exchange it for an OAuth or GitHub App token, so the upstream rejection is returned to the caller. The sidecar classifies a fully captured matching body as pat_unsupported in logs only. Classic PAT acceptance remains unverified. Standalone gh-aw evals run on the host runner outside AWF and cannot be fixed by proxy changes.",
   "probe": {
-    "command": "docker logs awf-api-proxy 2>&1 | grep -E 'upstream_error_response' | grep -E 'pat_unsupported|/v1/decisions'",
-    "expect": "Run while containers are kept (--keep-containers). A match shows provider copilot, status 400, and reason_code pat_unsupported on a /v1/decisions request. Compare only the path and status with the failing evals call. Do not print request headers, docker inspect output, or the container environment, and do not issue a Decisions request to test acceptance.",
+    "command": "docker logs awf-api-proxy 2>&1 | grep -F '\"event\":\"upstream_error_response\"' | grep -F '\"provider\":\"copilot\"' | grep -E '\"endpoint\":\"/v1/decisions([?\"]|$)' | grep -F '\"status\":400' | grep -F '\"reason_code\":\"pat_unsupported\"'",
+    "expect": "Run while containers are kept (--keep-containers). A match requires one upstream_error_response record from provider copilot with the /v1/decisions endpoint (optionally with a query string), status 400, and reason_code pat_unsupported. Compare only the path and status with the failing evals call. Do not print request headers, docker inspect output, or the container environment, and do not issue a Decisions request to test acceptance.",
     "readOnly": true,
     "secretSafe": true
   },
