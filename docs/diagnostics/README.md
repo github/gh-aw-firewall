@@ -350,7 +350,7 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | Client receives 502 with error "Upstream response could not be safely inspected" | AUTH-005 | auth | workaround |
 | Client message "Unsupported upstream response content encoding" | AUTH-005 | auth | workaround |
 | Upstream response is aborted mid-stream with a request_error log event while the provider is healthy | AUTH-005 | auth | workaround |
-| Copilot Decisions (evals) request returns HTTP 400 with a plain-text body containing "Personal Access Tokens are not supported for this endpoint" | AUTH-006 | auth | workaround |
+| Copilot Decisions (evals) request using the reported fine-grained PAT returns HTTP 400 with a plain-text body containing "Personal Access Tokens are not supported for this endpoint" | AUTH-006 | auth | workaround |
 | A standalone gh-aw evals judge fails as an opaque "Decisions request failed (HTTP 400)" and the run stays green | AUTH-006 | auth | workaround |
 | The same 400 occurs for every model name, including invalid ones, because the token is rejected before model validation | AUTH-006 | auth | workaround |
 | safe output validation failed in the workflow run | CI-001 | ci | workaround |
