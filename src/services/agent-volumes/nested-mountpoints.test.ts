@@ -4,6 +4,7 @@ import * as path from 'path';
 import {
   ensureNestedMountpoints,
   planNestedMountpoints,
+  prepareHandoffMasks,
 } from './nested-mountpoints';
 import { createLocalSourceResolver } from './mount-topology';
 import { pruneUnmountableCredentialOverlays } from './credential-hiding';
@@ -145,14 +146,16 @@ describe('nested mountpoint preparation', () => {
   const linuxTest = process.platform === 'linux' ? it : it.skip;
   const masks = { sensitiveTmpfs: dockerSensitiveTmpfs('/tmp/awf-work') };
 
-  linuxTest('prepares missing masks in the read-only handoff and its independently overridden chroot view', () => {
+  linuxTest('prepares the owned handoff but only validates a pre-staged custom chroot source', () => {
     const chroot = fs.mkdtempSync(path.join(tmpRoot, 'chroot-'));
     const resolver = createLocalSourceResolver(new Map([['/daemon/handoff', tmpRoot]]), '/daemon');
     const volumes = ['/daemon/handoff:/tmp/gh-aw:ro', `${chroot}:/host/tmp/gh-aw/sandbox/firewall:ro`];
-    const prepare = () => ensureNestedMountpoints(volumes, 0, 0, resolver, masks);
+    const prepare = () => prepareHandoffMasks(volumes, masks.sensitiveTmpfs, resolver, tmpRoot);
+    fs.mkdirSync(path.join(chroot, 'logs'));
+    fs.mkdirSync(path.join(chroot, 'audit'));
     const expected = [
       path.join(tmpRoot, 'mcp-logs'), path.join(tmpRoot, 'sandbox/firewall/logs'),
-      path.join(tmpRoot, 'sandbox/firewall/audit'), path.join(chroot, 'logs'), path.join(chroot, 'audit'),
+      path.join(tmpRoot, 'sandbox/firewall/audit'),
     ];
     expect(prepare().sort()).toEqual(expected.sort());
     for (const dir of expected) expect(fs.lstatSync(dir).isDirectory()).toBe(true);
@@ -162,6 +165,12 @@ describe('nested mountpoint preparation', () => {
     expect(prepare()).toEqual([]);
     expect(fs.statSync(audit).mode & 0o777).toBe(0o700);
     expect(fs.readFileSync(path.join(audit, 'existing'), 'utf8')).toBe('keep');
+  });
+
+  it('does not create directories in an arbitrary read-only override', () => {
+    expect(() => ensureNestedMountpoints([`${tmpRoot}:/tmp/gh-aw:ro`], 0, 0, undefined, masks))
+      .toThrow(/Pre-create/);
+    expect(fs.readdirSync(tmpRoot)).toEqual([]);
   });
 
   linuxTest('does not prepare a writable handoff or guess a daemon-only source', () => {
@@ -175,7 +184,7 @@ describe('nested mountpoint preparation', () => {
 
   linuxTest('refuses a non-directory mask ancestor without modifying it', () => {
     fs.writeFileSync(path.join(tmpRoot, 'sandbox'), 'keep');
-    expect(() => ensureNestedMountpoints([`${tmpRoot}:/tmp/gh-aw:ro`], 0, 0, undefined, masks))
+    expect(() => prepareHandoffMasks([`${tmpRoot}:/tmp/gh-aw:ro`], masks.sensitiveTmpfs, source => source, tmpRoot))
       .toThrow(/ENOTDIR/);
     expect(fs.readFileSync(path.join(tmpRoot, 'sandbox'), 'utf8')).toBe('keep');
   });

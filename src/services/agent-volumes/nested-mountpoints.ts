@@ -48,8 +48,9 @@ export interface NestedMountpointOptions {
 // In particular, never prepare a host path for a mask covered by private tmpfs.
 const handoffRoots = dockerSensitivePathTargets('/tmp/gh-aw');
 
-function prepareHandoffMasks(
+export function prepareHandoffMasks(
   volumes: string[], sensitiveTmpfs: string[], resolveLocal: LocalSourceResolver,
+  runnerHandoff = '/tmp/gh-aw',
 ): string[] {
   const masks = sensitiveTmpfs.map(spec => ({
     source: '', target: spec.split(':', 1)[0], mode: 'rw',
@@ -61,8 +62,9 @@ function prepareHandoffMasks(
   const created: string[] = [];
   for (const mask of masks) {
     const cover = innermostCoveringMount(covers, mask.target);
-    if (!cover || cover.mode !== 'ro' || !cover.source.startsWith('/') ||
-      !handoffRoots.some(root => cover.target === root || cover.target.startsWith(`${root}/`))) continue;
+    if (!cover || cover.mode !== 'ro' || !cover.source.startsWith('/')) continue;
+    const view = handoffRoots.find(root => cover.target === root || cover.target.startsWith(`${root}/`));
+    if (!view) continue;
 
     const root = resolveLocal(cover.source);
     if (root === undefined) {
@@ -73,7 +75,16 @@ function prepareHandoffMasks(
     // inspection). Do not manufacture a missing bind source in that case.
     if (!fs.statSync(root, { throwIfNoEntry: false })) continue;
     const relative = path.posix.relative(cover.target, mask.target);
-    if (ensureMaskDirectory(root, relative)) created.push(path.join(root, relative));
+    const target = path.join(root, relative);
+    const ownedTarget = path.join(runnerHandoff, path.posix.relative(view, mask.target));
+    // A read-only custom bind is not permission to modify its host source.
+    // Only the canonical runner handoff has AWF-owned mountpoints.
+    if (target !== ownedTarget || process.platform !== 'linux') {
+      if (fs.statSync(target, { throwIfNoEntry: false })?.isDirectory() &&
+        fs.realpathSync(target) === path.join(fs.realpathSync(root), relative)) continue;
+      throw new Error(`Pre-create ${target} for sensitive mask ${mask.target} in the read-only handoff`);
+    }
+    if (ensureMaskDirectory(root, relative)) created.push(target);
   }
   return created;
 }
@@ -81,14 +92,6 @@ function prepareHandoffMasks(
 // Do not chmod/chown an existing log or audit directory. On Linux, anchor each
 // lookup to the open parent so a renamed directory cannot redirect a sudo write.
 function ensureMaskDirectory(root: string, relative: string): boolean {
-  if (process.platform !== 'linux') {
-    // Docker Desktop's daemon can use a pre-staged handoff. Without procfs we
-    // cannot safely perform a privileged recursive mkdir on its behalf.
-    const target = path.join(root, relative);
-    if (fs.statSync(target, { throwIfNoEntry: false })?.isDirectory() &&
-      fs.realpathSync(target) === path.join(fs.realpathSync(root), relative)) return false;
-    throw new Error(`Create the directory ${target} for the read-only handoff before starting Docker`);
-  }
   let fd = openArtifactDirectory(root);
   let created = false;
   try {
