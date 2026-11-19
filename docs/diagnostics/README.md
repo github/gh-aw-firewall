@@ -266,7 +266,7 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | NET-006 | network | awf-net subnet collides with host or cluster DNS resolver or routes | workaround | [`findings/network/NET-006.json`](./findings/network/NET-006.json) |
 | NET-007 | network | Compose refuses to start because a leftover awf-net belongs to another project | fixed | [`findings/network/NET-007.json`](./findings/network/NET-007.json) |
 | NET-008 | network | Denied hostname lookups reach the resolver because a Squid IP exception resolves names | fixed | [`findings/network/NET-008.json`](./findings/network/NET-008.json) |
-| NET-009 | network | Network-isolation egress fails with HIER_NONE after the host accepts overlapping Tailscale routes | workaround | [`findings/network/NET-009.json`](./findings/network/NET-009.json) |
+| NET-009 | network | Network-isolation egress fails with HIER_NONE after the host accepts Tailscale routes | workaround | [`findings/network/NET-009.json`](./findings/network/NET-009.json) |
 | AUTH-001 | auth | Enterprise or Business Copilot target rejects the Authorization header prefix | fixed | [`findings/auth/AUTH-001.json`](./findings/auth/AUTH-001.json) |
 | AUTH-002 | auth | API-proxy OIDC mode is configured but the Actions token request variables are missing | workaround | [`findings/auth/AUTH-002.json`](./findings/auth/AUTH-002.json) |
 | AUTH-003 | auth | gh-aw-launched HTTP MCP GitHub server fails the OIDC boundary check | workaround | [`findings/auth/AUTH-003.json`](./findings/auth/AUTH-003.json) |
