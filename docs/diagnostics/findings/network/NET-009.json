@@ -1,0 +1,41 @@
+{
+  "$schema": "../../schema.json",
+  "id": "NET-009",
+  "boundary": "network",
+  "title": "Network-isolation egress fails with HIER_NONE after the host accepts overlapping Tailscale routes",
+  "symptoms": [
+    "Every CONNECT to an allowlisted API host fails with 503 TCP_TUNNEL:HIER_NONE and an empty server field (-:-) in network-isolation (topology) mode",
+    "The same workflow succeeds in host-access mode, or in isolation mode when no Tailscale step runs",
+    "Agent retries report 503 Service Unavailable from the model endpoint while the allowlist already contains the host"
+  ],
+  "conditions": [
+    "AWF runs with network isolation, so Squid egresses through the dual-homed awf-ext bridge and the host routing tables",
+    "A Tailscale step runs on the runner and accepts advertised subnet routes (--accept-routes), which add policy routes in table 52 consulted before the main table",
+    "One accepted subnet overlaps or covers the runner's default-gateway path, so Squid's own egress is routed into the tailnet interface and discarded",
+    "A policy denial (TCP_DENIED / 403) or an awf-net subnet collision (NET-006) is a different cause and does not match",
+    "The overlap mechanism comes from one reporter's analysis; only the routing-acceptance change below was validated"
+  ],
+  "affects": { "runner": "any", "runtime": "docker", "provider": "any", "authMode": "any" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "workaround",
+  "rootCause": "In network-isolation mode AWF delegates egress to the host network stack and does not install or pin host policy routes. A Tailscale step that accepts advertised subnet routes inserts policy-routing entries ahead of the main table; when an accepted subnet overlaps the runner's own gateway path, Squid's outbound connections and name lookups leave through the tailnet interface and never reach the internet. The earlier theory that a non-portable resolver such as 168.63.129.16 was the sole cause was not sufficient: the resolver-filtering change was merged and later reverted, and the failure persisted until route acceptance was disabled. The mechanism rests on one reporter's investigation.",
+  "probe": {
+    "command": "ip rule show; ip route show table 52",
+    "expect": "A policy rule whose lookup is table 52 that precedes the main table, with routes that overlap the runner's default gateway subnet, indicates this cause. An absent table 52 or non-overlapping routes rules it out and points to NET-002 or NET-006. Both reads expose host routing only and no credentials, and no traffic is sent.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Before the AWF step, reconfigure Tailscale so it does not accept advertised subnet routes (for example tailscale up --reset --accept-routes=false) and do not configure an exit node; direct tailnet peer connectivity for private MCP servers was reported to keep working. If subnet routes are required, make sure none overlaps the runner gateway path or covers the default route, or use Tailscale userspace networking for private endpoints only. Keep the domain allowlist and DNS filtering unchanged, do not switch to a wildcard allowlist, and do not run AWF with extra host network capabilities to rewrite host routes. Report persistent HIER_NONE with redacted routing output instead of widening egress.",
+  "references": [
+    { "kind": "issue", "ref": "https://github.com/github/gh-aw-firewall/issues/6704", "title": "Isolation/topology mode with Tailscale returns Squid 503 HIER_NONE (closed as not planned)" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/6705", "title": "Non-portable DNS filtering for Tailscale (necessary-but-insufficient, later reverted)" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/7499", "title": "Preserve detected DNS resolvers in network isolation" },
+    { "kind": "code", "ref": "src/compose-network.ts", "title": "buildComposeNetworks() isolation topology with dual-homed Squid on awf-ext" },
+    { "kind": "code", "ref": "src/dns-resolver.ts", "title": "filterForNetworkIsolation() preserves detected resolvers" },
+    { "kind": "test", "ref": "src/dns-resolver.test.ts", "title": "Tailscale Magic DNS preserved in network-isolation mode" },
+    { "kind": "doc", "ref": "docs/network-isolation-design.md", "title": "Network-isolation topology" }
+  ],
+  "related": ["NET-002", "NET-006", "NET-001"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-05-19"
+}
