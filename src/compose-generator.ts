@@ -14,6 +14,7 @@ import { isolateTrustedServiceEnvironment } from './trusted-service';
 import { assembleOptionalServices, filterAgentVolumesForSysroot } from './services/optional-services';
 import { buildComposeNetworks } from './compose-network';
 import { runtimeNeedsStaticDns, runtimeUsesComposeAgent } from './container-runtime';
+import { dockerSensitiveTmpfs } from './sensitive-paths';
 import { API_PROXY_PORTS } from './types/ports';
 import { EXTERNAL_BRIDGE_NAME } from './config/network-policy';
 import {
@@ -145,10 +146,13 @@ export function generateDockerCompose(
     pathExists: options.pathExists,
     prepareNestedMountpoints: options.prepareNestedMountpoints,
     additionalMounts: stageGeminiSettings ? [GEMINI_SETTINGS_MOUNT] : [],
-    nestedMountpointOptions: stageGeminiSettings ? {
-      directoryVolumeSources: [GEMINI_SETTINGS_VOLUME],
-      rootOwnedTargets: [`/host${GEMINI_CLI_SYSTEM_SETTINGS_DIRECTORY}`],
-    } : undefined,
+    nestedMountpointOptions: {
+      sensitiveTmpfs: runtimeUsesComposeAgent(config.containerRuntime) ? dockerSensitiveTmpfs(config.workDir) : [],
+      ...(stageGeminiSettings ? {
+        directoryVolumeSources: [GEMINI_SETTINGS_VOLUME],
+        rootOwnedTargets: [`/host${GEMINI_CLI_SYSTEM_SETTINGS_DIRECTORY}`],
+      } : {}),
+    },
     filterVolumes: config.runnerTopology === 'arc-dind'
       ? volumes => filterAgentVolumesForSysroot(volumes, config, effectiveHome)
       : undefined,
