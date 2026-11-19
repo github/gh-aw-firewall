@@ -70,6 +70,9 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 | Client receives 502 with error "Upstream response could not be safely inspected" | AUTH-005 | auth | workaround |
 | Client message "Unsupported upstream response content encoding" | AUTH-005 | auth | workaround |
 | Upstream response is aborted mid-stream with a request_error log event while the provider is healthy | AUTH-005 | auth | workaround |
+| Copilot Decisions (evals) request using the reported fine-grained PAT returns HTTP 400 with a plain-text body containing "Personal Access Tokens are not supported for this endpoint" | AUTH-006 | auth | workaround |
+| A standalone gh-aw evals judge fails as an opaque "Decisions request failed (HTTP 400)" and the run stays green | AUTH-006 | auth | workaround |
+| The same 400 occurs for every model name, including invalid ones, because the token is rejected before model validation | AUTH-006 | auth | workaround |
 | safe output validation failed in the workflow run | CI-001 | ci | workaround |
 | The agent job succeeds but the safe-output collection step exits non-zero | CI-001 | ci | workaround |
 | create-pull-request rejected: file not in allowed-files | CI-001 | ci | workaround |
@@ -429,6 +432,20 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 - **Action:** Retry the request; a truncated or corrupt compressed body is usually transient. For a persistent unsupported encoding on a body-bearing response, have the client send Accept-Encoding limited to identity, gzip, deflate or br (the proxy already narrows the header for most requests) or report the provider and endpoint. Never disable masking, expose provider keys to the agent, or treat the 502 as an authentication failure. A shipped release containing this behavior is not verified here.
 - **Related:** AUTH-002
 - **Provenance:** pull-request: https://github.com/github/gh-aw-firewall/pull/11471 · code: containers/api-proxy/credential-protection.js · code: containers/api-proxy/upstream-http.js · test: containers/api-proxy/server.credential-isolation.test.js · test: containers/api-proxy/credential-protection.test.js · doc: Upstream credential-echo masking (docs/api-proxy-sidecar.md)
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
+
+### AUTH-006 — Copilot /v1/decisions rejects a personal access token with a plain-text HTTP 400
+
+- **Boundary:** auth · **Status:** workaround
+- **Affects:** runner=any, runtime=any, provider=copilot, auth=github-token
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Copilot Decisions (evals) request using the reported fine-grained PAT returns HTTP 400 with a plain-text body containing "Personal Access Tokens are not supported for this endpoint" · A standalone gh-aw evals judge fails as an opaque "Decisions request failed (HTTP 400)" and the run stays green · The same 400 occurs for every model name, including invalid ones, because the token is rejected before model validation
+- **Discriminating conditions:** The request targets the Copilot listener (port 10002) or the Copilot Decisions endpoint at api.githubcopilot.com/v1/decisions · The configured credential is a personal access token in COPILOT_GITHUB_TOKEN; the reported reproduction used a fine-grained PAT (github_pat_*), and classic PAT acceptance is unverified · The upstream response is a fully captured, decoded 4xx plain-text body; truncated or uninspectable bodies do not receive the reason code
+- **Root cause:** In the reported reproduction, a fine-grained PAT configured as COPILOT_GITHUB_TOKEN was rejected by the Copilot /v1/decisions endpoint. AWF forwards the configured credential unchanged and does not exchange it for an OAuth or GitHub App token, so the upstream rejection is returned to the caller. The sidecar classifies a fully captured matching body as pat_unsupported in logs only. Classic PAT acceptance remains unverified. Standalone gh-aw evals run on the host runner outside AWF and cannot be fixed by proxy changes.
+- **Safe probe:** `docker logs awf-api-proxy 2>&1 | grep -F '"event":"upstream_error_response"' | grep -F '"provider":"copilot"' | grep -E '"endpoint":"/v1/decisions([?"]|$)' | grep -F '"status":400' | grep -F '"reason_code":"pat_unsupported"'` → Run while containers are kept (--keep-containers). A match requires one upstream_error_response record from provider copilot with the /v1/decisions endpoint (optionally with a query string), status 400, and reason_code pat_unsupported. Compare only the path and status with the failing evals call. Do not print request headers, docker inspect output, or the container environment, and do not issue a Decisions request to test acceptance.
+- **Action:** Do not switch models, change the Authorization prefix, or route through AWF as a remedy; the rejection precedes model validation. Use an authentication method the endpoint accepts (the Actions job token with copilot-requests: write is the only accepted credential observed, and only for one live request). Keep fine-grained PAT, classic PAT, OAuth, and GitHub App acceptance unverified until a maintainer confirms it. If the evals job runs outside AWF, the classification belongs in gh-aw's client, not the sidecar. Allowlisting api.githubcopilot.com only permits host egress and is not an authentication fix.
+- **Related:** AUTH-001
+- **Provenance:** pull-request: Clarify Copilot Decisions PAT support and rejection diagnostics (https://github.com/github/gh-aw-firewall/pull/11289) · pull-request: docs: clarify Copilot Decisions authentication and egress scope (https://github.com/github/gh-aw-firewall/pull/11310) · issue: evals: /v1/decisions rejects fine-grained PATs, and the opaque HTTP 400 hides why (https://github.com/github/gh-aw/issues/75637) · code: pat_unsupported reason classification (containers/api-proxy/upstream-log.js) · test: containers/api-proxy/server.decisions.test.js · test: containers/api-proxy/upstream-log.test.js · doc: /v1/decisions (evals) (docs/auth-matrix.md)
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
 
 ## Boundary: ci

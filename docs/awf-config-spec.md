@@ -602,10 +602,12 @@ When the API proxy sidecar is enabled, the following rules apply:
    | `GOOGLE_GEMINI_BASE_URL` | `http://172.30.0.30:10003` | Routes Gemini calls to sidecar |
    | `GEMINI_API_BASE_URL` | `http://172.30.0.30:10003` | Alias for compatibility |
    | `GOOGLE_VERTEX_BASE_URL` | `http://172.30.0.30:10004` | Routes Vertex AI calls to sidecar |
+   | `FOUNDRY_BASE_URL` | `http://172.30.0.30:10005` | Routes Azure Foundry calls to the optional adapter when configured |
 
 5. The API proxy sidecar SHALL inject the real credentials into upstream
    requests. Sidecar port assignments: 10000 (OpenAI), 10001 (Anthropic),
-   10002 (Copilot), 10003 (Gemini), 10004 (Vertex AI).
+   10002 (Copilot), 10003 (Gemini), 10004 (Vertex AI), and 10005 (Azure
+   Foundry, optional; binds only when configured).
 
 6. A conforming implementation MUST forward the following OpenTelemetry
    variables from the host into the **api-proxy sidecar** container so that
@@ -1516,7 +1518,8 @@ model-specific handling.
 ### 10.2 Introspection
 
 The API proxy exposes a `GET /reflect` endpoint on every provider port
-(10000–10004). Each port returns the same aggregate reflection payload, whose
+(10000–10005; 10005 binds only when Azure Foundry is configured). Each port
+returns the same aggregate reflection payload, whose
 `endpoints` array lists all provider adapters. Only the management port
 (10000, OpenAI) serves `/metrics` and the aggregate `/health`; non-management
 ports still serve provider-local `/health` responses.
@@ -1876,7 +1879,7 @@ The API proxy MUST enforce the max-runs limit as follows:
 
 ### 11.3 Introspection
 
-The `/reflect` endpoint (available on all provider ports 10000–10004; see
+The `/reflect` endpoint (available on all provider ports 10000–10005; see
 §10.2) MUST include the current max-runs state:
 
 ```json
@@ -1940,7 +1943,7 @@ The API proxy MUST enforce the permission-denied limit as follows:
 
 ### 11a.3 Introspection
 
-The `/reflect` endpoint (available on all provider ports 10000–10004; see
+The `/reflect` endpoint (available on all provider ports 10000–10005; see
 §10.2) MUST include the current permission-denied guard state:
 
 ```json
@@ -2029,7 +2032,7 @@ The API proxy MUST enforce the cache-miss limit as follows:
 
 ### 11b.3 Introspection
 
-The `/reflect` endpoint (available on all provider ports 10000–10004; see
+The `/reflect` endpoint (available on all provider ports 10000–10005; see
 §10.2) MUST include the current cache-miss guard state:
 
 ```json
