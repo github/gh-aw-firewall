@@ -33,7 +33,9 @@ for an example and fail-closed input verification guidance.
 
 Compose `/tmp` and `/host/tmp` are private tmpfs mounts, not host directory
 binds. Only the `/tmp/gh-aw` handoff and explicit subpath mounts are shared.
-The sbx default similarly shares `/tmp/gh-aw` rather than `/tmp`. Do not place
+The sbx default similarly shares `/tmp/gh-aw` rather than `/tmp`, plus the narrow
+`/usr/local/bin` toolchain directory and the policy's home tool paths
+([`sandbox-create.ts`](../src/sbx/sandbox-create.ts)). Do not place
 host service IPC in live handoff, home, workspace, or custom shares; read-only
 mounts do not prevent socket/FIFO communication. See the
 [host runtime IPC boundary](security.md#host-runtime-ipc-boundary) for the
