@@ -1,0 +1,37 @@
+{
+  "$schema": "../../schema.json",
+  "id": "CI-012",
+  "boundary": "ci",
+  "title": "Agentic workflow exits 0 without a terminal safe output, so completion is unconfirmed",
+  "symptoms": [
+    "Failure classification: missing_terminal_safe_output with driver exit code 0",
+    "Safe-output MCP calls observed: 0 although the agent finished with a text response",
+    "Scheduled optimizer run finishes with no issue, no noop and no report_incomplete"
+  ],
+  "conditions": [
+    "The workflow's successful exit paths (no eligible target, no report, or no recommendation) produce no create_issue, noop, or report_incomplete call",
+    "The driver exit code is 0 and the last tool call succeeded, so the run is not a crash or timeout",
+    "The workflow declares safe-outputs in its .md source but omits a noop output for successful no-issue exits",
+    "The failure is detected after the agent job, in the completion signal, not inside the AWF sandbox"
+  ],
+  "affects": { "runner": "any", "runtime": "any", "provider": "anthropic", "authMode": "any" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "fixed",
+  "rootCause": "The Claude token optimizer configured create_issue but no noop output, and its prompt gave no completion guidance for no-issue exits. When no eligible workflow was staged or no usage report existed, the agent exited cleanly with no terminal safe output, so the completion signal was missing even though the requested analysis had finished. The fix declares noop (max 1, report-as-issue false) and requires exactly one terminal output on every successful path: create_issue for recommendations, noop otherwise.",
+  "probe": {
+    "command": "grep -n -A3 -E '^  noop:' .github/workflows/claude-token-optimizer.md",
+    "expect": "A fixed source declares noop with max 1 and report-as-issue false. A run that still reports missing_terminal_safe_output with exit code 0 on a workflow without a noop output is consistent with this cause. Other causes also produce a missing terminal output (for example, an agent that stopped before its final tool call), so inspect the agent's last actions before selecting this finding. The probe reads only committed source and makes no network or inference call.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Declare a noop safe output for successful no-issue exits and require exactly one terminal safe output on every successful path. Do not treat a text-only exit 0 as completion, and do not widen the safe-output allowlist or permissions to make the signal appear. Recompile the affected workflow with gh aw compile and never hand-edit its .lock.yml. Hosted acceptance remains separate.",
+  "references": [
+    { "kind": "issue", "ref": "https://github.com/github/gh-aw-firewall/issues/11523", "title": "Daily Claude Token Optimization Advisor finished without a terminal safe output" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11535", "title": "Require terminal output from Claude token optimizer" },
+    { "kind": "code", "ref": ".github/workflows/claude-token-optimizer.md", "title": "safe-outputs.noop and terminal-output contract" },
+    { "kind": "test", "ref": "scripts/ci/smoke-copilot-workflow.test.ts", "title": "claude-token-optimizer reports successful no-issue exits with noop" }
+  ],
+  "related": ["CI-001", "CI-005"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-02-17"
+}

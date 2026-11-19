@@ -283,6 +283,7 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | CI-009 | ci | Supply-chain PR-image scan is cancelled at its job timeout during a slow package-mirror build | workaround | [`findings/ci/CI-009.json`](./findings/ci/CI-009.json) |
 | CI-010 | ci | Codex enclave exits 0 but its shell tool fails in nested bubblewrap | fixed | [`findings/ci/CI-010.json`](./findings/ci/CI-010.json) |
 | CI-011 | ci | Daily primary-agent regression fails at the guest credential or Codex invocation contract | fixed | [`findings/ci/CI-011.json`](./findings/ci/CI-011.json) |
+| CI-012 | ci | Agentic workflow exits 0 without a terminal safe output, so completion is unconfirmed | fixed | [`findings/ci/CI-012.json`](./findings/ci/CI-012.json) |
 | SEC-001 | security | Suspected isolation or credential-boundary regression must go to security review, not a bypass | needs-evidence | [`findings/security/SEC-001.json`](./findings/security/SEC-001.json) |
 
 ### Symptom lookup
@@ -384,6 +385,9 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | Copilot placeholder contract is unavailable | CI-011 | ci | fixed |
 | Codex regression stalls on inherited stdin | CI-011 | ci | fixed |
 | Codex attempts direct OpenAI inference with a placeholder credential under Cloud Hypervisor or NVX | CI-011 | ci | fixed |
+| Failure classification: missing_terminal_safe_output with driver exit code 0 | CI-012 | ci | fixed |
+| Safe-output MCP calls observed: 0 although the agent finished with a text response | CI-012 | ci | fixed |
+| Scheduled optimizer run finishes with no issue, no noop and no report_incomplete | CI-012 | ci | fixed |
 | The agent container can reach a domain that is not allowlisted | SEC-001 | security | needs-evidence |
 | A provider credential is observable inside the agent environment while the api-proxy is enabled | SEC-001 | security | needs-evidence |
 | Egress succeeds without a corresponding Squid access-log entry | SEC-001 | security | needs-evidence |
