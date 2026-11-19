@@ -1,4 +1,4 @@
-import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
+import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir, withEnv } from './service-test-setup.test-utils';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -84,6 +84,55 @@ describe('agent environment: options', () => {
 
     expect(env.CUSTOM_VAR).toBe('custom_value');
     expect(env.ANOTHER_VAR).toBe('another_value');
+  });
+
+  describe('sandbox temporary directory', () => {
+    it.each([false, true])('defaults TMPDIR to private /tmp with envAll=%s', (envAll) => {
+      withEnv({ TMPDIR: undefined }, () => {
+        const result = generateDockerCompose({ ...mockConfig, envAll }, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.TMPDIR).toBe('/tmp');
+      });
+    });
+
+    it.each([false, true])(
+      'does not inherit host TMPDIR (nested work directory: %s)',
+      (nestedWorkDir) => {
+        const hostTmpDir = nestedWorkDir ? mockConfig.workDir : '/var/tmp/host-only';
+        const workDir = path.join(mockConfig.workDir, 'awf-nested');
+        fs.mkdirSync(workDir, { mode: 0o700 });
+
+        withEnv({ TMPDIR: hostTmpDir }, () => {
+          const result = generateDockerCompose({ ...mockConfig, workDir, envAll: true }, mockNetworkConfig);
+          const agent = result.services.agent;
+          const env = agent.environment as Record<string, string>;
+
+          expect(env.TMPDIR).toBe('/tmp');
+          expect(agent.tmpfs).toContain('/host/tmp:rw,exec,nosuid,nodev,size=2097152k');
+          expect(agent.tmpfs).toContain(`${workDir}:rw,noexec,nosuid,size=1m`);
+          expect(process.env.TMPDIR).toBe(hostTmpDir);
+        });
+      },
+    );
+
+    it.each(['env', 'env-file', 'both'])('preserves explicit TMPDIR from --%s', (source) => {
+      const envFile = path.join(mockConfig.workDir, 'runtime.env');
+      fs.writeFileSync(envFile, 'TMPDIR=/tmp/gh-aw/file-temp\n');
+
+      withEnv({ TMPDIR: '/tmp/gh-aw-runtime-host' }, () => {
+        const result = generateDockerCompose({
+          ...mockConfig,
+          envAll: true,
+          ...(source !== 'env' ? { envFile } : {}),
+          ...(source !== 'env-file' ? { additionalEnv: { TMPDIR: '/tmp/gh-aw/explicit-temp' } } : {}),
+        }, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        expect(env.TMPDIR).toBe(
+          source === 'env-file' ? '/tmp/gh-aw/file-temp' : '/tmp/gh-aw/explicit-temp',
+        );
+      });
+    });
   });
 
   it('should exclude system variables when envAll is enabled', () => {

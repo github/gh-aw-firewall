@@ -628,6 +628,12 @@
               },
               "description": "Optional model-pattern allowlist for router/classifier candidates. Candidates are still intersected with apiProxy.allowedModels and apiProxy.disallowedModels for policy enforcement. When omitted, apiProxy.allowedModels continues to supply the routing candidates."
             },
+            "topK": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32,
+              "description": "Request up to this many distinct eligible primary models in the private options summary. Omit to keep the ordinary selection format."
+            },
             "objective": {
               "type": "object",
               "additionalProperties": false,

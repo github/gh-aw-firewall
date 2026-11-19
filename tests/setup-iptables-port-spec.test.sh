@@ -99,6 +99,21 @@ run_split_valid_port_specs() {
   ) 2>/dev/null | grep -v '^\[iptables\] WARNING:' || true
 }
 
+# split_valid_port_specs_status <input> <label>
+# Returns the exit status of split_valid_port_specs itself. setup-iptables.sh
+# runs under `set -e` and calls the splitter as a bare statement, so a non-zero
+# return aborts iptables setup even when the resulting array is correct.
+split_valid_port_specs_status() {
+  local input="$1"
+  local label="${2:-port spec}"
+  (
+    eval "${IS_VALID_FUNC_DEF}"
+    eval "${SPLIT_SPECS_FUNC_DEF}"
+    declare -a _result=()
+    split_valid_port_specs _result "$input" "$label"
+  ) >/dev/null 2>&1
+}
+
 # run_split_valid_port_specs_warnings <input> <label>
 # Outputs only the WARNING lines emitted by split_valid_port_specs.
 run_split_valid_port_specs_warnings() {
@@ -167,6 +182,16 @@ if [ -z "$result" ]; then
 else
   fail "split_valid_port_specs should return empty array for empty input, got: ${result}"
 fi
+
+# The caller runs under `set -e`, so every split must return 0, including the
+# empty, fail-closed, and all-invalid paths.
+for input in "" "80" "80,443,3128" "80, 443 ,3128" "3000-3010" "80,0,443" "0,65536,abc"; do
+  if split_valid_port_specs_status "$input" "port spec"; then
+    pass "split_valid_port_specs exits 0 for input '${input}'"
+  else
+    fail "split_valid_port_specs exited non-zero for input '${input}' (aborts set -e caller)"
+  fi
+done
 
 # Single valid port
 result=$(run_split_valid_port_specs "80" "port spec")

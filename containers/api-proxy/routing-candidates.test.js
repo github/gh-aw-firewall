@@ -1,6 +1,8 @@
 'use strict';
 
-const { buildRoutingCandidates, normalizePolicyList } = require('./routing-candidates');
+const {
+  buildRoutingCandidates, normalizePolicyList, resolvePrimaryRank, shortlistPrimaryOptions,
+} = require('./routing-candidates');
 const { createRoutingCatalogue } = require('./routing-catalogue');
 const { toRouteCandidates, validateRouteResponse } = require('./routing-contract');
 
@@ -17,6 +19,27 @@ function build(models, policy, provider = 'copilot', candidateModels) {
 }
 
 describe('routing candidates', () => {
+  it('keeps the first effort per base without removing sibling efforts from the full eligible rank', () => {
+    const { fullRank } = require('./fixtures/routing-options/three-efforts.json');
+    const pool = build([model('model-a', { efforts: ['low', 'medium', 'high'] }),
+      model('model-b', { efforts: ['high'] }), model('model-c', { efforts: ['medium'] })]);
+    const route = validateRouteResponse({ ranked_choices: fullRank }, pool.choices);
+    const resolved = resolvePrimaryRank(route.ranked_choices, pool);
+    expect(resolved).toEqual(fullRank);
+    expect(resolved[0]).toBe(pool.byId[fullRank[0].id].choice);
+    expect(shortlistPrimaryOptions(resolved)).toEqual([fullRank[0], fullRank[3], fullRank[4]]);
+  });
+
+  it('refills from the full eligible rank after suspensions and supports K above the pilot value', () => {
+    const { fullRank } = require('./fixtures/routing-options/three-efforts.json');
+    const fourthBase = { id: 'fourth-base', model: 'github-copilot/model-d', effort: 'high' };
+    const rank = [...fullRank, fourthBase];
+    expect(shortlistPrimaryOptions(rank)).toEqual([fullRank[0], fullRank[3], fullRank[4]]);
+    expect(shortlistPrimaryOptions(rank, 4)).toEqual([fullRank[0], fullRank[3], fullRank[4], fourthBase]);
+    const surviving = rank.filter(choice => choice.model !== fullRank[0].model);
+    expect(shortlistPrimaryOptions(surviving)).toEqual([fullRank[3], fullRank[4], fourthBase]);
+  });
+
   it('excludes retired Copilot candidates without changing public IDs or native mappings', () => {
     const pool = build([
       model('gpt-5-codex'), model('github-copilot/GPT-5-CODEX?effort=high'),

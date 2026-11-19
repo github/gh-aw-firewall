@@ -21,6 +21,7 @@ export function passthroughHostEnvironment(params: EnvPassthroughParams): void {
     const preexistingKeys = new Set(Object.keys(environment));
     copyEnvEntries(process.env, environment, {
       excludedKeys: excludedEnvVars,
+      keyPredicate: (key) => key !== 'TMPDIR',
       noOverwrite: true,
       maxValueSizeBytes: MAX_ENV_VALUE_SIZE,
       onSkippedOversized: (key, sizeBytes) => {

@@ -1,11 +1,9 @@
-import { HOST_EXECUTOR_TIMEOUT_GRACE_MS } from '../enclave/host-executor-protocol';
 import type { HostExecutorInvocationPlan } from '../enclave/host-executor-server';
 import {
   ENCLAVE_AGENT_API_PROXY_IP,
   ENCLAVE_AGENT_GITHUB_MCP_IP,
   ENCLAVE_GITHUB_MCP_PORT,
 } from '../enclave/network';
-import { ENCLAVE_AGENT_GITHUB_TOOLS } from '../types/enclave-options';
 import type { CloudHypervisorEnclaveExportPlan } from './enclave-export-plan';
 import type { HostExecutorAgentPolicy } from './enclave-executor-types';
 import type { CloudHypervisorManagerGuestConfig } from './manager-types';
@@ -17,22 +15,7 @@ import {
   type CloudHypervisorWorkloadProfile,
 } from './workload-profile';
 
-export function assertGithubCapabilityLifetime(
-  policy: HostExecutorAgentPolicy | undefined,
-  timeoutMs: number,
-): void {
-  if (!policy) return;
-  const hasCredentials = policy.githubAgentId !== undefined || policy.githubBearer !== undefined;
-  if (!hasCredentials && policy.githubExpiresAt === undefined && policy.githubAllowedTools === undefined) return;
-  if (!hasCredentials || !Number.isSafeInteger(policy.githubExpiresAt)
-    || policy.githubExpiresAt! < Date.now() + timeoutMs + HOST_EXECUTOR_TIMEOUT_GRACE_MS
-    || !Array.isArray(policy.githubAllowedTools) || policy.githubAllowedTools.length === 0
-    || new Set(policy.githubAllowedTools).size !== policy.githubAllowedTools.length
-    || !policy.githubAllowedTools.every((tool) =>
-      (ENCLAVE_AGENT_GITHUB_TOOLS as readonly string[]).includes(tool))) {
-    throw new Error('Trusted Cloud Hypervisor GitHub capability must include tools and cover the invocation deadline');
-  }
-}
+export { assertGithubCapabilityLifetime } from './host-enclave-executor-policy';
 
 export function createWorkloadProfile(
   plan: HostExecutorInvocationPlan,

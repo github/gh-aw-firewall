@@ -75,6 +75,45 @@ function makePairKey(model, effort) {
   return `${model.toLowerCase()}\u0000${effort === undefined ? '' : effort}`;
 }
 
+const PILOT_TOP_K = 3;
+const MAX_TOP_K = 32;
+
+function assertValidTopK(topK) {
+  if (!Number.isInteger(topK) || topK < 1 || topK > MAX_TOP_K) {
+    throw createRoutingError('routing_configuration_error', `routing.topK must be an integer from 1 to ${MAX_TOP_K}`);
+  }
+}
+
+// Shortlist only: costs, incumbents and probes still refer to exact choices in eligibleRank.
+function shortlistPrimaryOptions(eligibleRank, topK = PILOT_TOP_K) {
+  assertValidTopK(topK);
+  const seenBases = new Set();
+  const options = [];
+  for (const choice of eligibleRank) {
+    const base = choice.model.toLowerCase();
+    if (seenBases.has(base)) continue;
+    seenBases.add(base);
+    options.push(choice);
+    if (options.length === topK) break;
+  }
+  return Object.freeze(options);
+}
+
+// Only consume the rank accepted by validateRouteResponse, never the (potentially
+// larger) catalogue or offered pool. Resolve IDs to the immutable offered choices.
+function resolvePrimaryRank(rankedChoices, pool) {
+  const seen = new Set();
+  return Object.freeze(rankedChoices.map(({ id }) => {
+    const choice = pool.byId[id].choice;
+    const key = makePairKey(choice.model, choice.effort);
+    if (seen.has(key)) {
+      throw createRoutingError('routing_contract_error', 'The router route response returned a duplicate model and effort');
+    }
+    seen.add(key);
+    return choice;
+  }));
+}
+
 function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, eligibilityRequest = {} }) {
   const provider = catalogue?.provider;
   const providerInfo = Object.hasOwn(PROVIDERS, provider) ? PROVIDERS[provider] : null;
@@ -162,6 +201,10 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, eligi
 }
 
 module.exports = {
+  PILOT_TOP_K,
+  assertValidTopK,
+  resolvePrimaryRank,
+  shortlistPrimaryOptions,
   buildRoutingCandidates,
   getModelRoutingChoices,
   normalizePolicyList,

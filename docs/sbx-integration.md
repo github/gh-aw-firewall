@@ -220,7 +220,8 @@ What `createSandbox()` shares, in order:
    `hostPath` with an optional `:ro` suffix, so the manager parses out the host
    path and mode and **discards the container-path segment** (host path = guest
    path). Default is read-write; `ro` mode becomes `hostPath:ro`.
-3. **Three always-added system mounts** that carry the toolchain and runtime state:
+3. **System mounts** that carry the toolchain and runtime state (`/usr/local/bin` always;
+   `/tmp/gh-aw` only when it exists on the host):
    - **`/usr/local/bin`** — the toolchain seam. The Copilot CLI and other
      host-installed tools live here and are mounted straight in. Note it is
      *narrow*: only `/usr/local/bin`, **not** `/usr`, `/lib`, `/lib64`, or `/opt`.

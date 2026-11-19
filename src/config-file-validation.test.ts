@@ -321,6 +321,14 @@ describe('validateAwfFileConfig', () => {
       experimental: { modelRouting: true },
       apiProxy: { routing: { ...valid, candidateModels: [] } },
     })).toContain('config.apiProxy.routing.candidateModels must NOT have fewer than 1 items');
+    const validateK = (topK: unknown) => validateAwfFileConfig({
+      experimental: { modelRouting: true }, apiProxy: { routing: { ...valid, topK } },
+    });
+    for (const k of [1, 3, 32]) expect(validateK(k)).toEqual([]);
+    for (const k of [0, -1, 33, 1.5, '3', null, true]) expect(validateK(k)).not.toEqual([]);
+    expect(validateAwfFileConfig({
+      experimental: { modelRouting: true }, apiProxy: { routing: { ...valid, topK: 3, excludedModels: ['openai/model-a'] } },
+    })).toContain('config.apiProxy.routing.excludedModels is not supported');
     for (const experimental of [undefined, { modelRouting: false }, {}]) {
       expect(validateAwfFileConfig({ experimental, apiProxy: { routing: valid } }))
         .toContain('config.apiProxy.routing requires experimental.modelRouting: true');

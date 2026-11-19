@@ -9,6 +9,8 @@ export type ModelRoutingProvider = 'copilot' | 'openai' | 'anthropic';
 export interface ModelRoutingConfig {
   provider?: ModelRoutingProvider;
   candidateModels?: string[];
+  /** Request a private shortlist of up to this many distinct eligible bases (1 through 32). */
+  topK?: number;
   objective: {
     goal: ModelRoutingGoal;
     mode: ModelRoutingMode;
