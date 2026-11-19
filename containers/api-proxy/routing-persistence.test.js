@@ -69,10 +69,17 @@ describe('routing persistence', () => {
       stage: 'request', request_id: 'request-1', outcome: 'failed', status: 400,
       error_code: 'unsupported_reasoning_effort', error_type: 'invalid_request_error', error_source: 'awf',
     });
+
     expect(readRecords()[0]).toMatchObject({
       stage: 'request', request_id: 'request-1', outcome: 'failed', status: 400,
       error_code: 'unsupported_reasoning_effort', error_type: 'invalid_request_error', error_source: 'awf',
     });
+  });
+
+  test('does not publish the private options summary in selection logs', () => {
+    writeRoutingRecord({ stage: 'selection', routeOptions: { options: [] } });
+    const [record] = readRecords();
+    expect(record).not.toHaveProperty('routeOptions');
   });
 
   test('persists agent_name and caller_source on request records', () => {

@@ -305,8 +305,13 @@ function createProductionRoutingSession({
       }
       const controller = createController({ rawConfig, getAdapter, getCopilotAdapter, observer });
       result = await controller.run({ signal: abortController.signal, jobDeadlineMs: deadline });
-      publishRoutingResult(outputDir, result.ok ? 'selection.json' : 'failure.json',
-        result.ok ? result.selection : result.failure);
+      if (result.ok) {
+        // The bounded options are host-only; do not attach them to the live selection.
+        publishRoutingResult(outputDir, 'selection.json', result.routeOptions
+          ? { ...result.selection, routeOptions: result.routeOptions } : result.selection);
+      } else {
+        publishRoutingResult(outputDir, 'failure.json', result.failure);
+      }
     } catch (error) {
       result = Object.freeze({ ok: false, failure: toRoutingFailure(error instanceof RoutingError ? error :
         createRoutingError('routing_configuration_error', 'Private routing bootstrap failed')) });

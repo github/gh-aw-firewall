@@ -7,6 +7,8 @@ const {
   ROUTING_BOOTSTRAP_TIMEOUT_MS,
   createRoutingController,
 } = require('./routing-controller');
+const rankFixture = require('./fixtures/routing-options/three-efforts.json');
+const { createRoutingError } = require('./routing-errors');
 
 const CONVERSATION = [{ role: 'user', parts: [{ text: 'add a test' }] }];
 
@@ -57,6 +59,7 @@ function createHarness(overrides = {}) {
     }),
     route: jest.fn(async request => {
       calls.route.push(request);
+      if (overrides.routeResponse) return overrides.routeResponse(request);
       return { ranked_choices: [{ ...request.models[0], context_window: undefined }].map(choice => {
         const copy = { id: choice.id, model: choice.model };
         if (Object.hasOwn(choice, 'effort')) copy.effort = choice.effort;
@@ -84,6 +87,7 @@ function createHarness(overrides = {}) {
       provider: overrides.provider || 'copilot',
       objective: { goal: 'cost', mode: 'balanced' },
       task: { conversationFile: '/tmp/conversation.json' },
+      ...overrides.config,
     },
     planner,
     catalogue: { getSnapshot: jest.fn(async () => snapshot(models, overrides.provider || 'copilot')) },
@@ -96,7 +100,170 @@ function createHarness(overrides = {}) {
   return { controller, planner, executor, calls, records };
 }
 
+function replayRank(overrides = {}) {
+  const model = (id, efforts) => ({ id, efforts, protocols: ['responses'], contextWindow: 128_000 });
+  return createHarness({
+    models: [model('model-a', ['low', 'medium', 'high']), model('model-b', ['high']),
+      model('model-c', ['medium']), model('outside', ['high'])],
+    routeResponse: () => ({ ranked_choices: rankFixture.fullRank }),
+    ...overrides,
+    config: { candidateModels: ['model-*'], ...overrides.config },
+  });
+}
+
 describe('routing controller', () => {
+  it('replays the ordinary route without opt-in: same pick, calls, planning bodies and log shape', async () => {
+    const { controller, calls, records } = replayRank();
+    const result = await controller.run();
+    const selected = rankFixture.fullRank[0];
+    expect(result).toEqual({
+      ok: true, degradedClassification: false,
+      selection: {
+        schema: 'awf-routing-selection/v1', engine: 'copilot', provider: 'copilot',
+        choice: selected, wire_model: 'model-a', endpoint: '/responses',
+      },
+    });
+    const offered = [...rankFixture.fullRank].sort((a, b) => a.id.localeCompare(b.id));
+    expect(calls.classify).toEqual([{ conversation: CONVERSATION, models: offered }]);
+    expect(calls.route).toEqual([{
+      conversation: CONVERSATION, classification: VALID_CLASSIFICATION, objective: { goal: 'cost', mode: 'balanced' },
+      models: offered.map(choice => ({ ...choice, context_window: 128_000 })),
+    }]);
+    expect(calls.execute).toHaveLength(1);
+    expect(calls.checkBeforePrimary).toHaveLength(1);
+    expect(calls.checkBeforePrimary[0].selection).toEqual(result.selection);
+    expect(records).toEqual([
+      { stage: 'classification', purpose: PURPOSE, attempt: 1, classifier_model: offered[0].model, classifier_effort: 'high' },
+      {
+        stage: 'selection', objective: { goal: 'cost', mode: 'balanced' }, provider: 'copilot',
+        selected_provider: 'copilot', wire_model: 'model-a', endpoint: '/responses',
+        labels: VALID_CLASSIFICATION.labels, mode: 'balanced', classifier_model: offered[0].model, classifier_effort: 'high',
+        router: { name: 'gh-aw-router', version: '1.0.0' },
+        ranked_choices: rankFixture.fullRank.map(({ model, effort }) => ({ model, effort })),
+        selected_id: selected.id, selected_model: selected.model, selected_effort: selected.effort,
+        degraded_classification: false, degraded_reason: null, classifier_attempts: 1, eligible_choices: 5,
+        conversation_sha256: expect.stringMatching(/^[0-9a-f]{64}$/), catalogue_overlap: 0, latency_ms: expect.any(Number),
+      },
+    ]);
+  });
+
+  it.each(rankFixture.cases)('reports top $topK from the same rank without changing routing', async ({
+    topK, options,
+  }) => {
+    const { controller, calls, records } = replayRank({ config: { topK } });
+    const { selection, routeOptions } = await controller.run();
+    expect(routeOptions).toEqual({ ordinaryPick: rankFixture.ordinaryPick, options });
+    expect(selection.choice).toEqual(rankFixture.fullRank[0]);
+    expect(calls.checkBeforePrimary).toHaveLength(1);
+    expect(calls.checkBeforePrimary[0].selection).toBe(selection);
+    const offered = [...rankFixture.fullRank].sort((a, b) => a.id.localeCompare(b.id));
+    expect(calls.classify).toHaveLength(1);
+    expect(calls.classify[0].models).toEqual(offered);
+    expect(calls.route).toHaveLength(1);
+    expect(calls.route[0].models).toEqual(offered.map(c => ({ ...c, context_window: 128_000 })));
+    expect(calls.execute).toHaveLength(1);
+    expect(calls.execute[0].body.model).toBe('model-a');
+    expect(records[1].ranked_choices).toEqual(rankFixture.fullRank.map(({ model, effort }) => ({ model, effort })));
+    expect(records[1]).not.toHaveProperty('routeOptions');
+  });
+
+  it('reports only two distinct bases on a two-base permitted shortlist', async () => {
+    const rank = rankFixture.fullRank.slice(0, 4);
+    const { controller } = replayRank({
+      config: { topK: 3, candidateModels: ['model-a', 'model-b'] }, routeResponse: () => ({ ranked_choices: rank }),
+    });
+    const { selection, routeOptions } = await controller.run();
+    expect(selection.choice).toEqual(rank[0]);
+    expect(routeOptions).toEqual({
+      ordinaryPick: rankFixture.ordinaryPick,
+      options: [rankFixture.ordinaryPick, { model: 'github-copilot/model-b', effort: 'high' }],
+    });
+  });
+
+  it('refills past a multiplier-capped alternative but never substitutes for a blocked primary', async () => {
+    const env = jest.replaceProperty(process, 'env', {
+      ...process.env, AWF_MAX_MODEL_MULTIPLIER: '2', AWF_DEFAULT_MODEL_MULTIPLIER: '1',
+      AWF_MODEL_MULTIPLIERS: JSON.stringify({ 'model-b': 3 }),
+    });
+    try {
+      const { checkBeforePrimary } = require('./routing-provider-executor').createRoutingProviderExecutor({
+        getAdapter: jest.fn(), proxyRequest: jest.fn(), checkRateLimit: jest.fn(),
+      });
+      const { controller, calls, records } = replayRank({ config: { topK: 2 }, checkBeforePrimary });
+      const { selection, routeOptions } = await controller.run();
+      expect(selection.choice).toEqual(rankFixture.fullRank[0]);
+      expect(routeOptions).toEqual({
+        ordinaryPick: rankFixture.ordinaryPick,
+        options: [rankFixture.ordinaryPick, { model: 'github-copilot/model-c', effort: 'medium' }],
+      });
+      expect(records[1].ranked_choices).toEqual(rankFixture.fullRank.map(({ model, effort }) => ({ model, effort })));
+      expect(calls.classify[0].models).toContainEqual(rankFixture.fullRank[3]);
+      expect(calls.checkBeforePrimary).toHaveLength(1);
+
+      process.env.AWF_MODEL_MULTIPLIERS = JSON.stringify({ 'model-a': 3 });
+      const blocked = replayRank({ config: { topK: 2 }, checkBeforePrimary });
+      await expect(blocked.controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'model_multiplier_cap_exceeded' } });
+      expect(blocked.calls.checkBeforePrimary.map(call => call.selection.wire_model)).toEqual(['model-a']);
+    } finally {
+      env.restore();
+    }
+  });
+
+  it.each([
+    [{ dependencies: { policy: { disallowedModels: ['*'] } } }, 'model_policy_violation'],
+    [{ config: { candidateModels: ['missing'] } }, 'no_route'],
+    [{ planner: { route: async () => { throw { statusCode: 422, body: { code: 'no_route' } }; } } }, 'no_route'],
+    [{ routeResponse: () => ({ ranked_choices: [...rankFixture.fullRank, rankFixture.fullRank[0]] }) }, 'routing_contract_error'],
+    [{ routeResponse: () => ({ ranked_choices: [...rankFixture.fullRank, { id: 'foreign', model: 'openai/model-b' }] }) }, 'routing_contract_error'],
+  ])('does not soften a hard failure: %s', async (overrides, code) => {
+    const { controller, calls } = replayRank({
+      ...overrides, config: { ...overrides.config, topK: 3 },
+    });
+    await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code } });
+    expect(calls.checkBeforePrimary).toHaveLength(0);
+  });
+
+  describe('two offered IDs for the same model and effort', () => {
+    const models = ['model-b', 'github-copilot/model-b'].map(id =>
+      ({ id, efforts: ['high'], protocols: ['responses'], contextWindow: 128_000 }));
+    const routeResponse = req => ({
+      ranked_choices: req.models.map(({ id, model, effort }) => ({ id, model, effort })).reverse(),
+    });
+
+    it('keeps the first ID and wire mapping without topK', async () => {
+      const { controller, calls, records } = createHarness({ models, routeResponse });
+      const result = await controller.run();
+      const pair = { model: 'github-copilot/model-b', effort: 'high' };
+      expect(result.ok).toBe(true);
+      expect(result).not.toHaveProperty('routeOptions');
+      expect(result.selection).toMatchObject({
+        choice: { id: 'choice-0002', ...pair }, wire_model: 'github-copilot/model-b',
+      });
+      expect(records[1].ranked_choices).toEqual([pair, pair]);
+      expect(calls.classify).toHaveLength(1);
+      expect(calls.execute).toHaveLength(1);
+      expect(calls.route).toHaveLength(1);
+      expect(calls.checkBeforePrimary.map(call => call.selection)).toEqual([result.selection]);
+    });
+
+    it('rejects a duplicate pair even when only one option is requested', async () => {
+      const { controller, calls } = createHarness({ models, routeResponse, config: { topK: 1 } });
+      await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'routing_contract_error' } });
+      expect(calls.checkBeforePrimary).toHaveLength(0);
+    });
+  });
+
+  it('a final guard veto is terminal even when alternatives are reported', async () => {
+    const { controller, calls, records } = replayRank({
+      config: { topK: 3 },
+      checkBeforePrimary: () => { throw createRoutingError('model_policy_violation', 'Final guard veto'); },
+    });
+    await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'model_policy_violation' } });
+    expect(calls.checkBeforePrimary).toHaveLength(1);
+    expect(calls.checkBeforePrimary[0].selection.choice).toMatchObject(rankFixture.ordinaryPick);
+    expect(records.map(r => r.stage)).toEqual(['classification', 'failure']);
+  });
+
   it('pins trusted eligibility before discovery and shares it with classifier retries and the final preflight', async () => {
     const { proxyEligibilityStore, evaluateModelEligibility } = require('./model-eligibility');
     const { resolveModelIdentity } = require('./model-identity');

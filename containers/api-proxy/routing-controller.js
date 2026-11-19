@@ -1,7 +1,8 @@
 'use strict';
 
 const { createHash } = require('crypto');
-const { buildRoutingCandidates } = require('./routing-candidates');
+const { getModelMultiplierCapBlockState } = require('./guards/max-model-multiplier-guard');
+const { buildRoutingCandidates, resolvePrimaryRank, shortlistPrimaryOptions } = require('./routing-candidates');
 const { pinRequestEligibility, proxyEligibilityStore } = require('./model-eligibility');
 const { getModelReasoning } = require('./model-reasoning');
 const { extractClassifierOutput, preflightClassifierRequest } = require('./routing-classifier');
@@ -63,16 +64,19 @@ function classifierTimeoutError() {
   return error;
 }
 
+function modelEffortPair(choice) {
+  return {
+    model: choice.model,
+    ...(Object.hasOwn(choice, 'effort') ? { effort: choice.effort } : {}),
+  };
+}
+
 function createSelection(choice, mapping) {
   return deepFreezeJson({
     schema: 'awf-routing-selection/v1',
     engine: 'copilot',
     provider: mapping.provider,
-    choice: {
-      id: choice.id,
-      model: choice.model,
-      ...(Object.hasOwn(choice, 'effort') ? { effort: choice.effort } : {}),
-    },
+    choice: { id: choice.id, ...modelEffortPair(choice) },
     wire_model: mapping.wireModel,
     endpoint: {
       responses: '/responses',
@@ -290,8 +294,22 @@ function createRoutingController(dependencies) {
         mapPlannerFailure(error, 'route');
       }
       const route = validateRouteResponse(rawRoute, pool.choices);
-      const selectedChoice = route.ranked_choices[0];
-      const selection = createSelection(selectedChoice, pool.byId[selectedChoice.id]);
+      // Ordinary routing uses choice IDs; only the opt-in options contract requires unique pairs.
+      const ordinaryPick = route.ranked_choices[0];
+      const selection = createSelection(ordinaryPick, pool.byId[ordinaryPick.id]);
+      let routeOptions;
+      if (config.topK !== undefined) {
+        const fullRank = resolvePrimaryRank(route.ranked_choices, pool);
+        // The cap matches native wire IDs, not router IDs. It must not steer the primary past a guard veto.
+        const withinCap = fullRank.filter(({ id }) => {
+          const { wireModel, provider } = pool.byId[id];
+          return !getModelMultiplierCapBlockState(wireModel, provider);
+        });
+        routeOptions = deepFreezeJson({
+          ordinaryPick: modelEffortPair(ordinaryPick),
+          options: shortlistPrimaryOptions(withinCap, config.topK).map(modelEffortPair),
+        });
+      }
 
       await runPhase(({ signal: phaseSignal }) =>
         executor.checkBeforePrimary({
@@ -330,6 +348,7 @@ function createRoutingController(dependencies) {
       return Object.freeze({
         ok: true,
         selection,
+        ...(routeOptions ? { routeOptions } : {}),
         degradedClassification: classification === null,
         ...(degradedReason ? { degradedReason } : {}),
       });

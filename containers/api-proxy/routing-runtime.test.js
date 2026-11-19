@@ -291,6 +291,19 @@ describe('createProductionRoutingSession', () => {
     expect(fs.readdirSync(outputDir).filter(name => name.endsWith('.tmp'))).toEqual([]);
   });
 
+  test('applies the existing private file size limit to selection plus options before launch', async () => {
+    const outputDir = makeOutputDir();
+    const pair = { model: `github-copilot/${'a'.repeat(5000)}` };
+    const selection = { ...SELECTION, choice: { id: 'one', ...pair }, wire_model: pair.model.split('/')[1] };
+    const routeOptions = { ordinaryPick: pair, options: [pair] };
+    expect(Buffer.byteLength(JSON.stringify(selection))).toBeLessThan(16_384);
+    const session = createProductionRoutingSession({
+      rawConfig: '{}', outputDir, createController: controllerReturning({ ok: true, selection, routeOptions }),
+    });
+    await expect(session.start()).resolves.toMatchObject({ ok: false, failure: { code: 'routing_contract_error' } });
+    expect(fs.readdirSync(outputDir)).toEqual(['failure.json']);
+  });
+
   test('reflects the selection the agent must send, and failures without a selection', async () => {
     const pending = createProductionRoutingSession({
       rawConfig: '{}',

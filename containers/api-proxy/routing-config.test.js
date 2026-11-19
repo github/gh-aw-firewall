@@ -96,4 +96,17 @@ describe('routing configuration', () => {
     expect(() => parseRoutingConfig(JSON.stringify({ ...base, provider: null })))
       .toThrow('routing.provider is not supported');
   });
+
+  it('accepts an explicit bounded integer topK without enabling a manual model override', () => {
+    const base = { objective: { goal: 'cost', mode: 'balanced' }, task: { conversationFile: '/private/task' } };
+    const parse = fields => parseRoutingConfig(JSON.stringify({ ...base, ...fields }));
+    expect(parse({})).not.toHaveProperty('topK');
+    expect(() => parse({ topK: 3, excludedModels: ['openai/model-a'] })).toThrow('routing.excludedModels is not supported');
+    for (const topK of [1, 3, 32]) {
+      expect(parse({ topK }).topK).toBe(topK);
+    }
+    for (const topK of [0, -1, 33, 1.5, '3', null, true]) {
+      expect(() => parse({ topK })).toThrow('routing.topK');
+    }
+  });
 });
