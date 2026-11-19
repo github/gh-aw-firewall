@@ -10,6 +10,7 @@
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { createRunner, AwfRunner } from '../fixtures/awf-runner';
 import { cleanup } from '../fixtures/cleanup';
+import { checkCopilotPlaceholder } from '../fixtures/copilot-placeholder';
 import * as http from 'http';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -299,7 +300,7 @@ describe('API Proxy Sidecar', () => {
 
   test('should set COPILOT_TOKEN to placeholder in agent when Copilot token is provided', async () => {
     const result = await runner.run(
-      'bash -c "echo COPILOT_TOKEN=$COPILOT_TOKEN"',
+      checkCopilotPlaceholder('COPILOT_TOKEN'),
       {
         allowDomains: ['api.githubcopilot.com'],
         enableApiProxy: true,
@@ -313,7 +314,7 @@ describe('API Proxy Sidecar', () => {
     );
 
     expect(result).toSucceed();
-    expect(result.stdout).toContain('COPILOT_TOKEN=ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    expect(result.stdout.split('\n')).toContain('COPILOT_TOKEN: placeholder verified');
   }, 180000);
 
   test('should report copilot in health providers when Copilot token is provided', async () => {
