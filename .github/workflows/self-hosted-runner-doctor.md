@@ -25,8 +25,6 @@ network:
   allowed:
     - github
 safe-outputs:
-  threat-detection:
-    enabled: false
   create-issue:
     title-prefix: "🩺 Runner Doctor"
     max: 1

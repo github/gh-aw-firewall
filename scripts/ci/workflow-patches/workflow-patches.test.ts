@@ -87,12 +87,16 @@ describe('standalone workflow patch domains', () => {
     const lockPath = path.resolve(__dirname, '../../../.github/workflows/build-test.lock.yml');
     const input = fs.readFileSync(lockPath, 'utf8');
     const { content } = installLocalAwf(input, context(lockPath));
-    const configs = content.split('\n').filter(line => line.includes("printf '%s\\n'") && line.endsWith('/awf-config.json"'));
-    expect(configs).toHaveLength(2);
-    for (const line of configs) {
+    const configs = content.split('\n').filter(line =>
+      line.includes("printf '%s\\n' \"{") && line.endsWith('/awf-config.json"'));
+    expect(configs).toHaveLength(3);
+    const timeouts = configs.map(line => {
       const container = line.match(/\\"container\\":(\{[^{}]*\})/)![1];
-      expect(JSON.parse(container.replace(/\\"/g, '"'))).toEqual({ agentTimeout: 45 });
-    }
+      const parsed = JSON.parse(container.replace(/\\"/g, '"'));
+      expect(parsed).not.toHaveProperty('images');
+      return parsed.agentTimeout;
+    });
+    expect(timeouts).toEqual([45, 45, 10]);
     expect(content).toContain('--build-local');
     expect(content).toMatch(/ghcr\.io\/github\/gh-aw-mcpg:[^ ]+@sha256:/);
   });
