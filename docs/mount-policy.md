@@ -39,7 +39,9 @@ The handoff remains read-only and both guest views still see private tmpfs at
 the masked paths, including on the first run after cleanup. For a read-only
 custom handoff source, pre-create the mask directories yourself; AWF will not
 create directories in that source on behalf of the container.
-The sbx default similarly shares `/tmp/gh-aw` rather than `/tmp`. Do not place
+The sbx default similarly shares `/tmp/gh-aw` rather than `/tmp`, plus the narrow
+`/usr/local/bin` toolchain directory and the policy's home tool paths
+([`sandbox-create.ts`](../src/sbx/sandbox-create.ts)). Do not place
 host service IPC in live handoff, home, workspace, or custom shares; read-only
 mounts do not prevent socket/FIFO communication. See the
 [host runtime IPC boundary](security.md#host-runtime-ipc-boundary) for the
