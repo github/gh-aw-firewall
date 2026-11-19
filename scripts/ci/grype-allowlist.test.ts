@@ -35,8 +35,9 @@ test('keeps current Grype exceptions scoped to the observed vulnerable package v
     .sort();
   const expected = [
     ...['CVE-2026-95692', 'CVE-2026-107496', 'CVE-2026-95691', 'CVE-2026-88823']
-      .flatMap(vulnerability => ['libcrypto3', 'libssl3', 'openssl']
-        .map(name => `${vulnerability}:${name}:3.5.9-r0:apk`)),
+      .flatMap(vulnerability => ['3.5.9-r0', '3.5.9-r1']
+        .flatMap(version => ['libcrypto3', 'libssl3', 'openssl']
+          .map(name => `${vulnerability}:${name}:${version}:apk`))),
     'GHSA-fc5q-39xc-vjpf:picomatch:4.0.5:npm',
   ].sort();
 
