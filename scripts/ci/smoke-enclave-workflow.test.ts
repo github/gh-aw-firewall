@@ -14,9 +14,9 @@ const issuesSourcePath = path.join(workflowsDir, 'smoke-enclave-issues-read.md')
 const issuesLockPath = path.join(workflowsDir, 'smoke-enclave-issues-read.lock.yml');
 const dynamicSourcePath = path.join(workflowsDir, 'smoke-enclave-dynamic-issues-read.md');
 const dynamicLockPath = path.join(workflowsDir, 'smoke-enclave-dynamic-issues-read.lock.yml');
-const compilerVersion = 'v1.3.0';
+const compilerVersion = 'v1.3.1';
 const sourceDocumentedCompilerVersion = 'v1.2.3';
-const setupAction = 'github/gh-aw-actions/setup@8126d6cb07dea9221848de275af8a41474d839ca';
+const setupAction = 'github/gh-aw-actions/setup@dfe97a19c8249d41e2adfc95f92db2b8facea58f';
 const gatewayImage =
   'ghcr.io/github/gh-aw-mcpg:v0.5.10@sha256:629ddcd68a48ab02e7db8af527d2756c6db563b00c1d31d8aa8fcbac96f01c59';
 
