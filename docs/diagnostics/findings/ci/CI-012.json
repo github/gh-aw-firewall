@@ -14,7 +14,7 @@
     "The workflow declares safe-outputs in its .md source but omits a noop output for successful no-issue exits",
     "The failure is detected after the agent job, in the completion signal, not inside the AWF sandbox"
   ],
-  "affects": { "runner": "any", "runtime": "any", "provider": "anthropic", "authMode": "any" },
+  "affects": { "runner": "any", "runtime": "any", "provider": "copilot", "authMode": "any" },
   "versions": { "introduced": "unknown", "fixed": "unknown" },
   "status": "fixed",
   "rootCause": "The Claude token optimizer configured create_issue but no noop output, and its prompt gave no completion guidance for no-issue exits. When no eligible workflow was staged or no usage report existed, the agent exited cleanly with no terminal safe output, so the completion signal was missing even though the requested analysis had finished. The fix declares noop (max 1, report-as-issue false) and requires exactly one terminal output on every successful path: create_issue for recommendations, noop otherwise.",
