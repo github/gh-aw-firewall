@@ -588,7 +588,7 @@ describe('MicrovmVsockClient', () => {
     const silentClient = new MicrovmVsockClient({
       socketPath: silent.socketPath,
       guestPort: 52,
-      connectTimeoutMs: 5,
+      connectTimeoutMs: 250,
     });
     await expect(silentClient.connect()).rejects.toThrow(/readiness timed out/);
     silentClient.destroy();

@@ -512,6 +512,13 @@ func TestHTTPServesItsLoadedProfiles(t *testing.T) {
 					}
 					continue
 				}
+				if goal == "cost-speed" {
+					body := r.wantError(t, 422, CodeInvalidJSON)
+					if !strings.Contains(body["detail"].(string), `unsupported routing goal "cost-speed"`) {
+						t.Errorf("%s/%s: %q", goal, requested, body["detail"])
+					}
+					continue
+				}
 				body := r.wantError(t, 422, CodeInvalidRequest)
 				if !strings.Contains(body["detail"].(string), "routing profile is not served") {
 					t.Errorf("%s/%s: %q", goal, requested, body["detail"])
@@ -529,8 +536,7 @@ func TestHTTPServesItsLoadedProfiles(t *testing.T) {
 	}
 	s, _ := newTestServerFor(t, service, nil)
 	caps := serveRequest(t, s, http.MethodGet, "/capabilities", nil, nil).json(t)
-	want := `[{"goal":"cost","mode":"economy"},{"goal":"cost","mode":"balanced"},{"goal":"cost","mode":"robust"},` +
-		`{"goal":"cost-speed","mode":"economy"},{"goal":"cost-speed","mode":"balanced"},{"goal":"cost-speed","mode":"robust"}]`
+	want := `[{"goal":"cost","mode":"economy"},{"goal":"cost","mode":"balanced"},{"goal":"cost","mode":"robust"}]`
 	if got := canonical(t, caps["routing_profiles"]); got != want {
 		t.Errorf("published profiles %s", got)
 	}

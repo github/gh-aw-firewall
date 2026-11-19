@@ -160,7 +160,7 @@ caller policy permits continuing after a failure. This fallback never invents a 
 model or a default reasoning effort. Context exclusions and missing-profile errors still apply.
 
 An explicit `economy`, `balanced`, or `robust` objective mode always takes precedence over
-the classifier's mode. The goal remains the caller's choice of `cost` or `cost-speed`.
+the classifier's mode. The goal is `cost`; retired goals are never substituted.
 `/route` returns exact offered choices in preference order with the same response shape
 for automatic and explicit modes.
 
@@ -358,32 +358,34 @@ catalogue.
 
 ## Routing tables
 
-`routing/` holds one file per published profile, named `{goal}-{mode}.json` for the goals `cost`
-and `cost-speed` and the modes `economy`, `balanced`, and `robust`. Each file contains the
+`routing/` holds files named `{goal}-{mode}.json`. The served goal is `cost`, with the modes
+`economy`, `balanced`, and `robust`. Each file contains the
 ordered provider/model or provider/model-effort identities for every label cell and a separate
 classifier ranking. Prices, benchmark evidence, fitted parameters, and provider credentials stay
 outside the runtime package.
 
-The service loads every table it is given and picks one per request from `objective.goal` and
+The service validates every table it is given and picks one per request from `objective.goal` and
 the resolved mode. Auto is a selection rule, not a separate table profile. `/capabilities`
-lists only the fixed profiles that are loaded. For all automatic choices to work, load the
-three mode tables for each supported goal. The bundled `routing/` directory contains all six.
+lists only the fixed cost profiles that are loaded. For all automatic choices to work, load the
+three cost mode tables. Directory bundles missing any required cost profile fail at startup,
+even if they contain its old speed counterpart. The reader accepts either the three cost tables
+or the existing six-table bundle. Legacy `cost-speed` tables are validated but excluded from
+selection and discovery; their rankings do not affect cost routing or classifier order.
 
-A resolved profile that is not served fails with `invalid_request`, including when the
-balanced fallback table is missing. An inferred `robust` mode never silently becomes
-`balanced` because a table is unavailable. Single-file deployments work only when the
+A resolved profile that is not served fails with `invalid_request`. An inferred `robust` mode
+never silently becomes `balanced` because a table is unavailable. Single-file deployments work only when the
 resolved profile matches that file.
 
-Tables loaded together must agree on their repository, model catalogue, and classifier
+Cost tables loaded together must agree on their repository, model catalogue, and classifier
 order, so they differ only in their routing order. Select a directory or a single file with
 `--routing-tables` or `GH_AW_ROUTER_ROUTING_TABLES`, and mount or publish generated tables
 read-only.
 
 Only `schema_version` 2 is supported, and the loader rejects any other value. Version 2 replaced
 the `explain` task type with `analyze` and `review`, so version 1 tables no longer load. A table
-declares one fixed `cost` or `cost-speed` profile and carries no default-effort aliases. This
-format marker remains independent because tables can be supplied through a file or mount without
-replacing the router image.
+declares one fixed `cost` profile (or a legacy `cost-speed` profile) and carries no
+default-effort aliases. This format marker remains independent because tables can be supplied
+through a file or mount without replacing the router image.
 
 [schemas/routing-table.v2.schema.json](schemas/routing-table.v2.schema.json) specifies the
 table file format as a JSON Schema. The loader also enforces rules that relate parts of a table
@@ -396,6 +398,53 @@ missing.
 A published schema file never changes. A format change adds a new schema file, such as
 `routing-table.v3.schema.json`, and bumps `schema_version`. Every table must validate against
 the schema for its `schema_version`.
+
+### Cost-only migration and release gates
+
+Released-reader compatibility:
+
+| AWF image tag | Router | Three-cost-table bundle | Speed behavior |
+| --- | --- | --- | --- |
+| `0.29.16` | `0.3.1` | Validated with `validate-data` and the route example; six-table default also validates | Still serves speed when its tables are loaded; not the retirement contract |
+| Next AWF release (not yet published) | `0.4.0` | Both bundle shapes covered by the reader tests, with required-cost validation | Rejects speed even with the legacy bundle |
+
+The released `0.29.16` compatibility check used
+`ghcr.io/github/gh-aw-firewall/router@sha256:b532a1b62ff3ab458ff03471b675ba0a27675d5836dbc7578bca493b051a7325`.
+It establishes a released cost-only consumer, not support for the new retirement contract or
+strict complete-bundle validation in that older reader.
+
+Router **0.4.0** is the cost-only serving contract: `/capabilities` advertises only cost,
+and explicit `cost-speed` requests fail with HTTP 422 `invalid_json` and an
+`unsupported routing goal "cost-speed"` detail. The CLI reports the same error.
+Choose `cost` and an appropriate mode deliberately; there is no speed alias or automatic
+conversion. `cost/auto` still uses the classifier recommendation and falls back to balanced
+when the classification is absent or unknown. Fixed cost rankings are unchanged.
+
+Coordinate rollout with [github/gh-aw#78930](https://github.com/github/gh-aw/issues/78930):
+
+1. Announce the compiler deprecation and migration window. Migrate supported speed sources
+   and imports to an explicitly chosen cost level, and recompile existing workflow locks with
+   the migrated compiler. Do not deploy the retiring reader to speed-using locks before the
+   announced window ends. Incompatible locks must fail, not silently route by cost.
+2. Publish and pin a tested AWF release containing router 0.4.0 and its matching OpenAPI
+   document and API-proxy companion. This source version is **not evidence of a published
+   release**. Record the AWF release tag and registry digest in the compiler pin update;
+   verify `--version`, `/capabilities`, `validate-data`, `/classify`, and `/route` against both
+   bundle shapes before rolling out that pin.
+3. Only after that reader is available and the compiler migration window has ended, switch
+   the separately maintained table producer and publication/packaging to three cost tables.
+   The six table files and packaging glob are intentionally retained in this change: it is
+   the reader migration, not the producer cutover. No migration deadline is asserted here.
+
+The HTTP corpus runs against three- and six-table bundles, and bundle regression tests
+compare fixed and automatic cost routing across every label cell. Missing or invalid required
+cost tables are rejected for either bundle shape. Published table schemas v1/v2 stay frozen;
+schema v2 still describes readable legacy files, not the set of served request goals.
+No new table format or schema version is needed.
+
+Keep old six-table release artifacts, image digests, schemas, and matching contracts available
+for old pinned readers. Never replace bytes under an old release or digest. Do not pair a new
+cost-only producer bundle with an unvalidated old compiler/reader combination.
 
 ## Container
 
@@ -418,7 +467,7 @@ SPDX SBOM. The tag is the AWF version, while the image's version label stays the
 
 The image is built `FROM scratch`. It holds only the static binary at
 `/usr/local/bin/gh-aw-router`, the bundled tables under `/routing`, `openapi.yaml` and a CA
-bundle filtered by AWF's CA distrust policy in `trust/`, and has no shell. It serves all six
+bundle filtered by AWF's CA distrust policy in `trust/`, and has no shell. It serves the three cost
 profiles, runs as user `10001:10001`, and needs no credentials or outbound network. It sets
 `GOMAXPROCS=2` and `GOMEMLIMIT=384MiB` to fit AWF's 512 MiB container limit. This invocation
 uses a private network, a read-only filesystem, and no published host port. The service
@@ -468,13 +517,15 @@ path, expected status, optional headers and a complete request; default to
 and `request_valid: false` marks a schema-invalid object. The test-only `response_file`
 reference shares an exact classifier response between cases. A 204 response has no body.
 
-A case's optional `profiles` list restricts the table files loaded. Otherwise load all six.
+A case's optional `profiles` list restricts the table files loaded. Otherwise test both the
+three cost tables and all six legacy bundle files; either shape advertises only cost.
 Compare successful responses exactly, including choice order, effort omission, and prompt
 strings. For errors, compare status and the stable `code`; `detail` is diagnostic text, not a
 promise. The Go tests build the six tables in `corpus_test.go` and replay every case through the
 HTTP handler, and the container tests replay them against the image with the tables mounted.
 They also require unique case IDs, a case for every endpoint, and `explicit-*` route cases that
-cover all six profiles. The fake model identities are test data, not a provider catalogue.
+cover all three cost profiles and reject the retired speed profiles. The fake model identities
+are test data, not a provider catalogue.
 Never send them to live providers. The API proxy's tests copy a subset of these cases.
 
 [The behavior fixtures](testdata/parity) record the expected heuristic labels, request

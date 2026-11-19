@@ -2,8 +2,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createHash, randomBytes } from 'crypto';
 import { dockerMemoryBytes, assertDockerHostPath, type DockerHostMountIdentity } from './docker-host-storage';
-import type { DockerHostContext, DockerHostEnclaveExecutorOptions } from './docker-host-context';
+import type {
+  DockerHostAuthoritySettlement, DockerHostContext, DockerHostEnclaveExecutorOptions,
+  DockerHostExecutorEntry, InvocationAuthorityState,
+} from './docker-host-context';
 import type { DockerHostContainerOperations } from './docker-host-container';
+import type { HostExecutorBackendResult, HostExecutorInvocationPlan } from './host-executor-server';
+import { HOST_EXECUTOR_MAX_RESULT_BYTES } from './host-executor-protocol';
 import { logger } from '../logger';
 
 export interface DockerHostCommandResult {
@@ -106,6 +111,49 @@ export interface DockerHostRecoveryRecord {
     cleanupFailure?: import('./public-debug-events').PublicEnclaveOperationFailure;
     dockerState?: { running: false; exitCode: number | null; oomKilled: boolean | null };
   };
+}
+
+export function createDockerHostRecoveryRecord(
+  plan: HostExecutorInvocationPlan, entry: DockerHostExecutorEntry, storageTarget: string,
+  owner: DockerHostOwnerIdentity, publicDebug: boolean | undefined,
+): DockerHostRecoveryRecord {
+  return {
+    version: 1, runId: plan.runId, entryId: plan.entryId, invocationId: plan.invocationId,
+    storageTarget,
+    storageSource: `awf-enclave-${plan.runId}-${plan.entryId}-${plan.invocationId}`,
+    storageBytes: entry.hostWritableBytes, mountPending: true, owner,
+    ...(publicDebug ? { publicDebug: {
+      pending: true, stage: 'setup' as const, failure: 'setup-failed' as const, exitCode: null,
+    } } : {}),
+  };
+}
+
+export function buildDockerHostAuthoritySettlement(
+  plan: HostExecutorInvocationPlan, entry: DockerHostExecutorEntry, result: HostExecutorBackendResult,
+  state: Pick<InvocationAuthorityState, 'resolved' | 'launchedAt'>,
+): DockerHostAuthoritySettlement {
+  const uncertain = result.cleanupComplete === false || !state.resolved;
+  return {
+    outcome: result.outcome, uncertain, cleanupComplete: result.cleanupComplete !== false,
+    outputBytes: uncertain ? Number(entry.config.maxOutputBytes || HOST_EXECUTOR_MAX_RESULT_BYTES)
+      : result.result === undefined ? 0 : Buffer.byteLength(result.result),
+    executionSeconds: uncertain ? Math.max(Math.ceil(plan.timeoutMs / 1000), Number(entry.config.timeoutSeconds || 0))
+      : state.launchedAt === undefined ? 0 : Math.max(0, Math.ceil((Date.now() - state.launchedAt) / 1000)),
+  };
+}
+
+export async function settleDockerHostAuthority(
+  plan: HostExecutorInvocationPlan, entry: DockerHostExecutorEntry, result: HostExecutorBackendResult,
+  state: Pick<InvocationAuthorityState, 'resolved' | 'launchedAt'>,
+  settle: NonNullable<DockerHostEnclaveExecutorOptions['settleAgentAuthority']>,
+): Promise<HostExecutorBackendResult> {
+  const settlement = buildDockerHostAuthoritySettlement(plan, entry, result, state);
+  try {
+    if (!(await settle(plan, settlement)).revoked) throw new Error('Dynamic enclave revocation remains unresolved');
+  } catch {
+    return { outcome: 'executor-failure', cleanupComplete: false };
+  }
+  return result;
 }
 
 function digest(value: string): string { return createHash('sha256').update(value).digest('hex'); }

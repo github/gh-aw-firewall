@@ -27,6 +27,10 @@
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { createRunner, AwfRunner } from '../fixtures/awf-runner';
 import { cleanup } from '../fixtures/cleanup';
+import { checkCopilotPlaceholder } from '../fixtures/copilot-placeholder';
+
+const checkCopilotRead = checkCopilotPlaceholder('COPILOT_GITHUB_TOKEN');
+const verifiedCopilotRead = 'COPILOT_GITHUB_TOKEN: placeholder verified';
 
 describe('One-Shot Token Protection', () => {
   let runner: AwfRunner;
@@ -69,15 +73,8 @@ describe('One-Shot Token Protection', () => {
     }, 480000);
 
     test('should never expose real COPILOT_GITHUB_TOKEN to agent (credential isolation)', async () => {
-      const testScript = `
-        FIRST_READ=$(printenv COPILOT_GITHUB_TOKEN)
-        SECOND_READ=$(printenv COPILOT_GITHUB_TOKEN)
-        echo "First read: [$FIRST_READ]"
-        echo "Second read: [$SECOND_READ]"
-      `;
-
       const result = await runner.run(
-        testScript,
+        `${checkCopilotRead} && ${checkCopilotRead}`,
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
@@ -93,8 +90,7 @@ describe('One-Shot Token Protection', () => {
       expect(result).toSucceed();
       // Agent must NEVER see the real token — only the placeholder
       expect(result.stdout).not.toContain('copilot_test_token_67890');
-      expect(result.stdout).toContain('First read: [');
-      // The placeholder value is injected by the API proxy credential isolation
+      expect(result.stdout.split('\n').filter(line => line === verifiedCopilotRead)).toHaveLength(2);
     }, 240000);
 
     test('should never expose real OPENAI_API_KEY to agent (credential isolation)', async () => {
@@ -300,15 +296,8 @@ PYEOF
     }, 240000);
 
     test('should never expose real COPILOT_GITHUB_TOKEN in chroot mode', async () => {
-      const testScript = `
-        FIRST_READ=$(printenv COPILOT_GITHUB_TOKEN)
-        SECOND_READ=$(printenv COPILOT_GITHUB_TOKEN)
-        echo "First read: [$FIRST_READ]"
-        echo "Second read: [$SECOND_READ]"
-      `;
-
       const result = await runner.run(
-        testScript,
+        `${checkCopilotRead} && ${checkCopilotRead}`,
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
@@ -324,6 +313,7 @@ PYEOF
       expect(result).toSucceed();
       // Agent must NEVER see the real token — only the placeholder
       expect(result.stdout).not.toContain('copilot_chroot_token_67890');
+      expect(result.stdout.split('\n').filter(line => line === verifiedCopilotRead)).toHaveLength(2);
     }, 240000);
 
     test('should return cached value on subsequent getenv() in chroot mode', async () => {

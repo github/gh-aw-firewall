@@ -86,6 +86,9 @@ describe('enclave image contract', () => {
         'enclave/agent-executor/workspace.js',
         'enclave/agent-executor/framing.js',
         'enclave/script-executor/executor-handler.js',
+        'enclave/script-executor/executor-invocation.js',
+        'enclave/script-executor/executor-telemetry.js',
+        'enclave/script-executor/executor-settlement.js',
         'enclave/script-executor/script-runner.js',
       ]) {
         // eslint-disable-next-line @typescript-eslint/no-require-imports

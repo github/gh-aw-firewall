@@ -26,6 +26,7 @@ func TestDecodeRequestRejections(t *testing.T) {
 		{"null objective overrides", `{"conversation":[],"objective":{"goal":"cost","mode":"auto","overrides":null}}`, Invalid, "overrides"},
 		{"critical mode", `{"conversation":[],"objective":{"goal":"cost","mode":"critical"}}`, Invalid, "objective.mode"},
 		{"unknown goal", `{"conversation":[],"objective":{"goal":"speed","mode":"auto"}}`, Invalid, "objective.goal"},
+		{"retired goal", `{"conversation":[],"objective":{"goal":"cost-speed","mode":"auto"}}`, Invalid, `unsupported routing goal "cost-speed"; only cost is supported`},
 		{"uppercase goal", `{"conversation":[],"objective":{"goal":"COST","mode":"auto"}}`, Invalid, "objective.goal"},
 		{"objective missing", `{"conversation":[]}`, Invalid, "objective"},
 		{"objective null", `{"conversation":[],"objective":null}`, Invalid, "objective"},
@@ -130,7 +131,7 @@ func TestDecodeRouteRequestValues(t *testing.T) {
 			{"id": "a", "model": "p/m", "effort": null, "context_window": null},
 			{"id": "b", "model": "p/m", "effort": "high", "context_window": 18446744073709551617}
 		],
-		"objective": {"goal": "cost-speed", "mode": "auto"},
+		"objective": {"goal": "cost", "mode": "auto"},
 		"current_id": null,
 		"classification": null
 	}`
@@ -160,7 +161,7 @@ func TestDecodeRouteRequestValues(t *testing.T) {
 	if req.CurrentID != nil || req.Classification != nil {
 		t.Error("null current_id or classification was decoded as set")
 	}
-	if req.Objective.Key() != "cost-speed/auto" {
+	if req.Objective.Key() != "cost/auto" {
 		t.Errorf("objective = %s", req.Objective.Key())
 	}
 }

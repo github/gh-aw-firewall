@@ -148,9 +148,8 @@ func TestContainerServesBundledTables(t *testing.T) {
 	if err := json.Unmarshal(body, &caps); err != nil {
 		t.Fatal(err)
 	}
-	bundled, _ := filepath.Glob(filepath.Join("routing", "cost-*.json"))
-	if caps.Version != version || len(caps.Profiles) != len(bundled) {
-		t.Errorf("capabilities report version %q and %d profiles, want %q and %d", caps.Version, len(caps.Profiles), version, len(bundled))
+	if caps.Version != version || len(caps.Profiles) != len(Profiles) {
+		t.Errorf("capabilities report version %q and %d profiles, want %q and %d", caps.Version, len(caps.Profiles), version, len(Profiles))
 	}
 	if exec.Command("docker", "exec", c.id, "sh", "-c", "true").Run() == nil {
 		t.Error("the image has a shell")
@@ -190,6 +189,11 @@ func TestContainerRoutingContractCorpus(t *testing.T) {
 		slices.Sort(names)
 		key := strings.Join(names, ",")
 		groups[key] = append(groups[key], c)
+		if c.Profiles == nil {
+			costNames := slices.DeleteFunc(slices.Clone(names), func(name string) bool { return strings.HasPrefix(name, "cost-speed-") })
+			costKey := strings.Join(costNames, ",")
+			groups[costKey] = append(groups[costKey], c)
+		}
 	}
 	for key, cases := range groups {
 		t.Run(key, func(t *testing.T) {

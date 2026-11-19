@@ -135,7 +135,7 @@ const validateCapabilitiesSchema = compile({
         additionalProperties: false,
         required: ['goal', 'mode'],
         properties: {
-          goal: { type: 'string', enum: ['cost', 'cost-speed'] },
+          goal: { type: 'string', enum: ['cost'] },
           mode: { type: 'string', enum: MODES },
         },
       },

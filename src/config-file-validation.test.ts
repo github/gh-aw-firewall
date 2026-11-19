@@ -291,10 +291,22 @@ describe('validateAwfFileConfig', () => {
       experimental: { modelRouting: true },
       apiProxy: { routing: { ...valid, provider: 'gemini' } },
     })).toContain('config.apiProxy.routing.provider must be one of: copilot, openai, anthropic');
-    expect(validateAwfFileConfig({
-      experimental: { modelRouting: true },
-      apiProxy: { routing: { ...valid, objective: { ...valid.objective, goal: 'quality' } } },
-    })).toContain('config.apiProxy.routing.objective.goal must be one of: cost, cost-speed');
+    for (const goal of ['quality', 'cost-speed']) {
+      expect(validateAwfFileConfig({
+        experimental: { modelRouting: true },
+        apiProxy: { routing: { ...valid, objective: { ...valid.objective, goal } } },
+      })).toContain('config.apiProxy.routing.objective.goal must be one of: cost');
+    }
+    for (const mode of ['auto', 'economy', 'balanced', 'robust']) {
+      expect(validateAwfFileConfig({
+        experimental: { modelRouting: true },
+        apiProxy: { routing: { ...valid, objective: { goal: 'cost', mode } } },
+      })).toEqual([]);
+      expect(validateAwfFileConfig({
+        experimental: { modelRouting: true },
+        apiProxy: { routing: { ...valid, objective: { goal: 'cost-speed', mode } } },
+      })).toContain('config.apiProxy.routing.objective.goal must be one of: cost');
+    }
     expect(validateAwfFileConfig({
       experimental: { modelRouting: true },
       apiProxy: { routing: { ...valid, objective: { ...valid.objective, mode: 'fast' } } },

@@ -2,7 +2,7 @@
  * API proxy upstream routing and target customization options.
  */
 
-export type ModelRoutingGoal = 'cost' | 'cost-speed';
+export type ModelRoutingGoal = 'cost';
 export type ModelRoutingMode = 'economy' | 'balanced' | 'robust' | 'auto';
 export type ModelRoutingProvider = 'copilot' | 'openai' | 'anthropic';
 
