@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../../logger';
 import { createMissingOwnedDirectorySegments } from '../../fs-utils';
+import { openArtifactDirectory } from '../../resolved-config-artifact';
+import { dockerSensitivePathTargets } from '../../sensitive-paths';
 import { isStagedHostFile } from './docker-host-staging';
 import {
   LocalSourceResolver,
@@ -39,6 +41,73 @@ export interface NestedMountpointRequirement {
 export interface NestedMountpointOptions {
   directoryVolumeSources?: string[];
   rootOwnedTargets?: string[];
+  sensitiveTmpfs?: string[];
+}
+
+// Only the narrow handoff is shared under the two private temporary roots.
+// In particular, never prepare a host path for a mask covered by private tmpfs.
+const handoffRoots = dockerSensitivePathTargets('/tmp/gh-aw');
+
+function prepareHandoffMasks(
+  volumes: string[], sensitiveTmpfs: string[], resolveLocal: LocalSourceResolver,
+): string[] {
+  const masks = sensitiveTmpfs.map(spec => ({
+    source: '', target: spec.split(':', 1)[0], mode: 'rw',
+  }));
+  const covers = [
+    ...volumes.map(parseMount).filter((mount): mount is ParsedMount => mount !== undefined),
+    ...masks,
+  ];
+  const created: string[] = [];
+  for (const mask of masks) {
+    const cover = innermostCoveringMount(covers, mask.target);
+    if (!cover || cover.mode !== 'ro' || !cover.source.startsWith('/') ||
+      !handoffRoots.some(root => cover.target === root || cover.target.startsWith(`${root}/`))) continue;
+
+    const root = resolveLocal(cover.source);
+    if (root === undefined) {
+      logger.debug(`Cannot prepare ${mask.target} on the runner: ${cover.source} is daemon-only`);
+      continue;
+    }
+    // Compose can also be generated without running host setup (e.g. for
+    // inspection). Do not manufacture a missing bind source in that case.
+    if (!fs.statSync(root, { throwIfNoEntry: false })) continue;
+    const relative = path.posix.relative(cover.target, mask.target);
+    if (ensureMaskDirectory(root, relative)) created.push(path.join(root, relative));
+  }
+  return created;
+}
+
+// Do not chmod/chown an existing log or audit directory. On Linux, anchor each
+// lookup to the open parent so a renamed directory cannot redirect a sudo write.
+function ensureMaskDirectory(root: string, relative: string): boolean {
+  if (process.platform !== 'linux') {
+    // Docker Desktop's daemon can use a pre-staged handoff. Without procfs we
+    // cannot safely perform a privileged recursive mkdir on its behalf.
+    const target = path.join(root, relative);
+    if (fs.statSync(target, { throwIfNoEntry: false })?.isDirectory() &&
+      fs.realpathSync(target) === path.join(fs.realpathSync(root), relative)) return false;
+    throw new Error(`Create the directory ${target} for the read-only handoff before starting Docker`);
+  }
+  let fd = openArtifactDirectory(root);
+  let created = false;
+  try {
+    for (const name of relative.split('/')) {
+      const child = `/proc/self/fd/${fd}/${name}`;
+      try {
+        fs.mkdirSync(child, { mode: 0o755 });
+        created = true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
+      const next = fs.openSync(child, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+      fs.closeSync(fd);
+      fd = next;
+    }
+    return created;
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 function statKind(candidate: string): 'directory' | 'file' | 'missing' | 'unknown' {
@@ -235,7 +304,7 @@ export function ensureNestedMountpoints(
   localSourceResolver: LocalSourceResolver = identityLocalSourceResolver,
   options: NestedMountpointOptions = {},
 ): string[] {
-  const created: string[] = [];
+  const created = prepareHandoffMasks(volumes, options.sensitiveTmpfs ?? [], localSourceResolver);
   const requirements = planNestedMountpoints(volumes, localSourceResolver, options);
   const unmet: string[] = [];
 
