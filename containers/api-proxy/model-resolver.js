@@ -22,7 +22,13 @@
  */
 
 const { globMatch, extractVersionNumbers, compareByVersion, stripRedundantProviderPrefix } = require('./model-utils');
-const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
+const { parseModelAliases, resolveAliasDefinition } = require('./model-alias-config');
+const { _isModelPermittedByPolicy, _isModelHarnessPermitted } = require('./model-policy');
+const { splitModelParameters, appendModelParameters, applyModelParametersToResolution } = require('./model-parameters');
+const {
+  filterResolvableAliases: filterAliases,
+  filterAvailableModelsToConfiguredProviders,
+} = require('./model-provider-filter');
 const { getRetiredModelBlockState } = require('./guards/retired-model-guard');
 const { resolveModelIdentity, findAvailableModel } = require('./model-identity');
 const { getModelEligibilityScope, evaluateModelEligibility, isModelHarnessEligible } = require('./model-eligibility');
@@ -30,117 +36,9 @@ const { isAutomaticModelCandidate } = require('./automatic-model-eligibility');
 const {
   DEFAULT_MODEL_FALLBACK,
   normalizeFallbackConfig,
-  resolveAliasDefinition,
   selectMiddlePowerFallback,
   tryMiddlePowerFallback,
 } = require('./model-fallback');
-
-function splitModelParameters(model) {
-  if (typeof model !== 'string') return { baseModel: model, parameterSuffix: '' };
-  const queryIndex = model.indexOf('?');
-  if (queryIndex === -1) return { baseModel: model, parameterSuffix: '' };
-  return {
-    baseModel: model.slice(0, queryIndex),
-    parameterSuffix: model.slice(queryIndex),
-  };
-}
-
-function appendModelParameters(model, parameterSuffix) {
-  if (!parameterSuffix || typeof model !== 'string' || model.includes('?')) return model;
-  return `${model}${parameterSuffix}`;
-}
-
-function applyModelParametersToResolution(resolution, parameterSuffix) {
-  if (!resolution || !parameterSuffix) return resolution;
-  return {
-    ...resolution,
-    resolvedModel: appendModelParameters(resolution.resolvedModel, parameterSuffix),
-    ...(Array.isArray(resolution.candidates)
-      ? { candidates: resolution.candidates.map(candidate => appendModelParameters(candidate, parameterSuffix)) }
-      : {}),
-  };
-}
-
-/**
- * Check whether a model name is permitted by the given policy config.
- *
- * @param {string} model
- * @param {{ allowedModels?: string[]|null, disallowedModels?: string[]|null }} policyConfig
- * @param {string} provider
- * @returns {boolean}
- */
-function _isModelPermittedByPolicy(model, policyConfig, provider) {
-  if (provider === 'copilot' &&
-      getRetiredModelBlockState(model, provider, { inputMode: 'native' })) return false;
-  if (!policyConfig) return true;
-  return isModelPermittedByPolicy(
-    model,
-    policyConfig.allowedModels ?? null,
-    policyConfig.disallowedModels ?? null,
-    provider,
-  );
-}
-
-function _isModelHarnessPermitted(model, provider, resolutionState) {
-  const decision = evaluateModelEligibility(model, provider, resolutionState.eligibilityRequest, { inputMode: 'native' });
-  if (!['incompatible', 'unverified'].includes(decision.harness)) return true;
-  if (!resolutionState.harnessRejection) resolutionState.harnessRejection = decision;
-  return false;
-}
-
-/**
- * Parse model aliases configuration from a raw JSON string.
- *
- * @param {string|null|undefined} rawConfig - JSON string from AWF_MODEL_ALIASES env var
- * @returns {{ models: Record<string, string[]> } | null} Parsed config or null if invalid/absent
- */
-function parseModelAliases(rawConfig) {
-  if (!rawConfig) return null;
-  let parsed;
-  try {
-    parsed = JSON.parse(rawConfig);
-  } catch {
-    return null;
-  }
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-  if (!parsed.models || typeof parsed.models !== 'object' || Array.isArray(parsed.models)) return null;
-
-  const aliases = new Map();
-  for (const name of Object.keys(parsed.models)) {
-    const normalized = name.toLowerCase();
-    const previous = aliases.get(normalized);
-    if (previous !== undefined) {
-      const error = new Error(
-        `AWF_MODEL_ALIASES contains case-insensitive alias collision "${previous}" and "${name}"; rename one alias`,
-      );
-      error.code = 'ambiguous_model_alias';
-      throw error;
-    }
-    aliases.set(normalized, name);
-  }
-
-  // Validate structure: each value must be either:
-  //   - string[] (legacy alias syntax)
-  //   - { patterns: string[], fallback?: boolean } (extended alias syntax)
-  for (const [, value] of Object.entries(parsed.models)) {
-    if (Array.isArray(value)) {
-      for (const entry of value) {
-        if (typeof entry !== 'string') return null;
-      }
-      continue;
-    }
-
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-    if (!Array.isArray(value.patterns)) return null;
-    for (const entry of value.patterns) {
-      if (typeof entry !== 'string') return null;
-    }
-    if (value.fallback !== undefined && typeof value.fallback !== 'boolean') return null;
-  }
-
-  return { models: parsed.models };
-}
 
 /**
  * Attempt to resolve a model that has no alias entry.
@@ -625,135 +523,8 @@ function _resolveModel(
   return _resolveAliasPatterns(aliasKey, aliasDefinition, normalizedRequestedModel, aliases, availableModels, currentProvider, newChain, fallbackConfig, log, modelPolicyConfig, resolutionState);
 }
 
-/**
- * Filter an alias map to only include aliases resolvable to at least one
- * available model for at least one provider that has model data.
- *
- * An alias is kept when:
- *   - No provider has model data yet and its patterns can target a configured
- *     provider (or configured providers are unknown).
- *   - The alias resolves to a concrete model for at least one provider with data.
- *
- * Middle-power fallback is intentionally disabled during filtering so that only
- * genuine alias→model matches are counted; fallback selections would keep aliases
- * alive even after all their target models have been retired.
- *
- * @param {Record<string, string[]|{patterns: string[], fallback?: boolean}>} aliases
- * @param {Record<string, string[]|null>} availableModels - Cached models per provider (null = not yet fetched)
- * @param {Set<string>|string[]|null|undefined} [configuredProviders] - Provider cache keys that are configured
- * @returns {Record<string, string[]|{patterns: string[], fallback?: boolean}>}
- */
 function filterResolvableAliases(aliases, availableModels, configuredProviders) {
-  if (!aliases || typeof aliases !== 'object') return aliases;
-  const configured = configuredProviders === null || configuredProviders === undefined
-    ? null
-    : (configuredProviders instanceof Set
-      ? configuredProviders
-      : new Set(Array.isArray(configuredProviders) ? configuredProviders : []));
-
-  // Providers with a non-empty model list (data is available)
-  const providersWithData = Object.entries(availableModels)
-    .filter(([, models]) => Array.isArray(models) && models.length > 0)
-    .map(([provider]) => provider);
-
-  if (providersWithData.length === 0) {
-    if (configured === null) return aliases;
-    const result = {};
-    for (const aliasKey of Object.keys(aliases)) {
-      if (_aliasCanTargetConfiguredProvider(aliasKey, aliases, configured)) {
-        result[aliasKey] = aliases[aliasKey];
-      }
-    }
-    return result;
-  }
-
-  const noFallback = { enabled: false };
-  const result = {};
-  const configuredProvidersWithoutData = configured === null
-    ? new Set()
-    : new Set([...configured].filter(provider => !Array.isArray(availableModels[provider])));
-
-  for (const aliasKey of Object.keys(aliases)) {
-    const canResolveWithKnownModels = providersWithData.some(provider => {
-      const resolution = resolveModel(aliasKey, aliases, availableModels, provider, [], noFallback, null, false);
-      return resolution !== null;
-    });
-    const mayResolveWhenPendingCatalogLoads = _aliasCanTargetConfiguredProvider(
-      aliasKey,
-      aliases,
-      configuredProvidersWithoutData,
-    );
-
-    if (canResolveWithKnownModels || mayResolveWhenPendingCatalogLoads) {
-      result[aliasKey] = aliases[aliasKey];
-    }
-  }
-
-  return result;
-}
-
-/**
- * Conservatively determine whether an alias can target any configured provider
- * before provider model catalogues are available.
- *
- * @param {string} aliasKey
- * @param {Record<string, string[]|{patterns: string[], fallback?: boolean}>} aliases
- * @param {Set<string>} configuredProviders
- * @param {Set<string>} [chain]
- * @returns {boolean}
- */
-function _aliasCanTargetConfiguredProvider(aliasKey, aliases, configuredProviders, chain = new Set()) {
-  const normalizedKey = aliasKey.toLowerCase();
-  if (chain.has(normalizedKey)) return false;
-
-  const aliasEntry = Object.entries(aliases).find(([key]) => key.toLowerCase() === normalizedKey);
-  if (!aliasEntry) return configuredProviders.size > 0;
-
-  const nextChain = new Set(chain);
-  nextChain.add(normalizedKey);
-  const { patterns } = resolveAliasDefinition(aliasEntry[1]);
-  return patterns.some((pattern) => {
-    const slashIdx = pattern.indexOf('/');
-    if (slashIdx !== -1) {
-      return configuredProviders.has(pattern.slice(0, slashIdx).toLowerCase());
-    }
-    return _aliasCanTargetConfiguredProvider(pattern, aliases, configuredProviders, nextChain);
-  });
-}
-
-/**
- * Restrict a provider→models map to the providers that are actually configured
- * for this run.
- *
- * Alias resolution treats any provider with a populated model list as a valid
- * steering target. When a provider slot has no credentials (the proxy reports
- * `configured: false` for it and answers every request with
- * `provider_not_configured`), steering a request there guarantees a 100% failure
- * rate. Blanking those providers' model lists before resolution makes them
- * invisible to the alias table, so candidates are only ever drawn from provider
- * slots that can actually serve a request.
- *
- * When `configuredProviders` is null/undefined, the map is returned unchanged
- * because configuration is unknown. An empty set is a known state and blanks
- * every provider.
- *
- * @param {Record<string, string[]|null>} availableModels
- * @param {Set<string>|string[]|null|undefined} configuredProviders - Provider cache keys that are configured
- * @returns {Record<string, string[]|null>}
- */
-function filterAvailableModelsToConfiguredProviders(availableModels, configuredProviders) {
-  if (!availableModels || typeof availableModels !== 'object') return availableModels;
-  if (configuredProviders === null || configuredProviders === undefined) return availableModels;
-
-  const configured = configuredProviders instanceof Set
-    ? configuredProviders
-    : new Set(Array.isArray(configuredProviders) ? configuredProviders : []);
-
-  const result = {};
-  for (const [provider, models] of Object.entries(availableModels)) {
-    result[provider] = configured.has(provider) ? models : null;
-  }
-  return result;
+  return filterAliases(aliases, availableModels, configuredProviders, resolveModel);
 }
 
 module.exports = {

@@ -33,6 +33,12 @@ for an example and fail-closed input verification guidance.
 
 Compose `/tmp` and `/host/tmp` are private tmpfs mounts, not host directory
 binds. Only the `/tmp/gh-aw` handoff and explicit subpath mounts are shared.
+If `filesystem.allowWrite` makes the handoff read-only, AWF prepares directory
+mountpoints for the sensitive log and audit masks before starting the agent.
+The handoff remains read-only and both guest views still see private tmpfs at
+the masked paths, including on the first run after cleanup. For a read-only
+custom handoff source, pre-create the mask directories yourself; AWF will not
+create directories in that source on behalf of the container.
 The sbx default similarly shares `/tmp/gh-aw` rather than `/tmp`. Do not place
 host service IPC in live handoff, home, workspace, or custom shares; read-only
 mounts do not prevent socket/FIFO communication. See the

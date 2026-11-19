@@ -31,24 +31,26 @@ const STUB_MARKER = 'AWF_SECURE_PATH_STUB_OK';
 
 describe('sudo secure_path boundary', () => {
   let fixtureDir: string;
+  let toolcacheDir: string;
   let stubBinDir: string;
   let githubPathFile: string;
 
   beforeAll(async () => {
     await cleanup(false);
 
-    // /tmp is bind-mounted read-write into the agent container, so a stub
-    // placed here stands in for a hosted-toolcache bin directory.
+    // Only the tool needs to be visible to the agent. Keep the runner's
+    // GITHUB_PATH file in host tmp so only host-side PATH recovery can read it.
     fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-secure-path-'));
-    stubBinDir = path.join(fixtureDir, 'toolcache', 'bin');
+    const workspace = process.env.GITHUB_WORKSPACE || process.cwd();
+    toolcacheDir = fs.mkdtempSync(path.join(workspace, '.awf-toolcache-'));
+    stubBinDir = path.join(toolcacheDir, 'bin');
     fs.mkdirSync(stubBinDir, { recursive: true });
 
     const stub = path.join(stubBinDir, STUB_NAME);
     fs.writeFileSync(stub, `#!/bin/sh\necho "${STUB_MARKER}"\n`);
     fs.chmodSync(stub, 0o755);
     // mkdtemp creates 0700; the agent runs as the mapped host user.
-    fs.chmodSync(fixtureDir, 0o755);
-    fs.chmodSync(path.dirname(stubBinDir), 0o755);
+    fs.chmodSync(toolcacheDir, 0o755);
     fs.chmodSync(stubBinDir, 0o755);
 
     // Simulates a setup-* action having called core.addPath() before sudo ran.
@@ -60,6 +62,7 @@ describe('sudo secure_path boundary', () => {
   afterAll(async () => {
     await cleanup(false);
     fs.rmSync(fixtureDir, { recursive: true, force: true });
+    fs.rmSync(toolcacheDir, { recursive: true, force: true });
   });
 
   /**
