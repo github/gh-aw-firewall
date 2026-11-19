@@ -1,0 +1,47 @@
+{
+  "$schema": "../../schema.json",
+  "id": "AUTH-006",
+  "boundary": "auth",
+  "title": "Copilot /v1/decisions rejects a personal access token with a plain-text HTTP 400",
+  "symptoms": [
+    "Copilot Decisions (evals) request returns HTTP 400 with a plain-text body containing \"Personal Access Tokens are not supported for this endpoint\"",
+    "A standalone gh-aw evals judge fails as an opaque \"Decisions request failed (HTTP 400)\" and the run stays green",
+    "The same 400 occurs for every model name, including invalid ones, because the token is rejected before model validation"
+  ],
+  "conditions": [
+    "The request targets the Copilot listener (port 10002) or the Copilot Decisions endpoint at api.githubcopilot.com/v1/decisions",
+    "The configured credential is a personal access token in COPILOT_GITHUB_TOKEN; the reported reproduction used a fine-grained PAT (github_pat_*), and classic PAT acceptance is unverified",
+    "The upstream response is a fully captured, decoded 4xx plain-text body; truncated or uninspectable bodies do not receive the reason code"
+  ],
+  "affects": {
+    "runner": "any",
+    "runtime": "any",
+    "provider": "copilot",
+    "authMode": "github-token"
+  },
+  "versions": {
+    "introduced": "unknown",
+    "fixed": "unknown"
+  },
+  "status": "workaround",
+  "rootCause": "The Copilot Decisions endpoint does not accept personal access tokens. AWF forwards the configured credential unchanged and does not exchange a PAT for an OAuth or GitHub App token, so the upstream rejection is returned to the caller. The sidecar classifies the fully captured body as pat_unsupported in logs only. Standalone gh-aw evals run on the host runner outside AWF and cannot be fixed by proxy changes.",
+  "probe": {
+    "command": "docker logs awf-api-proxy 2>&1 | grep -E 'upstream_error_response' | grep -E 'pat_unsupported|/v1/decisions'",
+    "expect": "Run while containers are kept (--keep-containers). A match shows provider copilot, status 400, and reason_code pat_unsupported on a /v1/decisions request. Compare only the path and status with the failing evals call. Do not print request headers, docker inspect output, or the container environment, and do not issue a Decisions request to test acceptance.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Do not switch models, change the Authorization prefix, or route through AWF as a remedy; the rejection precedes model validation. Use an authentication method the endpoint accepts (the Actions job token with copilot-requests: write is the only accepted credential observed, and only for one live request). Keep fine-grained PAT, classic PAT, OAuth, and GitHub App acceptance unverified until a maintainer confirms it. If the evals job runs outside AWF, the classification belongs in gh-aw's client, not the sidecar. Allowlisting api.githubcopilot.com only permits host egress and is not an authentication fix.",
+  "references": [
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11289", "title": "Clarify Copilot Decisions PAT support and rejection diagnostics" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11310", "title": "docs: clarify Copilot Decisions authentication and egress scope" },
+    { "kind": "issue", "ref": "https://github.com/github/gh-aw/issues/75637", "title": "evals: /v1/decisions rejects fine-grained PATs, and the opaque HTTP 400 hides why" },
+    { "kind": "code", "ref": "containers/api-proxy/upstream-log.js", "title": "pat_unsupported reason classification" },
+    { "kind": "test", "ref": "containers/api-proxy/server.decisions.test.js" },
+    { "kind": "test", "ref": "containers/api-proxy/upstream-log.test.js" },
+    { "kind": "doc", "ref": "docs/auth-matrix.md", "title": "/v1/decisions (evals)" }
+  ],
+  "related": ["AUTH-001"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-03-31"
+}

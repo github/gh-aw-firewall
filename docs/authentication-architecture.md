@@ -15,6 +15,7 @@ All LLM providers use the same credential-isolation architecture. API keys are h
 | 10002 | GitHub Copilot     | `Authorization: Bearer` or `token`, or AWS SigV4 |
 | 10003 | Google Gemini      | `x-goog-api-key` (static) or `Authorization: Bearer` (GCP WIF) |
 | 10004 | Google Vertex AI   | `x-goog-api-key` (static) or `Authorization: Bearer` (GCP WIF) |
+| 10005 | Azure Foundry (optional) | `api-key` (static; binds only when `FOUNDRY_API_TARGET` and `FOUNDRY_API_KEY` are set) |
 
 OpenAI, Anthropic, Copilot, Gemini, and Vertex AI support `AWF_AUTH_TYPE=github-oidc` for their documented cloud providers. See [`docs/auth-matrix.md`](./auth-matrix.md) for the full per-provider auth matrix, including the enterprise/business Copilot `token`-prefix requirement, AWS OIDC SigV4 support for Bedrock Runtime, and GCP WIF support for Gemini/Vertex.
 :::
@@ -58,6 +59,7 @@ AWF uses a **3-container architecture**. The API proxy sidecar is always enabled
 │ - 10002 (Copilot proxy)         │       │ ✗ GITHUB_TOKEN — excluded        │
 │ - 10003 (Gemini proxy)          │       │   (not present in agent env)     │
 │ - 10004 (Vertex AI proxy)       │       │                                  │
+│ - 10005 (Foundry, if configured)│       │                                  │
 │ Injects auth headers:            │       │ User command execution:          │
 │ - x-api-key: sk-ant-...         │       │   claude-code, copilot, etc.     │
 │ - Authorization: Bearer sk-...   │       └──────────────────────────────────┘
@@ -148,7 +150,7 @@ Real API credentials are intentionally excluded from the agent container environ
 
 **Source:** `containers/api-proxy/server.js` (facade), `containers/api-proxy/server-factory.js` (shared HTTP handler logic), `containers/api-proxy/providers/*.js` (one adapter module per provider)
 
-The api-proxy container runs five HTTP servers, one per provider adapter:
+The api-proxy container runs one HTTP server per provider adapter. The Azure Foundry adapter (port 10005) is optional and binds only when configured:
 
 #### Port 10000: OpenAI proxy
 
@@ -315,7 +317,7 @@ environment:
 Squid routes the sidecar's outbound HTTP/HTTPS connections, but it does not apply the agent domain allowlist to them. `generateApiProxySection()` adds `http_access allow from_api_proxy` before domain ACL evaluation because OIDC exchanges and custom API targets may not appear in the agent allowlist. The api-proxy is therefore part of AWF's trusted computing base and has unrestricted outbound HTTP/HTTPS access through Squid. A compromised sidecar is not contained by the domain allowlist.
 
 :::note
-The api-proxy connects to the real APIs (e.g., `api.openai.com`) over standard HTTPS (port 443) through Squid. Ports 10000–10004 are only used for internal agent-to-proxy communication within the Docker network.
+The api-proxy connects to the real APIs (e.g., `api.openai.com`) over standard HTTPS (port 443) through Squid. Ports 10000–10005 are only used for internal agent-to-proxy communication within the Docker network.
 :::
 
 ## Additional token protection mechanisms
