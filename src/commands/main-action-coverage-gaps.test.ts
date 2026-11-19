@@ -1,7 +1,6 @@
-const mockExecSync = jest.fn();
+import './main-action-mocks.test-utils';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('fs', () => require('./main-action-fs-mock.test-utils').mainActionFsMockFactory());
+const mockExecSync = jest.fn();
 
 jest.mock('child_process', () => ({
   execSync: (...args: unknown[]) => mockExecSync(...args),
@@ -9,45 +8,21 @@ jest.mock('child_process', () => ({
 
 import { createMainAction } from './main-action';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').loggerMockFactory());
-jest.mock('../docker-manager');
-jest.mock('../host-iptables');
-jest.mock('../cli-workflow');
-jest.mock('../redact-secrets');
-jest.mock('../option-parsers');
-jest.mock('../dind-probe');
-jest.mock('../dind-bootstrap');
-jest.mock('./preflight');
-jest.mock('./signal-handler');
-jest.mock('./validate-options');
-jest.mock('../sbx-manager');
-
-import { logger } from '../logger';
-import * as dockerManager from '../docker-manager';
-import * as cliWorkflow from '../cli-workflow';
-import * as redactSecrets from '../redact-secrets';
-import * as optionParsers from '../option-parsers';
-import * as dindProbe from '../dind-probe';
-import * as dindBootstrap from '../dind-bootstrap';
-import * as preflight from './preflight';
-import * as signalHandler from './signal-handler';
-import * as validateOptions from './validate-options';
-import * as sbxManager from '../sbx-manager';
 import { DOH_PROXY_IP } from '../host-iptables-shared';
-import { MAIN_ACTION_STUB_CONFIG, setupMainActionTestHarness } from './main-action.test-utils';
+import {
+  MAIN_ACTION_STUB_CONFIG,
+  getMainActionMocks,
+  setupMainActionTestHarness,
+} from './main-action.test-utils';
 
-const mockedLogger = logger as jest.Mocked<typeof logger>;
-const mockedDockerManager = dockerManager as jest.Mocked<typeof dockerManager>;
-const mockedCliWorkflow = cliWorkflow as jest.Mocked<typeof cliWorkflow>;
-const mockedRedactSecrets = redactSecrets as jest.Mocked<typeof redactSecrets>;
-const mockedOptionParsers = optionParsers as jest.Mocked<typeof optionParsers>;
-const mockedDindProbe = dindProbe as jest.Mocked<typeof dindProbe>;
-const mockedDindBootstrap = dindBootstrap as jest.Mocked<typeof dindBootstrap>;
-const mockedPreflight = preflight as jest.Mocked<typeof preflight>;
-const mockedSignalHandler = signalHandler as jest.Mocked<typeof signalHandler>;
-const mockedValidateOptions = validateOptions as jest.Mocked<typeof validateOptions>;
-const mockedSbxManager = sbxManager as jest.Mocked<typeof sbxManager>;
+const {
+  mockedLogger,
+  mockedDockerManager,
+  mockedCliWorkflow,
+  mockedSignalHandler,
+  mockedValidateOptions,
+  mockedSbxManager,
+} = getMainActionMocks();
 
 describe('createMainAction coverage gaps', () => {
   let processExitSpy: jest.SpyInstance;
@@ -56,18 +31,7 @@ describe('createMainAction coverage gaps', () => {
   const savedGithubWorkspace = process.env.GITHUB_WORKSPACE;
 
   beforeEach(() => {
-    const harness = setupMainActionTestHarness({
-      mockedPreflight,
-      mockedValidateOptions,
-      mockedDockerManager,
-      mockedRedactSecrets,
-      mockedOptionParsers,
-      mockedDindProbe,
-      mockedDindBootstrap,
-      mockedSignalHandler,
-      mockedCliWorkflow,
-      mockedSbxManager,
-    });
+    const harness = setupMainActionTestHarness();
     processExitSpy = harness.processExitSpy;
     consoleErrorSpy = harness.consoleErrorSpy;
     getOptionValueSource = harness.getOptionValueSource;
