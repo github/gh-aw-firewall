@@ -215,14 +215,12 @@ ignore:
       version: "3.54.1-r0"
       type: apk
 
-  # ── OpenSSL 3.5.9-r0 pending upstream 3.5.10 ────────────────────────────────
+  # ── OpenSSL 3.5.9 Alpine backport exceptions ────────────────────────────────
   #
-  # The November 10 OpenSSL advisory affects 3.5.x before 3.5.10. Alpine 3.24
-  # currently provides 3.5.9-r0 and has not backported a fix; upstream has
-  # scheduled 3.5.10 for December 1, 2026. Accept only these exact package/CVE
-  # pairs rather than building from unreleased OpenSSL sources. Revisit when
-  # Alpine publishes a fixed v3.24 package; container maintainers should rebuild
-  # the images and remove these entries then.
+  # Grype v0.116.0 still matches OpenSSL's upstream <3.5.10 range against Alpine's
+  # 3.5.9-r0/r1 packages. Alpine's security tracker marks 3.5.9-r1 fixed for
+  # these advisories; accept only these exact package/CVE/version combinations
+  # until Grype recognizes Alpine's backport.
   - vulnerability: CVE-2026-95692
     package:
       name: libcrypto3
@@ -282,6 +280,66 @@ ignore:
     package:
       name: openssl
       version: "3.5.9-r0"
+      type: apk
+  - vulnerability: CVE-2026-95692
+    package:
+      name: libcrypto3
+      version: "3.5.9-r1"
+      type: apk
+  - vulnerability: CVE-2026-95692
+    package:
+      name: libssl3
+      version: "3.5.9-r1"
+      type: apk
+  - vulnerability: CVE-2026-95692
+    package:
+      name: openssl
+      version: "3.5.9-r1"
+      type: apk
+  - vulnerability: CVE-2026-107496
+    package:
+      name: libcrypto3
+      version: "3.5.9-r1"
+      type: apk
+  - vulnerability: CVE-2026-107496
+    package:
+      name: libssl3
+      version: "3.5.9-r1"
+      type: apk
+  - vulnerability: CVE-2026-107496
+    package:
+      name: openssl
+      version: "3.5.9-r1"
+      type: apk
+  - vulnerability: CVE-2026-95691
+    package:
+      name: libcrypto3
+      version: "3.5.9-r1"
+      type: apk
+  - vulnerability: CVE-2026-95691
+    package:
+      name: libssl3
+      version: "3.5.9-r1"
+      type: apk
+  - vulnerability: CVE-2026-95691
+    package:
+      name: openssl
+      version: "3.5.9-r1"
+      type: apk
+  - vulnerability: CVE-2026-88823
+    package:
+      name: libcrypto3
+      version: "3.5.9-r1"
+      type: apk
+  - vulnerability: CVE-2026-88823
+    package:
+      name: libssl3
+      version: "3.5.9-r1"
+      type: apk
+  - vulnerability: CVE-2026-88823
+    package:
+      name: openssl
+      version: "3.5.9-r1"
       type: apk
 
   # ── Withdrawn picomatch advisory still present in Grype's database ───────────

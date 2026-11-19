@@ -8,6 +8,7 @@
 
 const { getTierSortedModels } = require('./model-discovery');
 const { isAutomaticModelCandidate } = require('./automatic-model-eligibility');
+const { resolveAliasDefinition } = require('./model-alias-config');
 
 const DEFAULT_MODEL_FALLBACK = Object.freeze({
   enabled: true,
@@ -26,24 +27,6 @@ function normalizeFallbackConfig(modelFallbackConfig) {
   return {
     enabled: config.enabled !== false,
     strategy: config.strategy || 'middle_power',
-  };
-}
-
-/**
- * Normalize a raw alias definition into { patterns, fallback } shape.
- * @param {string[]|object} rawAlias
- * @returns {{ patterns: string[], fallback: boolean }}
- */
-function resolveAliasDefinition(rawAlias) {
-  if (Array.isArray(rawAlias)) {
-    return { patterns: rawAlias, fallback: true };
-  }
-  if (!rawAlias || typeof rawAlias !== 'object' || Array.isArray(rawAlias)) {
-    return { patterns: [], fallback: true };
-  }
-  return {
-    patterns: Array.isArray(rawAlias.patterns) ? rawAlias.patterns : [],
-    fallback: rawAlias.fallback !== false,
   };
 }
 

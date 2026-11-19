@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { generateDockerCompose } from '../compose-generator';
+import { dockerSensitiveTmpfs } from '../sensitive-paths';
 import { baseConfig, mockNetworkConfig } from '../test-helpers/docker-test-fixtures.test-utils';
 import type { WrapperConfig } from '../types';
 import {
@@ -105,6 +106,7 @@ describe('Gemini system settings contract', () => {
       expect.any(Number),
       expect.any(Function),
       {
+        sensitiveTmpfs: dockerSensitiveTmpfs(workDir),
         directoryVolumeSources: [GEMINI_SETTINGS_VOLUME],
         rootOwnedTargets: ['/host/etc/awf/gemini-cli'],
       },
