@@ -576,6 +576,17 @@
                   "at": "2026-11-14T00:41:55.019Z",
                   "confidence": "verified"
                 }
+              },
+              "organization_usage": {
+                "state": "conditional",
+                "condition": "GET /v1/organization/usage/decisions reports organization Decisions token usage and request counts using an admin API key with api.usage.read permission. Results support a time range, bucket width, and filtering or grouping by project, API key or model. num_model_requests counts requests, not individual questions. This usage-reporting credential requirement does not establish credential eligibility for inference or Copilot.",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://developers.openai.com/api/docs/guides/decisions",
+                  "revision": "bdb39f11dfccf5be1c8795f3b73b31b07b2af4ac24aa4254619716f17f6de773",
+                  "at": "2026-11-19T00:45:58.385Z",
+                  "confidence": "verified"
+                }
               }
             }
           }
