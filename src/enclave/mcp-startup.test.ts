@@ -186,6 +186,10 @@ describe('enclave MCP startup', () => {
       executorKind: 'agent', uniformTiming: true, payloadKey: 'prompt',
       workspace: agent.agentWorkspaceAdapter, exitCategories: agent.ENCLAVE_EXIT_CATEGORIES,
     });
+    expect(script.ledger).toEqual(expect.objectContaining({
+      tryDebit: expect.any(Function),
+      remainingBits: expect.any(Function),
+    }));
     for (const key of ['ledger', 'lane', 'clock', 'telemetry', 'audit', 'diagnosticAudit']) {
       expect(selectedAgent[key]).toBe(script[key]);
     }
