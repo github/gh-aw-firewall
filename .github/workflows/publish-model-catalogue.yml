@@ -54,7 +54,7 @@ jobs:
       - name: Verify producer, immutable branch retrieval and reviewed-source authentication
         run: npm test -- --runInBand scripts/model-information/publication.test.ts scripts/model-information/pricing-consumer.test.ts
       - name: Verify runtime loader, proxy packaging and accounting parity
-        run: npm test --prefix containers/api-proxy -- --runInBand catalogue-loader.test.js catalogue-proxy.test.js guards/ai-credits-guard.test.js runtime-model-catalog.test.js token-budget-log.test.js upstream-token.test.js upstream-http.test.js model-api-mapping.test.js routing-catalogue.test.js wire-api-compat.test.js server.decisions.test.js
+        run: npm test --prefix containers/api-proxy -- --runInBand catalogue-loader.test.js catalogue-proxy.test.js guards/ai-credits-tariff.test.js guards/ai-credits-notices.test.js guards/ai-credits-promotions.test.js guards/ai-credits-pricing-fallback.test.js runtime-model-catalog.test.js token-budget-log.test.js upstream-token.test.js upstream-http.test.js model-api-mapping.test.js routing-catalogue.test.js wire-api-compat.test.js server.decisions.test.js
       - name: Validate canonical sources and every generated projection offline
         id: snapshot
         run: node scripts/model-information/build-publication.cjs "$RUNNER_TEMP/snapshot.json" "$RUNNER_TEMP/snapshot-v2.json" "$RUNNER_TEMP/pricing-v1.json"

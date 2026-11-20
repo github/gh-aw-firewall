@@ -218,7 +218,7 @@ describe('scheduled canonical model source maintenance', () => {
     expect(source).toContain('Explicitly unavailable cache-write');
     expect(source).toContain('Never infer cached-input prices');
     expect(source).toContain('preserve all unrelated staged availability, reasoning, routing');
-    expect(source).toContain('catalogue-pricing.test.js guards/ai-credits-guard.test.js');
+    expect(source).toContain('catalogue-pricing.test.js guards/ai-credits-tariff.test.js guards/ai-credits-notices.test.js guards/ai-credits-promotions.test.js guards/ai-credits-pricing-fallback.test.js');
     expect(frontmatter['safe-outputs']['create-pull-request']['allowed-files'])
       .not.toContain('containers/api-proxy/*.js');
     for (const file of [
