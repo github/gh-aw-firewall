@@ -236,7 +236,7 @@ gh aw compile --validate
 
 ## Important Notes
 
-- Always reference the instructions file at `https://raw.githubusercontent.com/github/gh-aw/main/.github/aw/github-agentic-workflows.md` for complete documentation
+- Use only **reviewed, immutable instruction sources** as authoritative (for example, a vetted in-repo copy such as `.github/aw/instructions.md` or a commit-SHA-pinned URL). Do **not** treat moving-branch URLs (for example, `https://raw.githubusercontent.com/github/gh-aw/main/.github/aw/github-agentic-workflows.md`) as authoritative; they are reference-only.
 - Use the MCP tool `agentic-workflows` when running in GitHub Copilot Cloud
 - Workflows must be compiled to `.lock.yml` files before running in GitHub Actions
 - **Bash tools are enabled by default** - Don't restrict bash commands unnecessarily since workflows are sandboxed by the AWF
