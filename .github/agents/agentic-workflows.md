@@ -63,12 +63,12 @@ When you interact with this agent, it will:
 
 ## Available Prompts
 
-> **Note**: The prompt and reference files listed below are located in the [`github/gh-aw`](https://github.com/github/gh-aw) repository and are **not available locally** in this repository. Load them from their public URLs.
+> **Note**: The prompt and reference files listed below are located in the [`github/gh-aw`](https://github.com/github/gh-aw) repository and are **not available locally** in this repository. Only load them from **immutable, pinned URLs** (full commit SHA), or vendor reviewed copies into this repository. Do **not** use moving branch URLs (for example, `main`) as instruction sources.
 
 ### Create New Workflow
 **Load when**: User wants to create a new workflow from scratch, add automation, or design a workflow that doesn't exist yet
 
-**Prompt file**: `https://raw.githubusercontent.com/github/gh-aw/main/.github/aw/create-agentic-workflow.md`
+**Prompt file**: `https://raw.githubusercontent.com/github/gh-aw/COMMIT_SHA/.github/aw/create-agentic-workflow.md` (replace `COMMIT_SHA` with a reviewed, pinned commit)
 
 **Use cases**:
 - "Create a workflow that triages issues"
