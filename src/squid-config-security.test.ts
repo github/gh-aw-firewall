@@ -112,6 +112,41 @@ describe('Direct IP bypass protection', () => {
     expect(result).toContain('http_access deny dst_ipv4');
     expect(result).toContain('http_access deny dst_ipv6');
   });
+
+  describe('emitted raw-IP ACL patterns', () => {
+    const emittedPattern = (aclName: 'dst_ipv4' | 'dst_ipv6'): RegExp => {
+      const aclLine = aclName === 'dst_ipv4'
+        ? /^acl dst_ipv4 dstdom_regex (\S+)$/m
+        : /^acl dst_ipv6 dstdom_regex (\S+)$/m;
+      const match = aclLine.exec(generateSquidConfig({ domains: ['github.com'], port: defaultPort }));
+      if (!match) {
+        throw new Error(`acl ${aclName} not found in generated config`);
+      }
+      // Compile the pattern exactly as emitted into squid.conf; it is trusted generator output, not user input.
+      // eslint-disable-next-line security/detect-non-literal-regexp
+      return new RegExp(match[1]);
+    };
+
+    it('dst_ipv4 matches raw IPv4 literals but not hostnames that start with an IP-like label', () => {
+      const ipv4 = emittedPattern('dst_ipv4');
+      for (const ip of ['1.2.3.4', '10.0.0.1', '192.168.1.1', '255.255.255.255']) {
+        expect(ipv4.test(ip)).toBe(true);
+      }
+      for (const host of ['github.com', 'api.github.com', '1.2.3.4.example.com', '1.2.3']) {
+        expect(ipv4.test(host)).toBe(false);
+      }
+    });
+
+    it('dst_ipv6 matches raw IPv6 literals but not domain names', () => {
+      const ipv6 = emittedPattern('dst_ipv6');
+      for (const ip of ['::1', '[::1]', 'fe80::1', '[2001:db8::1]']) {
+        expect(ipv6.test(ip)).toBe(true);
+      }
+      for (const host of ['github.com', 'api.github.com', 'cafe.bad.fade', 'abc.def']) {
+        expect(ipv6.test(host)).toBe(false);
+      }
+    });
+  });
 });
 
 describe('Port validation in generateSquidConfig', () => {
