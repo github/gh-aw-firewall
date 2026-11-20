@@ -79,6 +79,8 @@ describe('enclave image contract', () => {
       }
       for (const relative of [
         'enclave/mcp-server/server.js',
+        'enclave/mcp-server/startup-plan.js',
+        'enclave/mcp-server/startup-executors.js',
         'enclave/mcp-server/agent-executor.js',
         'enclave/mcp-server/config.js',
         'enclave/mcp-server/mcp-protocol.js',
