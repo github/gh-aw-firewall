@@ -85,13 +85,15 @@ runtime and options; consult the generated relationships in the contract,
 not a copied sample Compose configuration.
 
 The Copilot CLI's `~/.copilot/session-state` and `~/.copilot/logs` are separate
-read-write bind targets. Before Docker starts, AWF creates any missing host-side
-target directories without an explicit mode (so they follow the process umask),
-then makes a best-effort `chown` to the safe runner UID:GID. That `chown` is also
-applied to existing directories, whose contents are left in place; a
-non-directory target is rejected. The `rw` bind mode does not override host
-ownership, permissions, ACLs, or a read-only filesystem, so it does not guarantee
-effective write access.
+read-write bind targets. Before Docker starts, AWF creates the host-side bind
+sources (`agent-session-state` and `agent-logs` in the work directory, or the
+configured session-state directory) without an explicit mode, then makes a
+best-effort `chown` to the safe runner UID:GID; that `chown` is also applied to
+existing directories, whose contents are left in place. Any missing nested
+`~/.copilot/session-state` and `~/.copilot/logs` target directories are created
+with mode `0755`, and a non-directory target is rejected. The `rw` bind mode
+does not override host ownership, permissions, ACLs, or a read-only filesystem,
+so it does not guarantee effective write access.
 `/tmp` and `/host/tmp` are private tmpfs mounts; the host `/tmp` is never exposed.
 Host paths below `/tmp` are therefore not implicitly available to the agent. To
 use one with `filesystem.allowWrite`, first expose only the required directory

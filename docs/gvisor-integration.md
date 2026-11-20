@@ -144,8 +144,10 @@ identical to default Docker mode*: AWF applies selective bind mounts under
 - `<workspaceDir>` → `/host<workspaceDir>` read-write; `/tmp` and `/host/tmp`
   are private tmpfs mounts, so the host `/tmp` root is not mounted wholesale.
   AWF separately bind-mounts selected paths, including the `/tmp/gh-aw` handoff,
-  configured runner binaries at `/host/tmp/awf-runner-bin`, and configured
-  log/state paths when they reside under `/tmp`.
+  configured runner binaries at `/host/tmp/awf-runner-bin`, and the agent log and
+  session-state directories at `$HOME/.copilot/logs` and
+  `$HOME/.copilot/session-state` (direct and `/host`-prefixed), which are always
+  bound regardless of where their host sources reside.
 - When `chroot.binariesSourcePath` is configured, that tool directory is additionally
   mounted at **`/host/tmp/awf-runner-bin`** (ro), and `entrypoint.sh` prepends it
   to `PATH`. This is especially useful for DinD/ARC staged filesystems where the
