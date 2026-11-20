@@ -1,14 +1,16 @@
 import type { WrapperConfig } from '../types';
-import type * as preflight from './preflight';
-import type * as validateOptions from './validate-options';
-import type * as dockerManager from '../docker-manager';
-import type * as redactSecrets from '../redact-secrets';
-import type * as optionParsers from '../option-parsers';
-import type * as dindProbe from '../dind-probe';
-import type * as dindBootstrap from '../dind-bootstrap';
-import type * as signalHandler from './signal-handler';
-import type * as cliWorkflow from '../cli-workflow';
-import type * as sbxManager from '../sbx-manager';
+import * as preflight from './preflight';
+import * as validateOptions from './validate-options';
+import * as dockerManager from '../docker-manager';
+import * as hostIptables from '../host-iptables';
+import * as redactSecrets from '../redact-secrets';
+import * as optionParsers from '../option-parsers';
+import * as dindProbe from '../dind-probe';
+import * as dindBootstrap from '../dind-bootstrap';
+import * as signalHandler from './signal-handler';
+import * as cliWorkflow from '../cli-workflow';
+import * as sbxManager from '../sbx-manager';
+import { logger } from '../logger';
 
 export const MAIN_ACTION_STUB_CONFIG = {
   allowedDomains: ['github.com'],
@@ -49,12 +51,41 @@ export interface MainActionTestHarness {
   getOptionValueSource: jest.Mock;
 }
 
-// Note: jest.mock('fs') with its factory closure variables cannot be centralized
-// here. Jest hoists jest.mock calls before import statements, so the factory
-// must close over variables declared in the same test file. Each suite keeps its
-// own jest.mock('fs') block and the local const mock* declarations it closes over.
+interface MainActionMocks {
+  mockedPreflight: jest.Mocked<typeof preflight>;
+  mockedValidateOptions: jest.Mocked<typeof validateOptions>;
+  mockedDockerManager: jest.Mocked<typeof dockerManager>;
+  mockedHostIptables: jest.Mocked<typeof hostIptables>;
+  mockedRedactSecrets: jest.Mocked<typeof redactSecrets>;
+  mockedOptionParsers: jest.Mocked<typeof optionParsers>;
+  mockedDindProbe: jest.Mocked<typeof dindProbe>;
+  mockedDindBootstrap: jest.Mocked<typeof dindBootstrap>;
+  mockedSignalHandler: jest.Mocked<typeof signalHandler>;
+  mockedCliWorkflow: jest.Mocked<typeof cliWorkflow>;
+  mockedSbxManager: jest.Mocked<typeof sbxManager>;
+  mockedLogger: jest.Mocked<typeof logger>;
+}
 
-export function setupMainActionTestHarness(deps: MainActionHarnessDeps): MainActionTestHarness {
+export function getMainActionMocks(): MainActionMocks {
+  return {
+    mockedPreflight: jest.mocked(preflight, { shallow: true }),
+    mockedValidateOptions: jest.mocked(validateOptions, { shallow: true }),
+    mockedDockerManager: jest.mocked(dockerManager, { shallow: true }),
+    mockedHostIptables: jest.mocked(hostIptables, { shallow: true }),
+    mockedRedactSecrets: jest.mocked(redactSecrets, { shallow: true }),
+    mockedOptionParsers: jest.mocked(optionParsers, { shallow: true }),
+    mockedDindProbe: jest.mocked(dindProbe, { shallow: true }),
+    mockedDindBootstrap: jest.mocked(dindBootstrap, { shallow: true }),
+    mockedSignalHandler: jest.mocked(signalHandler, { shallow: true }),
+    mockedCliWorkflow: jest.mocked(cliWorkflow, { shallow: true }),
+    mockedSbxManager: sbxManager as jest.Mocked<typeof sbxManager>,
+    mockedLogger: jest.mocked(logger, { shallow: true }),
+  };
+}
+
+export function setupMainActionTestHarness(
+  deps: MainActionHarnessDeps = getMainActionMocks()
+): MainActionTestHarness {
   jest.clearAllMocks();
   const processExitSpy = jest.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
     if (code === 1) {
@@ -90,5 +121,36 @@ export function setupMainActionTestHarness(deps: MainActionHarnessDeps): MainAct
     processExitSpy,
     consoleErrorSpy,
     getOptionValueSource,
+  };
+}
+
+export function setupMainActionPlatformHarness(): MainActionTestHarness {
+  const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  let harness: MainActionTestHarness;
+  let effectiveUidSpy: jest.SpyInstance;
+
+  beforeAll(() => {
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+  });
+
+  afterAll(() => {
+    Object.defineProperty(process, 'platform', originalPlatform);
+  });
+
+  beforeEach(() => {
+    effectiveUidSpy = jest.spyOn(process, 'geteuid').mockReturnValue(0);
+    harness = setupMainActionTestHarness();
+  });
+
+  afterEach(() => {
+    harness.processExitSpy.mockRestore();
+    harness.consoleErrorSpy.mockRestore();
+    effectiveUidSpy.mockRestore();
+  });
+
+  return {
+    get processExitSpy() { return harness.processExitSpy; },
+    get consoleErrorSpy() { return harness.consoleErrorSpy; },
+    get getOptionValueSource() { return harness.getOptionValueSource; },
   };
 }

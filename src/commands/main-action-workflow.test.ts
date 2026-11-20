@@ -1,63 +1,15 @@
+import './main-action-enclave-mocks.test-utils';
 import { mainActionFsMocks } from './main-action-fs-mock.test-utils';
 import { constants as fsConstants } from 'fs';
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('fs', () => require('./main-action-fs-mock.test-utils').mainActionFsMockFactory());
-
 import { createMainAction, testHelpers } from './main-action';
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').loggerMockFactory());
-jest.mock('../docker-manager');
-jest.mock('../host-iptables');
-jest.mock('../cli-workflow');
-jest.mock('../redact-secrets');
-jest.mock('../resolved-config-artifact');
-jest.mock('../option-parsers');
-jest.mock('../dind-probe');
-jest.mock('../dind-bootstrap');
-jest.mock('./preflight');
-jest.mock('./signal-handler');
-jest.mock('./validate-options');
-jest.mock('../sbx-manager');
-jest.mock('../enclave/gateway');
-jest.mock('../enclave/startup-diagnostics');
-jest.mock('../enclave/github-gateway');
-jest.mock('../enclave/cloud-hypervisor-lifecycle');
-jest.mock('../enclave/docker-lifecycle');
-jest.mock('../enclave/dynamic-delegation');
-jest.mock('../enclave/manager', () => ({
-  ...jest.requireActual('../enclave/manager'),
-  prepareEnclaves: jest.fn(),
-}));
-jest.mock('../external-runtime-backend-resolver', () => {
-  const actual = jest.requireActual('../external-runtime-backend-resolver');
-  return {
-    ...actual,
-    resolveExternalRuntimeBackend: jest.fn(actual.resolveExternalRuntimeBackend),
-  };
-});
-jest.mock('../services/agent-volumes/credential-hiding', () => ({
-  ...jest.requireActual('../services/agent-volumes/credential-hiding'),
-  buildCredentialHidingOverlays: jest.fn(() => []),
-}));
-
-import { logger } from '../logger';
-import * as dockerManager from '../docker-manager';
-import * as hostIptables from '../host-iptables';
-import * as cliWorkflow from '../cli-workflow';
-import * as redactSecrets from '../redact-secrets';
 import { publishEarlyResolvedConfig } from '../resolved-config-artifact';
-import * as optionParsers from '../option-parsers';
-import * as dindProbe from '../dind-probe';
-import * as dindBootstrap from '../dind-bootstrap';
-import * as preflight from './preflight';
-import * as signalHandler from './signal-handler';
-import * as validateOptions from './validate-options';
-import * as sbxManager from '../sbx-manager';
 import * as enclaveManager from '../enclave/manager';
 import * as externalRuntimeResolver from '../external-runtime-backend-resolver';
-import { MAIN_ACTION_STUB_CONFIG, setupMainActionTestHarness } from './main-action.test-utils';
+import {
+  MAIN_ACTION_STUB_CONFIG,
+  getMainActionMocks,
+  setupMainActionPlatformHarness,
+} from './main-action.test-utils';
 import type { WrapperConfig } from '../types';
 import { CloudHypervisorUnsupportedHostError } from '../cloud-hypervisor/errors';
 import { initializeEnclaveStartupProgress, updateEnclaveStartupProgress } from '../enclave/startup-progress';
@@ -79,50 +31,28 @@ const {
   fsyncSync: mockFsyncSync,
 } = mainActionFsMocks;
 
-const mockedLogger = logger as jest.Mocked<typeof logger>;
-const mockedDockerManager = dockerManager as jest.Mocked<typeof dockerManager>;
-const mockedHostIptables = hostIptables as jest.Mocked<typeof hostIptables>;
-const mockedCliWorkflow = cliWorkflow as jest.Mocked<typeof cliWorkflow>;
-const mockedRedactSecrets = redactSecrets as jest.Mocked<typeof redactSecrets>;
-const mockedOptionParsers = optionParsers as jest.Mocked<typeof optionParsers>;
-const mockedDindProbe = dindProbe as jest.Mocked<typeof dindProbe>;
-const mockedDindBootstrap = dindBootstrap as jest.Mocked<typeof dindBootstrap>;
-const mockedPreflight = preflight as jest.Mocked<typeof preflight>;
-const mockedSignalHandler = signalHandler as jest.Mocked<typeof signalHandler>;
-const mockedValidateOptions = validateOptions as jest.Mocked<typeof validateOptions>;
-const mockedSbxManager = sbxManager as jest.Mocked<typeof sbxManager>;
+const {
+  mockedLogger,
+  mockedDockerManager,
+  mockedHostIptables,
+  mockedCliWorkflow,
+  mockedRedactSecrets,
+  mockedDindProbe,
+  mockedDindBootstrap,
+  mockedPreflight,
+  mockedSignalHandler,
+  mockedValidateOptions,
+  mockedSbxManager,
+} = getMainActionMocks();
 const mockedExternalRuntimeResolver = externalRuntimeResolver as jest.Mocked<typeof externalRuntimeResolver>;
 const mockedEnclaveManager = enclaveManager as jest.Mocked<typeof enclaveManager>;
 
 describe('createMainAction', () => {
-  const originalPlatform = process.platform;
+  const platformHarness = setupMainActionPlatformHarness();
   let processExitSpy: jest.SpyInstance;
-  let consoleErrorSpy: jest.SpyInstance;
-  let effectiveUidSpy: jest.SpyInstance;
   let getOptionValueSource: jest.Mock;
 
-  beforeAll(() => {
-    Object.defineProperty(process, 'platform', { value: 'linux' });
-  });
-
-  afterAll(() => {
-    Object.defineProperty(process, 'platform', { value: originalPlatform });
-  });
-
   beforeEach(() => {
-    effectiveUidSpy = jest.spyOn(process, 'geteuid').mockReturnValue(0);
-    const harness = setupMainActionTestHarness({
-      mockedPreflight,
-      mockedValidateOptions,
-      mockedDockerManager,
-      mockedRedactSecrets,
-      mockedOptionParsers,
-      mockedDindProbe,
-      mockedDindBootstrap,
-      mockedSignalHandler,
-      mockedCliWorkflow,
-      mockedSbxManager,
-    });
     mockedEnclaveManager.prepareEnclaves.mockResolvedValue(undefined);
     mockedDockerManager.runAgentCommand.mockResolvedValue({ exitCode: 0, blockedDomains: [] });
     mockedRedactSecrets.deriveSensitiveEndpointForms.mockImplementation((domains?: string[]) =>
@@ -131,15 +61,8 @@ describe('createMainAction', () => {
     mockedRedactSecrets.redactSensitiveValues.mockImplementation((value: string, values: string[]) =>
       values.reduce((redacted, sensitive) => redacted.split(sensitive).join('[REDACTED]'), value)
     );
-    processExitSpy = harness.processExitSpy;
-    consoleErrorSpy = harness.consoleErrorSpy;
-    getOptionValueSource = harness.getOptionValueSource;
-  });
-
-  afterEach(() => {
-    processExitSpy.mockRestore();
-    consoleErrorSpy.mockRestore();
-    effectiveUidSpy.mockRestore();
+    processExitSpy = platformHarness.processExitSpy;
+    getOptionValueSource = platformHarness.getOptionValueSource;
   });
 
   describe('happy path', () => {
