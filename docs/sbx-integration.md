@@ -45,8 +45,9 @@ Docker Sandboxes stacks five isolation layers:
   with no path to the host daemon.
 - **Workspace isolation** — the host workspace is shared via a **virtiofs
   filesystem passthrough**, mounted at the *same absolute path* as on the host.
-  Default is a read-write direct mount (edits are live on the host); `--clone`
-  gives a read-only mount plus a private in-VM clone.
+  AWF passes the workspace as a plain read-write positional path, so edits are
+  live on the host. AWF never passes a `--clone` option or a read-only workspace
+  to `sbx create`.
 - **Credential isolation** — the host-side proxy **injects auth headers** into
   outbound API requests. Raw credential values never enter the VM.
 

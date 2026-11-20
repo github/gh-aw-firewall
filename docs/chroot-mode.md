@@ -182,8 +182,8 @@ In chroot mode, selective paths are mounted for security instead of the entire f
 | `/dev` | `/host/dev:ro` | Device nodes (`/dev/null` is re-added read-write, see below) |
 | `/etc/ssl` | `/host/etc/ssl:ro` | SSL certificates |
 | `/etc/ca-certificates` | `/host/etc/ca-certificates:ro` | CA certificates |
-| `/etc/pki/ca-trust/extracted` | `/host/etc/pki/ca-trust/extracted:ro` | RHEL/Amazon Linux extracted CA bundle roots |
-| `/etc/pki/tls/certs` | `/host/etc/pki/tls/certs:ro` | RHEL/Amazon Linux CA certificate directory |
+| `/etc/pki/ca-trust/extracted` | `/host/etc/pki/ca-trust/extracted:ro` | RHEL/Amazon Linux extracted CA bundle roots (mounted only when the host path exists) |
+| `/etc/pki/tls/certs` | `/host/etc/pki/tls/certs:ro` | RHEL/Amazon Linux CA certificate directory (mounted only when the host path exists) |
 | `/etc/alternatives` | `/host/etc/alternatives:ro` | Alternatives symlinks |
 | `/etc/ld.so.cache` | `/host/etc/ld.so.cache:ro` | Dynamic linker cache |
 | `/etc/nsswitch.conf` | `/host/etc/nsswitch.conf:ro` | Name service switch config |
