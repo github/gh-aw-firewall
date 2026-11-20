@@ -36,6 +36,7 @@
     { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11383" },
     { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11473" },
     { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11569" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11558" },
     { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11326" },
     { "kind": "code", "ref": "scripts/ci/build-smoke-images.sh" },
     { "kind": "code", "ref": "scripts/ci/workflow-patches/network-and-install.ts" },
