@@ -22,6 +22,8 @@ on:
       - 'containers/api-proxy/upstream-fallback.js'
       - 'containers/api-proxy/upstream-request-utils.js'
       - 'containers/api-proxy/upstream-response.js'
+      - 'containers/api-proxy/upstream-error-classification.js'
+      - 'containers/api-proxy/upstream-error-logging.js'
       - 'containers/api-proxy/upstream-token.js'
       - 'containers/api-proxy/upstream-log.js'
       - 'containers/api-proxy/token-persistence.js'
