@@ -1633,8 +1633,13 @@ The prompt-token count follows runtime Copilot pricing: Anthropic and Copilot
 usage with separately reported cache counts sum input, cache-read, and
 cache-write tokens; usage whose input count already includes cached tokens uses
 the reported input count.
-Promotions are informational only because provider discovery does not prove
-that a discount applies to a specific request; they never reduce accounting.
+A validated Copilot `billing.promo` discount applies only to provider-priced
+credit components, after tier selection, while the promotion is active (start
+inclusive, expiry exclusive). Operator overrides, configured catalogs or
+defaults, and fallback components are never implicitly discounted, and
+expired, future, malformed, or removed promotions do not reduce accounting.
+Logs, token-usage records, and reflection distinguish an advertised promotion
+from an applied discount; see the [API proxy guide](api-proxy-sidecar.md).
 Failed or empty discovery responses do not replace the last successful runtime
 snapshot.
 
