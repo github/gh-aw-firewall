@@ -40,6 +40,29 @@ function createProxyRes({ statusCode, headers }) {
 }
 
 describe('upstream-response', () => {
+  test('preserves public exports and testing helpers after module extraction', () => {
+    const response = require('./upstream-response');
+    const classification = require('./upstream-error-classification');
+    const logging = require('./upstream-error-logging');
+
+    expect(Object.keys(response).sort()).toEqual([
+      'MAX_MODEL_NOT_SUPPORTED_RETRIES',
+      '_testing',
+      'createUpstreamResponseHandlers',
+      'parseModelEndpointBlockedFromBody',
+      'parseModelNotSupportedFromBody',
+    ]);
+    expect(response.parseModelNotSupportedFromBody).toBe(classification.parseModelNotSupportedFromBody);
+    expect(response.parseModelEndpointBlockedFromBody).toBe(classification.parseModelEndpointBlockedFromBody);
+    expect(response.MAX_MODEL_NOT_SUPPORTED_RETRIES).toBe(2);
+    expect(response._testing).toEqual({
+      buildCopilotAuthErrorMessage: require('./upstream-log').buildCopilotAuthErrorMessage,
+      extractRequestModel: logging.extractRequestModel,
+      summarizeRequestTools: logging.summarizeRequestTools,
+      shouldCaptureErrorBodyChunk: expect.any(Function),
+    });
+  });
+
   test('accounts for Foundry decisions using the resolved upstream path', () => {
     const deps = createDependencies();
     const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);

@@ -1,15 +1,16 @@
 'use strict';
-const { redactCredentialError } = require('./credential-protection');
-
 const {
-  createLogRequestCompletion,
-  createLogUpstreamAuthError,
-  createLogUpstreamErrorResponse,
-  buildCopilotAuthErrorMessage,
-} = require('./upstream-log');
+  parseModelNotSupportedFromBody,
+  parseModelEndpointBlockedFromBody,
+} = require('./upstream-error-classification');
+const {
+  createUpstreamResponseLogging,
+  extractRequestModel,
+  summarizeRequestTools,
+} = require('./upstream-error-logging');
+const { buildCopilotAuthErrorMessage } = require('./upstream-log');
 const { handle400WithRetry, handleFallbackEligibleResponse } = require('./upstream-retry');
 const { setupTokenTracking } = require('./upstream-token');
-const { auditTrack, auditUpstreamErrorResponse } = require('./token-persistence');
 const { buildCopilotWireAuthDiagnostic } = require('./copilot-auth-diagnostics');
 const {
   transformCodexCompatibleResponseBody,
@@ -29,103 +30,11 @@ const {
 const MAX_MODEL_NOT_SUPPORTED_RETRIES = 2;
 const MAX_FALLBACK_INSPECTION_BYTES = 64 * 1024;
 
-/**
- * Pattern matching the Copilot error for a model that is not yet visible in
- * the caller's entitlement catalogue.  The error is transient — the catalogue
- * is non-deterministic and often stabilises within seconds.
- */
-const MODEL_NOT_SUPPORTED_PATTERN = /the requested model is not supported/i;
-
-/**
- * Pattern matching the Copilot error for a model that exists in the catalogue
- * but is not accessible via the requested endpoint (e.g. /chat/completions).
- * This is a permanent per-endpoint restriction, not a transient catalogue issue.
- * Examples: "model \"gpt-5.4-mini\" is not accessible via the /chat/completions endpoint"
- */
-const MODEL_ENDPOINT_BLOCKED_PATTERN = /not accessible via the .+? endpoint/i;
-
-/**
- * Return true when the response body contains a Copilot "model not supported"
- * error message.
- *
- * @param {Buffer} body
- * @returns {boolean}
- */
-function parseModelNotSupportedFromBody(body) {
-  return MODEL_NOT_SUPPORTED_PATTERN.test(body.toString('utf8'));
-}
-
-/**
- * Return true when the response body indicates the model is not accessible
- * via the requested endpoint.
- *
- * @param {Buffer} body
- * @returns {boolean}
- */
-function parseModelEndpointBlockedFromBody(body) {
-  return MODEL_ENDPOINT_BLOCKED_PATTERN.test(body.toString('utf8'));
-}
-
 function withoutContentLength(headers) {
   const next = { ...headers };
   delete next['content-length'];
   delete next['Content-Length'];
   return next;
-}
-
-function extractRequestModel(body) {
-  if (!body || body.length === 0) return null;
-  try {
-    const parsed = JSON.parse(body.toString('utf8'));
-    if (parsed && typeof parsed.model === 'string') return parsed.model;
-  } catch { /* non-JSON body */ }
-  return null;
-}
-
-/** Maximum number of request tool names echoed into an error diagnostic. */
-const MAX_LOGGED_TOOL_NAMES = 32;
-
-function extractToolName(tool) {
-  if (!tool || typeof tool !== 'object') return null;
-  // OpenAI/Copilot chat-completions shape: { type: 'function', function: { name } }
-  if (tool.function && typeof tool.function === 'object' && typeof tool.function.name === 'string') {
-    const name = tool.function.name.trim();
-    return name.length > 0 ? name : null;
-  }
-  // Responses API and Anthropic shape: { type: 'function'|..., name }
-  if (typeof tool.name === 'string') {
-    const name = tool.name.trim();
-    return name.length > 0 ? name : null;
-  }
-  return null;
-}
-
-/**
- * Summarise the tool surface of a request body so a zero-token upstream 400 can
- * be correlated with the tool definitions the agent sent (e.g. an MCP server
- * that failed to list tools).  Only tool *names* and counts are captured — no
- * tool descriptions, schemas, or message content.
- *
- * @param {Buffer} body
- * @returns {{tool_count: number, tool_names: string[], unnamed_tool_count: number}|null}
- */
-function summarizeRequestTools(body) {
-  if (!body || body.length === 0) return null;
-  let parsed;
-  try {
-    parsed = JSON.parse(body.toString('utf8'));
-  } catch {
-    return null;
-  }
-  if (!parsed || !Array.isArray(parsed.tools)) return null;
-  const names = [];
-  let unnamed = 0;
-  for (const tool of parsed.tools) {
-    const name = extractToolName(tool);
-    if (name === null) unnamed += 1;
-    else if (names.length < MAX_LOGGED_TOOL_NAMES) names.push(name);
-  }
-  return { tool_count: parsed.tools.length, tool_names: names, unnamed_tool_count: unnamed };
 }
 
 function shouldCaptureErrorBodyChunk(currentBytes, chunkLength, maxCaptureBytes) {
@@ -159,29 +68,19 @@ function createUpstreamResponseHandlers({
   parseDeprecatedHeaderFromBody,
   learnAndStripDeprecatedHeaderValue,
 }) {
-  const logRequestCompletion = createLogRequestCompletion({
+  const {
+    logRequestCompletion,
+    logUpstreamAuthError,
+    logUpstreamErrorResponse,
+    handleResponseStreamError,
+  } = createUpstreamResponseLogging({
     metrics,
     logRequest,
     sanitizeForLog,
+    otel,
+    handleRequestError,
     applyMaxRunsInvocation,
-  });
-
-  const logUpstreamAuthError = createLogUpstreamAuthError({
-    logRequest,
-    sanitizeForLog,
     applyPermissionDenied,
-    parseModelNotSupportedFromBody,
-  });
-  const logUpstreamErrorResponse = createLogUpstreamErrorResponse({
-    logRequest,
-    sanitizeForLog,
-    auditTrack: (event, fields) => {
-      if (event === 'UPSTREAM_ERROR_RESPONSE') {
-        auditUpstreamErrorResponse(fields);
-      } else {
-        auditTrack(event, fields);
-      }
-    },
   });
 
   function handleUpstreamResponse(proxyRes, requestHeaders, {
@@ -278,21 +177,9 @@ function createUpstreamResponseHandlers({
       });
     }
 
-    proxyRes.on('error', (err) => {
-      const cancellation = req.awfUpstreamCancellation;
-      if (cancellation?.cancelled) return;
-      if (cancellation) cancellation.finalized = true;
-      err = redactCredentialError(req, err);
-      req.awfEnclaveModelBudgetAttempt?.settleMissing();
-      otel.endSpanError(span, err, 502);
-      handleRequestError(err, {
-        res, requestId, provider, req, targetHost, startTime,
-        statusCode: 502, clientMessage: 'Response stream error',
-        onHeadersSent: () => {
-          if (typeof res.destroy === 'function') res.destroy(err);
-        },
-      });
-    });
+    proxyRes.on('error', (err) => handleResponseStreamError(err, {
+      res, requestId, provider, req, targetHost, startTime, span,
+    }));
 
     if (shouldBuffer400) {
       const bufferedChunks = [];
