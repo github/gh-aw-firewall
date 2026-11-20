@@ -1,5 +1,5 @@
 {
-  "catalogRevision": "1a5b8a6919632b1f9c8038c989423eceb5981a5b36c691d4415c82da1c016b88",
+  "catalogRevision": "b8bd7c60541f43a35be3e9cb034a11123fef5c92564f2e5e24f1ae01d371ada1",
   "compatibility": {
     "authority": "policy",
     "channel": "native-api",
@@ -21304,7 +21304,7 @@
       ]
     }
   ],
-  "revision": "5cd790fc72af51d43b317b23960d864fa12463c3565f59048078b7abd7fc8f14",
+  "revision": "bf6ccc7c1266ec2ef4e220e04b1495934284e15928e302c733c5a368196074a8",
   "schemaHash": "0010f667f601b7b4176a9d1df5cff0cc82a5a3314ea581585a13c7d4dca694f4",
   "schemaVersion": 1
 }

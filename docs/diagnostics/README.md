@@ -266,11 +266,13 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | NET-006 | network | awf-net subnet collides with host or cluster DNS resolver or routes | workaround | [`findings/network/NET-006.json`](./findings/network/NET-006.json) |
 | NET-007 | network | Compose refuses to start because a leftover awf-net belongs to another project | fixed | [`findings/network/NET-007.json`](./findings/network/NET-007.json) |
 | NET-008 | network | Denied hostname lookups reach the resolver because a Squid IP exception resolves names | fixed | [`findings/network/NET-008.json`](./findings/network/NET-008.json) |
+| NET-009 | network | Network-isolation egress fails with HIER_NONE after the host accepts Tailscale routes | workaround | [`findings/network/NET-009.json`](./findings/network/NET-009.json) |
 | AUTH-001 | auth | Enterprise or Business Copilot target rejects the Authorization header prefix | fixed | [`findings/auth/AUTH-001.json`](./findings/auth/AUTH-001.json) |
 | AUTH-002 | auth | API-proxy OIDC mode is configured but the Actions token request variables are missing | workaround | [`findings/auth/AUTH-002.json`](./findings/auth/AUTH-002.json) |
 | AUTH-003 | auth | gh-aw-launched HTTP MCP GitHub server fails the OIDC boundary check | workaround | [`findings/auth/AUTH-003.json`](./findings/auth/AUTH-003.json) |
 | AUTH-004 | auth | Primary API-proxy OIDC initialization races Squid readiness | fixed | [`findings/auth/AUTH-004.json`](./findings/auth/AUTH-004.json) |
 | AUTH-005 | auth | API-proxy refuses an upstream response it cannot safely inspect for credential echoes | workaround | [`findings/auth/AUTH-005.json`](./findings/auth/AUTH-005.json) |
+| AUTH-006 | auth | Copilot /v1/decisions rejects a personal access token with a plain-text HTTP 400 | workaround | [`findings/auth/AUTH-006.json`](./findings/auth/AUTH-006.json) |
 | CI-001 | ci | gh-aw safe-output step fails because the emitted payload violates the declared contract | workaround | [`findings/ci/CI-001.json`](./findings/ci/CI-001.json) |
 | CI-002 | ci | Compiler-owned enclave gateway is unavailable or violates the handoff contract | workaround | [`findings/ci/CI-002.json`](./findings/ci/CI-002.json) |
 | CI-003 | ci | Cloud Hypervisor regression admission rejects a regional Actions OIDC endpoint | fixed | [`findings/ci/CI-003.json`](./findings/ci/CI-003.json) |
@@ -336,6 +338,9 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | Compose fails before the agent or Squid starts, after a previous run was killed or timed out | NET-007 | network | fixed |
 | Resolver or DNS-policy logs show lookups for a hostname the agent was denied (TCP_DENIED / 403) in default mode | NET-008 | network | fixed |
 | A hostname is refused by Squid but its name still appears in DNS telemetry | NET-008 | network | fixed |
+| Every CONNECT to an allowlisted API host fails with 503 TCP_TUNNEL:HIER_NONE and an empty server field (-:-) in network-isolation (topology) mode | NET-009 | network | workaround |
+| The same workflow succeeds in host-access mode, or in isolation mode when no Tailscale step runs | NET-009 | network | workaround |
+| Agent retries report 503 Service Unavailable from the model endpoint while the allowlist already contains the host | NET-009 | network | workaround |
 | 400 Bad Request: Authorization header is badly formatted | AUTH-001 | auth | fixed |
 | Copilot requests fail immediately against api.enterprise.githubcopilot.com or api.business.githubcopilot.com | AUTH-001 | auth | fixed |
 | api-proxy reports that no OIDC token could be minted | AUTH-002 | auth | workaround |
@@ -349,6 +354,9 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | Client receives 502 with error "Upstream response could not be safely inspected" | AUTH-005 | auth | workaround |
 | Client message "Unsupported upstream response content encoding" | AUTH-005 | auth | workaround |
 | Upstream response is aborted mid-stream with a request_error log event while the provider is healthy | AUTH-005 | auth | workaround |
+| Copilot Decisions (evals) request using the reported fine-grained PAT returns HTTP 400 with a plain-text body containing "Personal Access Tokens are not supported for this endpoint" | AUTH-006 | auth | workaround |
+| A standalone gh-aw evals judge fails as an opaque "Decisions request failed (HTTP 400)" and the run stays green | AUTH-006 | auth | workaround |
+| The same 400 occurs for every model name, including invalid ones, because the token is rejected before model validation | AUTH-006 | auth | workaround |
 | safe output validation failed in the workflow run | CI-001 | ci | workaround |
 | The agent job succeeds but the safe-output collection step exits non-zero | CI-001 | ci | workaround |
 | create-pull-request rejected: file not in allowed-files | CI-001 | ci | workaround |

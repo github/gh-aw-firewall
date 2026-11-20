@@ -123,7 +123,10 @@ jobs:
             src/services/enclave-mcp-service.test.ts \
             src/services/enclave-mcp-executor-topology.test.ts \
             src/services/enclave-mcp-script-service.test.ts \
-            src/commands/main-action.test.ts \
+            src/commands/main-action-argument-parsing.test.ts \
+            src/commands/main-action-workflow.test.ts \
+            src/commands/main-action-cleanup.test.ts \
+            src/commands/main-action-config-artifacts.test.ts \
             src/commands/main-action-startup-diagnostics.test.ts \
             src/commands/main-action/external-runtime-wiring.test.ts \
             src/commands/main-action/exit-handling.test.ts \

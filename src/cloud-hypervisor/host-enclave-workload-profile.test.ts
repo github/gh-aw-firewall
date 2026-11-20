@@ -1,6 +1,16 @@
 import { HOST_EXECUTOR_TIMEOUT_GRACE_MS } from '../enclave/host-executor-protocol';
 import type { HostExecutorAgentPolicy } from './enclave-executor-types';
-import { assertGithubCapabilityLifetime } from './host-enclave-workload-profile';
+import {
+  assertGithubCapabilityLifetime as assertExecutorGithubCapabilityLifetime,
+  createWorkloadProfile as createExecutorWorkloadProfile,
+} from './host-enclave-executor-policy';
+import { assertGithubCapabilityLifetime, createWorkloadProfile } from './host-enclave-workload-profile';
+
+describe('host enclave workload profile', () => {
+  it('re-exports the shared workload profile factory from the executor policy module', () => {
+    expect(createExecutorWorkloadProfile).toBe(createWorkloadProfile);
+  });
+});
 
 describe('host enclave GitHub capability lifetime', () => {
   const now = 1_800_000_000_000;
@@ -18,6 +28,10 @@ describe('host enclave GitHub capability lifetime', () => {
     jest.spyOn(Date, 'now').mockReturnValue(now);
   });
   afterEach(() => jest.restoreAllMocks());
+
+  it('re-exports the shared executor policy validator', () => {
+    expect(assertGithubCapabilityLifetime).toBe(assertExecutorGithubCapabilityLifetime);
+  });
 
   it('permits GitHub-free policies and capabilities covering the exact deadline', () => {
     expect(() => assertGithubCapabilityLifetime(undefined, timeoutMs)).not.toThrow();

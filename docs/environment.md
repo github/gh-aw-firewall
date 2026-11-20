@@ -30,6 +30,12 @@ GitHub Actions supplies `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQ
 
 The following are always set/overridden: `PATH` (container values).
 
+**Temporary directory:** Compose agents default `TMPDIR` to their writable,
+private `/tmp`, rather than inheriting the host value through `--env-all`.
+The host `TMPDIR` still controls AWF's host-side temporary files. To use a
+different sandbox temp directory, set `TMPDIR` explicitly with `--env-file`
+or `--env`; that path must exist and be writable inside the sandbox.
+
 ### Self-hosted runner home directory support
 
 AWF derives the effective home directory at runtime from the host environment (`$HOME`, with sudo-aware handling), not from a hardcoded `/home/runner` path.

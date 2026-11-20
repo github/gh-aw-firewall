@@ -30,8 +30,6 @@ network:
   allowed:
     - github
 safe-outputs:
-  threat-detection:
-    enabled: false
   add-comment:
     max: 1
 timeout-minutes: 10

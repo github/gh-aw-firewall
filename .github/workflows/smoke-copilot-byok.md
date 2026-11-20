@@ -44,8 +44,6 @@ tools:
   github:
     toolsets: [pull_requests]
 safe-outputs:
-  threat-detection:
-    enabled: false
   add-comment:
     hide-older-comments: true
   add-labels:

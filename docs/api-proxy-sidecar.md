@@ -856,7 +856,7 @@ The sidecar container:
 - **Image**: `ghcr.io/github/gh-aw-firewall/api-proxy:latest`
 - **Base**: `node:22-alpine`
 - **Network**: `awf-net` at `172.30.0.30`
-- **Ports**: 10000 (OpenAI), 10001 (Anthropic), 10002 (GitHub Copilot), 10003 (Google Gemini), 10004 (Google Vertex AI)
+- **Ports**: 10000 (OpenAI), 10001 (Anthropic), 10002 (GitHub Copilot), 10003 (Google Gemini), 10004 (Google Vertex AI), 10005 (Azure Foundry, optional: binds only when `FOUNDRY_API_TARGET` and `FOUNDRY_API_KEY` are set)
 - **Proxy**: Routes via Squid at `http://172.30.0.10:3128`
 
 ## Copilot CLI native Auto routing (not supported)

@@ -26,6 +26,8 @@ export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<st
   passthroughHostEnvironment({ config: params.config, environment, excludedEnvVars });
   buildOtelEnvironment({ config: params.config, environment, excludedEnvVars });
   buildGitHubActionsEnvironment({ config: params.config, environment, excludedEnvVars });
+  // Host TMPDIR may be absent or unwritable in the sandbox's private filesystem.
+  environment.TMPDIR ??= '/tmp';
   // Router export settings, including collector headers, belong to the router only. Drop the
   // whole reserved namespace, whether --env-all, --env-file or --env supplied it.
   for (const name of Object.keys(environment)) {
