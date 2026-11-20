@@ -39,6 +39,7 @@ const reasons = new Set([
 ]);
 const modules = new Set([
   'mcp-server/server.js', 'mcp-server/config.js', 'mcp-server/environment-probes.js',
+  'mcp-server/startup-plan.js', 'mcp-server/startup-executors.js',
   'mcp-server/host-executor-runner.js',
   'mcp-server/tool-call-budget.js', 'script-executor/script-runner.js',
   'bounded-execution/protected-audit.js',

@@ -59,6 +59,20 @@ describe('bounded enclave startup evidence', () => {
       .toMatchObject({ stage: 'unknown', code: 'unknown', errorType: 'unknown', frames: [] });
   });
 
+  it.each(['startup-plan.js', 'startup-executors.js'])('preserves bounded frames from %s through host collection', (name) => {
+    const module = `mcp-server/${name}`;
+    const error = new Error(sensitive);
+    error.stack = `Error: ${sensitive}\n    at startup (/opt/awf/enclave/${module}:22:3)\n`
+      + `    at private (/awf/seed/${name}:4:1)`;
+    const diagnostic = startupDiagnostic(error, 'agent-handler');
+    const expected = [{ module, line: 22, column: 3 }];
+    expect(diagnostic.frames).toEqual(expected);
+    const collected = classifyLogs(JSON.stringify(diagnostic));
+    expect(collected.frames).toEqual(expected);
+    expect(JSON.stringify(collected)).not.toContain(sensitive);
+    expect(JSON.stringify(collected)).not.toContain('/awf/seed');
+  });
+
   it('separates each startup operation and records the exact failing handler operation', async () => {
     const records: Record<string, unknown>[] = [];
     const reporter = createStartupReporter((line: string) => records.push(JSON.parse(line)));
