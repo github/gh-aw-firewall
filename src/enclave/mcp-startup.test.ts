@@ -215,6 +215,31 @@ describe('enclave MCP startup', () => {
     }));
   });
 
+  it('keeps ordinary and host-executor audit logs separate', async () => {
+    const hostExecutorAudit = { lifecycle: jest.fn() };
+    createProtectedAuditLog.mockImplementation((_directory: string, filename: string) => {
+      if (filename === 'enclave.jsonl') return audit;
+      if (filename === 'enclave-host-executor.jsonl') return hostExecutorAudit;
+      throw new Error(`Unexpected audit filename: ${filename}`);
+    });
+    scriptConfig.executorBackend = 'docker';
+    agentConfig.executorBackend = 'docker';
+    process.env.AWF_ENCLAVE_BACKEND = 'docker';
+    process.env.AWF_ENCLAVE_AGENT_BACKEND = 'docker';
+    await main();
+
+    expect(createExecutorHandler).toHaveBeenCalledTimes(2);
+    for (const [params] of createExecutorHandler.mock.calls) {
+      expect(params.audit).toBe(audit);
+      expect(params.diagnosticAudit).toBe(hostExecutorAudit);
+    }
+    expect(createHostExecutorRunner).toHaveBeenCalledTimes(2);
+    for (const [, deps] of createHostExecutorRunner.mock.calls) {
+      expect(deps.audit).toBe(hostExecutorAudit);
+    }
+  });
+
+
   it('does not load or register the agent executor in script-only runs', async () => {
     process.env.AWF_ENCLAVE_AGENT_ENABLED = 'false';
     await main();
