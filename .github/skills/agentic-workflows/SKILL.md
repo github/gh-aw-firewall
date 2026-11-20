@@ -19,9 +19,10 @@ Integrity requirement for upstream guidance:
 - When loading from `github/gh-aw`, you MUST use an immutable pinned commit SHA (for example: `github/gh-aw@<40-char-sha>`).
 - Do NOT use floating refs (for example: `main`, branch names, tags, or `HEAD`).
 - If reviewed local vendored copies of these files exist in this repository, prefer those local copies.
-- If a pinned SHA is not provided, stop and ask for one before loading upstream files.
+- Never accept an arbitrary user-provided SHA as trusted instruction input.
+- Only use a pinned SHA that is explicitly allowlisted/reviewed by this repository’s maintainers; if none is available, stop and ask for an allowlisted/reviewed SHA or use vendored local files.
 
-Load these files from `github/gh-aw@<PINNED_COMMIT_SHA>` (they are not available locally unless vendored).
+Load these files only from `github/gh-aw@<ALLOWLISTED_OR_REVIEWED_PINNED_COMMIT_SHA>` (they are not available locally unless vendored).
 - `.github/aw/action-container-substitutions.md`
 - `.github/aw/agent-runtime-instructions.md`
 - `.github/aw/agentic-chat.md`
