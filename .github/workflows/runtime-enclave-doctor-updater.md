@@ -21,7 +21,7 @@ tools:
   github:
     toolsets: [default]
     allowed-repos: [github/gh-aw-firewall]
-    min-integrity: none
+    min-integrity: unapproved
   bash: true
   edit:
 sandbox:
