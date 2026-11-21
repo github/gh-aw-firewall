@@ -22,10 +22,15 @@ describe('GitHubApiPointLimiter', () => {
     ['query { repository(name: "mutation", owner: "octo") { id } }', 1],
     ['query { repository(name: """mutation""", owner: "octo") { id } }', 1],
     ['query { repository(name: "escaped \\"mutation\\"", owner: "octo") { id } }', 1],
+    ['query mutation { viewer { login } }', 1],
+    ['query { mutation: viewer { login } }', 1],
+    ['fragment F on User { login } query { viewer { ...F } }', 1],
+    ['fragment F on User { login }', 5],
+    ['query { viewer(login: "octo" }', 5],
     ['query { field(value: """unterminated' + '\\'.repeat(4096), 5],
     ['mutation { addComment(input: {body: "Hello"}) { clientMutationId } }', 5],
+    ['subscription Changed { viewer { login } }', 5],
     ['query Viewer { viewer { login } } mutation Write { addComment { id } }', 5],
-    ['fragment F on User { login } query { viewer { ...F } }', 5],
     ['', 5],
     [null, 5],
   ])('prices GraphQL documents conservatively: %j', (query, points) => {
@@ -46,7 +51,16 @@ describe('GitHubApiPointLimiter', () => {
     })))).toEqual({ kind: 'graphql', points: 5 });
   });
 
-  it.each(['/graphql', '/api/graphql', '/api//graphql', '/api/%67raphql', '/api/x/../graphql'])(
+  it.each([
+    '/graphql',
+    '/api/graphql',
+    '/api//graphql',
+    '/api/%67raphql',
+    '/api/x/../graphql',
+    '/api/v3/graphql',
+    '/api/v3/api/graphql',
+    '/api/v3/api/v3/graphql',
+  ])(
     'recognizes normalized GraphQL request paths: %s', (url) => {
       expect(getRequestCost('POST', url, Buffer.from('{"query":"mutation { write { id } }"}')))
         .toEqual({ kind: 'graphql', points: 5 });

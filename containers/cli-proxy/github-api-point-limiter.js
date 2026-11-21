@@ -10,12 +10,12 @@ function parseLimit(value) {
 
 function isGraphqlRequest(url) {
   const path = decodeURIComponent(url.split('?', 1)[0]).replace(/\/+/g, '/');
-  const pathname = new URL(`http://localhost${path}`).pathname.replace(/\/+$/, '');
+  let pathname = new URL(`http://localhost${path}`).pathname.replace(/\/+$/, '');
+  while (pathname.startsWith('/api/v3/')) pathname = pathname.slice('/api/v3'.length);
   return pathname === '/graphql' || pathname === '/api/graphql';
 }
 
-function isReadOnlyGraphql(query) {
-  let firstToken;
+function* tokenizeGraphql(query) {
   for (let index = 0; index < query.length;) {
     const char = query[index];
     if (/[\s,\uFEFF]/.test(char)) {
@@ -23,7 +23,6 @@ function isReadOnlyGraphql(query) {
     } else if (char === '#') {
       while (index < query.length && !/[\r\n]/.test(query[index])) index += 1;
     } else if (char === '"') {
-      if (firstToken === undefined) return false;
       const block = query.startsWith('"""', index);
       index += block ? 3 : 1;
       let closed = false;
@@ -38,19 +37,94 @@ function isReadOnlyGraphql(query) {
         } else if (!block && query[index] === '\\') index += 2;
         else index += 1;
       }
-      if (!closed) return false;
+      if (!closed) {
+        yield null;
+        return;
+      }
     } else if (/[A-Za-z_]/.test(char)) {
       const start = index++;
       while (index < query.length && /[A-Za-z0-9_]/.test(query[index])) index += 1;
-      const token = query.slice(start, index);
-      firstToken ??= token;
-      if (token === 'mutation') return false;
+      yield { type: 'name', value: query.slice(start, index) };
     } else {
-      firstToken ??= char;
+      yield { type: 'punctuation', value: char };
       index += 1;
     }
   }
-  return firstToken === 'query' || firstToken === '{';
+}
+
+function isReadOnlyGraphql(query) {
+  let operations = 0;
+  let readOnly = true;
+  let definitionHeader = false;
+  let inDefinition = false;
+  let braces = 0;
+  let parentheses = 0;
+  let brackets = 0;
+
+  for (const token of tokenizeGraphql(query)) {
+    if (!token) return false;
+    if (inDefinition) {
+      if (token.value === '{') braces += 1;
+      else if (token.value === '}') {
+        braces -= 1;
+        if (braces < 0) return false;
+        if (braces === 0) {
+          if (parentheses !== 0 || brackets !== 0) return false;
+          inDefinition = false;
+        }
+      } else if (token.value === '(') parentheses += 1;
+      else if (token.value === ')') {
+        parentheses -= 1;
+        if (parentheses < 0) return false;
+      } else if (token.value === '[') brackets += 1;
+      else if (token.value === ']') {
+        brackets -= 1;
+        if (brackets < 0) return false;
+      }
+      continue;
+    }
+
+    if (definitionHeader) {
+      if (token.value === '(') parentheses += 1;
+      else if (token.value === ')') {
+        parentheses -= 1;
+        if (parentheses < 0) return false;
+      } else if (token.value === '[') brackets += 1;
+      else if (token.value === ']') {
+        brackets -= 1;
+        if (brackets < 0) return false;
+      } else if (token.value === '{') {
+        if (parentheses === 0 && brackets === 0 && braces === 0) {
+          braces = 1;
+          inDefinition = true;
+          definitionHeader = false;
+        } else {
+          braces += 1;
+        }
+      } else if (token.value === '}') {
+        braces -= 1;
+        if (braces < 0) return false;
+      }
+      continue;
+    }
+
+    if (token.type === 'punctuation' && token.value === '{') {
+      operations += 1;
+      braces = 1;
+      inDefinition = true;
+    } else if (token.type === 'name' && token.value === 'fragment') {
+      definitionHeader = true;
+    } else if (token.type === 'name' && ['query', 'mutation', 'subscription'].includes(token.value)) {
+      operations += 1;
+      if (token.value !== 'query') readOnly = false;
+      definitionHeader = true;
+    } else {
+      return false;
+    }
+  }
+
+  return operations > 0 && readOnly && !definitionHeader && !inDefinition &&
+    braces === 0 && parentheses === 0 && brackets === 0;
 }
 
 function getRequestCost(method, url, body) {

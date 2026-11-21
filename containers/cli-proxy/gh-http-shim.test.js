@@ -244,7 +244,14 @@ describe('gh-http-shim forwarding', () => {
     expect(upstreamRequests).toHaveLength(0);
   });
 
-  it.each(['/api//graphql', '/api/%67raphql', '/api/x/../graphql'])(
+  it.each([
+    '/api//graphql',
+    '/api/%67raphql',
+    '/api/x/../graphql',
+    '/api/v3/graphql',
+    '/api/v3/api/graphql',
+    '/api/v3/api/v3/graphql',
+  ])(
     'cannot bypass the GraphQL budget with a non-canonical path: %s', async (path) => {
       pointLimiter.maxGraphql = 1;
       const denied = await request(shimPort, {
@@ -268,6 +275,18 @@ describe('gh-http-shim forwarding', () => {
     pointLimiter.maxGraphql = 5;
     const denied = await request(shimPort, {
       method: 'POST', path: '/api/graphql', body: 'x'.repeat(1024 * 1024 + 1),
+    });
+    expect(denied.status).toBe(413);
+    expect(upstreamRequests).toHaveLength(0);
+    expect(pointLimiter.usedGraphql).toBe(0);
+  });
+
+  it('applies the GraphQL body cap after repeated API prefixes', async () => {
+    pointLimiter.maxGraphql = 1;
+    const denied = await request(shimPort, {
+      method: 'POST',
+      path: '/api/v3/api/v3/graphql',
+      body: 'x'.repeat(1024 * 1024 + 1),
     });
     expect(denied.status).toBe(413);
     expect(upstreamRequests).toHaveLength(0);

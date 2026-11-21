@@ -115,21 +115,28 @@ if [ "${AWF_CLI_PROXY_MODE:-primary}" = "enclave" ]; then
   MAX_LIVENESS_ATTEMPTS=0
 fi
 while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
-  # Capture stdout (the gh response body) and stderr separately so a
+  # Capture stdout (the API response body) and stderr separately so a
   # "reachable but the forwarded API call failed" result (e.g. wrong API host
   # on *.ghe.com data-residency tenants) can surface the actual HTTP status and
   # body instead of being reported as an opaque diagnosis=unknown. See #5615.
-  # The HTTP shim is not running yet; remove gh's placeholder authorization
-  # here just as the shim does for agent traffic.
-  if timeout "${LIVENESS_TIMEOUT_SECONDS}" gh api rate_limit -H 'Authorization:' \
+  # Use curl rather than gh so no placeholder authorization is added. Curl uses
+  # SSL_CERT_FILE above, preserving certificate verification through the tunnel.
+  if timeout "${LIVENESS_TIMEOUT_SECONDS}" curl --disable --silent --show-error --noproxy '*' \
+       --write-out '\nHTTP %{http_code}' "https://${GH_HOST}/api/v3/rate_limit" \
        >"${PROBE_OUT_FILE}" 2>"${PROBE_ERR_FILE}"; then
-    echo "[cli-proxy] DIFC proxy liveness probe succeeded on attempt ${ATTEMPT}/${MAX_LIVENESS_ATTEMPTS}"
-    break
+    PROBE_EXIT=0
   else
     PROBE_EXIT=$?
   fi
-  PROBE_ERR="$(cat "${PROBE_ERR_FILE}")"
   PROBE_OUT="$(cat "${PROBE_OUT_FILE}")"
+  PROBE_HTTP_STATUS="$(printf '%s\n' "${PROBE_OUT}" | sed -n 's/.*HTTP \([0-9][0-9][0-9]\)$/\1/p' | tail -1)"
+  if [ "${PROBE_EXIT}" -eq 0 ] && [[ "${PROBE_HTTP_STATUS}" == 2* ]]; then
+    echo "[cli-proxy] DIFC proxy liveness probe succeeded on attempt ${ATTEMPT}/${MAX_LIVENESS_ATTEMPTS}"
+    break
+  elif [ "${PROBE_EXIT}" -eq 0 ]; then
+    PROBE_EXIT=22
+  fi
+  PROBE_ERR="$(cat "${PROBE_ERR_FILE}")"
   DIAG_TYPE="$(classify_probe_failure "${PROBE_ERR}" "${PROBE_OUT}" "${PROBE_EXIT}")"
   # GHES intentionally returns 404 for rate_limit when rate limiting is disabled.
   # This response confirms connectivity without accepting other API errors.
@@ -139,12 +146,12 @@ while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
     break
   fi
   if [ "$ATTEMPT" -ge "$MAX_LIVENESS_ATTEMPTS" ]; then
-    echo "[cli-proxy] ERROR: DIFC proxy liveness probe failed for ${GH_HOST} (gh api exit=${PROBE_EXIT}, diagnosis=${DIAG_TYPE})"
+    echo "[cli-proxy] ERROR: DIFC proxy liveness probe failed for ${GH_HOST} (curl exit=${PROBE_EXIT}, diagnosis=${DIAG_TYPE})"
     if [ -n "${PROBE_ERR}" ]; then
-      echo "[cli-proxy] gh api stderr: ${PROBE_ERR}"
+      echo "[cli-proxy] curl stderr: ${PROBE_ERR}"
     fi
     if [ -n "${PROBE_OUT}" ]; then
-      echo "[cli-proxy] gh api response body: $(printf '%s' "${PROBE_OUT}" | head -c 1000)"
+      echo "[cli-proxy] API probe response: $(printf '%s' "${PROBE_OUT}" | head -c 1000)"
     fi
     # When the forwarded call is reachable but errors on an enterprise tenant,
     # the most likely cause is that the external DIFC proxy is not targeting the
@@ -157,7 +164,7 @@ while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
             echo "[cli-proxy] HINT: GITHUB_SERVER_URL=${GITHUB_SERVER_URL} looks like a GitHub Enterprise"
             echo "[cli-proxy]       data-residency tenant. The external DIFC proxy may be targeting the"
             echo "[cli-proxy]       wrong API host (github.com instead of the enterprise host), so the"
-            echo "[cli-proxy]       forwarded 'gh api' call fails. See github/gh-aw-firewall#5615."
+            echo "[cli-proxy]       forwarded rate-limit request fails. See github/gh-aw-firewall#5615."
             ;;
         esac
         ;;
@@ -165,10 +172,10 @@ while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
     echo "[cli-proxy] Failing fast to avoid repeated in-agent retries"
     exit 1
   fi
-  # Surface the captured gh error on every failed attempt so transient and
+  # Surface the captured probe error on every failed attempt so transient and
   # persistent failures (e.g. a stable HTTP error) are both visible in logs.
   if [ -n "${PROBE_ERR}" ]; then
-    echo "[cli-proxy] gh api stderr (attempt ${ATTEMPT}): $(printf '%s' "${PROBE_ERR}" | head -c 500)"
+    echo "[cli-proxy] curl stderr (attempt ${ATTEMPT}): $(printf '%s' "${PROBE_ERR}" | head -c 500)"
   fi
   # Exponential backoff: sleep 1, 2, 4, 8 … seconds (capped at 30s)
   SLEEP_SECS=$(( LIVENESS_SLEEP_SECONDS * (1 << (ATTEMPT - 1)) ))

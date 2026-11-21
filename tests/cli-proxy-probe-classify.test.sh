@@ -111,6 +111,8 @@ run_probe() {
   export GITHUB_SERVER_URL=https://github.example.com
   bash -c "${FUNC_DEF}
 timeout() {
+  shift
+  printf '%s\n' \"\$@\" > \"\$TEST_PROBE_ARGS_FILE\"
   printf '%s' \"\$TEST_PROBE_ERR\" >&2
   printf '%s' \"\$TEST_PROBE_OUT\"
   return \"\$TEST_PROBE_EXIT\"
@@ -123,11 +125,23 @@ echo PROBE_READY"
 # expect_probe <description> <exit> <log fragment> <stderr> <stdout> <probe exit>
 expect_probe() {
   local desc="$1" expected_exit="$2" expected_log="$3" got status
+  export TEST_PROBE_ARGS_FILE="$(mktemp)"
   if got="$(run_probe "$4" "$5" "$6")"; then
     status=0
   else
     status=$?
   fi
+  if ! grep -Fxq "curl" "${TEST_PROBE_ARGS_FILE}" ||
+     ! grep -Fxq -- "--disable" "${TEST_PROBE_ARGS_FILE}" ||
+     ! grep -Fxq -- "--noproxy" "${TEST_PROBE_ARGS_FILE}" ||
+     grep -qi "authorization" "${TEST_PROBE_ARGS_FILE}" ||
+     grep -qiE '(^|[[:space:]])--insecure($|[[:space:]])' "${TEST_PROBE_ARGS_FILE}" ||
+     ! grep -Fxq "https://localhost:18443/api/v3/rate_limit" "${TEST_PROBE_ARGS_FILE}"; then
+    fail "${desc}: probe did not use an unauthenticated curl request"
+    rm -f "${TEST_PROBE_ARGS_FILE}"
+    return
+  fi
+  rm -f "${TEST_PROBE_ARGS_FILE}"
   if [ "${status}" -ne "${expected_exit}" ] ||
      ! grep -qF "${expected_log}" <<< "${got}"; then
     fail "${desc}: exit=${status}, output=${got}"
@@ -143,19 +157,19 @@ expect_probe() {
 }
 
 expect_probe "successful API response starts immediately" 0 \
-  "liveness probe succeeded on attempt 1/2" "" '{"resources":{}}' 0
+  "liveness probe succeeded on attempt 1/2" "" '{"resources":{}}'$'\nHTTP 200' 0
 expect_probe "GHES rate limiting disabled in stderr starts immediately" 0 \
   "WARNING: GHES rate limiting is disabled" \
-  "gh: Rate limiting is not enabled. (HTTP 404)" "" 1
+  "curl: HTTP 404" "Rate limiting is not enabled."$'\nHTTP 404' 22
 expect_probe "GHES rate limiting disabled in body starts immediately" 0 \
   "WARNING: GHES rate limiting is disabled" \
-  "gh: Not Found (HTTP 404)" '{"message":"Rate limiting is not enabled."}' 1
+  "" '{"message":"Rate limiting is not enabled."}'$'\nHTTP 404' 22
 expect_probe "generic 404 remains fatal" 1 \
-  "gh api exit=1, diagnosis=reachable-but-api-error (HTTP 404)" \
-  "gh: Not Found (HTTP 404)" "" 1
+  "curl exit=22, diagnosis=reachable-but-api-error (HTTP 404)" \
+  "curl: HTTP 404" "Not Found"$'\nHTTP 404' 22
 expect_probe "authentication error remains fatal" 1 \
   "diagnosis=reachable-but-api-error (HTTP 401)" \
-  "gh: Bad credentials (HTTP 401)" "" 1
+  "curl: HTTP 401" "Bad credentials"$'\nHTTP 401' 22
 expect_probe "rate limiting message without HTTP status remains fatal" 1 \
   "diagnosis=unknown" "Rate limiting is not enabled." "" 1
 expect_probe "rate limiting message with another status remains fatal" 1 \
@@ -166,14 +180,23 @@ expect_probe "connection refused remains fatal" 1 \
 expect_probe "DNS error remains fatal" 1 \
   "diagnosis=dns-not-yet-ready" "getaddrinfo EAI_AGAIN" "" 1
 expect_probe "silent timeout retains exit code and remains fatal" 1 \
-  "gh api exit=124, diagnosis=unreachable (timeout)" "" "" 124
+  "curl exit=124, diagnosis=unreachable (timeout)" "" "" 124
 expect_probe "BusyBox timeout exit 143 remains fatal" 1 \
-  "gh api exit=143, diagnosis=unreachable (timeout)" "" "" 143
+  "curl exit=143, diagnosis=unreachable (timeout)" "" "" 143
 expect_probe "partial HTTP response does not override timeout" 1 \
-  "gh api exit=124, diagnosis=unreachable (timeout)" \
-  "gh: Rate limiting is not enabled. (HTTP 404)" "" 124
+  "curl exit=124, diagnosis=unreachable (timeout)" \
+  "curl: Rate limiting is not enabled. (HTTP 404)" "" 124
 expect_probe "TLS error remains fatal" 1 \
   "diagnosis=unknown" "x509: certificate signed by unknown authority" "" 1
+
+SHIM_START_LINE="$(grep -n 'node /app/gh-http-shim.js' "${ENTRYPOINT}" | cut -d: -f1)"
+PROBE_END_LINE="$(grep -n '^trap - EXIT' "${ENTRYPOINT}" | cut -d: -f1)"
+if [ -z "${SHIM_START_LINE}" ] || [ -z "${PROBE_END_LINE}" ] ||
+   [ "${SHIM_START_LINE}" -le "${PROBE_END_LINE}" ]; then
+  fail "HTTP accounting shim starts before liveness probing completes"
+else
+  pass "liveness probe runs before the accounting shim and cannot spend its budget"
+fi
 
 echo ""
 echo "Results: ${PASS} passed, ${FAIL} failed"
