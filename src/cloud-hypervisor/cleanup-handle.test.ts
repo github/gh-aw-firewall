@@ -3,6 +3,183 @@ import * as path from 'path';
 import { DurableCloudHypervisorCleanupRegistry } from './cleanup-registry';
 import { createCleanupRegistryTestHarness } from './cleanup-registry.test-utils';
 import { createMicrovmNetworkPlan } from '../microvm/network';
+import { createCleanupHandle } from './cleanup-handle';
+import type { CleanupRecord, ProcessIdentity } from './cleanup-identity';
+import { createCloudHypervisorEmptyNetworkNamespacePlan } from './network-namespace';
+
+function createHandleFixture() {
+  const identity: ProcessIdentity = {
+    pid: 5000,
+    startTime: '1000',
+    executable: '/usr/bin/worker',
+    executableIdentity: { device: '1', inode: '5000' },
+    uid: 1000,
+    gid: 1000,
+    networkNamespace: 'net:[5000]',
+  };
+  const record: CleanupRecord = {
+    version: 1,
+    runId: 'handle-run',
+    owner: { ...identity, pid: 4242, networkNamespace: 'net:[4000]' },
+    cloudHypervisorBinary: '/usr/bin/cloud-hypervisor',
+    paths: {
+      runDirectory: '/tmp/awf-handle/cloud-hypervisor/handle-run',
+      cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/handle-run',
+      virtiofsdShareDirectory: '/tmp/awf-handle/virtiofsd/handle-run',
+    },
+    identities: {},
+    processes: {},
+    mounts: [],
+    updatedAt: 'initial',
+  };
+  const persist = jest.fn(async () => {
+    expect(record.updatedAt).not.toBe('initial');
+  });
+  const options = {
+    recordPath: '/tmp/awf-handle/pending-cleanup/handle-run.json',
+    record,
+    ipPath: '/usr/bin/ip',
+    persist,
+    unlink: jest.fn<ReturnType<typeof fs.unlink>, Parameters<typeof fs.unlink>>()
+      .mockResolvedValue(undefined),
+    realpath: jest.fn().mockResolvedValue(identity.executable) as typeof fs.realpath,
+    sleep: jest.fn().mockResolvedValue(undefined),
+    pathExists: jest.fn().mockResolvedValue(false),
+    captureFileIdentity: jest.fn().mockResolvedValue(identity.executableIdentity),
+    captureInterfaceIdentity: jest.fn().mockResolvedValue({ name: 'captured', ifindex: 10 }),
+    captureProcessIdentity: jest.fn().mockResolvedValue(identity),
+    readMounts: jest.fn().mockResolvedValue([]),
+  };
+  const plan = createMicrovmNetworkPlan(record.runId, {
+    infrastructureBridge: 'awfbr0',
+    enableApiProxy: false,
+    tapOwnerUid: 1000,
+    tapOwnerGid: 1000,
+  });
+  return { record, options, plan, handle: createCleanupHandle(options), persist };
+}
+
+describe('cleanup handle record-commit rules', () => {
+  it('commits one network plan and refuses either kind of replacement', async () => {
+    const { record, handle, plan, persist } = createHandleFixture();
+    await handle.captureNetworkPlan(plan);
+    expect(record.network).toMatchObject({
+      mode: 'primary', namespaceName: plan.namespaceName, netnsPath: plan.netnsPath,
+    });
+    await expect(handle.captureNetworkPlan(plan)).rejects.toThrow('network plan is already committed');
+    await expect(handle.captureEmptyNetworkNamespace(
+      createCloudHypervisorEmptyNetworkNamespacePlan(record.runId),
+    )).rejects.toThrow('network namespace is already committed');
+    expect(persist).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows only netns resources in a committed empty network namespace', async () => {
+    const { record, options, handle, plan, persist } = createHandleFixture();
+    await expect(handle.captureNetworkResource('netns')).rejects.toThrow('network plan is not committed');
+    const empty = createCloudHypervisorEmptyNetworkNamespacePlan(record.runId);
+    await handle.captureEmptyNetworkNamespace(empty);
+    expect(record.network).toEqual(empty);
+    await expect(handle.captureNetworkPlan(plan)).rejects.toThrow('network plan is already committed');
+    await expect(handle.captureEmptyNetworkNamespace(empty))
+      .rejects.toThrow('network namespace is already committed');
+    await expect(handle.captureNetworkResource('tap')).rejects.toThrow('cannot capture tap');
+    await handle.captureNetworkResource('netns');
+    expect(options.captureFileIdentity).toHaveBeenCalledWith(empty.netnsPath);
+    expect(record.identities.netns).toEqual({ device: '1', inode: '5000' });
+    expect(options.captureInterfaceIdentity).not.toHaveBeenCalled();
+    expect(persist).toHaveBeenCalledTimes(2);
+  });
+
+  it('checks run-scoped paths before either network commit', async () => {
+    const { record, handle, plan, persist } = createHandleFixture();
+    await expect(handle.captureNetworkPlan({ ...plan, runId: 'other-run' }))
+      .rejects.toThrow('not scoped to one run');
+    Object.assign(record.paths, { cgroupPath: '/sys/fs/cgroup/other-run' });
+    await expect(handle.captureNetworkPlan(plan)).rejects.toThrow('not scoped to one run');
+    await expect(handle.captureEmptyNetworkNamespace(
+      createCloudHypervisorEmptyNetworkNamespacePlan(record.runId),
+    )).rejects.toThrow('not scoped to one run');
+    expect(record.network).toBeUndefined();
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it('requires a matching pending account before committing a live VMM identity', async () => {
+    const { record, handle, persist } = createHandleFixture();
+    const identity = { name: 'awfvmm-0123456789abcdef0123', uid: 23001, gid: 23002 };
+    await expect(handle.captureVmmIdentity(identity)).rejects.toThrow('pending account');
+    await expect(handle.prepareVmmAccount('root')).rejects.toThrow('Unsafe or duplicate');
+    await handle.prepareVmmAccount(identity.name);
+    expect(record.vmmIdentity).toEqual({
+      state: 'pending', name: identity.name, aclPaths: [], accessedAclPaths: [],
+    });
+    await expect(handle.prepareVmmAccount(identity.name)).rejects.toThrow('Unsafe or duplicate');
+    await expect(handle.captureVmmIdentity({ ...identity, name: 'other' }))
+      .rejects.toThrow('pending account');
+    await expect(handle.captureVmmIdentity({ ...identity, uid: 0 })).rejects.toThrow('pending account');
+    await expect(handle.captureVmmIdentity({ ...identity, gid: 1.5 })).rejects.toThrow('pending account');
+    await handle.captureVmmIdentity(identity);
+    expect(record.vmmIdentity).toMatchObject({ ...identity, state: 'live' });
+    expect(persist).toHaveBeenCalledTimes(2);
+  });
+
+  it('requires a live VMM identity and persists an identical ACL grant only once', async () => {
+    const { record, handle, persist } = createHandleFixture();
+    const baseline = ['user::rw-', 'group::rw-', 'other::---'];
+    await expect(handle.prepareVmmAcl('/dev/kvm', baseline)).rejects.toThrow('before ACL grant');
+    await expect(handle.releaseVmmAcl('/dev/kvm')).rejects.toThrow('before ACL release');
+    await handle.prepareVmmAccount('awfvmm-0123456789abcdef0123');
+    await expect(handle.prepareVmmAcl('/dev/kvm', baseline)).rejects.toThrow('before ACL grant');
+    await handle.captureVmmIdentity({ name: 'awfvmm-0123456789abcdef0123', uid: 23001, gid: 23002 });
+    await expect(handle.prepareVmmAcl('/dev/kvm', ['invalid'])).rejects.toThrow();
+    await handle.prepareVmmAcl('/dev/kvm', baseline);
+    await handle.prepareVmmAcl('/dev/kvm', baseline);
+    expect(record.vmmIdentity?.aclPaths).toEqual(['/dev/kvm']);
+    expect(persist).toHaveBeenCalledTimes(3);
+  });
+
+  it('commits each directory identity before persisting and propagates write failures', async () => {
+    const { record, options, handle, persist } = createHandleFixture();
+    persist.mockImplementationOnce(async () => {
+      expect(record.updatedAt).not.toBe('initial');
+      expect(record.identities.runDirectory).toEqual({ device: '1', inode: '5000' });
+    });
+    await handle.captureRunDirectory();
+    persist.mockImplementationOnce(async () => {
+      expect(record.updatedAt).not.toBe('initial');
+      expect(record.identities.cgroup).toEqual({ device: '1', inode: '5000' });
+    });
+    await handle.captureCgroup();
+    await handle.captureVirtiofsdResources();
+    expect(options.captureFileIdentity.mock.calls).toEqual([
+      [record.paths.runDirectory], [record.paths.cgroupPath],
+    ]);
+    expect(record.identities).toEqual({
+      runDirectory: { device: '1', inode: '5000' }, cgroup: { device: '1', inode: '5000' },
+    });
+    expect(options.readMounts).not.toHaveBeenCalled();
+    expect(persist).toHaveBeenCalledTimes(3);
+    const nextIdentity = { device: '2', inode: '6000' };
+    options.captureFileIdentity.mockResolvedValueOnce(nextIdentity);
+    persist.mockImplementationOnce(async () => {
+      expect(record.updatedAt).not.toBe('initial');
+      expect(record.identities.runDirectory).toEqual(nextIdentity);
+      throw new Error('write failed');
+    });
+    await expect(handle.captureRunDirectory()).rejects.toThrow('write failed');
+    expect(record.identities.runDirectory).toEqual(nextIdentity);
+  });
+
+  it('completes without persisting and ignores only missing-record unlink errors', async () => {
+    const { options, handle, persist } = createHandleFixture();
+    await handle.complete();
+    expect(options.unlink).toHaveBeenCalledWith(options.recordPath);
+    options.unlink.mockRejectedValueOnce(Object.assign(new Error('missing'), { code: 'ENOENT' }));
+    await expect(handle.complete()).resolves.toBeUndefined();
+    options.unlink.mockRejectedValueOnce(Object.assign(new Error('denied'), { code: 'EPERM' }));
+    await expect(handle.complete()).rejects.toThrow('denied');
+    expect(persist).not.toHaveBeenCalled();
+  });
+});
 
 describe('cleanup handle integration', () => {
   let harness: Awaited<ReturnType<typeof createCleanupRegistryTestHarness>>;
