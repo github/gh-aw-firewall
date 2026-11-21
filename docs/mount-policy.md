@@ -14,15 +14,18 @@ drift. They are now centralized in a single declarative config:
 The Docker/runc compose agent, the gVisor/runsc compose agent, the sbx
 microVM, and the NVX microVM (`--container-runtime nvx`) all read from this one
 source of truth, so they can no longer diverge.
-The Cloud Hypervisor microVM does not currently consult this policy: its
-production export path (`src/cloud-hypervisor/exports.ts`) only resolves the
+The Cloud Hypervisor microVM does not use this policy to build its guest exports.
+Its production export path (`src/cloud-hypervisor/exports.ts`) only resolves the
 workspace (`rw`), the runner tool cache (`ro`, only under the non-default
 `workspace-and-tool-cache` policy, using `RUNNER_TOOL_CACHE` or its fallback
 `AGENT_TOOLSDIRECTORY`), `$RUNNER_TEMP/gh-aw` (`ro`, when `RUNNER_TEMP` is set
-and the directory exists), and `/tmp/gh-aw` (`rw`, when the directory exists) — it does not export `$HOME` at all, so the home allow/deny lists have no
-production call site for this runtime. `MicrovmWorkspaceImage`
-(`src/microvm/workspace.ts`) does read `home.toolSubdirs` and
-`credentials.entries`, but it has no production call site today; it is
+and the directory exists), and `/tmp/gh-aw` (`rw`, when the directory exists).
+It does not export `$HOME`, so the home allow/deny lists are never used to
+build a guest export for this runtime. The enclave private-root preflight does
+read the policy's home and system paths, but only to check that AWF-private
+state does not overlap any agent-visible path.
+`MicrovmWorkspaceImage` (`src/microvm/workspace.ts`) does read `home.toolSubdirs`
+and `credentials.entries`, but it has no production call site today; it is
 exercised only by its own tests.
 
 Mount visibility does not grant engine file scope. A mounted input directory
