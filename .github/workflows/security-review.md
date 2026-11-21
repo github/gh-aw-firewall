@@ -109,7 +109,7 @@ Collect evidence incrementally, running each command separately. Do not dump ent
 
 1. Discover relevant files with bounded filename lists, then follow re-exports/imports to the implementing modules. Facades such as `src/host-iptables.ts` and `src/squid-config.ts` are not the complete implementation.
 2. Limit discovery output to 40 matches and 120 columns per line. Inspect source with line-numbered ranges of at most 80 lines, reducing the range to keep each response below 6 KB. Continue with adjacent ranges when needed; clipped search results are navigation aids, not complete evidence.
-3. If a response is truncated, re-run a narrower query or smaller source range. Do not treat missing output as proof of safety or as an unrecoverable blocker.
+3. If a response is truncated, re-run a narrower query or smaller source range. If a single line exceeds the response budget, read adjacent chunks of at most 4,096 bytes (for example, `dd if=containers/api-proxy/models.dev.catalog.json bs=1 skip=0 count=4096 status=none`, then advance `skip` by 4096 for each subsequent chunk until end-of-file). Cite the file, original line, and zero-based byte offsets; a chunk is not a complete line. Do not treat missing output as proof of safety or as an unrecoverable blocker.
 4. Cover every area below, recording protections, evidence-backed weaknesses, and coverage limitations. Use only local source and mocked boundaries; do not execute repository payloads or live escape attempts.
 
 | Area | Starting points (follow imports to implementations) |
