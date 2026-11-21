@@ -1,68 +1,25 @@
 'use strict';
 
-const { createHash } = require('crypto');
 const { getModelMultiplierCapBlockState } = require('./guards/max-model-multiplier-guard');
-const { buildRoutingCandidates, resolvePrimaryRank, shortlistPrimaryOptions } = require('./routing-candidates');
+const { resolvePrimaryRank, shortlistPrimaryOptions } = require('./routing-candidates');
 const { pinRequestEligibility, proxyEligibilityStore } = require('./model-eligibility');
-const { getModelReasoning } = require('./model-reasoning');
-const { extractClassifierOutput, preflightClassifierRequest } = require('./routing-classifier');
+const { classifyRouting } = require('./routing-classify');
 const {
   assertPlanningRequestSize,
   toRouteCandidates,
-  validateCapabilities,
-  validateClassifierOutput,
-  validateClassifyResponse,
-  validateConversation,
   validateRouteResponse,
 } = require('./routing-contract');
 const { createRoutingError, RoutingError, toRoutingFailure } = require('./routing-errors');
-const { callPlannerWithRetry, createSystemClock, runBoundedOperation } = require('./routing-planner');
+const { recordSelection, recordFailure } = require('./routing-observation-records');
+const { createSystemClock } = require('./routing-planner');
+const {
+  countCatalogueOverlap, createRoutingStages, deepFreezeJson, mapPlannerFailure, validateRoutingDependencies,
+} = require('./routing-stages');
 
 const ROUTING_BOOTSTRAP_TIMEOUT_MS = 90_000;
 const CLASSIFIER_ATTEMPT_TIMEOUT_MS = 30_000;
 const CLASSIFIER_MAX_ATTEMPTS = 2;
 const PURPOSE = 'routing_classification';
-
-function deepFreezeJson(value) {
-  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
-  for (const child of Object.values(value)) deepFreezeJson(child);
-  return Object.freeze(value);
-}
-
-function safeRecord(observer, record) {
-  try {
-    observer?.record?.(Object.freeze(record));
-  } catch {
-    // Observability must not change the routing decision.
-  }
-}
-
-function mapPlannerFailure(error, phase) {
-  if (error instanceof RoutingError) throw error;
-  // Both planning phases report an unservable model pool this way.
-  if (error?.statusCode === 422 && error.body?.code === 'no_route') {
-    throw createRoutingError('no_route', 'The router found no eligible model choice');
-  }
-  if (Number.isInteger(error?.statusCode) && error.statusCode >= 400) {
-    throw createRoutingError('routing_contract_error', `The router rejected the ${phase} request`);
-  }
-  // The planner does not retry these, for example ENOTFOUND for the fixed router alias.
-  if (typeof error?.code === 'string') {
-    throw createRoutingError('routing_configuration_error', `The router could not be reached for the ${phase} request`);
-  }
-  throw createRoutingError('routing_contract_error', `The router returned an invalid ${phase} result`);
-}
-
-function isClassifierAvailabilityFailure(result) {
-  return result?.availabilityFailure === true ||
-    (Number.isInteger(result?.statusCode) && result.statusCode >= 500);
-}
-
-function classifierTimeoutError() {
-  const error = new Error('Classifier request timed out');
-  error.code = 'ETIMEDOUT';
-  return error;
-}
 
 function modelEffortPair(choice) {
   return {
@@ -84,18 +41,6 @@ function createSelection(choice, mapping) {
       messages: '/v1/messages',
     }[mapping.protocol],
   });
-}
-
-function requireDependency(dependencies, name, method) {
-  if (!dependencies[name] || typeof dependencies[name][method] !== 'function') {
-    throw createRoutingError('routing_configuration_error', `Routing dependency ${name}.${method} is unavailable`);
-  }
-}
-
-// Reported for drift diagnosis only. Narrowing the pool by the catalogue is what the router must decide.
-function countCatalogueOverlap(capabilities, choices) {
-  const known = new Set((capabilities?.execution_catalogue?.models ?? []).map(entry => entry?.model));
-  return choices.filter(choice => known.has(choice.model)).length;
 }
 
 function createRoutingController(dependencies) {
@@ -124,143 +69,21 @@ function createRoutingController(dependencies) {
     const deadline = Math.min(startedAt + ROUTING_BOOTSTRAP_TIMEOUT_MS, jobDeadline);
     const signal = options.signal;
 
-    const runPhase = operation => runBoundedOperation(operation, {
-      signal,
-      deadline,
-      clock,
-      timeoutMs: Math.max(1, deadline - clock.now()),
-      timeoutError: () => createRoutingError('routing_timeout', 'Model routing exceeded its deadline'),
-    });
-    const callPlanner = operation => callPlannerWithRetry(operation, {
-      signal,
-      deadline,
-      clock,
-      random,
-    });
+    const stages = createRoutingStages({ signal, deadline, clock, random });
+    const { runPhase, callPlanner } = stages;
     let catalogueOverlap = null;
 
     try {
-      requireDependency(dependencies, 'planner', 'health');
-      requireDependency(dependencies, 'planner', 'capabilities');
-      requireDependency(dependencies, 'planner', 'classify');
-      requireDependency(dependencies, 'planner', 'route');
-      requireDependency(dependencies, 'catalogue', 'getSnapshot');
-      requireDependency(dependencies, 'executor', 'execute');
-      requireDependency(dependencies, 'executor', 'checkBeforePrimary');
-      if (typeof loadConversation !== 'function') {
-        throw createRoutingError('routing_configuration_error', 'Routing conversation loader is unavailable');
-      }
-
-      const health = await callPlanner(({ signal: phaseSignal, timeoutMs }) =>
-        planner.health({ signal: phaseSignal, timeoutMs }));
-      if (health !== 204) {
-        throw createRoutingError('routing_contract_error', 'The router health response is invalid');
-      }
-
-      const rawCapabilities = await callPlanner(({ signal: phaseSignal, timeoutMs }) =>
-        planner.capabilities({ signal: phaseSignal, timeoutMs }));
-      // Checks router identity and objective support. The execution catalogue does not narrow the pool.
-      validateCapabilities(rawCapabilities, config.objective, routerIdentity);
-
-      const snapshot = await runPhase(({ signal: phaseSignal }) =>
-        catalogue.getSnapshot({ signal: phaseSignal, provider: config.provider || 'copilot', scope: eligibilityRequest.awfEligibilityScope }));
-      const pool = buildRoutingCandidates({ catalogue: snapshot, policy, candidateModels: config.candidateModels, eligibilityRequest });
+      validateRoutingDependencies(dependencies);
+      const rawCapabilities = await stages.getCapabilities(planner, config, routerIdentity);
+      const pool = await stages.getCandidates(catalogue, config, policy, eligibilityRequest);
       catalogueOverlap = countCatalogueOverlap(rawCapabilities, pool.choices);
-
-      const loadedConversation = await runPhase(({ signal: phaseSignal }) =>
-        loadConversation(config.task.conversationFile, { signal: phaseSignal }));
-      validateConversation(loadedConversation);
-      const conversation = deepFreezeJson(JSON.parse(JSON.stringify(loadedConversation)));
-
-      const classifyRequest = deepFreezeJson({ conversation, models: pool.choices });
-      assertPlanningRequestSize(classifyRequest);
-
-      let classification = null;
-      let successfulClassifier = null;
-      let degradedReason = null;
-      let classifierPlan;
-      try {
-        const rawPlan = await callPlanner(({ signal: phaseSignal, timeoutMs }) =>
-          planner.classify(classifyRequest, { signal: phaseSignal, timeoutMs }));
-        classifierPlan = validateClassifyResponse(rawPlan, pool.choices);
-      } catch (error) {
-        mapPlannerFailure(error, 'classify');
-      }
-
-      let actualAttempts = 0;
-      let capacityExclusions = 0;
-      for (const choice of classifierPlan.ranked_choices) {
-        if (actualAttempts >= CLASSIFIER_MAX_ATTEMPTS) break;
-        const mapping = pool.byId[choice.id];
-        if (!Number.isInteger(mapping.contextWindow) || mapping.contextWindow <= 0) {
-          capacityExclusions++;
-          continue;
-        }
-        const preflight = preflightClassifierRequest(mapping, classifierPlan);
-        if (!preflight.eligible) {
-          capacityExclusions++;
-          continue;
-        }
-
-        actualAttempts++;
-        safeRecord(observer, {
-          stage: 'classification',
-          purpose: PURPOSE,
-          attempt: actualAttempts,
-          classifier_model: mapping.choice.model,
-          classifier_effort: mapping.effort ?? null,
-        });
-        let result;
-        try {
-          result = await runBoundedOperation(
-            ({ signal: phaseSignal, timeoutMs }) => executor.execute({
-              path: preflight.request.path,
-              body: preflight.request.body,
-              purpose: PURPOSE,
-              provider: mapping.provider,
-              awfEligibility: eligibilityRequest.awfEligibility,
-              awfEligibilityScope: eligibilityRequest.awfEligibilityScope,
-              awfReasoning: getModelReasoning(mapping, mapping.provider),
-            }, { signal: phaseSignal, timeoutMs }),
-            {
-              signal,
-              deadline,
-              clock,
-              timeoutMs: CLASSIFIER_ATTEMPT_TIMEOUT_MS,
-              timeoutError: classifierTimeoutError,
-            },
-          );
-        } catch (error) {
-          if (error instanceof RoutingError) throw error;
-          if (error?.code === 'ETIMEDOUT') continue;
-          throw createRoutingError('provider_unavailable', 'Classifier execution was rejected by the provider path');
-        }
-
-        if (result?.terminal) {
-          throw createRoutingError(
-            result.terminal.code,
-            result.terminal.detail || 'Classifier execution was rejected by a native guard',
-          );
-        }
-        if (isClassifierAvailabilityFailure(result)) continue;
-        if (!Number.isInteger(result?.statusCode) || result.statusCode < 200 || result.statusCode >= 300) {
-          throw createRoutingError('provider_unavailable', 'Classifier execution failed in the provider path');
-        }
-
-        const rawOutput = extractClassifierOutput(mapping.protocol, result.body);
-        classification = rawOutput === null ? null : validateClassifierOutput(rawOutput);
-        if (classification !== null) {
-          successfulClassifier = { model: mapping.choice.model, effort: mapping.effort ?? null };
-        }
-        if (classification === null) degradedReason = 'invalid_classifier_output';
-        break;
-      }
-
-      if (classification === null && degradedReason === null) {
-        degradedReason = actualAttempts === 0 && capacityExclusions > 0
-          ? 'classifier_capacity_exhausted'
-          : 'classifier_attempts_exhausted';
-      }
+      const conversation = await stages.getConversation(loadConversation, config.task.conversationFile);
+      const { classification, successfulClassifier, degradedReason, actualAttempts } = await classifyRouting({
+        conversation, pool, planner, executor, observer, eligibilityRequest,
+        callPlanner, signal, deadline, clock,
+        attemptTimeoutMs: CLASSIFIER_ATTEMPT_TIMEOUT_MS, maxAttempts: CLASSIFIER_MAX_ATTEMPTS, purpose: PURPOSE,
+      });
 
       const routeRequest = {
         objective: config.objective,
@@ -317,32 +140,9 @@ function createRoutingController(dependencies) {
           awfEligibilityScope: eligibilityRequest.awfEligibilityScope,
         }));
 
-      safeRecord(observer, {
-        stage: 'selection',
-        objective: config.objective,
-        provider: config.provider || 'copilot',
-        selected_provider: selection.provider,
-        wire_model: selection.wire_model,
-        endpoint: selection.endpoint,
-        labels: classification?.labels ?? null,
-        mode: classification?.mode ?? null,
-        classifier_model: successfulClassifier?.model ?? null,
-        classifier_effort: successfulClassifier?.effort ?? null,
-        router: { name: rawCapabilities.name, version: rawCapabilities.version },
-        ranked_choices: route.ranked_choices.map(choice => ({
-          model: choice.model,
-          effort: choice.effort ?? null,
-        })),
-        conversation_sha256: createHash('sha256').update(JSON.stringify(conversation)).digest('hex'),
-        selected_id: selection.choice.id,
-        selected_model: selection.choice.model,
-        selected_effort: selection.choice.effort ?? null,
-        degraded_classification: classification === null,
-        degraded_reason: degradedReason,
-        classifier_attempts: actualAttempts,
-        eligible_choices: pool.choices.length,
-        catalogue_overlap: catalogueOverlap,
-        latency_ms: Math.max(0, clock.now() - startedAt),
+      recordSelection(observer, {
+        config, selection, classification, successfulClassifier, rawCapabilities, route,
+        conversation, degradedReason, actualAttempts, pool, catalogueOverlap, clock, startedAt,
       });
 
       return Object.freeze({
@@ -357,15 +157,7 @@ function createRoutingController(dependencies) {
         ? error
         : createRoutingError('routing_configuration_error', 'Model routing failed before selection');
       const failure = toRoutingFailure(normalized);
-      safeRecord(observer, {
-        stage: 'failure',
-        objective: config?.objective ?? null,
-        code: failure.code,
-        // Routing failure details are authored literals, already sanitized by toRoutingFailure.
-        detail: failure.detail,
-        catalogue_overlap: catalogueOverlap,
-        latency_ms: Math.max(0, clock.now() - startedAt),
-      });
+      recordFailure(observer, { config, failure, catalogueOverlap, clock, startedAt });
       return Object.freeze({ ok: false, failure });
     }
   }

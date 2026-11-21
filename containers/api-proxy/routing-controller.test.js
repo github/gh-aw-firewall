@@ -345,7 +345,7 @@ describe('routing controller', () => {
     expect(Object.keys(calls.route[0]).sort()).toEqual(['classification', 'conversation', 'models', 'objective']);
     expect(calls.route[0].objective).toEqual({ goal: 'cost', mode: 'balanced' });
     expect(calls.route[0].classification).toEqual(VALID_CLASSIFICATION);
-    expect(calls.route[0].conversation).toBe(calls.classify[0].conversation);
+    expect(calls.route[0].conversation).toEqual(calls.classify[0].conversation);
     expect(calls.route[0].models[0].context_window).toBe(128_000);
 
     expect(calls.execute[0].purpose).toBe(PURPOSE);
