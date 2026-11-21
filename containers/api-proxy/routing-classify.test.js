@@ -60,6 +60,40 @@ describe('routing classification stage', () => {
     expect(options.observer.record.mock.calls.map(([record]) => record.attempt)).toEqual([1, 2]);
   });
 
+  it('redacts credentials in nested conversation data before classification without mutating the input', async () => {
+    const conversation = [{
+      role: 'user',
+      parts: [{
+        text: [
+          'Authorization: ' + 'Bearer ' + 'abc.def, next',
+          'JWT abcde.fghij.klmno',
+          'token=short; client_secret: "short value"; "access_token": "small"',
+          'Bearer ' + 'tiny; api-key=xyz',
+          'opaque abcdefghijklmnopqrstuvwx',
+          'ordinary task text',
+        ].join('\n'),
+        metadata: { access_token: 'abc', nested: [{ secret: 'xyz', note: 'keep' }] },
+      }],
+    }];
+    const original = JSON.parse(JSON.stringify(conversation));
+    const { run, options } = harness({ conversation });
+    await run();
+    const sanitized = options.planner.classify.mock.calls[0][0].conversation;
+    expect(sanitized[0].parts[0].text).toBe([
+      'Authorization: ' + 'Bearer ' + '[REDACTED], next',
+      'JWT [REDACTED_TOKEN]',
+      'token=[REDACTED]; client_secret: [REDACTED]; "access_token": [REDACTED]',
+      'Bearer ' + '[REDACTED]; api-key=[REDACTED]',
+      'opaque [REDACTED_TOKEN]',
+      'ordinary task text',
+    ].join('\n'));
+    expect(sanitized[0].parts[0].metadata).toEqual({
+      access_token: '[REDACTED]', nested: [{ secret: '[REDACTED]', note: 'keep' }],
+    });
+    expect(conversation).toEqual(original);
+    expect(Object.isFrozen(sanitized[0].parts[0].metadata.nested[0])).toBe(true);
+  });
+
   it('does not spend attempts on capacity exclusions or retry invalid output', async () => {
     const { run, options } = harness({ models: [
       { id: 'a-tiny', efforts: ['low'], protocols: ['responses'], contextWindow: 8 },

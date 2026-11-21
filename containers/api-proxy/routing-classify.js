@@ -16,11 +16,11 @@ function isClassifierAvailabilityFailure(result) {
 function sanitizeConversationString(value) {
   if (typeof value !== 'string') return value;
   return value
-    .replace(/(Authorization\s*:\s*Bearer\s+)[^\s]+/gi, '$1[REDACTED]')
-    .replace(/(api[_-]?key\s*[:=]\s*)[^\s,;]+/gi, '$1[REDACTED]')
-    .replace(/(password\s*[:=]\s*)[^\s,;]+/gi, '$1[REDACTED]')
     .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[REDACTED_PRIVATE_KEY]')
-    .replace(/\b[A-Za-z0-9_\-]{32,}\b/g, '[REDACTED_TOKEN]');
+    .replace(/(\bBearer\s+)[^\s,;'"{}\[\]<>]+/gi, '$1[REDACTED]')
+    .replace(/(\b(?:api[_-]?key|password|token|secret|client[_-]?secret|access[_-]?token|refresh[_-]?token|id[_-]?token)\b["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;'"{}\[\]<>]+)/gi, '$1[REDACTED]')
+    .replace(/(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}(?![A-Za-z0-9_-])/g, '[REDACTED_TOKEN]')
+    .replace(/\b[A-Za-z0-9_-]{24,}\b/g, '[REDACTED_TOKEN]');
 }
 
 function sanitizeConversationPayload(value) {
@@ -30,7 +30,9 @@ function sanitizeConversationPayload(value) {
   if (typeof value === 'object') {
     const sanitized = {};
     for (const [key, item] of Object.entries(value)) {
-      sanitized[key] = sanitizeConversationPayload(item);
+      sanitized[key] = typeof item === 'string' &&
+        /^(?:api[_-]?key|password|token|secret|client[_-]?secret|access[_-]?token|refresh[_-]?token|id[_-]?token)$/i.test(key)
+        ? '[REDACTED]' : sanitizeConversationPayload(item);
     }
     return sanitized;
   }
