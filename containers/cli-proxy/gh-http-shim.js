@@ -23,12 +23,15 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const net = require('net');
+const { accessLog } = require('./access-log');
+const { createFromEnv, isGraphqlRequest } = require('./github-api-point-limiter');
 
 // The upstream behind the DIFC proxy is github.com, which is at least as new as
 // any GHES release, so report a version above every gh feature-detection cutoff.
 const DEFAULT_INSTALLED_VERSION = '999.0.0';
 const META_PATH = '/api/v3/meta';
 const MAX_META_BODY_BYTES = 5 * 1024 * 1024;
+const MAX_GRAPHQL_BODY_BYTES = 1024 * 1024;
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -117,13 +120,54 @@ function sendShimError(res, message) {
  * Build the request handler that forwards gh traffic to the DIFC proxy.
  *
  * @param {{ host: string, port: number, servername?: string }} upstream
- * @param {{ installedVersion?: string, requestFn?: typeof https.request }} [options]
+ * @param {{ installedVersion?: string, requestFn?: typeof https.request, pointLimiter?: import('./github-api-point-limiter').GitHubApiPointLimiter }} [options]
  */
 function createShimHandler(upstream, options = {}) {
   const installedVersion = options.installedVersion || DEFAULT_INSTALLED_VERSION;
   const requestFn = options.requestFn || https.request;
+  const pointLimiter = options.pointLimiter || createFromEnv();
 
-  return function handle(req, res) {
+  return async function handle(req, res) {
+    let graphql;
+    try {
+      if (!req.url.startsWith('/') || req.url.startsWith('//')) throw new Error('Invalid request target');
+      graphql = isGraphqlRequest(req.url);
+    } catch {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ message: 'Invalid GitHub API request target' }));
+      req.resume();
+      return;
+    }
+    let body;
+    if (pointLimiter.maxGraphql !== null && graphql && req.method !== 'GET') {
+      const chunks = [];
+      let total = 0;
+      try {
+        for await (const chunk of req) {
+          total += chunk.length;
+          if (total > MAX_GRAPHQL_BODY_BYTES) {
+            res.writeHead(413, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ message: 'GitHub GraphQL request body too large' }));
+            return;
+          }
+          chunks.push(chunk);
+        }
+      } catch {
+        res.destroy();
+        return;
+      }
+      body = Buffer.concat(chunks);
+    }
+    if (res.destroyed) return;
+    const pointLimit = pointLimiter.check(req.method, req.url, body);
+    if (!pointLimit.allowed) {
+      accessLog({ event: 'github_api_points_limited', ...pointLimit });
+      res.writeHead(429, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ message: `GitHub ${pointLimit.kind} API point limit exceeded` }));
+      req.resume();
+      return;
+    }
+
     const meta = isMetaRequest(req.method, req.url);
     const headers = stripHopByHopHeaders(req.headers);
     delete headers.authorization;
@@ -186,7 +230,8 @@ function createShimHandler(upstream, options = {}) {
     res.on('close', () => {
       if (!res.writableEnded) upstreamReq.destroy();
     });
-    req.pipe(upstreamReq);
+    if (body !== undefined) upstreamReq.end(body);
+    else req.pipe(upstreamReq);
   };
 }
 

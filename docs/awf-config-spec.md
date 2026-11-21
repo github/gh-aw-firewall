@@ -383,12 +383,18 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `rateLimiting.maxGithubApiPointsGraphql` → `--max-github-api-points-graphql` *(requires `security.difcProxy.host`)*
 - `rateLimiting.maxNumToolCalls` → `--max-num-tool-calls` *(requires `enclaves`, see §14.2a)*
 
-GitHub API point budgets apply to the entire AWF run and are enforced only by
-the protected `gh` CLI proxy enabled through `security.difcProxy.host`. REST
-read requests consume one point, REST mutations consume five points, and
-GraphQL requests consume one point, matching GitHub's secondary-rate-limit
-point accounting. A command that would exceed its REST or GraphQL budget is
-rejected before it is executed; the CLI proxy writes a
+GitHub API point budgets are shared across the primary agent's protected `gh`
+CLI proxy for the entire AWF run, enabled through `security.difcProxy.host`.
+The proxy meters each HTTP request, including high-level commands such as
+`gh pr comment` and `gh issue create`, pagination, and retries. REST reads
+(`GET`, `HEAD`, `OPTIONS`) and GraphQL queries consume one point; REST writes
+and GraphQL mutations consume five, following GitHub's secondary-rate-limit
+point accounting. GraphQL documents containing any mutation, or whose operation
+cannot be determined, conservatively consume five points. GraphQL request bodies
+are limited to 1 MiB when a GraphQL budget is configured. Startup liveness probes
+do not consume the budget. A request exceeding its REST or GraphQL budget is
+rejected with HTTP 429 before it is forwarded; a multi-request command may have
+already performed earlier requests before failing. The CLI proxy writes a
 `github_api_points_limited` structured audit record with the API kind, used
 points, configured limit, and remaining budget.
 

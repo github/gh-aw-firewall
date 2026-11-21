@@ -25,6 +25,8 @@ const {
 } = require('./security');
 const { runGhCommand } = require('./gh-runner');
 const { requestHandler } = require('./server');
+const { createShimHandler } = require('./gh-http-shim');
+const { GitHubApiPointLimiter } = require('./github-api-point-limiter');
 const ghExecutable = process.env.AWF_TEST_GH_CLI || 'gh';
 const pinnedGhVersion = fs.readFileSync(path.join(__dirname, 'Dockerfile'), 'utf8')
   .match(/^ARG GH_VERSION=(\S+)$/m)?.[1];
@@ -218,6 +220,155 @@ process.stdout.write('inert gh fixture\\n');
       });
       expect(fs.readFileSync(recordPath, 'utf8')).toBe(`${JSON.stringify(args)}\n`);
     });
+  });
+});
+
+describe('POST /exec HTTP point budgets (real gh, local upstream)', () => {
+  let directory;
+  let originalEnv;
+  let upstream;
+  let shim;
+  let forwarded;
+  let pointLimiter;
+  let upstreamData;
+
+  beforeEach(async () => {
+    originalEnv = process.env;
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-gh-points-'));
+    forwarded = [];
+    upstreamData = {
+      viewer: { login: 'octo' },
+      repository: {
+        id: 'REPO_ID', name: 'repo', nameWithOwner: 'octo/repo',
+        owner: { login: 'octo' }, hasIssuesEnabled: true,
+        pullRequest: { id: 'PR_ID', number: 1, comments: { nodes: [] } },
+      },
+    };
+    upstream = http.createServer((req, res) => {
+      forwarded.push({ method: req.method, url: req.url });
+      const chunks = [];
+      req.on('data', (chunk) => chunks.push(chunk));
+      req.on('end', () => {
+        const firstPage = new URL(req.url, 'http://localhost').searchParams.get('page') === '1';
+        const introspection = Buffer.concat(chunks).toString().includes('query Issue_fields');
+        res.writeHead(200, {
+          'content-type': 'application/json',
+          ...(firstPage ? {
+            link: '<https://localhost:18443/api/v3/repos/octo/repo/issues?page=2>; rel="next"',
+          } : {}),
+        });
+        res.end(req.url.startsWith('/api/graphql')
+          ? JSON.stringify({ data: introspection ? { Issue: { fields: [] } } : upstreamData })
+          : firstPage ? '[{"id":1}]' : '[]');
+      });
+    });
+    await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+    const socketPath = path.join(directory, 'gh.sock');
+    pointLimiter = new GitHubApiPointLimiter({ maxRest: 1, maxGraphql: 1 });
+    shim = http.createServer(createShimHandler(
+      { host: '127.0.0.1', port: upstream.address().port },
+      { requestFn: http.request, pointLimiter },
+    ));
+    await new Promise((resolve) => shim.listen(socketPath, resolve));
+    fs.writeFileSync(path.join(directory, 'config.yml'), `http_unix_socket: ${socketPath}\n`);
+    fs.symlinkSync(spawnSync('which', [ghExecutable], { encoding: 'utf8' }).stdout.trim(), path.join(directory, 'gh'));
+    process.env = {
+      PATH: directory,
+      HOME: directory,
+      GH_CONFIG_DIR: directory,
+      GH_TOKEN: 'dummy',
+      GH_HOST: 'localhost:18443',
+      GH_REPO: 'octo/repo',
+    };
+  });
+
+  it.each([
+    ['pr', 'comment', '1', '--body', 'Hello'],
+    ['issue', 'create', '--title', 'Hello', '--body', 'Hello'],
+  ])('blocks the five-point mutation in %j with lookup budget still available', async (...args) => {
+    const lookupPoints = args[0] === 'issue' ? 2 : 1;
+    pointLimiter.maxGraphql = lookupPoints + 4;
+    if (args[0] === 'issue') {
+      upstreamData = { repository: { id: 'REPO_ID', name: 'repo', owner: { login: 'octo' }, hasIssuesEnabled: true } };
+    }
+    const response = await postExec({ args });
+    expect(response.body.exitCode).not.toBe(0);
+    expect(response.body.stderr).toContain('429');
+    expect(response.body.stderr).toContain('graphql API point limit exceeded');
+    expect(pointLimiter.usedGraphql).toBe(lookupPoints);
+    expect(forwarded.filter((req) => req.url === '/api/graphql')).toHaveLength(lookupPoints);
+  });
+
+  afterEach(async () => {
+    process.env = originalEnv;
+    await new Promise((resolve) => shim.close(resolve));
+    await new Promise((resolve) => upstream.close(resolve));
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  it.each([
+    ['pr', 'comment', '1', '--body', 'Hello'],
+    ['issue', 'create', '--title', 'Hello', '--body', 'Hello'],
+  ])('bounds high-level commands %j after the shared budgets are exhausted', async (...args) => {
+    expect((await postExec({ args: ['api', 'repos/octo/repo/issues'] })).body.exitCode).toBe(0);
+    expect((await postExec({ args: ['api', 'graphql', '-f', 'query={viewer{login}}'] })).body.exitCode).toBe(0);
+    expect(forwarded).toHaveLength(2);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await postExec({ args });
+      expect(response.statusCode).toBe(200);
+      expect(response.body.exitCode).not.toBe(0);
+      expect(response.body.stderr).toContain('429');
+      expect(response.body.stderr).toContain('API point limit exceeded');
+    }
+    expect(forwarded).toHaveLength(2);
+  });
+
+  it('charges an implicit POST from --input stdin as a write', async () => {
+    const response = await postExec({
+      args: ['api', 'repos/octo/repo/issues', '--input', '-'],
+      stdin: Buffer.from('{"title":"Hello"}').toString('base64'),
+    });
+    expect(response.body.exitCode).not.toBe(0);
+    expect(response.body.stderr).toContain('HTTP 429');
+    expect(forwarded).toHaveLength(0);
+  });
+
+  it.each([
+    ['api', 'repos/octo/repo/issues', '-ftitle=Hello'],
+    ['api', 'repos/octo/repo/issues', '-iXPOST'],
+    ['--jq', '.', 'api', 'repos/octo/repo/issues', '-X', 'POST'],
+    ['api', 'repos/octo/repo/issues', '--method=', '-X', 'POST'],
+  ])('meters actual writes regardless of flag spelling: %j', async (...args) => {
+    const response = await postExec({ args });
+    expect(response.body.exitCode).not.toBe(0);
+    expect(response.body.stderr).toContain('HTTP 429');
+    expect(forwarded).toHaveLength(0);
+  });
+
+  it('charges each page requested by gh api --paginate', async () => {
+    const response = await postExec({
+      args: ['api', 'repos/octo/repo/issues?page=1', '--paginate'],
+    });
+    expect(response.body.exitCode).not.toBe(0);
+    expect(response.body.stderr).toContain('HTTP 429');
+    expect(forwarded).toHaveLength(1);
+    expect(forwarded[0].method).toBe('GET');
+    expect(new URL(forwarded[0].url, 'http://localhost').searchParams.get('page')).toBe('1');
+  });
+
+  it('rejects a missing method argument without issuing requests', async () => {
+    const response = await postExec({ args: ['api', 'repos/octo/repo/issues', '-X'] });
+    expect(response.body.exitCode).not.toBe(0);
+    expect(forwarded).toHaveLength(0);
+  });
+
+  it('accounts for an empty method value when gh accepts it as GET', async () => {
+    const args = ['api', 'repos/octo/repo/issues', '--method='];
+    expect((await postExec({ args })).body.exitCode).toBe(0);
+    const denied = await postExec({ args });
+    expect(denied.body.exitCode).not.toBe(0);
+    expect(denied.body.stderr).toContain('HTTP 429');
+    expect(forwarded).toHaveLength(1);
   });
 });
 
