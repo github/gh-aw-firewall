@@ -13,6 +13,30 @@ function isClassifierAvailabilityFailure(result) {
     (Number.isInteger(result?.statusCode) && result.statusCode >= 500);
 }
 
+function sanitizeConversationString(value) {
+  if (typeof value !== 'string') return value;
+  return value
+    .replace(/(Authorization\s*:\s*Bearer\s+)[^\s]+/gi, '$1[REDACTED]')
+    .replace(/(api[_-]?key\s*[:=]\s*)[^\s,;]+/gi, '$1[REDACTED]')
+    .replace(/(password\s*[:=]\s*)[^\s,;]+/gi, '$1[REDACTED]')
+    .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[REDACTED_PRIVATE_KEY]')
+    .replace(/\b[A-Za-z0-9_\-]{32,}\b/g, '[REDACTED_TOKEN]');
+}
+
+function sanitizeConversationPayload(value) {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') return sanitizeConversationString(value);
+  if (Array.isArray(value)) return value.map(sanitizeConversationPayload);
+  if (typeof value === 'object') {
+    const sanitized = {};
+    for (const [key, item] of Object.entries(value)) {
+      sanitized[key] = sanitizeConversationPayload(item);
+    }
+    return sanitized;
+  }
+  return value;
+}
+
 function classifierTimeoutError() {
   const error = new Error('Classifier request timed out');
   error.code = 'ETIMEDOUT';
@@ -23,7 +47,8 @@ async function classifyRouting({
   conversation, pool, planner, executor, observer, eligibilityRequest,
   callPlanner, signal, deadline, clock, attemptTimeoutMs, maxAttempts, purpose,
 }) {
-  const classifyRequest = deepFreezeJson({ conversation, models: pool.choices });
+  const sanitizedConversation = sanitizeConversationPayload(conversation);
+  const classifyRequest = deepFreezeJson({ conversation: sanitizedConversation, models: pool.choices });
   assertPlanningRequestSize(classifyRequest);
 
   let classification = null;
