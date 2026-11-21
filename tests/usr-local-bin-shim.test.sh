@@ -109,21 +109,30 @@ else
   fail "ensure_usr_local_bin_shims() overwrote an existing /usr/local/bin entry"
 fi
 
-# 5. Unsafe names are rejected without creating anything
+# 5. Unsafe names are rejected by the name validator itself, without creating
+#    anything. The names include path separators, which a validator that only
+#    checks the first character would accept and let escape /usr/local/bin.
 rm -f "${HOST_ROOT}/usr/local/bin/copilot"
-UNSAFE_OUTPUT="$(
-  # shellcheck disable=SC1090
-  . "${FIXTURE_ENTRYPOINT}"
-  GITHUB_PATH="${GITHUB_PATH_FILE}"
-  AWF_HOST_PATH=""
-  AWF_ENSURE_USR_LOCAL_BIN="../evil"
-  ensure_usr_local_bin_shims
-)"
-if printf '%s' "${UNSAFE_OUTPUT}" | grep -q "Ignoring invalid AWF_ENSURE_USR_LOCAL_BIN entry" && \
-   [ ! -e "${HOST_ROOT}/usr/local/evil" ]; then
-  pass "ensure_usr_local_bin_shims() rejects unsafe binary names"
-else
-  fail "ensure_usr_local_bin_shims() did not reject an unsafe binary name"
+unsafe_all_rejected=1
+for unsafe_name in "../evil" "copilot/../evil" "sub/evil" "copilot;evil"; do
+  tree_before="$(find "${HOST_ROOT}/usr/local" | sort)"
+  UNSAFE_OUTPUT="$(
+    # shellcheck disable=SC1090
+    . "${FIXTURE_ENTRYPOINT}"
+    GITHUB_PATH="${GITHUB_PATH_FILE}"
+    AWF_HOST_PATH=""
+    AWF_ENSURE_USR_LOCAL_BIN="${unsafe_name}"
+    ensure_usr_local_bin_shims
+  )"
+  tree_after="$(find "${HOST_ROOT}/usr/local" | sort)"
+  if ! printf '%s' "${UNSAFE_OUTPUT}" | grep -qF "Ignoring invalid AWF_ENSURE_USR_LOCAL_BIN entry: ${unsafe_name}" || \
+     [ "${tree_before}" != "${tree_after}" ]; then
+    unsafe_all_rejected=0
+    fail "ensure_usr_local_bin_shims() did not reject unsafe binary name '${unsafe_name}'"
+  fi
+done
+if [ "${unsafe_all_rejected}" = "1" ]; then
+  pass "ensure_usr_local_bin_shims() rejects unsafe binary names, including path separators"
 fi
 
 # 6. No-op when AWF_ENSURE_USR_LOCAL_BIN is unset
