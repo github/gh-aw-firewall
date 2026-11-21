@@ -1,4 +1,6 @@
+import { spawnSync } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 
@@ -49,8 +51,47 @@ describe('daily security review workflow', () => {
     expect(source).toContain('clipped search results are navigation aids, not complete evidence');
     expect(source).toContain('A complete raw transcript of exploratory commands is not required');
     expect(source).not.toContain('Run all evidence-gathering commands in one bash block');
+    expect(source).toContain("grep -rnE --include='*.ts' --include='*.sh'");
+    expect(source).not.toMatch(/(^|\s)rg\s/);
     expect(source).not.toContain('npm audit --json');
     expect(source).toContain('without claiming dependencies are vulnerability-free');
+    expect(source).toContain('containers/agent/docker-stub.sh');
+    expect(source).toContain('src/services/agent-volumes/docker-socket.ts');
+  });
+
+  it('documents byte-bounded reads for oversized single-line files', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'security-review-long-line-'));
+    const fixturePath = path.join(dir, 'oversized-line.json');
+    const lineLength = 930_000;
+    const chunkSize = 4096;
+    fs.writeFileSync(fixturePath, 'x'.repeat(lineLength));
+    const file = fs.openSync(fixturePath, 'r');
+    try {
+      const chunks: { offset: number; length: number }[] = [];
+      for (let offset = 0; offset < lineLength; offset += chunkSize) {
+        const buffer = Buffer.alloc(chunkSize);
+        const length = fs.readSync(file, buffer, 0, buffer.length, offset);
+        chunks.push({ offset, length });
+        expect(length).toBeGreaterThan(0);
+        expect(length).toBeLessThanOrEqual(chunkSize);
+      }
+
+      expect(chunks).toHaveLength(Math.ceil(lineLength / chunkSize));
+      expect(chunks[0]).toEqual({ offset: 0, length: chunkSize });
+      expect(chunks[chunks.length - 1]).toEqual({
+        offset: Math.floor((lineLength - 1) / chunkSize) * chunkSize,
+        length: lineLength % chunkSize || chunkSize,
+      });
+    } finally {
+      fs.closeSync(file);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+
+    expect(source).toContain('adjacent chunks of at most 4,096 bytes');
+    expect(source).toContain('zero-based byte offsets');
+    expect(source).toContain(
+      'dd if=containers/api-proxy/models.dev.catalog.json bs=1 skip=0 count=4096 status=none',
+    );
   });
 
   it('keeps the evidence examples bounded on large inputs with line-numbered source', () => {
@@ -59,29 +100,16 @@ describe('daily security review workflow', () => {
     const commands = [...phase.matchAll(/```bash\n([\s\S]*?)```/g)].map(match => match[1].trim());
     expect(commands).toHaveLength(2);
 
-    const expectedFirstCommand = [
-      'python - <<\'PY\'',
-      'from pathlib import Path',
-      'root = Path(".")',
-      'for path in sorted(root.rglob("*")):',
-      '    if not path.is_file():',
-      '        continue',
-      '    if any(part.startswith(".git") for part in path.parts):',
-      '        continue',
-      '    print(path)',
-      'PY',
-      '| head -n 40',
-    ].join('\n');
-
-    const expectedSecondCommand = [
-      'awk \'{print NR "\\t" $0}\' containers/agent/setup-iptables.sh | head -n 80',
-    ].join('\n');
+    const expectedFirstCommand =
+      "grep -rnE --include='*.ts' --include='*.sh' --exclude-dir=node_modules 'NET_ADMIN|NET_RAW|cap_drop|chroot|execa|spawn' src/ containers/ | cut -c 1-120 | sed -n '1,40p'";
+    const expectedSecondCommand =
+      "nl -ba containers/agent/setup-iptables.sh | sed -n '1,80p'";
 
     expect(commands[0]).toBe(expectedFirstCommand);
     expect(commands[1]).toBe(expectedSecondCommand);
-    expect(commands[0]).toContain('head -n 40');
-    expect(commands[1]).toContain('head -n 80');
-    expect(commands[1]).toContain('NR "\\t"');
+    expect(commands[0]).toContain("sed -n '1,40p'");
+    expect(commands[1]).toContain("sed -n '1,80p'");
+    expect(commands[1]).toContain('nl -ba');
   });
 
   it('completes safe public reporting without suppressing genuine blockers', () => {
