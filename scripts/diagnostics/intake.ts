@@ -156,6 +156,7 @@ export async function collectIntake(
   fetchWindow: (since: string, until: string) => Promise<Candidate[]>,
   now: string,
   fetchUpdatedWindow: (since: string, until: string) => Promise<Candidate[]> = async () => [],
+  seedCandidates: Candidate[] = [],
 ): Promise<IntakeCollection> {
   validateState(state, state.repository);
   validateReceipts(receipts);
@@ -181,6 +182,7 @@ export async function collectIntake(
       }
     }
   };
+  add(seedCandidates);
   const since = iso(Math.min(instant(state.since) + WEEK, instant(now)));
   add(await fetchWindow(state.since, since));
   // Catch up older merges without starving the current feed or growing an unbounded active batch.
@@ -257,6 +259,41 @@ export async function fetchUpdatedWindow(repository: string, since: string, unti
   return fetchPrWindow(repository, `updated:${since}..${until}`, 'updated');
 }
 
+export function parseSeedPullRequestNumbers(value: string | undefined): number[] {
+  if (!value) return [];
+  const parts = value.split(',');
+  if (parts.some((part) => !/^[1-9]\d*$/.test(part))) {
+    throw new Error('Seeded pull request numbers must be comma-separated positive integers');
+  }
+  const numbers = parts.map(Number);
+  if (numbers.some((number) => !Number.isSafeInteger(number)) ||
+    new Set(numbers).size !== numbers.length) {
+    throw new Error('Seeded pull request numbers must be unique safe integers');
+  }
+  return numbers;
+}
+
+export async function fetchSeededMergedPullRequests(
+  repository: string,
+  numbers: number[],
+): Promise<Candidate[]> {
+  const candidates: Candidate[] = [];
+  for (const number of numbers) {
+    if (!Number.isSafeInteger(number) || number < 1) {
+      throw new Error('Seeded pull request numbers must be positive safe integers');
+    }
+    const pullRequest = api<Candidate & { merged_at: string | null }>([
+      '--jq', '{number,title,html_url,updated_at,merged_at}',
+      `repos/${repository}/pulls/${number}`,
+    ]);
+    if (pullRequest.number !== number || typeof pullRequest.merged_at !== 'string') {
+      throw new Error('Seeded pull request is unavailable or not merged; checkpoint not advanced');
+    }
+    candidates.push(projectCandidate(pullRequest, repository));
+  }
+  return candidates;
+}
+
 async function fetchPrWindow(
   repository: string,
   dateFilter: string,
@@ -310,9 +347,13 @@ async function main(): Promise<void> {
     };
   }
   const receipts = fs.existsSync(receiptsPath) ? readReceipts(receiptsPath) : [];
+  const seedCandidates = await fetchSeededMergedPullRequests(
+    repository,
+    parseSeedPullRequestNumbers(process.env.DIAGNOSIS_INTAKE_SEED_PRS),
+  );
   const collected = await collectIntake(state, receipts,
     (since, until) => fetchMergedWindow(repository, since, until), now,
-    (since, until) => fetchUpdatedWindow(repository, since, until));
+    (since, until) => fetchUpdatedWindow(repository, since, until), seedCandidates);
   fs.writeFileSync(path.join(outputDir, 'scan-since.txt'), `${state.since}\n`);
   const { reviewQueue, ...checkpointState } = collected;
   const safeForAgents = {
