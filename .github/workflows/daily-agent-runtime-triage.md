@@ -60,7 +60,7 @@ safe-outputs:
     pull-requests: false
     max: 20
 timeout-minutes: 30
-max-turns: 8
+max-turns: 24
 steps:
   - name: Collect verified regression report metadata
     uses: actions/github-script@v9.0.0
