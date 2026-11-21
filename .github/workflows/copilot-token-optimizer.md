@@ -34,6 +34,7 @@ safe-outputs:
     title-prefix: "\u26a1 Copilot Token Optimization"
     labels: [copilot-token-optimization]
     close-older-issues: true
+model: router
 timeout-minutes: 15
 sandbox:
   agent:

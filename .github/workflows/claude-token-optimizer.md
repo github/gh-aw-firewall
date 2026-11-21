@@ -35,6 +35,7 @@ safe-outputs:
   noop:
     max: 1
     report-as-issue: false
+model: router
 timeout-minutes: 15
 sandbox:
   agent:

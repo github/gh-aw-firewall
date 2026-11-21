@@ -30,7 +30,7 @@ safe-outputs:
     title-prefix: "\U0001F4CA Copilot Token Usage Report"
     labels: [token-usage-report]
     close-older-issues: true
-model: auto
+model: router
 engine:
   id: copilot
   version: "1.0.98"

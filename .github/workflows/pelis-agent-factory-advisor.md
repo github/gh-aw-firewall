@@ -11,7 +11,7 @@ permissions:
   pull-requests: read
   discussions: read
 max-turns: 4
-model: auto
+model: router
 engine:
   id: copilot
 imports:

@@ -23,24 +23,47 @@ const engineInstallSecurityRules: EngineInstallSecurityRule[] = [
   },
 ];
 
+// gh-aw >= v1.3 disables install scripts via the step's env
+// (NPM_CONFIG_IGNORE_SCRIPTS: 'true') instead of an --ignore-scripts flag.
+function stepEnvDisablesInstallScripts(lines: string[], runIndex: number): boolean {
+  const runIndent = lines[runIndex].search(/\S/);
+  for (let i = runIndex + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim() === '') continue;
+    const indent = line.search(/\S/);
+    if (indent < runIndent || (indent === runIndent - 2 && line.trim().startsWith('- '))) break;
+    if (/^\s*NPM_CONFIG_IGNORE_SCRIPTS:\s*['"]?true['"]?\s*$/i.test(line)) return true;
+  }
+  return false;
+}
+
 describe('workflow engine CLI install security', () => {
   it.each(engineInstallSecurityRules)(
     '$expectedDescription',
     ({ packageName, ignoreScriptsPolicy }) => {
-      const installCommands: Array<{ lockFile: string; command: string }> = [];
+      const installCommands: Array<{
+        lockFile: string;
+        command: string;
+        stepEnvDisablesScripts: boolean;
+      }> = [];
 
       for (const lockFile of lockFiles) {
         const workflowContent = fs.readFileSync(path.join(workflowsDir, lockFile), 'utf-8');
-        for (const line of workflowContent.split('\n')) {
+        const lines = workflowContent.split('\n');
+        lines.forEach((line, index) => {
           const trimmedLine = line.trim();
           if (
             trimmedLine.startsWith('run:') &&
             trimmedLine.includes('npm install') &&
             trimmedLine.includes(packageName)
           ) {
-            installCommands.push({ lockFile, command: trimmedLine });
+            installCommands.push({
+              lockFile,
+              command: trimmedLine,
+              stepEnvDisablesScripts: stepEnvDisablesInstallScripts(lines, index),
+            });
           }
-        }
+        });
       }
 
       if (installCommands.length === 0) {
@@ -53,12 +76,17 @@ describe('workflow engine CLI install security', () => {
       const secureInstallCommandRegex =
         /run:\s+npm install\b(?=.*--ignore-scripts)(?=.*(?:^|\s)(?:-g|--global)(?:\s|$)).*/;
 
-      for (const { lockFile, command } of installCommands) {
+      for (const { lockFile, command, stepEnvDisablesScripts } of installCommands) {
         if (ignoreScriptsPolicy === 'required') {
-          expect(command).toMatch(secureInstallCommandRegex);
+          if (stepEnvDisablesScripts) {
+            expect(command).toMatch(globalInstallCommandRegex);
+          } else {
+            expect(command).toMatch(secureInstallCommandRegex);
+          }
         } else {
           expect(command).toMatch(globalInstallCommandRegex);
           expect(command).not.toContain('--ignore-scripts');
+          expect(stepEnvDisablesScripts).toBe(false);
         }
         expect(command).toContain(packageName);
         expect(lockFile).toMatch(/\.lock\.yml$/);
