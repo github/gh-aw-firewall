@@ -41,6 +41,68 @@ describe('daily security review workflow', () => {
     expect(source).toContain('Use it only as corroborative evidence, verifying claims against repository/source');
   });
 
+  it('collects bounded evidence and recovers from truncation', () => {
+    expect(source).toContain('running each command separately');
+    expect(source).toContain('40 matches and 120 columns per line');
+    expect(source).toContain('at most 80 lines');
+    expect(source).toContain('below 6 KB');
+    expect(source).toContain('follow re-exports/imports to the implementing modules');
+    expect(source).toContain('re-run a narrower query or smaller source range');
+    expect(source).toContain('clipped search results are navigation aids, not complete evidence');
+    expect(source).toContain('A complete raw transcript of exploratory commands is not required');
+    expect(source).not.toContain('Run all evidence-gathering commands in one bash block');
+    expect(source).not.toContain('npm audit --json');
+    expect(source).toContain('without claiming dependencies are vulnerability-free');
+  });
+
+  it('keeps the evidence examples bounded on large inputs with line-numbered source', () => {
+    const phase = source.split('## Phase 2: Codebase Security Analysis')[1]
+      .split('## Phase 3:')[0];
+    const commands = [...phase.matchAll(/```bash\n([\s\S]*?)```/g)].map(match => match[1]);
+    expect(commands).toHaveLength(2);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'security-review-evidence-'));
+    try {
+      fs.mkdirSync(path.join(dir, 'src'));
+      fs.mkdirSync(path.join(dir, 'containers/agent'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'src/network.ts'), 'NET_ADMIN '.repeat(40).concat('\n').repeat(200));
+      fs.writeFileSync(path.join(dir, 'containers/agent/setup-iptables.sh'),
+        Array.from({ length: 200 }, (_, index) => `# source line ${index + 1}\n`).join(''));
+      for (const [index, command] of commands.entries()) {
+        const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', command], {
+          cwd: dir,
+          env: { PATH: process.env.PATH },
+          encoding: 'utf8',
+          timeout: 10000,
+        });
+        expect(result.error).toBeUndefined();
+        expect(result.status).toBe(0);
+        expect(result.stdout.trimEnd().split('\n')).toHaveLength(index === 0 ? 40 : 80);
+        expect(Buffer.byteLength(result.stdout)).toBeLessThan(6000);
+        if (index === 1) {
+          expect(result.stdout).toMatch(/^\s+1\t# source line 1\n/);
+          expect(result.stdout).toMatch(/\s+80\t# source line 80\n$/);
+        }
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('completes safe public reporting without suppressing genuine blockers', () => {
+    expect(source).toContain('public discussion');
+    expect(source).toContain('Do not publish secrets, sensitive payloads, or exploit-enabling details');
+    expect(source).toContain('in the discussion, tool output, or cache memory');
+    expect(source).toContain('do not claim that private disclosure occurred');
+    expect(source).toContain('Do not invent a private channel, broaden tool permissions, or attempt live exploitation');
+    expect(source).toContain('absence of a private disclosure tool does not block');
+    expect(source).toContain('explicitly state any withheld details or unverified areas');
+    expect(source).toContain('Submit the completed review through `create_discussion`');
+    expect(source).toContain('including when no new vulnerabilities are confirmed');
+    expect(source).toContain('Use `report_incomplete` only for a genuine unrecoverable blocker');
+    expect(source).toContain('Name the blocked requirement and supporting evidence');
+    expect(source).toContain('do not conceal missing coverage or claim exhaustive review');
+  });
+
   it('compiles the prefetch unchanged before agent execution with read-only GitHub bindings', () => {
     expect(lockStep.run?.trimEnd()).toBe(sourceStep.run?.trimEnd());
     expect(lockStep.env).toEqual(sourceStep.env);
