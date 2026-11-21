@@ -10,10 +10,77 @@ import { createScriptEnclaveCloudHypervisorProfile } from './workload-profile';
 
 import {
   hostTools, virtiofsdManagerMock, config, processMock, networkConfig, guestConfig,
-  enclaveExportPlan, createTestNetworkPlan, dependencies,
+  enclaveExportPlan, createTestNetworkPlan, dependencies, vmmIdentityMock, cgroupMock,
+  cleanupHandleMock,
 } from './manager.test-utils';
 
   describe('launch and boot', () => {
+  it('orders durable network setup, staging, and confined launch before VM creation', async () => {
+    const deps = dependencies();
+    const manager = new CloudHypervisorManager(
+      config(), '/tmp/awf', deps, 'stage-order', networkConfig(), guestConfig(),
+    );
+    const client = await manager.start();
+    const cleanup = await (deps.cleanupRegistry.createPending as jest.Mock).mock.results[0].value;
+    const identity = (deps.createVmmIdentity as jest.Mock).mock.results[0].value;
+    const network = (deps.createNetwork as jest.Mock).mock.results[0].value;
+    const rootfs = (deps.createRootfsPreparer as jest.Mock).mock.results[0].value;
+    const cgroup = (deps.createCgroup as jest.Mock).mock.results[0].value;
+    const virtiofsd = (deps.createVirtiofsdManager as jest.Mock).mock.results[0].value;
+    const operations = [
+      deps.preflight, deps.cleanupRegistry.reapPending, deps.resolveIdentity,
+      deps.cleanupRegistry.createPending, cleanup.captureArtifactSnapshot,
+      identity.allocate, deps.reserveNetwork, cleanup.captureNetworkPlan,
+      network.setup, rootfs.prepare, deps.mkdir, cleanup.captureRunDirectory,
+      cgroup.setup, cleanup.captureCgroup, deps.copyFile, deps.copySparseFile,
+      identity.validateOwnedPaths, identity.validateTapOwnership, identity.withDeviceAccess,
+      cleanup.prepareProcess, deps.launch, cgroup.assign, cleanup.captureProcess,
+      deps.access, client.ping, deps.verifyConfinement, virtiofsd.start,
+      cleanup.captureVirtiofsdResources, client.vmCreate,
+    ];
+    const order = operations.map((operation) => (operation as jest.Mock).mock.invocationCallOrder[0]);
+    expect(order).not.toContain(undefined);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    await manager.stop();
+  });
+
+  it.each(['cgroup assignment', 'process capture'])(
+    'revokes device access before partial-start cleanup when %s fails',
+    async (stage) => {
+      const order: string[] = [];
+      const original = new Error(stage);
+      const identity = vmmIdentityMock();
+      (identity.withDeviceAccess as jest.Mock).mockImplementation(async (operation) => {
+        try {
+          return await operation();
+        } finally {
+          order.push('device-access-released');
+        }
+      });
+      const cgroup = cgroupMock();
+      const cleanup = cleanupHandleMock();
+      const operation = stage === 'cgroup assignment' ? cgroup.assign : cleanup.captureProcess;
+      (operation as jest.Mock).mockRejectedValue(original);
+      const deps = dependencies({
+        createVmmIdentity: jest.fn(() => identity),
+        createCgroup: jest.fn(() => cgroup),
+      });
+      (deps.cleanupRegistry.createPending as jest.Mock).mockResolvedValue(cleanup);
+      const manager = new CloudHypervisorManager(
+        config(), '/tmp/awf', deps, 'launch-failure', networkConfig(),
+      );
+      const stop = jest.spyOn(manager, 'stop').mockImplementation(async () => {
+        order.push('cleanup');
+      });
+
+      await expect(manager.start()).rejects.toBe(original);
+      expect(order).toEqual(['device-access-released', 'cleanup']);
+      expect(deps.createClient).not.toHaveBeenCalled();
+      stop.mockRestore();
+      await manager.stop();
+    },
+  );
+
   it('builds explicit supervisor boot cmdline with PCI-required root/interface naming', () => {
     const args = buildSupervisorBootArgs(createTestNetworkPlan({
       networkInterface: { iface_id: 'eth0', host_dev_name: 'tap' },

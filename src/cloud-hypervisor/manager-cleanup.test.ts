@@ -14,6 +14,43 @@ import {
 } from './manager.test-utils';
 
   describe('stop and cleanup', () => {
+  it.each([false, true])(
+    'releases a reservation before cleanup when network-plan capture fails (release fails: %s)',
+    async (releaseFails) => {
+      const original = new Error('network-plan capture failed');
+      const cleanup = cleanupHandleMock();
+      (cleanup.captureNetworkPlan as jest.Mock).mockRejectedValue(original);
+      const release = jest.fn().mockImplementation(async () => {
+        if (releaseFails) throw new Error('reservation release failed');
+      });
+      const deps = dependencies({
+        reserveNetwork: jest.fn(async (runId, options) => ({
+          plan: createMicrovmNetworkPlan(runId, options), release,
+        })),
+      });
+      (deps.cleanupRegistry.createPending as jest.Mock).mockResolvedValue(cleanup);
+      const manager = new CloudHypervisorManager(
+        config(), '/tmp/awf', deps, 'network-capture-failure', networkConfig(),
+      );
+      const stop = jest.spyOn(manager, 'stop');
+
+      if (releaseFails) {
+        await expect(manager.start()).rejects.toThrow(
+          'Creating the durable cleanup record failed: network-plan capture failed; ' +
+          'releasing the network reservation also failed: reservation release failed',
+        );
+      } else {
+        await expect(manager.start()).rejects.toBe(original);
+      }
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(release.mock.invocationCallOrder[0]).toBeLessThan(stop.mock.invocationCallOrder[0]);
+      expect(deps.createNetwork).not.toHaveBeenCalled();
+      expect(deps.createRootfsPreparer).not.toHaveBeenCalled();
+      expect(deps.launch).not.toHaveBeenCalled();
+      stop.mockRestore();
+    },
+  );
+
   it('removes the invocation-derived short run path before releasing the VMM identity', async () => {
     const runId = 'a'.repeat(32);
     const root = `/run/awf-cloud-hypervisor/enclave-storage/${runId}`;
