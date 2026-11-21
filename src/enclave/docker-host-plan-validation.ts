@@ -6,7 +6,7 @@ import { assertDockerHostPath } from './docker-host-storage';
 import type { PublicEnclaveOperationStage } from './public-debug-events';
 
 export type DockerHostDebugCheck = <T>(
-  stage: PublicEnclaveOperationStage, operation: () => Promise<T> | T,
+  stage: PublicEnclaveOperationStage, operation: () => Promise<T> | T, cleanup?: boolean,
 ) => Promise<T>;
 
 export function isDockerHostPlanIdentityValid(

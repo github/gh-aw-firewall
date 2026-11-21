@@ -5,7 +5,8 @@ import type { HostEnclaveExecutorBackend, HostExecutorInvocationPlan, HostExecut
 import { HOST_EXECUTOR_ID_PATTERN } from './host-executor-protocol';
 import { dockerWritableBudget, resolveDockerHostTool } from './docker-host-storage';
 import { hasDockerHostMountCapability } from './docker-storage-helper';
-import { createDockerHostRecoveryState, type DockerHostCommand } from './docker-host-recovery';
+import { createDockerHostRecoveryState, type DockerHostCommand, type DockerHostRecoveryRecord } from './docker-host-recovery';
+import type { DockerHostDebugCheck } from './docker-host-plan-validation';
 import type { preservePublicEnclaveArtifacts } from './public-debug-artifacts';
 import type { PublicEnclaveOperationRecorder } from './public-debug-events';
 
@@ -75,10 +76,19 @@ export interface InvocationAuthorityState {
   dockerState?: { running: false; exitCode: number | null; oomKilled: boolean | null };
 }
 
-interface DockerHostPreparedEntry extends DockerHostExecutorEntry {
+export interface DockerHostPreparedEntry extends DockerHostExecutorEntry {
   seccompProfile: string;
   uid: number;
   gid: number;
+}
+
+export interface DockerHostInvocationStage {
+  plan: HostExecutorInvocationPlan;
+  entry: DockerHostPreparedEntry;
+  record: DockerHostRecoveryRecord;
+  signal: AbortSignal;
+  authorityState: InvocationAuthorityState;
+  debugCheck: DockerHostDebugCheck;
 }
 
 export interface DockerHostContext extends ReturnType<typeof createDockerHostRecoveryState> {
