@@ -728,8 +728,8 @@ before filesystem side effects.
 Both roles receive the selected seed at `/input-seed` and the immutable
 invocation request at `/input-request`, both host-enforced read-only. Each role
 gets only its own `/output` and `/runtime` directories as writable exports.
-Agent enclaves additionally receive only the distinct
-`/session-handoff` and `/session-state` directories as writable exports; the
+Agent enclaves additionally receive only the distinct `/session-handoff`
+directory as a read-only export and `/session-state` as a writable export; the
 parent invocation directory, delegation-control files, and executor state are
 never exported. No enclave export uses or synthesizes `/workspace`. Guest
 mount-tree overrides are rejected for enclaves, so guest cooperation cannot
