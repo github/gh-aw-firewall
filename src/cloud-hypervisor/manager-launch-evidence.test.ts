@@ -10,6 +10,7 @@ import {
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from '../enclave/host-executor-server';
 import {
   config, dependencies, networkConfig, enclaveExportPlan, processMock, vmmIdentityMock,
+  networkLifecycle, cgroupMock,
 } from './manager.test-utils';
 
 describe('protected shared VMM launch evidence', () => {
@@ -43,12 +44,36 @@ describe('protected shared VMM launch evidence', () => {
     code: 'EACCES', stderr: 'PRIVATE_STDERR',
   });
 
-  it.each(['vmm-launch', 'api-socket', 'api-ping', 'confinement', 'vm-create', 'vm-boot'] as const)(
+  it.each([
+    'artifact-preflight', 'recovery', 'identity', 'network', 'run-directory',
+    'cgroup', 'kernel-stage', 'rootfs-stage',
+    'vmm-launch', 'api-socket', 'api-ping', 'confinement', 'vm-create', 'vm-boot',
+  ] as const)(
     'retains %s as the original failure before secondary cleanup/reconcile failures',
     async (stage) => {
       const original = failure();
       const deps = dependencies();
       const client = deps.createClient('/unused', 1);
+      if (stage === 'artifact-preflight') (deps.preflight as jest.Mock).mockRejectedValue(original);
+      if (stage === 'recovery') (deps.cleanupRegistry.reapPending as jest.Mock).mockRejectedValue(original);
+      if (stage === 'identity') {
+        const identity = vmmIdentityMock();
+        (identity.allocate as jest.Mock).mockRejectedValue(original);
+        (deps.createVmmIdentity as jest.Mock).mockReturnValue(identity);
+      }
+      if (stage === 'network') {
+        (deps.createNetwork as jest.Mock).mockImplementation((plan) => ({
+          ...networkLifecycle(plan), setup: jest.fn().mockRejectedValue(original),
+        }));
+      }
+      if (stage === 'run-directory') (deps.mkdir as jest.Mock).mockRejectedValue(original);
+      if (stage === 'cgroup') {
+        const cgroup = cgroupMock();
+        (cgroup.setup as jest.Mock).mockRejectedValue(original);
+        (deps.createCgroup as jest.Mock).mockReturnValue(cgroup);
+      }
+      if (stage === 'kernel-stage') (deps.copyFile as jest.Mock).mockRejectedValue(original);
+      if (stage === 'rootfs-stage') (deps.copySparseFile as jest.Mock).mockRejectedValue(original);
       if (stage === 'vmm-launch') (deps.launch as jest.Mock).mockImplementation(() => { throw original; });
       if (stage === 'api-socket') (deps.access as jest.Mock).mockRejectedValue(original);
       if (stage === 'api-ping') (client.ping as jest.Mock).mockRejectedValue(original);
@@ -65,6 +90,12 @@ describe('protected shared VMM launch evidence', () => {
         await manager.stop();
       } else {
         await expect(diagnostic.check(report, 'manager-start', () => manager.start())).rejects.toBe(original);
+      }
+      if ([
+        'artifact-preflight', 'recovery', 'identity', 'network', 'run-directory',
+        'cgroup', 'kernel-stage', 'rootfs-stage',
+      ].includes(stage)) {
+        expect(deps.launch).not.toHaveBeenCalled();
       }
       const before = JSON.parse(readHostExecutorInvocationDiagnostics(run)[0].contents);
       expect(before).toMatchObject({

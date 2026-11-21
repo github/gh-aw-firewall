@@ -5,45 +5,52 @@ import type { MicrovmRootfsPreparer } from '../microvm/rootfs';
 import type {
   MicrovmNetworkLifecycle,
   MicrovmNetworkPlan,
-  MicrovmNetworkPlanOptions,
 } from '../microvm/network';
 import type { CloudHypervisorApiClient } from './api-client';
 import {
-  prepareRunDirectory,
   preserveVirtiofsdStartupEvidence,
-  stageArtifact,
-  stageDiagnosticFile,
-  waitForApiSocket,
 } from './diagnostics';
-import {
-  CloudHypervisorCgroup,
-  buildCloudHypervisorLaunchCommand,
-} from './launcher';
+import type { CloudHypervisorCgroup } from './launcher';
 import {
   formatError,
   type CloudHypervisorManagerDependencies,
-  type CloudHypervisorManagerNetworkConfig,
+  type CloudHypervisorIdentity,
   type CloudHypervisorRunPaths,
 } from './manager-types';
-import { validateCloudHypervisorExports } from './exports';
-import { hasReadOnlyWorkspaceMountPlan } from './filesystem-write-enforcement';
 import type { VirtiofsdManager, VirtiofsdDevice } from './virtiofsd';
-import { buildCloudHypervisorVmConfig } from './vm-config-builder';
-import { resolveCloudHypervisorEnclaveNetwork } from './enclave-network';
 import type { BoundedOutputCapture } from './diagnostics';
 import type { CloudHypervisorCleanupHandle } from './cleanup-registry';
 import type { CloudHypervisorConfinementEvidence } from './confinement-verifier';
-import type { CloudHypervisorVmmIdentityManager } from './vmm-identity';
+import type {
+  CloudHypervisorVmmIdentity,
+  CloudHypervisorVmmIdentityManager,
+} from './vmm-identity';
 import type { CloudHypervisorPreflightResult } from './preflight';
-import {
-  createCloudHypervisorEmptyNetworkNamespacePlan,
-  type CloudHypervisorNetworkLifecycle,
-} from './network-namespace';
+import type { CloudHypervisorNetworkLifecycle } from './network-namespace';
 import {
   assertCloudHypervisorWorkloadLaunchable,
   type CloudHypervisorWorkloadProfile,
 } from './workload-profile';
 import type { HostPreflightCheck, HostPreflightReporter } from './host-preflight-progress';
+import {
+  resolveCloudHypervisorStartNetworkConfig,
+  setupCloudHypervisorStartNetwork,
+} from './manager-start-network';
+import { stageCloudHypervisorStart } from './manager-start-stage';
+import { launchCloudHypervisorStart } from './manager-start-launch';
+
+export type CloudHypervisorStartCheck = <T>(
+  id: HostPreflightCheck,
+  operation: () => Promise<T> | T,
+) => Promise<T> | T;
+
+export interface CloudHypervisorStartResources {
+  artifacts: CloudHypervisorPreflightResult;
+  cleanupRecord: CloudHypervisorCleanupHandle;
+  vmmIdentityManager: CloudHypervisorVmmIdentityManager;
+  identity: CloudHypervisorVmmIdentity;
+  guestIdentity: CloudHypervisorIdentity;
+}
 
 export interface CloudHypervisorStartContext {
   config: CloudHypervisorOptions;
@@ -83,39 +90,14 @@ export async function startCloudHypervisor(
   } = context;
   assertCloudHypervisorWorkloadLaunchable(workloadProfile, allowTrustedEnclaveExecution);
   const guestConfig = workloadProfile.guest;
-  const check = <T>(id: HostPreflightCheck, operation: () => Promise<T> | T): Promise<T> | T =>
+  const check: CloudHypervisorStartCheck = (id, operation) =>
     context.launchReport ? context.launchReport.check(id, operation) : operation();
 
   let startupError: unknown;
   try {
     const artifacts = verifiedArtifacts
       ?? await check('artifact-preflight', () => dependencies.preflight(config));
-    const networkConfig: (CloudHypervisorManagerNetworkConfig & Pick<
-      MicrovmNetworkPlanOptions, 'enclaveAgent'
-    >) | undefined =
-      workloadProfile.network.mode === 'primary'
-        ? {
-            infrastructureBridge: workloadProfile.network.infrastructureBridge,
-            enableApiProxy: workloadProfile.network.enableApiProxy,
-            ...(workloadProfile.network.apiProxyIp
-              ? { apiProxyIp: workloadProfile.network.apiProxyIp }
-              : {}),
-            ...(workloadProfile.network.controlPeer
-              ? { controlPeer: workloadProfile.network.controlPeer }
-              : {}),
-            ...(workloadProfile.network.controlPeers
-              ? { controlPeers: workloadProfile.network.controlPeers }
-              : {}),
-            ...(workloadProfile.network.hostAliases
-              ? { hostAliases: workloadProfile.network.hostAliases }
-              : {}),
-          }
-        : workloadProfile.kind === 'agent-enclave'
-          ? await resolveCloudHypervisorEnclaveNetwork(workloadProfile, {
-              docker: artifacts.tools.docker,
-              ip: artifacts.tools.ip,
-            }, undefined, process.env, context.launchReport?.fork('enclave-network'))
-          : undefined;
+    const networkConfig = await resolveCloudHypervisorStartNetworkConfig(context, artifacts);
     const vmmTools = {
       getfacl: artifacts.tools.getfacl,
       getent: artifacts.tools.getent,
@@ -148,223 +130,12 @@ export async function startCloudHypervisor(
     });
     context.setVmmIdentity(vmmIdentityManager);
     const identity = await check('identity', () => vmmIdentityManager.allocate());
-    let networkPlan: MicrovmNetworkPlan | undefined;
-    let networkNamespace: string;
-    if (networkConfig) {
-      if (workloadProfile.kind === 'agent-enclave') {
-        const verified = await resolveCloudHypervisorEnclaveNetwork(workloadProfile, {
-          docker: artifacts.tools.docker,
-          ip: artifacts.tools.ip,
-        }, undefined, process.env, context.launchReport?.fork('enclave-network'));
-        if (verified.infrastructureBridge !== networkConfig.infrastructureBridge) {
-          throw new Error('Agent-enclave Docker bridge changed before network setup');
-        }
-      }
-      const reservation = await dependencies.reserveNetwork(paths.runId, {
-        ...networkConfig,
-        tapOwnerUid: identity.uid,
-        tapOwnerGid: identity.gid,
-        tapVnetHdr: true,
-      }, artifacts.tools);
-      networkPlan = reservation.plan;
-      context.setNetworkPlan(networkPlan);
-      try {
-        await cleanupRecord.captureNetworkPlan(networkPlan);
-      } catch (error) {
-        try {
-          await reservation.release();
-        } catch (releaseError) {
-          throw new Error(
-            `Creating the durable cleanup record failed: ${formatError(error)}; ` +
-            `releasing the network reservation also failed: ${formatError(releaseError)}`,
-          );
-        }
-        throw error;
-      }
-      const network = dependencies.createNetwork(networkPlan, artifacts.tools, reservation, {
-        resourceCreated: (resource) => cleanupRecord.captureNetworkResource(resource),
-      });
-      context.setNetwork(network);
-      await check('network', () => network.setup());
-      networkNamespace = networkPlan.namespaceName;
-    } else {
-      const namespacePlan = createCloudHypervisorEmptyNetworkNamespacePlan(paths.runId);
-      await cleanupRecord.captureEmptyNetworkNamespace(namespacePlan);
-      const network = dependencies.createEmptyNetworkNamespace(
-        namespacePlan,
-        artifacts.tools,
-        { resourceCreated: (resource) => cleanupRecord.captureNetworkResource(resource) },
-      );
-      context.setNetwork(network);
-      await check('network', () => network.setup());
-      networkNamespace = namespacePlan.namespaceName;
-    }
-    let rootfsSource = artifacts.rootfsPath;
-    if (guestConfig) {
-      validateCloudHypervisorExports(guestConfig.exports, {
-        allowReadOnlyWorkspace: hasReadOnlyWorkspaceMountPlan(guestConfig.mountEnforcement),
-        requireWorkspace: guestConfig.workspaceMount !== null,
-        ...(guestConfig.workspaceMount === null ? { maxExports: 6 } : {}),
-      });
-      const rootfsPreparationDirectory = path.join(
-        workDir, 'cloud-hypervisor-rootfs', paths.runId,
-      );
-      const rootfsPreparer = dependencies.createRootfsPreparer({
-        runDirectory: rootfsPreparationDirectory,
-        baseRootfsPath: artifacts.rootfsPath,
-        supervisorBinaryPath: guestConfig.supervisorBinaryPath,
-        supervisorSha256: guestConfig.supervisorSha256,
-        supervisorGuestPath: '/usr/sbin/awf-supervisor',
-        ...(!guestConfig.enclaveResources && config.scratchMib !== undefined
-          ? { scratchMib: config.scratchMib }
-          : {}),
-        hostAliases: {
-          ...(networkConfig?.apiProxyIp ? { 'api-proxy': networkConfig.apiProxyIp } : {}),
-          ...(networkConfig?.hostAliases ?? {}),
-        },
-      }, artifacts.tools, (source, destination) =>
-        dependencies.copySparseFile(artifacts.tools.rsync, source, destination));
-      context.setRootfsPreparer(rootfsPreparer);
-      rootfsSource = await check('rootfs', () => rootfsPreparer.prepare());
-    }
-
-    await check('run-directory', () => prepareRunDirectory(dependencies, paths, identity));
-    await cleanupRecord.captureRunDirectory();
-    const cgroup = dependencies.createCgroup(
-      paths.cgroupPath,
-      guestConfig?.enclaveResources
-        ? {
-            memoryMib: guestConfig.enclaveResources.memoryMiB,
-            vcpuCount: guestConfig.enclaveResources.vcpuCount,
-            cpuQuotaMilli: guestConfig.enclaveResources.cpuQuotaMilli,
-            writableStorageBytes: guestConfig.enclaveResources.writableStorageBytes,
-          }
-        : { memoryMib: config.memoryMib, vcpuCount: config.vcpuCount },
-    );
-    context.setCgroup(cgroup);
-    await check('cgroup', () => cgroup.setup());
-    await cleanupRecord.captureCgroup();
-    await check('kernel-stage', () => stageArtifact(dependencies, artifacts.kernelPath, paths.kernelPath, 0o400, identity));
-    await check('rootfs-stage', () => stageArtifact(
-      dependencies,
-      rootfsSource,
-      paths.rootfsPath,
-      0o600,
-      identity,
-      () => dependencies.copySparseFile(
-        artifacts.tools.rsync,
-        rootfsSource,
-        paths.rootfsPath,
-      ),
-    ));
-    await stageDiagnosticFile(dependencies, paths.logPath, identity);
-    await stageDiagnosticFile(dependencies, paths.serialLogPath, identity);
-    await vmmIdentityManager.validateOwnedPaths([
-      paths.runDirectory,
-      paths.kernelPath,
-      paths.rootfsPath,
-      paths.logPath,
-      paths.serialLogPath,
-    ]);
-    if (networkPlan) {
-      await vmmIdentityManager.validateTapOwnership(
-        artifacts.tools.ip,
-        networkPlan.namespaceName,
-        networkPlan.tapName,
-      );
-    }
-    return await vmmIdentityManager.withDeviceAccess(async () => {
-      const launchCommand = buildCloudHypervisorLaunchCommand({
-        tools: { ip: artifacts.tools.ip, setpriv: artifacts.tools.setpriv },
-        namespaceName: networkNamespace,
-        identity,
-        cloudHypervisorBinary: config.cloudHypervisorBinary,
-        apiSocketPath: paths.apiSocketPath,
-        logFilePath: paths.logPath,
-      });
-      await cleanupRecord.prepareProcess(
-        'vmm', artifacts.cloudHypervisorBinary, paths.apiSocketPath,
-      );
-      const launch = () => dependencies.launch(launchCommand.command, [...launchCommand.args], {
-        reject: false,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        // Cloud Hypervisor directly processes untrusted guest/device input, so
-        // its environment must not expose the host's provider credentials.
-        extendEnv: false,
-        env: { PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' },
-      });
-      const registerLaunchedProcess = (): { child: ExecaChildProcess<string>; pid: number } => {
-        const launched = launch();
-        context.setProcess(launched);
-        if (launched.pid === undefined) {
-          throw new Error('Cloud Hypervisor process did not expose a PID');
-        }
-        return { child: launched, pid: launched.pid };
-      };
-      const launchedProcess = context.launchReport
-        ? context.launchReport.checkSync('vmm-launch', registerLaunchedProcess)
-        : registerLaunchedProcess();
-      const { child, pid: processId } = launchedProcess;
-      child.stdout?.on('data', (chunk: Buffer | string) => context.stdoutCapture.append(chunk));
-      child.stderr?.on('data', (chunk: Buffer | string) => context.stderrCapture.append(chunk));
-      await cgroup.assign(processId);
-      await cleanupRecord.captureProcess('vmm', processId);
-
-      await check('api-socket', () => waitForApiSocket(dependencies, paths, config.apiTimeoutMs, child));
-      await vmmIdentityManager.validateOwnedPaths([paths.apiSocketPath]);
-      const client = dependencies.createClient(paths.apiSocketPath, config.apiTimeoutMs);
-      context.setClient(client);
-      await check('api-ping', () => client.ping());
-      if (child.pid === undefined) {
-        throw new Error('Cloud Hypervisor launcher did not report a PID for confinement verification');
-      }
-      const pid = child.pid;
-      context.setConfinementEvidence(await check('confinement', () => dependencies.verifyConfinement({
-        pid,
-        expectedExecutable: config.cloudHypervisorBinary,
-        identity,
-        launchPolicy: launchCommand.confinementPolicy,
-        networkNamespace,
-        cgroupPath: paths.cgroupPath,
-        cgroupLimits: cgroup.expectedLimits(),
-      })));
-      if (guestConfig) {
-        const virtiofsd = dependencies.createVirtiofsdManager(
-          artifacts.virtiofsdBinary, paths.runDirectory, paths.virtiofsdShareDirectory,
-          identity, guestIdentity, cgroup,
-          { mount: artifacts.tools.mount, umount: artifacts.tools.umount },
-          cleanupRecord,
-        );
-        context.setVirtiofsd(virtiofsd);
-        try {
-          context.setFsDevices(
-            await check('virtiofsd', () => virtiofsd.start(
-              guestConfig.exports,
-              guestConfig.mountEnforcement,
-              guestConfig.enclaveResources?.writableStorageBytes,
-            )),
-          );
-          await cleanupRecord.captureVirtiofsdResources();
-        } catch (error) {
-          context.setFsDevices(virtiofsd.getDiagnosticDevices());
-          throw error;
-        }
-        await vmmIdentityManager.validateOwnedPaths(
-          context.getFsDevices().map((device) => device.socketPath),
-        );
-      }
-      await check('vm-create', () => client.vmCreate(buildCloudHypervisorVmConfig({
-        config,
-        paths,
-        networkPlan,
-        ...(guestConfig ? { guestConfig: { ...guestConfig, identity: guestIdentity } } : {}),
-        ...(guestConfig?.enclaveResources
-          ? { enclaveResources: guestConfig.enclaveResources }
-          : {}),
-        fsDevices: context.getFsDevices(),
-      })));
-      return client;
-    }, networkPlan !== undefined);
+    const resources: CloudHypervisorStartResources = {
+      artifacts, cleanupRecord, vmmIdentityManager, identity, guestIdentity,
+    };
+    const network = await setupCloudHypervisorStartNetwork(context, resources, networkConfig, check);
+    const cgroup = await stageCloudHypervisorStart(context, resources, network, check);
+    return await launchCloudHypervisorStart(context, resources, network, cgroup, check);
   } catch (error) {
     startupError = error;
   }
