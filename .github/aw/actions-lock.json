@@ -60,10 +60,10 @@
       "version": "v7.0.2",
       "sha": "cf430e030ddbb5b0abf93d22962f4752f3646cd9"
     },
-    "astral-sh/setup-uv@v10.3.3": {
+    "astral-sh/setup-uv@v10.4.0": {
       "repo": "astral-sh/setup-uv",
-      "version": "v10.3.3",
-      "sha": "68559e99cc807c1eb7e9238fd43a15bba460eec2"
+      "version": "v10.4.0",
+      "sha": "1db35dd8eee11c5894872e0b383ae6c406cf738d"
     },
     "github/gh-aw-actions/setup-cli@v1.3.1": {
       "repo": "github/gh-aw-actions/setup-cli",
