@@ -3,8 +3,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
-  collectIntake, fetchMergedWindow, fetchUpdatedWindow, IntakeState, readIntakeJson, readReceipts,
-  Receipt, sanitizeForAgentText, validateState,
+  collectIntake, fetchMergedWindow, fetchSeededMergedPullRequests, fetchUpdatedWindow,
+  IntakeState, parseSeedPullRequestNumbers, readIntakeJson, readReceipts, Receipt,
+  sanitizeForAgentText, validateState,
 } from './intake';
 
 jest.mock('child_process', () => ({ execFileSync: jest.fn() }));
@@ -62,6 +63,31 @@ describe('diagnosis merged intake', () => {
       receipt(3, 'proposed', '2026-11-07T00:00:00Z'),
     ], async () => [], now);
     expect(result.pending.map(({ number }) => number)).toEqual([2, 3]);
+  });
+
+  it('seeds a merged PR before producing first-time and deferred intake and applies receipts', async () => {
+    const seeded = candidate(11676);
+    const receipt = (disposition: Receipt['disposition']): Receipt => ({
+      number: seeded.number, updatedAt: seeded.updated_at, disposition,
+      evidence: 'RT-001 and current runtime test reviewed',
+    });
+
+    const firstTime = await collectIntake(checkpoint(), [], async () => [], now, undefined, [seeded]);
+    expect(firstTime.pending).toEqual([seeded]);
+    expect(firstTime.reviewQueue.firstTime).toEqual([seeded]);
+
+    const deferred = await collectIntake(
+      checkpoint(), [receipt('needs-evidence')], async () => [], now, undefined, [seeded],
+    );
+    expect(deferred.pending).toEqual([seeded]);
+    expect(deferred.reviewQueue.firstTime).toEqual([]);
+    expect(deferred.reviewQueue.deferred).toEqual([seeded]);
+
+    const completed = await collectIntake(
+      checkpoint(), [receipt('covered')], async () => [], now, undefined, [seeded],
+    );
+    expect(completed.pending).toEqual([]);
+    expect(completed.reviewQueue.firstTime).toEqual([]);
   });
 
   it('keeps verified unpublished proposals pending without classifying them as evidence gaps', async () => {
@@ -190,6 +216,28 @@ describe('diagnosis merged intake', () => {
     expect(exec.mock.calls[0][1]).toContain(
       `q=repo:${repository} is:pr is:merged updated:${checkpoint().since}..${now}`,
     );
+  });
+
+  it('fetches only validated metadata for configured merged-PR seeds', async () => {
+    exec.mockReturnValueOnce(JSON.stringify({
+      ...candidate(11676), merged_at: '2026-10-30T00:00:00Z', body: 'UNTRUSTED_BODY',
+    }));
+    expect(await fetchSeededMergedPullRequests(repository, [11676])).toEqual([candidate(11676)]);
+    expect(exec.mock.calls[0][1]).toContain(`repos/${repository}/pulls/11676`);
+    expect(exec.mock.calls[0][1]).toContain('{number,title,html_url,updated_at,merged_at}');
+
+    exec.mockReturnValueOnce(JSON.stringify({
+      ...candidate(11676), merged_at: null, body: 'UNTRUSTED_BODY',
+    }));
+    await expect(fetchSeededMergedPullRequests(repository, [11676]))
+      .rejects.toThrow('not merged; checkpoint not advanced');
+  });
+
+  it('parses only unique positive safe seed PR numbers', () => {
+    expect(parseSeedPullRequestNumbers('11676,42')).toEqual([11676, 42]);
+    expect(parseSeedPullRequestNumbers(undefined)).toEqual([]);
+    expect(() => parseSeedPullRequestNumbers('11676,')).toThrow('positive integers');
+    expect(() => parseSeedPullRequestNumbers('11676,11676')).toThrow('unique safe integers');
   });
 
   it('projects only compact public metadata, never API issue bodies or author objects', async () => {
