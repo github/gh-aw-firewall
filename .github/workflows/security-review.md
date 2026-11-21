@@ -125,7 +125,7 @@ Collect evidence incrementally, running each command separately. Do not dump ent
 Example bounded discovery command (run separately from source reads):
 
 ```bash
-rg -n --glob '*.ts' --glob '*.sh' 'NET_ADMIN|NET_RAW|cap_drop|chroot|execa|spawn' src/ containers/ | cut -c 1-120 | sed -n '1,40p'
+grep -rnE --include='*.ts' --include='*.sh' --exclude-dir=node_modules 'NET_ADMIN|NET_RAW|cap_drop|chroot|execa|spawn' src/ containers/ | cut -c 1-120 | sed -n '1,40p'
 ```
 
 Example source read (adjust the range for the relevant implementation):
