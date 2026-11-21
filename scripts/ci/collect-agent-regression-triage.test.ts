@@ -313,6 +313,8 @@ describe('daily regression triage workflow contract', () => {
   const source = yaml.load(frontmatter) as {
     on: Record<string, unknown>;
     permissions: Record<string, string>;
+    'max-turns': number;
+    'timeout-minutes': number;
     steps: { with: { script: string } }[];
     tools: { github: { 'github-token': string; toolsets: string[] } };
     jobs: Record<string, {
@@ -327,6 +329,14 @@ describe('daily regression triage workflow contract', () => {
       [key: string]: unknown;
     };
   };
+
+  it('provides bounded invocation headroom for evidence checks and terminal safe outputs', () => {
+    expect(source['max-turns']).toBe(24);
+    expect(source['timeout-minutes']).toBe(30);
+    const lockText = fs.readFileSync(path.join(root, '.github/workflows', `${file}.lock.yml`), 'utf8');
+    expect(lockText).toContain('GH_AW_MAX_TURNS: 24');
+    expect(lockText.match(/\\"maxRuns\\":24/g)).toHaveLength(2);
+  });
 
   it('runs daily/manually with read-only collection and safe-output-only bounded writes', () => {
     expect(source.on).toHaveProperty('schedule');
