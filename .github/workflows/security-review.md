@@ -118,7 +118,7 @@ Collect evidence incrementally, running each command separately. Do not dump ent
 | Container security | Agent service configuration, `containers/agent/seccomp-profile.json`, `containers/agent/entrypoint.sh` |
 | Domain validation | `src/domain-patterns.ts` and its callers |
 | Injection risks | CLI option parsing, subprocess call sites, shell argument handling |
-| Docker wrapper | `containers/agent/docker-wrapper.sh` and its callers |
+| Docker access | `containers/agent/docker-stub.sh` (installed as `/usr/bin/docker`), `src/services/agent-volumes/docker-socket.ts`, and their callers |
 | Dependencies | `package.json`, lockfiles, available code-scanning alerts |
 | Attack surface | Network listeners, proxies, filesystem mounts/writes, enclave boundaries |
 
