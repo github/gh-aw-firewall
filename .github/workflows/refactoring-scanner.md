@@ -40,6 +40,7 @@ safe-outputs:
     max: 5
     expires: 60d
 
+model: router
 timeout-minutes: 20
 
 steps:

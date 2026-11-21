@@ -16,7 +16,7 @@ max-turns: 10
 concurrency:
   group: "security-guard-${{ github.event.pull_request.number || github.ref }}"
   cancel-in-progress: true
-model: auto
+model: router
 engine:
   id: copilot
   version: 1.0.101

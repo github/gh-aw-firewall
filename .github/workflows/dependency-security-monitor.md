@@ -55,6 +55,7 @@ safe-outputs:
     max: 5
     target: "*"
 
+model: router
 timeout-minutes: 10
 ---
 

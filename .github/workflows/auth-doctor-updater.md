@@ -60,6 +60,7 @@ safe-outputs:
       - docs/github_actions.md
       - docs/security.md
       - docs/usage.md
+model: router
 timeout-minutes: 20
 ---
 
