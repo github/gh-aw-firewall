@@ -34,7 +34,7 @@ describe('duplicate code detector workflow optimization config', () => {
     expect(source).toContain('Do not run `pwd`, `cat`, discovery commands, or read source files');
     expect(source).toContain('Use at most 3 bash calls');
     expect(source).toContain('Complete in ≤3 turns.');
-    expect(source).toContain('model: auto');
+    expect(source).toContain('model: router');
     expect(prompt).not.toContain('cat /tmp/gh-aw/code-metrics.txt');
     expect(prompt).not.toContain('cat /tmp/gh-aw/jscpd-top.json');
     expect(source).toContain('github: false');

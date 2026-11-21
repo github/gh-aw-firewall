@@ -43,6 +43,7 @@ describe('test coverage reporter workflow token optimization config', () => {
 
     expect(lock).toContain('} > /tmp/gh-aw/agent/coverage-report-template.txt');
     expect(lock).toContain('shell(cat:/tmp/gh-aw/agent/coverage-report-template.txt)');
+    expect(lock).toContain('{\\"author_file\\":\\".github/workflows/test-coverage-reporter.md\\"}');
     expect(lock).not.toContain('EXPR_STEPS_DISCUSSION_TEMPLATE_OUTPUTS_DISCUSSION_BODY');
   });
 

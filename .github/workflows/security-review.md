@@ -34,6 +34,7 @@ safe-outputs:
   create-discussion:
     title-prefix: "[Security Review] "
     category: "general"
+model: router
 timeout-minutes: 45
 steps:
   - name: Fetch latest escape test results

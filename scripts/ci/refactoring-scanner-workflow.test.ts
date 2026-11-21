@@ -15,7 +15,16 @@ describe('refactoring scanner workflow prompt', () => {
     const install = lock.match(/run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/install_awf_binary\.sh" v(\d+\.\d+\.\d+)/);
 
     expect(install).not.toBeNull();
-    expect(lock).toContain(`\\"imageTag\\":\\"${install![1]},`);
+    // Model routing pins each image (including the router) under container.images
+    // instead of a shared imageTag; both forms must match the installed AWF version.
+    const imagePins = lock.match(/\\"images\\":\{([^}]*)\}/);
+    if (imagePins) {
+      const pins = [...imagePins[1].matchAll(/gh-aw-firewall\/[a-z-]+:([^@\\]+)@sha256:/g)];
+      expect(pins.length).toBeGreaterThan(0);
+      for (const pin of pins) expect(pin[1]).toBe(install![1]);
+    } else {
+      expect(lock).toContain(`\\"imageTag\\":\\"${install![1]},`);
+    }
     expect(lock).toMatch(/^\s+awf --config .+ --skip-pull \\/m);
     expect(lock).not.toContain('--build-local');
     expect(lock).not.toContain('Install awf dependencies');

@@ -31,6 +31,7 @@ safe-outputs:
   add-comment:
     max: 1
     target: "*"
+model: router
 timeout-minutes: 10
 steps:
   - name: Fetch issue and cached signatures

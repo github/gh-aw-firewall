@@ -15,14 +15,10 @@ describe('Copilot automatic model selection', () => {
   it.each([
     'ci-cd-gaps-assessment',
     'contribution-check',
-    'copilot-token-usage-analyzer',
     'doc-maintainer',
-    'duplicate-code-detector',
     'export-audit',
     'network-isolation-test',
-    'pelis-agent-factory-advisor',
     'pr-sous-chef',
-    'security-guard',
     'test-hard-cap-ai-credits',
   ])('uses auto in the source and compiled primary agent for %s', name => {
     const { source, lock } = readWorkflow(name);
@@ -53,5 +49,28 @@ describe('Copilot automatic model selection', () => {
       Array<{ agent: { model: string } }>;
     expect(enclaves).toHaveLength(1);
     expect(enclaves[0].agent.model).toBe('auto');
+  });
+});
+
+describe('Copilot model routing', () => {
+  it.each([
+    'auth-doctor-updater',
+    'claude-token-optimizer',
+    'config-consistency-auditor',
+    'copilot-token-optimizer',
+    'copilot-token-usage-analyzer',
+    'dependency-security-monitor',
+    'duplicate-code-detector',
+    'issue-duplication-detector',
+    'pelis-agent-factory-advisor',
+    'refactoring-scanner',
+    'security-guard',
+    'security-review',
+  ])('routes the primary agent model for %s', name => {
+    const { source, lock } = readWorkflow(name);
+    const frontmatter = yaml.load(source.split(/^---\r?$/m)[1]) as { model?: string };
+    expect(frontmatter.model).toBe('router');
+    expect(lock).toContain('GH_AW_MODEL_ROUTING_ENABLED: "true"');
+    expect(lock).toContain('\\"experimental\\":{\\"modelRouting\\":true}');
   });
 });

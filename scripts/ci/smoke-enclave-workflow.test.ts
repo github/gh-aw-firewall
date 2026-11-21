@@ -1495,6 +1495,7 @@ describe('smoke enclave dynamic issues workflow', () => {
     expect(executeStep).toContain('--exclude-env AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY');
     expect(executeStep).toContain('--exclude-env AWF_ENCLAVE_MCP_CAPABILITY');
     expect(executeStep).toContain('--exclude-env GH_TOKEN');
+    expect(executeStep.replace(/--exclude-env GH_TOKEN/g, '')).not.toContain('GH_TOKEN');
     expect(executeStep).toContain('--exclude-env MCP_GATEWAY_API_KEY');
   });
 
