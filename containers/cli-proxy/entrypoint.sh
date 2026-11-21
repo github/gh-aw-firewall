@@ -71,31 +71,6 @@ export GIT_SSL_CAINFO="${COMBINED_CA}"
 
 echo "[cli-proxy] gh CLI configured to route through DIFC proxy at ${GH_HOST}"
 
-# gh treats GH_HOST=localhost:<port> as GitHub Enterprise Server, so search
-# feature detection reads installed_version from /api/v3/meta, which the
-# github.com-backed DIFC proxy does not return ("malformed version: ").
-# Route gh API requests through a local Unix-socket shim that forwards them to
-# GH_HOST unchanged and fills in installed_version on /meta responses.
-if [ "${AWF_CLI_PROXY_MODE:-primary}" != "enclave" ]; then
-  GH_HTTP_SHIM_DIR="/tmp/gh-http-shim"
-  GH_HTTP_SHIM_SOCKET="${GH_HTTP_SHIM_DIR}/gh.sock"
-  export GH_CONFIG_DIR="/tmp/gh-config"
-  mkdir -p -m 0700 "${GH_HTTP_SHIM_DIR}" "${GH_CONFIG_DIR}"
-  printf 'http_unix_socket: %s\n' "${GH_HTTP_SHIM_SOCKET}" > "${GH_CONFIG_DIR}/config.yml"
-  node /app/gh-http-shim.js "${GH_HTTP_SHIM_SOCKET}" &
-  SHIM_PID=$!
-  SHIM_WAIT=0
-  while [ ! -S "${GH_HTTP_SHIM_SOCKET}" ]; do
-    if [ "${SHIM_WAIT}" -ge 50 ] || ! kill -0 "${SHIM_PID}" 2>/dev/null; then
-      echo "[cli-proxy] ERROR: gh HTTP shim did not start at ${GH_HTTP_SHIM_SOCKET}"
-      exit 1
-    fi
-    sleep 0.1
-    SHIM_WAIT=$((SHIM_WAIT + 1))
-  done
-  echo "[cli-proxy] gh HTTP shim listening at ${GH_HTTP_SHIM_SOCKET}"
-fi
-
 # Probe external DIFC proxy liveness before serving agent traffic.
 # Retries with exponential backoff to handle transient startup delays.
 # Distinct error messages help distinguish "not yet ready" from "unreachable".
@@ -140,19 +115,28 @@ if [ "${AWF_CLI_PROXY_MODE:-primary}" = "enclave" ]; then
   MAX_LIVENESS_ATTEMPTS=0
 fi
 while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
-  # Capture stdout (the gh response body) and stderr separately so a
+  # Capture stdout (the API response body) and stderr separately so a
   # "reachable but the forwarded API call failed" result (e.g. wrong API host
   # on *.ghe.com data-residency tenants) can surface the actual HTTP status and
   # body instead of being reported as an opaque diagnosis=unknown. See #5615.
-  if timeout "${LIVENESS_TIMEOUT_SECONDS}" gh api rate_limit \
+  # Use curl rather than gh so no placeholder authorization is added. Curl uses
+  # SSL_CERT_FILE above, preserving certificate verification through the tunnel.
+  if timeout "${LIVENESS_TIMEOUT_SECONDS}" curl --disable --silent --show-error --noproxy '*' \
+       --write-out '\nHTTP %{http_code}' "https://${GH_HOST}/api/v3/rate_limit" \
        >"${PROBE_OUT_FILE}" 2>"${PROBE_ERR_FILE}"; then
-    echo "[cli-proxy] DIFC proxy liveness probe succeeded on attempt ${ATTEMPT}/${MAX_LIVENESS_ATTEMPTS}"
-    break
+    PROBE_EXIT=0
   else
     PROBE_EXIT=$?
   fi
-  PROBE_ERR="$(cat "${PROBE_ERR_FILE}")"
   PROBE_OUT="$(cat "${PROBE_OUT_FILE}")"
+  PROBE_HTTP_STATUS="$(printf '%s\n' "${PROBE_OUT}" | sed -n 's/.*HTTP \([0-9][0-9][0-9]\)$/\1/p' | tail -1)"
+  if [ "${PROBE_EXIT}" -eq 0 ] && [[ "${PROBE_HTTP_STATUS}" == 2* ]]; then
+    echo "[cli-proxy] DIFC proxy liveness probe succeeded on attempt ${ATTEMPT}/${MAX_LIVENESS_ATTEMPTS}"
+    break
+  elif [ "${PROBE_EXIT}" -eq 0 ]; then
+    PROBE_EXIT=22
+  fi
+  PROBE_ERR="$(cat "${PROBE_ERR_FILE}")"
   DIAG_TYPE="$(classify_probe_failure "${PROBE_ERR}" "${PROBE_OUT}" "${PROBE_EXIT}")"
   # GHES intentionally returns 404 for rate_limit when rate limiting is disabled.
   # This response confirms connectivity without accepting other API errors.
@@ -162,12 +146,12 @@ while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
     break
   fi
   if [ "$ATTEMPT" -ge "$MAX_LIVENESS_ATTEMPTS" ]; then
-    echo "[cli-proxy] ERROR: DIFC proxy liveness probe failed for ${GH_HOST} (gh api exit=${PROBE_EXIT}, diagnosis=${DIAG_TYPE})"
+    echo "[cli-proxy] ERROR: DIFC proxy liveness probe failed for ${GH_HOST} (curl exit=${PROBE_EXIT}, diagnosis=${DIAG_TYPE})"
     if [ -n "${PROBE_ERR}" ]; then
-      echo "[cli-proxy] gh api stderr: ${PROBE_ERR}"
+      echo "[cli-proxy] curl stderr: ${PROBE_ERR}"
     fi
     if [ -n "${PROBE_OUT}" ]; then
-      echo "[cli-proxy] gh api response body: $(printf '%s' "${PROBE_OUT}" | head -c 1000)"
+      echo "[cli-proxy] API probe response: $(printf '%s' "${PROBE_OUT}" | head -c 1000)"
     fi
     # When the forwarded call is reachable but errors on an enterprise tenant,
     # the most likely cause is that the external DIFC proxy is not targeting the
@@ -180,7 +164,7 @@ while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
             echo "[cli-proxy] HINT: GITHUB_SERVER_URL=${GITHUB_SERVER_URL} looks like a GitHub Enterprise"
             echo "[cli-proxy]       data-residency tenant. The external DIFC proxy may be targeting the"
             echo "[cli-proxy]       wrong API host (github.com instead of the enterprise host), so the"
-            echo "[cli-proxy]       forwarded 'gh api' call fails. See github/gh-aw-firewall#5615."
+            echo "[cli-proxy]       forwarded rate-limit request fails. See github/gh-aw-firewall#5615."
             ;;
         esac
         ;;
@@ -188,10 +172,10 @@ while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
     echo "[cli-proxy] Failing fast to avoid repeated in-agent retries"
     exit 1
   fi
-  # Surface the captured gh error on every failed attempt so transient and
+  # Surface the captured probe error on every failed attempt so transient and
   # persistent failures (e.g. a stable HTTP error) are both visible in logs.
   if [ -n "${PROBE_ERR}" ]; then
-    echo "[cli-proxy] gh api stderr (attempt ${ATTEMPT}): $(printf '%s' "${PROBE_ERR}" | head -c 500)"
+    echo "[cli-proxy] curl stderr (attempt ${ATTEMPT}): $(printf '%s' "${PROBE_ERR}" | head -c 500)"
   fi
   # Exponential backoff: sleep 1, 2, 4, 8 … seconds (capped at 30s)
   SLEEP_SECS=$(( LIVENESS_SLEEP_SECONDS * (1 << (ATTEMPT - 1)) ))
@@ -202,6 +186,28 @@ while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
 done
 rm -f "${PROBE_OUT_FILE}" "${PROBE_ERR_FILE}"
 trap - EXIT
+
+# Start HTTP accounting after liveness probes so startup does not spend the
+# agent's budget. The shim also supplies installed_version for gh's GHES checks.
+if [ "${AWF_CLI_PROXY_MODE:-primary}" != "enclave" ]; then
+  GH_HTTP_SHIM_DIR="/tmp/gh-http-shim"
+  GH_HTTP_SHIM_SOCKET="${GH_HTTP_SHIM_DIR}/gh.sock"
+  export GH_CONFIG_DIR="/tmp/gh-config"
+  mkdir -p -m 0700 "${GH_HTTP_SHIM_DIR}" "${GH_CONFIG_DIR}"
+  printf 'http_unix_socket: %s\n' "${GH_HTTP_SHIM_SOCKET}" > "${GH_CONFIG_DIR}/config.yml"
+  node /app/gh-http-shim.js "${GH_HTTP_SHIM_SOCKET}" &
+  SHIM_PID=$!
+  SHIM_WAIT=0
+  while [ ! -S "${GH_HTTP_SHIM_SOCKET}" ]; do
+    if [ "${SHIM_WAIT}" -ge 50 ] || ! kill -0 "${SHIM_PID}" 2>/dev/null; then
+      echo "[cli-proxy] ERROR: gh HTTP shim did not start at ${GH_HTTP_SHIM_SOCKET}"
+      exit 1
+    fi
+    sleep 0.1
+    SHIM_WAIT=$((SHIM_WAIT + 1))
+  done
+  echo "[cli-proxy] gh HTTP shim listening at ${GH_HTTP_SHIM_SOCKET}"
+fi
 
 # Cleanup handler: stop the Node HTTP server and TCP tunnel on signal
 cleanup() {

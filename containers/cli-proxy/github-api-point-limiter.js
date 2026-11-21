@@ -1,6 +1,6 @@
 'use strict';
 
-const REST_WRITE_POINTS = 5;
+const WRITE_POINTS = 5;
 const READ_POINTS = 1;
 
 function parseLimit(value) {
@@ -8,55 +8,143 @@ function parseLimit(value) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-function getApiInvocation(args) {
-  let apiIndex = -1;
-  const globalValueFlags = new Set(['--repo', '-R', '--hostname']);
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (!arg.startsWith('-')) {
-      if (arg === 'api') apiIndex = index;
-      break;
-    }
-    if (globalValueFlags.has(arg) && index + 1 < args.length) {
-      index += 1;
-    }
-  }
-  if (apiIndex === -1) return null;
-  let endpoint = null;
-  let method = null;
-  let invalidMethod = false;
-  let hasField = false;
-  const valueFlags = new Set(['--method', '-X', '--hostname', '-H', '--header', '-f', '-F', '--raw-field', '--field', '--input']);
-  for (let index = apiIndex + 1; index < args.length; index += 1) {
-    const arg = args[index];
-    if (arg.startsWith('--method=')) {
-      method = arg.slice('--method='.length).toUpperCase();
-      continue;
-    }
-    if (arg.startsWith('-X') && arg.length > 2) {
-      method = arg.slice(2).toUpperCase();
-      continue;
-    }
-    if (arg.startsWith('--field=') || arg.startsWith('--raw-field=') || arg.startsWith('-f=') || arg.startsWith('-F=')) {
-      hasField = true;
-      continue;
-    }
-    if (valueFlags.has(arg)) {
-      if (arg === '--method' || arg === '-X') {
-        if (!args[index + 1] || args[index + 1].startsWith('-')) invalidMethod = true;
-        else method = args[index + 1].toUpperCase();
-      }
-      if (arg === '--field' || arg === '--raw-field' || arg === '-f' || arg === '-F') hasField = true;
-      index += 1;
-      continue;
-    }
-    if (!arg.startsWith('-') && endpoint === null) endpoint = arg;
-  }
-  if (!endpoint || invalidMethod) return null;
-  if (endpoint === 'graphql') return { kind: 'graphql', points: READ_POINTS };
+function isGraphqlRequest(url) {
+  const path = decodeURIComponent(url.split('?', 1)[0]).replace(/\/+/g, '/');
+  let pathname = new URL(`http://localhost${path}`).pathname.replace(/\/+$/, '');
+  while (pathname.startsWith('/api/v3/')) pathname = pathname.slice('/api/v3'.length);
+  return pathname === '/graphql' || pathname === '/api/graphql';
+}
 
-  method ||= hasField ? 'POST' : 'GET';
-  return { kind: 'rest', points: ['GET', 'HEAD', 'OPTIONS'].includes(method) ? READ_POINTS : REST_WRITE_POINTS };
+function* tokenizeGraphql(query) {
+  for (let index = 0; index < query.length;) {
+    const char = query[index];
+    if (/[\s,\uFEFF]/.test(char)) {
+      index += 1;
+    } else if (char === '#') {
+      while (index < query.length && !/[\r\n]/.test(query[index])) index += 1;
+    } else if (char === '"') {
+      const block = query.startsWith('"""', index);
+      index += block ? 3 : 1;
+      let closed = false;
+      while (index < query.length) {
+        // GraphQL block strings escape only a triple quote, not arbitrary
+        // backslash pairs. Ordinary strings escape their next character.
+        if (block && query.startsWith('\\"""', index)) index += 4;
+        else if (block ? query.startsWith('"""', index) : query[index] === '"') {
+          index += block ? 3 : 1;
+          closed = true;
+          break;
+        } else if (!block && query[index] === '\\') index += 2;
+        else index += 1;
+      }
+      if (!closed) {
+        yield null;
+        return;
+      }
+    } else if (/[A-Za-z_]/.test(char)) {
+      const start = index++;
+      while (index < query.length && /[A-Za-z0-9_]/.test(query[index])) index += 1;
+      yield { type: 'name', value: query.slice(start, index) };
+    } else {
+      yield { type: 'punctuation', value: char };
+      index += 1;
+    }
+  }
+}
+
+function isReadOnlyGraphql(query) {
+  let operations = 0;
+  let readOnly = true;
+  let definitionHeader = false;
+  let inDefinition = false;
+  let braces = 0;
+  let parentheses = 0;
+  let brackets = 0;
+
+  for (const token of tokenizeGraphql(query)) {
+    if (!token) return false;
+    if (inDefinition) {
+      if (token.value === '{') braces += 1;
+      else if (token.value === '}') {
+        braces -= 1;
+        if (braces < 0) return false;
+        if (braces === 0) {
+          if (parentheses !== 0 || brackets !== 0) return false;
+          inDefinition = false;
+        }
+      } else if (token.value === '(') parentheses += 1;
+      else if (token.value === ')') {
+        parentheses -= 1;
+        if (parentheses < 0) return false;
+      } else if (token.value === '[') brackets += 1;
+      else if (token.value === ']') {
+        brackets -= 1;
+        if (brackets < 0) return false;
+      }
+      continue;
+    }
+
+    if (definitionHeader) {
+      if (token.value === '(') parentheses += 1;
+      else if (token.value === ')') {
+        parentheses -= 1;
+        if (parentheses < 0) return false;
+      } else if (token.value === '[') brackets += 1;
+      else if (token.value === ']') {
+        brackets -= 1;
+        if (brackets < 0) return false;
+      } else if (token.value === '{') {
+        if (parentheses === 0 && brackets === 0 && braces === 0) {
+          braces = 1;
+          inDefinition = true;
+          definitionHeader = false;
+        } else {
+          braces += 1;
+        }
+      } else if (token.value === '}') {
+        braces -= 1;
+        if (braces < 0) return false;
+      }
+      continue;
+    }
+
+    if (token.type === 'punctuation' && token.value === '{') {
+      operations += 1;
+      braces = 1;
+      inDefinition = true;
+    } else if (token.type === 'name' && token.value === 'fragment') {
+      definitionHeader = true;
+    } else if (token.type === 'name' && ['query', 'mutation', 'subscription'].includes(token.value)) {
+      operations += 1;
+      if (token.value !== 'query') readOnly = false;
+      definitionHeader = true;
+    } else {
+      return false;
+    }
+  }
+
+  return operations > 0 && readOnly && !definitionHeader && !inDefinition &&
+    braces === 0 && parentheses === 0 && brackets === 0;
+}
+
+function getRequestCost(method, url, body) {
+  if (!isGraphqlRequest(url)) {
+    return { kind: 'rest', points: ['GET', 'HEAD', 'OPTIONS'].includes(method) ? READ_POINTS : WRITE_POINTS };
+  }
+
+  let query;
+  try {
+    query = method === 'GET'
+      ? new URL(url, 'http://localhost').searchParams.get('query')
+      : JSON.parse(body.toString('utf8')).query;
+  } catch {
+    return { kind: 'graphql', points: WRITE_POINTS };
+  }
+  if (typeof query !== 'string') return { kind: 'graphql', points: WRITE_POINTS };
+
+  // Ignore comments and string values. Price ambiguous/multi-operation
+  // documents conservatively: any mutation costs five even with operationName.
+  return { kind: 'graphql', points: isReadOnlyGraphql(query) ? READ_POINTS : WRITE_POINTS };
 }
 
 class GitHubApiPointLimiter {
@@ -67,9 +155,8 @@ class GitHubApiPointLimiter {
     this.usedGraphql = 0;
   }
 
-  check(args) {
-    const invocation = getApiInvocation(args);
-    if (!invocation) return { allowed: true };
+  check(method, url, body) {
+    const invocation = getRequestCost(method, url, body);
     const isGraphql = invocation.kind === 'graphql';
     const max = isGraphql ? this.maxGraphql : this.maxRest;
     const used = isGraphql ? this.usedGraphql : this.usedRest;
@@ -95,4 +182,4 @@ function createFromEnv(env = process.env) {
   });
 }
 
-module.exports = { GitHubApiPointLimiter, createFromEnv, getApiInvocation };
+module.exports = { GitHubApiPointLimiter, createFromEnv, getRequestCost, isGraphqlRequest };

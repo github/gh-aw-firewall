@@ -2,6 +2,7 @@
 
 const http = require('http');
 const zlib = require('zlib');
+const { GitHubApiPointLimiter } = require('./github-api-point-limiter');
 const {
   DEFAULT_INSTALLED_VERSION,
   createShimHandler,
@@ -74,6 +75,7 @@ describe('gh-http-shim forwarding', () => {
   let shimPort;
   let upstreamRequests;
   let upstreamHandler;
+  let pointLimiter;
 
   beforeEach(async () => {
     upstreamRequests = [];
@@ -91,9 +93,10 @@ describe('gh-http-shim forwarding', () => {
       });
     });
     upstreamPort = await listen(upstream);
+    pointLimiter = new GitHubApiPointLimiter();
     shim = http.createServer(createShimHandler(
       { host: '127.0.0.1', port: upstreamPort },
-      { requestFn: http.request },
+      { requestFn: http.request, pointLimiter },
     ));
     shimPort = await listen(shim);
   });
@@ -169,11 +172,124 @@ describe('gh-http-shim forwarding', () => {
   });
 
   it('returns 502 when the upstream is unreachable', async () => {
+    pointLimiter.maxRest = 1;
     await close(upstream);
 
     const res = await request(shimPort, { path: '/api/v3/repos/o/r' });
 
     expect(res.status).toBe(502);
     expect(JSON.parse(res.body.toString()).message).toMatch(/could not reach DIFC proxy/);
+    expect(pointLimiter.usedRest).toBe(1);
+    expect((await request(shimPort, { path: '/api/v3/repos/o/r' })).status).toBe(429);
+  });
+
+  it('charges every REST request and never forwards requests exceeding the budget', async () => {
+    pointLimiter.maxRest = 2;
+    upstreamHandler = (_req, res) => res.end('[]');
+    expect((await request(shimPort, { path: '/api/v3/issues?page=1' })).status).toBe(200);
+    expect((await request(shimPort, { path: '/api/v3/issues?page=2' })).status).toBe(200);
+    const denied = await request(shimPort, { path: '/api/v3/issues?page=3' });
+    expect(denied.status).toBe(429);
+    expect(JSON.parse(denied.body).message).toContain('rest API point limit exceeded');
+    expect(upstreamRequests).toHaveLength(2);
+  });
+
+  it('charges the actual POST method rather than how CLI flags express the body', async () => {
+    pointLimiter.maxRest = 1;
+    const denied = await request(shimPort, {
+      method: 'POST', path: '/api/v3/issues', body: '{"title":"Hello"}',
+    });
+    expect(denied.status).toBe(429);
+    expect(upstreamRequests).toHaveLength(0);
+  });
+
+  it('charges GraphQL queries and mutations independently from REST', async () => {
+    pointLimiter.maxGraphql = 6;
+    pointLimiter.maxRest = 1;
+    upstreamHandler = (_req, res) => res.end('{}');
+    const query = '{"query":"{viewer{login}}"}';
+    const mutation = '{"query":"mutation { addComment { id } }"}';
+    expect((await request(shimPort, { method: 'POST', path: '/api/graphql', body: query })).status).toBe(200);
+    expect((await request(shimPort, { method: 'POST', path: '/api/graphql', body: mutation })).status).toBe(200);
+    expect(upstreamRequests[1].body).toBe(mutation);
+    expect((await request(shimPort, { method: 'POST', path: '/api/graphql', body: query })).status).toBe(429);
+    expect((await request(shimPort, { path: '/api/v3/issues' })).status).toBe(200);
+    expect(upstreamRequests).toHaveLength(3);
+  });
+
+  it('cannot overspend when concurrent GraphQL requests finish reading their bodies', async () => {
+    pointLimiter.maxGraphql = 1;
+    upstreamHandler = (_req, res) => res.end('{}');
+    const responses = await Promise.all(Array.from({ length: 5 }, () => request(shimPort, {
+      method: 'POST', path: '/api/graphql', body: '{"query":"{viewer{login}}"}',
+    })));
+    expect(responses.filter((res) => res.status === 200)).toHaveLength(1);
+    expect(responses.filter((res) => res.status === 429)).toHaveLength(4);
+    expect(upstreamRequests).toHaveLength(1);
+  });
+
+  it('rejects mutations hidden behind escaped block strings before forwarding', async () => {
+    pointLimiter.maxGraphql = 1;
+    const query = String.raw`query Q {
+      search(query: """prefix\\"""middle""", type: ISSUE, first: 1) { issueCount }
+    }
+    mutation M($body: String! = """comment""") {
+      addComment(input: {subjectId: "TARGET_NODE_ID", body: $body}) { clientMutationId }
+    }`;
+    const denied = await request(shimPort, {
+      method: 'POST', path: '/api/graphql',
+      body: JSON.stringify({ query, operationName: 'M' }),
+    });
+    expect(denied.status).toBe(429);
+    expect(upstreamRequests).toHaveLength(0);
+  });
+
+  it.each([
+    '/api//graphql',
+    '/api/%67raphql',
+    '/api/x/../graphql',
+    '/api/v3/graphql',
+    '/api/v3/api/graphql',
+    '/api/v3/api/v3/graphql',
+  ])(
+    'cannot bypass the GraphQL budget with a non-canonical path: %s', async (path) => {
+      pointLimiter.maxGraphql = 1;
+      const denied = await request(shimPort, {
+        method: 'POST', path, body: '{"query":"mutation { write { id } }"}',
+      });
+      expect(denied.status).toBe(429);
+      expect(upstreamRequests).toHaveLength(0);
+    },
+  );
+
+  it.each(['http://[', '//graphql', '/api/%invalid'])(
+    'rejects malformed request targets without breaking later requests: %s', async (path) => {
+      upstreamHandler = (_req, res) => res.end('{}');
+      expect((await request(shimPort, { path })).status).toBe(400);
+      expect(upstreamRequests).toHaveLength(0);
+      expect((await request(shimPort, { path: '/api/v3/issues' })).status).toBe(200);
+    },
+  );
+
+  it('rejects oversized GraphQL bodies before forwarding', async () => {
+    pointLimiter.maxGraphql = 5;
+    const denied = await request(shimPort, {
+      method: 'POST', path: '/api/graphql', body: 'x'.repeat(1024 * 1024 + 1),
+    });
+    expect(denied.status).toBe(413);
+    expect(upstreamRequests).toHaveLength(0);
+    expect(pointLimiter.usedGraphql).toBe(0);
+  });
+
+  it('applies the GraphQL body cap after repeated API prefixes', async () => {
+    pointLimiter.maxGraphql = 1;
+    const denied = await request(shimPort, {
+      method: 'POST',
+      path: '/api/v3/api/v3/graphql',
+      body: 'x'.repeat(1024 * 1024 + 1),
+    });
+    expect(denied.status).toBe(413);
+    expect(upstreamRequests).toHaveLength(0);
+    expect(pointLimiter.usedGraphql).toBe(0);
   });
 });
