@@ -342,19 +342,13 @@ ignore:
       version: "3.5.9-r1"
       type: apk
 
-  # ── Unfixed OpenSSL 3.5.9-r1 advisories ─────────────────────────────────────
+  # ── OpenSSL 3.5.9-r1 findings awaiting the 3.5.10 release ───────────────────
   #
-  # Alpine 3.24's current stable repositories still provide OpenSSL 3.5.9-r1;
-  # `apk upgrade` is already run in the affected image stages. OpenSSL has
-  # fixes queued for 3.5.10, but no fixed Alpine 3.24 package is available yet.
-  # The findings affect QUIC server APIs (CVE-2026-124709, CVE-2026-107494),
-  # DANE-enabled TLS clients (CVE-2026-84786), CMS/PKCS#7 verification with CRL
-  # checking (CVE-2026-121482), and applications reusing a stack after a failed
-  # PEM_X509_INFO_read_bio_ex call (CVE-2026-107493). AWF's Node/Python
-  # entrypoints do not expose those operations; the script enclave is also
-  # single-use and has no network. Accept only these exact Alpine package
-  # versions until the supply-chain maintainers can remove the exceptions when
-  # Alpine publishes a fixed stable package.
+  # OpenSSL has published fixes for these advisories in 3.5.10, but that release
+  # is not available in Alpine 3.24 yet. AWF's container services do not expose
+  # the affected QUIC, DANE, CMS/CRL, or PEM-processing paths to untrusted input.
+  # Accept these exact findings until Alpine publishes the fixed package, then
+  # remove the exceptions and rebuild. Supply-chain maintainers should revisit.
   - vulnerability: CVE-2026-124709
     package:
       name: libcrypto3
@@ -385,32 +379,32 @@ ignore:
       name: openssl
       version: "3.5.9-r1"
       type: apk
-  - vulnerability: CVE-2026-84786
+  - vulnerability: CVE-2026-121482
     package:
       name: libcrypto3
       version: "3.5.9-r1"
       type: apk
-  - vulnerability: CVE-2026-84786
+  - vulnerability: CVE-2026-121482
     package:
       name: libssl3
       version: "3.5.9-r1"
       type: apk
-  - vulnerability: CVE-2026-84786
+  - vulnerability: CVE-2026-121482
     package:
       name: openssl
       version: "3.5.9-r1"
       type: apk
-  - vulnerability: CVE-2026-121482
+  - vulnerability: CVE-2026-84786
     package:
       name: libcrypto3
       version: "3.5.9-r1"
       type: apk
-  - vulnerability: CVE-2026-121482
+  - vulnerability: CVE-2026-84786
     package:
       name: libssl3
       version: "3.5.9-r1"
       type: apk
-  - vulnerability: CVE-2026-121482
+  - vulnerability: CVE-2026-84786
     package:
       name: openssl
       version: "3.5.9-r1"
