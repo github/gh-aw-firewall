@@ -257,6 +257,46 @@ jest.mock('fs', () => ({ __esModule: true, ...jest.requireActual('fs') }));
     expect(fs.readFileSync(path.join(destination, '.local/bin/tool'), 'utf8')).toBe('synthetic fixture');
   });
 
+  it('copies multiple buffers completely when writes are short', () => {
+    const contents = '0123456789abcdef'.repeat(10000);
+    write('.cache/nested/large', contents);
+    const destination = path.join(root, 'snapshot');
+    fs.mkdirSync(destination);
+    const writeSync = jest.spyOn(fs, 'writeSync').mockImplementation((fd, buffer, offset, length) => {
+      if (!Buffer.isBuffer(buffer) || typeof offset !== 'number' || typeof length !== 'number') {
+        throw new Error('Expected a buffer write while copying tool state');
+      }
+      return actualFs.writeSync(fd, buffer, offset, Math.min(length, 4096));
+    });
+
+    stageNfsHome(config, home, destination);
+
+    expect(writeSync.mock.calls.length).toBeGreaterThan(3);
+    expect(fs.readFileSync(path.join(destination, '.cache/nested/large'), 'utf8')).toBe(contents);
+  });
+
+  it('closes all staging descriptors when a file copy fails', () => {
+    write('.local/bin/nested/tool');
+    const destination = path.join(root, 'snapshot');
+    fs.mkdirSync(destination);
+    const openedFds: number[] = [];
+    jest.spyOn(fs, 'openSync').mockImplementation((candidate, flags, mode) => {
+      const fd = actualFs.openSync(candidate, flags, mode as number);
+      openedFds.push(fd);
+      return fd;
+    });
+    const close = jest.spyOn(fs, 'closeSync');
+    const error = Object.assign(new Error('staging disk is full'), { code: 'ENOSPC' });
+    jest.spyOn(fs, 'writeSync').mockImplementation(() => { throw error; });
+
+    expect(() => stageNfsHome(config, home, destination)).toThrow(error);
+
+    expect(openedFds.length).toBeGreaterThan(2);
+    expect(close.mock.calls.map(([fd]) => fd).sort((left, right) => left - right))
+      .toEqual(openedFds.sort((left, right) => left - right));
+    expect(fs.readFileSync(path.join(home, '.local/bin/nested/tool'), 'utf8')).toBe('synthetic fixture');
+  });
+
   it('rejects NFS staging storage and stale destinations instead of reusing unsafe trees', () => {
     expect(() => stageNfsHome(config, home, home)).toThrow('--work-dir on a local filesystem');
     write('.config/safe');
