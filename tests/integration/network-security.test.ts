@@ -123,9 +123,11 @@ if [ "$status" -ne 0 ]; then exit "$status"; fi
 curl -fsS --max-time 20 https://nodejs.org/ > /dev/null`,
           {
             allowDomains: ['nodejs.org'],
-            buildLocal: true,
+            // Use the patched Squid image built from this tree by CI's build-images job.
+            // --build-local recompiles Squid from source (~10 minutes) and exhausts the test budget.
+            skipPull: true,
             keepContainers: true,
-            timeout: 600000,
+            timeout: 120000,
           }
         );
 
@@ -142,7 +144,7 @@ curl -fsS --max-time 20 https://nodejs.org/ > /dev/null`,
       } finally {
         await cleanup(false);
       }
-    }, 660000);
+    }, 180000);
 
     test('should block CONNECT domain fronting with a different TLS SNI', async () => {
       const result = await runner.runWithSudo(
