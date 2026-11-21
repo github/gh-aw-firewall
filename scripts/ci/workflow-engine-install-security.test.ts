@@ -31,7 +31,7 @@ function stepEnvDisablesInstallScripts(lines: string[], runIndex: number): boole
     const line = lines[i];
     if (line.trim() === '') continue;
     const indent = line.search(/\S/);
-    if (indent < runIndent || (indent === runIndent - 2 && line.trim().startsWith('- '))) break;
+    if (indent <= runIndent) break;
     if (/^\s*NPM_CONFIG_IGNORE_SCRIPTS:\s*['"]?true['"]?\s*$/i.test(line)) return true;
   }
   return false;
