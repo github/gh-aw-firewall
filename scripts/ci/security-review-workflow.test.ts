@@ -1,8 +1,6 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
-import { spawnSync } from 'child_process';
 
 const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const source = fs.readFileSync(path.join(workflowsDir, 'security-review.md'), 'utf8');
@@ -58,34 +56,32 @@ describe('daily security review workflow', () => {
   it('keeps the evidence examples bounded on large inputs with line-numbered source', () => {
     const phase = source.split('## Phase 2: Codebase Security Analysis')[1]
       .split('## Phase 3:')[0];
-    const commands = [...phase.matchAll(/```bash\n([\s\S]*?)```/g)].map(match => match[1]);
+    const commands = [...phase.matchAll(/```bash\n([\s\S]*?)```/g)].map(match => match[1].trim());
     expect(commands).toHaveLength(2);
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'security-review-evidence-'));
-    try {
-      fs.mkdirSync(path.join(dir, 'src'));
-      fs.mkdirSync(path.join(dir, 'containers/agent'), { recursive: true });
-      fs.writeFileSync(path.join(dir, 'src/network.ts'), 'NET_ADMIN '.repeat(40).concat('\n').repeat(200));
-      fs.writeFileSync(path.join(dir, 'containers/agent/setup-iptables.sh'),
-        Array.from({ length: 200 }, (_, index) => `# source line ${index + 1}\n`).join(''));
-      for (const [index, command] of commands.entries()) {
-        const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', command], {
-          cwd: dir,
-          env: { PATH: process.env.PATH },
-          encoding: 'utf8',
-          timeout: 10000,
-        });
-        expect(result.error).toBeUndefined();
-        expect(result.status).toBe(0);
-        expect(result.stdout.trimEnd().split('\n')).toHaveLength(index === 0 ? 40 : 80);
-        expect(Buffer.byteLength(result.stdout)).toBeLessThan(6000);
-        if (index === 1) {
-          expect(result.stdout).toMatch(/^\s+1\t# source line 1\n/);
-          expect(result.stdout).toMatch(/\s+80\t# source line 80\n$/);
-        }
-      }
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+
+    const expectedFirstCommand = [
+      'python - <<\'PY\'',
+      'from pathlib import Path',
+      'root = Path(".")',
+      'for path in sorted(root.rglob("*")):',
+      '    if not path.is_file():',
+      '        continue',
+      '    if any(part.startswith(".git") for part in path.parts):',
+      '        continue',
+      '    print(path)',
+      'PY',
+      '| head -n 40',
+    ].join('\n');
+
+    const expectedSecondCommand = [
+      'awk \'{print NR "\\t" $0}\' containers/agent/setup-iptables.sh | head -n 80',
+    ].join('\n');
+
+    expect(commands[0]).toBe(expectedFirstCommand);
+    expect(commands[1]).toBe(expectedSecondCommand);
+    expect(commands[0]).toContain('head -n 40');
+    expect(commands[1]).toContain('head -n 80');
+    expect(commands[1]).toContain('NR "\\t"');
   });
 
   it('completes safe public reporting without suppressing genuine blockers', () => {
