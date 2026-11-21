@@ -139,7 +139,15 @@ describe('cleanup handle record-commit rules', () => {
 
   it('commits each directory identity before persisting and propagates write failures', async () => {
     const { record, options, handle, persist } = createHandleFixture();
+    persist.mockImplementationOnce(async () => {
+      expect(record.updatedAt).not.toBe('initial');
+      expect(record.identities.runDirectory).toEqual({ device: '1', inode: '5000' });
+    });
     await handle.captureRunDirectory();
+    persist.mockImplementationOnce(async () => {
+      expect(record.updatedAt).not.toBe('initial');
+      expect(record.identities.cgroup).toEqual({ device: '1', inode: '5000' });
+    });
     await handle.captureCgroup();
     await handle.captureVirtiofsdResources();
     expect(options.captureFileIdentity.mock.calls).toEqual([
@@ -150,9 +158,15 @@ describe('cleanup handle record-commit rules', () => {
     });
     expect(options.readMounts).not.toHaveBeenCalled();
     expect(persist).toHaveBeenCalledTimes(3);
-    persist.mockRejectedValueOnce(new Error('write failed'));
+    const nextIdentity = { device: '2', inode: '6000' };
+    options.captureFileIdentity.mockResolvedValueOnce(nextIdentity);
+    persist.mockImplementationOnce(async () => {
+      expect(record.updatedAt).not.toBe('initial');
+      expect(record.identities.runDirectory).toEqual(nextIdentity);
+      throw new Error('write failed');
+    });
     await expect(handle.captureRunDirectory()).rejects.toThrow('write failed');
-    expect(record.identities.runDirectory).toEqual({ device: '1', inode: '5000' });
+    expect(record.identities.runDirectory).toEqual(nextIdentity);
   });
 
   it('completes without persisting and ignores only missing-record unlink errors', async () => {
