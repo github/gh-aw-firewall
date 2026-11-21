@@ -73,7 +73,15 @@ Review the **current checked-out repository snapshot**, not a pull-request diff 
 3. Cite specific file paths and line numbers
 4. Explain why this is a security concern with technical depth
 
-Use bash commands extensively to gather evidence. Document every command and its output.
+Use bash commands extensively to gather evidence. For each published finding, document the exact command and the relevant, bounded output with file:line citations. A complete raw transcript of exploratory commands is not required.
+
+## Publication and Completion Rules
+
+This workflow produces a **public discussion**, not a private vulnerability disclosure. Do not publish secrets, sensitive payloads, or exploit-enabling details of newly discovered security-sensitive observations in the discussion, tool output, or cache memory. Use a neutral notice that maintainer follow-up is needed, without exposing the sensitive details; do not claim that private disclosure occurred or that the observation was resolved. Do not invent a private channel, broaden tool permissions, or attempt live exploitation.
+
+The absence of a private disclosure tool does not block the remaining public snapshot review. Complete the required analysis with safe evidence and explicitly state any withheld details or unverified areas. Likewise, earlier output truncation is recoverable: re-read the relevant source in smaller ranges before drawing conclusions. Neither limitation alone warrants `report_incomplete` when the required review can still be meaningfully performed.
+
+Submit the completed review through `create_discussion`, including when no new vulnerabilities are confirmed. Use `report_incomplete` only for a genuine unrecoverable blocker to the required analysis or discussion submission, such as inaccessible security-critical source or an unavailable output tool. Name the blocked requirement and supporting evidence; do not conceal missing coverage or claim exhaustive review.
 
 ## Phase 1: Gather Context from Previous Security Testing
 
@@ -97,42 +105,36 @@ Missing optional escape-test context alone is not a reason to call `report_missi
 
 ## Phase 2: Codebase Security Analysis
 
-Run all evidence-gathering commands in one bash block to collect everything upfront:
+Collect evidence incrementally, running each command separately. Do not dump entire files or run an unbounded recursive search across `src/` and `containers/` in one tool call.
+
+1. Discover relevant files with bounded filename lists, then follow re-exports/imports to the implementing modules. Facades such as `src/host-iptables.ts` and `src/squid-config.ts` are not the complete implementation.
+2. Limit discovery output to 40 matches and 120 columns per line. Inspect source with line-numbered ranges of at most 80 lines, reducing the range to keep each response below 6 KB. Continue with adjacent ranges when needed; clipped search results are navigation aids, not complete evidence.
+3. If a response is truncated, re-run a narrower query or smaller source range. If a single line exceeds the response budget, read adjacent chunks of at most 4,096 bytes (for example, `dd if=containers/api-proxy/models.dev.catalog.json bs=1 skip=0 count=4096 status=none`, then advance `skip` by 4096 for each subsequent chunk until end-of-file). Cite the file, original line, and zero-based byte offsets; a chunk is not a complete line. Do not treat missing output as proof of safety or as an unrecoverable blocker.
+4. Cover every area below, recording protections, evidence-backed weaknesses, and coverage limitations. Use only local source and mocked boundaries; do not execute repository payloads or live escape attempts.
+
+| Area | Starting points (follow imports to implementations) |
+| --- | --- |
+| Network security | `src/host-iptables.ts`, `containers/agent/setup-iptables.sh`, `src/squid-config.ts` |
+| Container security | Agent service configuration, `containers/agent/seccomp-profile.json`, `containers/agent/entrypoint.sh` |
+| Domain validation | `src/domain-patterns.ts` and its callers |
+| Injection risks | CLI option parsing, subprocess call sites, shell argument handling |
+| Docker access | `containers/agent/docker-stub.sh` (installed as `/usr/bin/docker`), `src/services/agent-volumes/docker-socket.ts`, and their callers |
+| Dependencies | `package.json`, lockfiles, available code-scanning alerts |
+| Attack surface | Network listeners, proxies, filesystem mounts/writes, enclave boundaries |
+
+Example bounded discovery command (run separately from source reads):
 
 ```bash
-echo "=== NETWORK SECURITY ===" && \
-  cat src/host-iptables.ts && echo "---" && \
-  cat containers/agent/setup-iptables.sh && echo "---" && \
-  cat src/squid-config.ts && echo "---" && \
-  grep -r --include="*.ts" -l "network" src/
-
-echo "=== CONTAINER SECURITY ===" && \
-  grep -rn "cap_drop\|capabilities\|NET_ADMIN\|NET_RAW" src/ containers/ && echo "---" && \
-  cat containers/agent/seccomp-profile.json && echo "---" && \
-  grep -rn "privilege\|root\|user\|uid" containers/
-
-echo "=== DOMAIN PATTERNS ===" && \
-  cat src/domain-patterns.ts && echo "---" && \
-  grep -rn --include="*.ts" -l "domain\|wildcard\|pattern" src/
-
-echo "=== INJECTION RISKS ===" && \
-  grep -rn --include="*.ts" -l "exec\|spawn\|shell\|command" src/ && echo "---" && \
-  grep -rn --include="*.sh" '\$\{' containers/ && echo "---" && \
-  grep -rn "args\|argv\|input" src/cli.ts
-
-echo "=== DOCKER WRAPPER ===" && \
-  cat containers/agent/docker-wrapper.sh && echo "---" && \
-  cat containers/agent/entrypoint.sh
-
-echo "=== DEPENDENCIES ===" && \
-  cat package.json && echo "---" && \
-  npm audit --json 2>/dev/null | head -100 || echo "npm audit not available"
-
-echo "=== ATTACK SURFACE ===" && \
-  grep -rln "http\|https\|socket\|network\|proxy" src/ containers/ && echo "---" && \
-  grep -rln "fs\.\|writeFile\|readFile\|exec" src/ && echo "---" && \
-  grep -rln "execa\|spawn\|exec\|child_process" src/
+grep -rnE --include='*.ts' --include='*.sh' --exclude-dir=node_modules 'NET_ADMIN|NET_RAW|cap_drop|chroot|execa|spawn' src/ containers/ | cut -c 1-120 | sed -n '1,40p'
 ```
+
+Example source read (adjust the range for the relevant implementation):
+
+```bash
+nl -ba containers/agent/setup-iptables.sh | sed -n '1,80p'
+```
+
+Dependency auditing is optional corroboration. The network allowlist does not include an npm registry: do not install tools, broaden network access, or require `npm audit` to complete the source review. If dependency advisory data is unavailable, record that limitation without claiming dependencies are vulnerability-free.
 
 ## Phase 3: Security Analysis Synthesis
 
@@ -170,7 +172,7 @@ Table of identified threats with severity ratings.
 Enumeration of attack surfaces with risk levels.
 
 ### 📋 Evidence Collection
-All commands run with their outputs (collapsed sections for brevity).
+Exact commands and relevant bounded, safe output excerpts supporting published findings (collapsed sections for brevity). Note truncation recovery, omitted sensitive details, and unverified coverage; do not include a full raw exploratory transcript.
 
 ### ✅ Recommendations
 Prioritized list of security improvements:
