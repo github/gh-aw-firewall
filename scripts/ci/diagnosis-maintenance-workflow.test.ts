@@ -68,6 +68,9 @@ describe('shared diagnosis-maintenance contract', () => {
     expect(shared).toContain('needs-evidence');
     expect(shared).toContain('publication-pending');
     expect(shared).toContain('not an\nevidence gap');
+    expect(shared).toContain('`deferredAttemptedAt`');
+    expect(shared).toContain('latest such attempt to rotate the deferred queue');
+    expect(shared).toContain('do not set it merely because a candidate was offered');
     expect(shared).toContain('npm run diagnostics:freshness');
     expect(shared).toContain('reviewQueue.firstTime');
     expect(shared).toContain('reviewQueue.deferred');
@@ -332,6 +335,48 @@ describe('shared diagnosis-maintenance contract', () => {
     }
     expect(source).not.toContain('If any batch or required source remains unreviewed');
     expect(source).not.toContain('unfinished coverage uses `report-incomplete`');
+  });
+
+  it('stops CI evidence reads on successful-but-filtered responses without Git fallbacks', () => {
+    const source = read('.github/workflows/ci-integration-doctor-updater.md');
+    for (const fragment of [
+      "first selected candidate's `pull_request_read`",
+      '`method: get_files`',
+      '`perPage: 5`',
+      'An exit code\nof 0 or HTTP 200 is not proof of access',
+      '`[Filtered]`',
+      '`pull-request-content` integrity warnings, including partially filtered',
+      'stop PR-content reads for the run',
+      'Do not retry other PRs, methods or page sizes',
+      'local Git history, `git fetch --unshallow`, raw URLs or another transport',
+      'to replace denied evidence',
+      'Keep the integrity policy unchanged',
+      'Save `needs-evidence` only for attempted candidates',
+      'leave unattempted\ncandidates pending and unreviewed',
+      'Call `report-incomplete` immediately',
+      'failed tool arguments, exact filter message, compiled gateway version and\npolicy',
+      'Do not claim unattempted reads\nwere denied or classify candidates from metadata',
+      '`perPage: 20`',
+      'complete changed-file list is inspected',
+      'response-size limit alone',
+      'this never overrides an integrity\ndenial',
+    ]) {
+      expect(source).toContain(fragment);
+    }
+  });
+
+  it('keeps CI batches small enough for evidence, receipt persistence and final output', () => {
+    const source = read('.github/workflows/ci-integration-doctor-updater.md');
+    expect(source).toContain('Select at most 5 candidates');
+    expect(source).toContain('starting with 1 when review cost is unknown');
+    expect(source).toContain('never fill the shared\n50-review ceiling merely because the queue is large');
+    expect(source).toContain('Do not shrink the selected batch after encountering an\nevidence gap');
+    expect(source).toContain('Save each reviewed candidate\'s receipt immediately');
+    expect(source).toContain('`deferredAttemptedAt`');
+    expect(source).toContain('rotates after actual attempts, not the offered batch');
+    expect(source).toContain('after attempting a\nPR-content read');
+    expect(source).toContain('Never set it merely because a\ncandidate was offered');
+    expect(source).toContain('Reserve the remaining budget');
   });
 
   it('still reports incomplete CI batches and missing required evidence honestly', () => {
