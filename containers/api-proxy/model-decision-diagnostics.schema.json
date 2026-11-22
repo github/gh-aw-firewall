@@ -103,11 +103,14 @@
                 "allOf": [
                   {
                     "if": { "properties": { "file": { "const": "wire-api-compat.js" } } },
-                    "then": { "required": ["dependencies"] }
+                    "then": {
+                      "properties": { "dependencies": true },
+                      "required": ["dependencies"]
+                    }
                   },
                   {
                     "if": { "properties": { "file": { "const": "anthropic-chat-compat.js" } } },
-                    "then": { "not": { "required": ["dependencies"] } }
+                    "then": { "properties": { "dependencies": false } }
                   }
                 ]
               }
