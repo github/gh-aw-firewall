@@ -88,6 +88,7 @@ test('explicit production decisions publish on upstream finish, never by reading
         implementation: {
           file: CONTRACTS[0].implementation.file,
           sha256: CONTRACTS[0].implementation.sha256,
+          dependencies: CONTRACTS[0].implementation.dependencies,
         },
       }],
     },
@@ -97,8 +98,6 @@ test('explicit production decisions publish on upstream finish, never by reading
     },
   });
   expect(diagnostics.recent.decisions[1].reasoning).not.toHaveProperty('selected_evidence');
-  expect(diagnostics.recent.decisions[1].compatibility.contracts[0].implementation)
-    .not.toHaveProperty('dependencies');
   expect(JSON.stringify(diagnostics)).not.toContain('prompt/tool/credential');
   expect(validateDiagnostics(diagnostics)).toBe(true);
 });
@@ -341,6 +340,8 @@ test('arbitrary and stale known implementation hash pins cannot claim verified c
   const observer = createModelDecisionObservation(options);
   for (const implementation of [
     { ...CONTRACTS[0].implementation, sha256: 'b'.repeat(64) },
+    { ...CONTRACTS[0].implementation, dependencies: CONTRACTS[0].implementation.dependencies.map(
+      dependency => ({ ...dependency, sha256: 'b'.repeat(64) })) },
     CONTRACTS.find(contract => contract.implementation.file === 'anthropic-chat-compat.js').implementation,
   ]) {
     const { req, res } = request(observer);
@@ -406,6 +407,8 @@ test('new optional objects are strict and arbitrary feature, code, provenance, a
     item => { item.compatibility.reasons.push({ feature: 'private-feature', code: 'content_loss' }); },
     item => { item.compatibility.reasons.push({ feature: 'message_text', code: 'private-code' }); },
     item => { item.compatibility.contracts[0].implementation.file = '/private/path'; },
+    item => { delete item.compatibility.contracts[0].implementation.dependencies; },
+    item => { item.compatibility.contracts[0].implementation.dependencies[0].path = '/private/path'; },
     item => { item.reasoning.provenance = 'https://private.invalid'; },
     item => { item.origin.request_id = 'private-id'; },
   ]) {

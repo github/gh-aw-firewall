@@ -32,6 +32,7 @@ on:
       - 'containers/api-proxy/token-persistence.js'
       - 'containers/api-proxy/token-tracker-http.js'
       - 'containers/api-proxy/wire-api-compat*'
+      - 'containers/api-proxy/wire-api/**'
       - 'containers/api-proxy/server.js'
       - 'containers/api-proxy/server-factory.js'
       - 'containers/api-proxy/startup.js'

@@ -106,6 +106,16 @@ function pinProjection(record) {
   };
 }
 
+function implementationMatches(implementation, known) {
+  if (implementation?.file !== known.file || implementation.sha256 !== known.sha256) return false;
+  const dependencies = implementation.dependencies || [];
+  const knownDependencies = known.dependencies || [];
+  return Array.isArray(dependencies) && dependencies.length === knownDependencies.length &&
+    dependencies.every((dependency, index) =>
+      dependency?.file === knownDependencies[index].file &&
+      dependency.sha256 === knownDependencies[index].sha256);
+}
+
 function compatibilityProjection(assessment, outcome, pins) {
   if (!assessment || !['compatible', 'incompatible', 'unverified'].includes(assessment.status) ||
       !['skipped', 'accepted', 'exhausted'].includes(outcome)) return null;
@@ -113,8 +123,7 @@ function compatibilityProjection(assessment, outcome, pins) {
     .slice(0, CONTRACTS.length).filter(contract => CONTRACTS.some(known => known.id === contract?.id));
   if (contracts.some(contract => !CONTRACTS.some(known => known.id === contract?.id &&
       known.revision === contract.revision &&
-      known.implementation.file === contract.implementation?.file &&
-      known.implementation.sha256 === contract.implementation?.sha256))) return null;
+      implementationMatches(contract.implementation, known.implementation)))) return null;
   return {
     outcome, status: assessment.status,
     source: PROTOCOLS.has(assessment.source) ? assessment.source : null,
@@ -123,7 +132,13 @@ function compatibilityProjection(assessment, outcome, pins) {
     assessment_revision: assessment.assessmentRevision === ASSESSMENT_REVISION
       ? assessment.assessmentRevision : null,
     contracts: contracts.map(contract => ({ id: contract.id, revision: contract.revision,
-        implementation: { file: contract.implementation.file, sha256: contract.implementation.sha256 } })),
+        implementation: {
+          file: contract.implementation.file,
+          sha256: contract.implementation.sha256,
+          ...(contract.implementation.dependencies?.length ? {
+            dependencies: contract.implementation.dependencies.map(({ file, sha256 }) => ({ file, sha256 })),
+          } : {}),
+        } })),
     features: [...new Set((Array.isArray(assessment.features) ? assessment.features : [])
       .slice(0, FEATURES.length).filter(feature => FEATURE_SET.has(feature)))],
     reasons: (Array.isArray(assessment.reasons) ? assessment.reasons : []).slice(0, 32)
