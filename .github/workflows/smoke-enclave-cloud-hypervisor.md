@@ -87,6 +87,8 @@ steps:
     run: |
       sudo install -d -m 0711 -o root -g root /var/lib/awf-enclave-smoke-export
       sudo install -m 0600 -o root -g root scripts/ci/collect-enclave-smoke-debug.cjs /var/lib/awf-enclave-smoke-export/collector.cjs
+      sudo install -d -m 0700 -o root -g root /var/lib/awf-enclave-smoke-export/collect-enclave-smoke-debug
+      sudo install -m 0600 -o root -g root scripts/ci/collect-enclave-smoke-debug/*.cjs /var/lib/awf-enclave-smoke-export/collect-enclave-smoke-debug/
       sudo node /var/lib/awf-enclave-smoke-export/collector.cjs prepare cloud-hypervisor "$DEBUG_RUN_KEY" "$(id -u)" "$(id -g)"
 post-steps:
   - name: Collect host-only public enclave debug evidence

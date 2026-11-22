@@ -72,6 +72,29 @@ describe('DLP Integration', () => {
     expect(dlpDenyIndex).toBeLessThan(domainDenyIndex);
   });
 
+  it('defines every dlp_blocked ACL before the http_access rule that references it', () => {
+    // Squid parses squid.conf top-down: an ACL referenced before its
+    // definition is rejected at startup, so ordering must hold in the output.
+    const config = {
+      domains: ['github.com'],
+      port: defaultPort,
+      enableDlp: true,
+      apiProxyIp: '172.30.0.30',
+      apiProxyUpstreams: [{ hostname: 'api.example.com', port: 443 }],
+    };
+    const lines = generateSquidConfig(config).split('\n');
+    const aclLineIndexes = lines
+      .map((line, index) => (line.startsWith('acl dlp_blocked ') ? index : -1))
+      .filter(index => index !== -1);
+    const referenceLineIndexes = lines
+      .map((line, index) => (line.startsWith('http_access ') && line.includes('dlp_blocked') ? index : -1))
+      .filter(index => index !== -1);
+
+    expect(aclLineIndexes.length).toBeGreaterThanOrEqual(10);
+    expect(referenceLineIndexes.length).toBeGreaterThan(0);
+    expect(Math.max(...aclLineIndexes)).toBeLessThan(Math.min(...referenceLineIndexes));
+  });
+
   it('should include credential patterns like ghp_ and AWS access keys in ACLs', () => {
     const config = {
       domains: ['github.com'],

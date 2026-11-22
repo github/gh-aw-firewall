@@ -34,6 +34,16 @@ describe('parseDomainWithProtocol', () => {
     });
   });
 
+  it.each([
+    ['HTTP://api.github.com', 'api.github.com', 'http'],
+    ['Http://api.github.com/', 'api.github.com', 'http'],
+    ['HTTPS://api.github.com', 'api.github.com', 'https'],
+    ['Https://api.github.com/', 'api.github.com', 'https'],
+    ['  hTtPs://*.github.com/  ', '*.github.com', 'https'],
+  ])('should parse case-insensitive protocol prefix in %s', (input, domain, protocol) => {
+    expect(parseDomainWithProtocol(input)).toEqual({ domain, protocol });
+  });
+
   it('should strip trailing slash', () => {
     expect(parseDomainWithProtocol('github.com/')).toEqual({
       domain: 'github.com',
@@ -214,6 +224,37 @@ describe('validateDomainOrPattern', () => {
       expect(() => validateDomainOrPattern('*.')).toThrow('too broad');
       expect(() => validateDomainOrPattern('.*')).toThrow('too broad');
     });
+
+    it.each([
+      'github.com:443',
+      'https://github.com:8443',
+      'HTTP://github.com:80/',
+      '*.github.com:443',
+    ])('should reject ports in %s without silently dropping them', input => {
+      expect(() => validateDomainOrPattern(input)).toThrow('Use a bare domain without a port');
+    });
+
+    it.each([
+      'https://github.com/org/repo',
+      'HTTPS://github.com/org/repo/',
+      'github.com/org/repo',
+      'github.com//',
+      'https://*.github.com/org/*',
+      'https://github.com?query=value',
+    ])('should reject URL paths or queries in %s', input => {
+      expect(() => validateDomainOrPattern(input)).toThrow('use --allow-urls with --ssl-bump');
+    });
+
+    it.each(['ftp://example.com', 'FTP://example.com', 'file://example.com', 'ws://example.com'])(
+      'should reject unsupported schemes in %s',
+      input => {
+        expect(() => validateDomainOrPattern(input)).toThrow('Only http:// and https:// prefixes are supported');
+      }
+    );
+
+    it.each(['user@github.com', 'https://user@github.com'])('should reject user information in %s', input => {
+      expect(() => validateDomainOrPattern(input)).toThrow('Use a bare domain without user information');
+    });
   });
 
   describe('overly broad patterns', () => {
@@ -326,6 +367,13 @@ describe('validateDomainOrPattern', () => {
       expect(() => validateDomainOrPattern('http://*.example.com')).not.toThrow();
       expect(() => validateDomainOrPattern('https://*.secure.com')).not.toThrow();
     });
+
+    it.each(['HTTP://github.com', 'Https://github.com/', 'HTTPS://*.github.com/', 'github.com/'])(
+      'should accept supported domain forms in %s',
+      input => {
+        expect(() => validateDomainOrPattern(input)).not.toThrow();
+      }
+    );
 
     it('should reject protocol prefix with empty domain', () => {
       expect(() => validateDomainOrPattern('http://')).toThrow('cannot be empty');

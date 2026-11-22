@@ -83,6 +83,10 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
     expect(command).toContain('--runTestsByPath');
     const selectors = command.match(/[\w/.-]+\.test\.ts/g)!;
     expect(selectors.length).toBeGreaterThan(20);
+    expect(workflow.on.pull_request.paths).toContain('scripts/ci/collect-enclave-smoke-debug/**');
+    for (const module of ['projections', 'safe-fs', 'redaction', 'publication', 'cli']) {
+      expect(selectors).toContain(`scripts/ci/collect-enclave-smoke-debug/${module}.test.ts`);
+    }
     for (const selector of selectors) expect(fs.existsSync(path.join(root, selector))).toBe(true);
     expect(selectors).toEqual(expect.arrayContaining([
       'src/enclave/host-executor-broker.test.ts',

@@ -59,12 +59,24 @@ jobs:
               else
                 status=$?
               fi
+              if awk '
+                tolower($0) ~ /preparing build cache for export|exporting.*cache/ { exporters[$1] = 1 }
+                exporters[$1] && /ERROR:|error:|failed/ { failed = 1 }
+                tolower($0) ~ /(error|failed).*export.*cache|export.*cache.*(error|failed)|cache.*export.*(error|failed)|error writing (layer|config)/ { failed = 1 }
+                END { exit !failed }
+              ' "$log_file"; then
+                echo "::warning::Image ${image} cache export failed on attempt ${attempt}; the next build may miss the cache."
+              fi
               {
                 echo "### ${image}, attempt ${attempt}"
                 echo "- Duration: $((SECONDS - started))s; exit status: ${status}"
                 echo "- Cached steps: $(grep -c ' CACHED$' "$log_file" || true)"
                 echo "- Cache imports: $(grep -cE 'importing cache' "$log_file" || true)"
-                echo "- Cache exports: $(grep -cE 'exporting.*cache' "$log_file" || true)"
+                echo "- Cache exports: $(grep -ciE 'preparing build cache for export|exporting.*cache' "$log_file" || true)"
+                echo "- Cache scope: it-${image}; mode: max (retains intermediate build stages)"
+                echo '```text'
+                grep -im 100 -E '^#[0-9]+ (preparing build cache for export|exporting.*cache|writing (layer|config))' "$log_file" || true
+                echo '```'
               } >> "$GITHUB_STEP_SUMMARY"
               if [ "$status" -eq 0 ]; then
                 break
@@ -168,6 +180,29 @@ jobs:
           path: /tmp/awf-jest-domain.json
           retention-days: 7
 
+      - name: Summarize Jest timings
+        if: always()
+        env:
+          JEST_RESULTS: /tmp/awf-jest-domain.json
+        run: &jest-timing-summary |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const lines = ['## Per-file Jest timings'];
+          try {
+            const results = JSON.parse(fs.readFileSync(process.env.JEST_RESULTS, 'utf8'));
+            lines.push(`- Total tests: ${Number(results.numTotalTests)}`, '', '| Test file | Duration (s) |', '| --- | ---: |');
+            for (const result of results.testResults.sort((a, b) => (b.endTime - b.startTime) - (a.endTime - a.startTime))) {
+              const name = path.basename(result.name).replace(/[|<>&\r\n`]/g, '_');
+              const seconds = ((result.endTime - result.startTime) / 1000).toFixed(3);
+              lines.push(`| ${name} | ${seconds} |`);
+            }
+          } catch {
+            lines.push('- Timing results unavailable (Jest did not produce a readable report).');
+          }
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
+          NODE
+
       - name: Post-test cleanup
         if: always()
         run: |
@@ -237,7 +272,7 @@ jobs:
         run: |
           echo "=== Running network tests ==="
           npm run test:integration -- \
-            --testPathPatterns="(host-tcp-services|ipv6|localhost-access|network-security|topology-compose)" \
+            --testPathPatterns="(ipv6|localhost-access|network-security)" \
             --verbose --json --outputFile=/tmp/awf-jest-network.json
         env:
           JEST_TIMEOUT: 180000
@@ -249,6 +284,12 @@ jobs:
           name: jest-timings-network
           path: /tmp/awf-jest-network.json
           retention-days: 7
+
+      - name: Summarize Jest timings
+        if: always()
+        env:
+          JEST_RESULTS: /tmp/awf-jest-network.json
+        run: *jest-timing-summary
 
       - name: Post-test cleanup
         if: always()
@@ -332,6 +373,12 @@ jobs:
           path: /tmp/awf-jest-protocol-security.json
           retention-days: 7
 
+      - name: Summarize Jest timings
+        if: always()
+        env:
+          JEST_RESULTS: /tmp/awf-jest-protocol-security.json
+        run: *jest-timing-summary
+
       - name: Post-test cleanup
         if: always()
         run: |
@@ -401,7 +448,7 @@ jobs:
         run: |
           echo "=== Running container & ops tests ==="
           npm run test:integration -- \
-            --testPathPatterns="(compose-environment|container-workdir|environment-variables|error-handling|exit-code-propagation|filesystem-allowwrite|log-commands)" \
+            --testPathPatterns="(compose-environment|container-workdir|environment-variables|error-handling|exit-code-propagation|filesystem-allowwrite|log-commands|topology-compose)" \
             --verbose --json --outputFile=/tmp/awf-jest-container-ops.json
         env:
           JEST_TIMEOUT: 180000
@@ -413,6 +460,12 @@ jobs:
           name: jest-timings-container-ops
           path: /tmp/awf-jest-container-ops.json
           retention-days: 7
+
+      - name: Summarize Jest timings
+        if: always()
+        env:
+          JEST_RESULTS: /tmp/awf-jest-container-ops.json
+        run: *jest-timing-summary
 
       - name: Post-test cleanup
         if: always()
@@ -483,7 +536,7 @@ jobs:
         run: |
           echo "=== Running API proxy tests ==="
           npm run test:integration -- \
-            --testPathPatterns="(api-proxy|volume-mounts)" \
+            --testPathPatterns="(api-proxy|volume-mounts|host-tcp-services)" \
             --verbose --json --outputFile=/tmp/awf-jest-api-proxy.json
         env:
           JEST_TIMEOUT: 180000
@@ -495,6 +548,12 @@ jobs:
           name: jest-timings-api-proxy
           path: /tmp/awf-jest-api-proxy.json
           retention-days: 7
+
+      - name: Summarize Jest timings
+        if: always()
+        env:
+          JEST_RESULTS: /tmp/awf-jest-api-proxy.json
+        run: *jest-timing-summary
 
       - name: Post-test cleanup
         if: always()

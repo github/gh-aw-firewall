@@ -128,6 +128,20 @@ describe('processLocalhostKeyword', () => {
     expect(result.allowedDomains).toContain('https://host.docker.internal');
   });
 
+  it.each([
+    ['HTTP://localhost', 'http://host.docker.internal', true],
+    ['Https://localhost/', 'https://host.docker.internal', true],
+    ['HTTP://host.docker.internal', 'http://host.docker.internal', false],
+    ['Https://host.docker.internal/', 'https://host.docker.internal', false],
+  ])('recognizes %s and preserves its protocol', (input, domain, localhostDetected) => {
+    const result = processLocalhostKeyword([input, 'github.com'], false, '8080');
+    expect(result.allowedDomains).toEqual(['github.com', domain]);
+    expect(result.localhostDetected).toBe(localhostDetected);
+    expect(result.hostGatewayDetected).toBe(true);
+    expect(result.shouldEnableHostAccess).toBe(true);
+    expect(result.defaultPorts).toBeUndefined();
+  });
+
   it('sets shouldEnableHostAccess to true when enableHostAccess is false', () => {
     const result = processLocalhostKeyword(['localhost'], false, undefined);
     expect(result.shouldEnableHostAccess).toBe(true);
