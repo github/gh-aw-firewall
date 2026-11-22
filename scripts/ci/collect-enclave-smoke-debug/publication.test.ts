@@ -1,7 +1,7 @@
 import {
   fs, path, createHash, collector, mutableFs, live, prepare, collect, MAX_STREAM_BYTES, MAX_FILES,
   HostExecutorJournal, preservePublicEnclaveProxyDiagnostics, preflightSchema, projectCopilotAuthLogFields,
-  isSafeCopilotAuthLogFields, stageCollector, standaloneFixture, persistHostExecutorProxyUsage,
+  isSafeCopilotAuthLogFields, stageCollector, standaloneFixture, legacyCollectorFixture, persistHostExecutorProxyUsage,
   persistHostExecutorProxyResponseDiagnostics,
 } from './collector.test-utils';
 
@@ -9,31 +9,12 @@ describe('host-only public enclave debug publication', () => {
   let temp: string;
   let run: string;
   let roots: { journal: string; debug: string };
-  const uid = process.getuid!();
-  const gid = process.getgid!();
-  const runId = 'a'.repeat(32);
-  const invocationId = 'b'.repeat(24);
-  beforeEach(() => {
-    temp = fs.mkdtempSync(path.join(process.cwd(), '.enclave-debug-test-'));
-    run = path.join(temp, 'run');
-    roots = { journal: path.join(temp, 'journal'), debug: path.join(temp, 'debug') };
-    for (const directory of Object.values(roots)) fs.mkdirSync(directory, { mode: 0o700 });
+  const f = legacyCollectorFixture(state => {
+    temp = state.temp;
+    run = state.run;
+    roots = state.roots;
   });
-  afterEach(() => fs.rmSync(temp, { recursive: true, force: true }));
-  const prepareRun = () => prepare(run, roots, uid, temp);
-  function invocation(terminal = true) {
-    const journal = new HostExecutorJournal({
-      runId, journalDir: roots.journal, seedsDir: path.join(temp, 'seeds'),
-      invocationsDir: path.join(temp, 'invocations'), entries: [],
-    });
-    journal.record({ invocationId, entryId: 'script', state: 'cleanup-pending' });
-    if (terminal) journal.record({ invocationId, entryId: 'script', state: 'terminal', outcome: 'executor-failure' });
-    const source = path.join(roots.debug, runId, invocationId);
-    fs.mkdirSync(source, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(path.join(source, 'guest-stderr.raw.log'), 'failed guest evidence', { mode: 0o600 });
-    return source;
-  }
-  const collectRun = () => collect(run, uid, gid, roots, uid, temp);
+  const { prepareRun, invocation, collectRun, commonEnvelope, uid, gid, runId, invocationId } = f;
   function retainStartup(structured = false, earlyFailure?: Record<string, unknown>, startupChecks?: object) {
     const binding = { backend: 'cloud-hypervisor', runnerUid: uid, runnerGid: gid };
     prepare(run, roots, uid, temp, binding);
@@ -78,22 +59,6 @@ describe('host-only public enclave debug publication', () => {
     expect(error).toMatchObject({ category: 'absent-evidence' });
     collector.publishCollectionFailure(run, uid, gid, error, uid, temp);
   }
-  function commonEnvelope() {
-    return {
-      version: 1, runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor', executorKind: 'script',
-      stage: 'execution', failure: 'workload-exit', exitCode: 1, workloadStopped: true,
-      workloadLaunched: true, stopProof: 'verified', stages: [{ stage: 'workload-exit', status: 'succeeded' }],
-      streams: { stdout: 'captured', stderr: 'captured', session: 'captured' },
-      streamCoverage: {
-        stdout: { artifactSource: 'backend-stream', agentSession: 'unavailable' },
-        stderr: { artifactSource: 'backend-stream', agentSession: 'unavailable' }, copilotDiagnostics: 'unavailable',
-      },
-      session: { status: 'empty', bytes: 0 },
-      backendEvidence: { dockerInspect: { status: 'not-applicable' }, vmCounters: { status: 'unavailable' },
-        network: { status: 'unavailable' } },
-    };
-  }
-
   it('collects a failed invocation but excludes stale directories and journals', () => {
     fs.mkdirSync(path.join(roots.debug, 'c'.repeat(32)), { mode: 0o700 });
     fs.writeFileSync(path.join(roots.journal, `${'d'.repeat(32)}.journal`), 'stale', { mode: 0o600 });

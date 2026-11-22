@@ -1,52 +1,11 @@
 import {
-  fs, path, collector, prepare, collect, projectDiagnostics, HostExecutorJournal,
-  projectEnclaveSessionDiagnostics, standaloneFixture,
+  fs, path, collector, projectDiagnostics, projectEnclaveSessionDiagnostics, standaloneFixture,
+  legacyCollectorFixture,
 } from './collector.test-utils';
 
 describe('public enclave session projections', () => {
-  let temp: string;
-  let run: string;
-  let roots: { journal: string; debug: string };
-  const uid = process.getuid!();
-  const gid = process.getgid!();
-  const runId = 'a'.repeat(32);
-  const invocationId = 'b'.repeat(24);
-  beforeEach(() => {
-    temp = fs.mkdtempSync(path.join(process.cwd(), '.enclave-debug-test-'));
-    run = path.join(temp, 'run');
-    roots = { journal: path.join(temp, 'journal'), debug: path.join(temp, 'debug') };
-    for (const directory of Object.values(roots)) fs.mkdirSync(directory, { mode: 0o700 });
-  });
-  afterEach(() => fs.rmSync(temp, { recursive: true, force: true }));
-  const prepareRun = () => prepare(run, roots, uid, temp);
-  function invocation(terminal = true) {
-    const journal = new HostExecutorJournal({
-      runId, journalDir: roots.journal, seedsDir: path.join(temp, 'seeds'),
-      invocationsDir: path.join(temp, 'invocations'), entries: [],
-    });
-    journal.record({ invocationId, entryId: 'script', state: 'cleanup-pending' });
-    if (terminal) journal.record({ invocationId, entryId: 'script', state: 'terminal', outcome: 'executor-failure' });
-    const source = path.join(roots.debug, runId, invocationId);
-    fs.mkdirSync(source, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(path.join(source, 'guest-stderr.raw.log'), 'failed guest evidence', { mode: 0o600 });
-    return source;
-  }
-  const collectRun = () => collect(run, uid, gid, roots, uid, temp);
-  function commonEnvelope() {
-    return {
-      version: 1, runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor', executorKind: 'script',
-      stage: 'execution', failure: 'workload-exit', exitCode: 1, workloadStopped: true,
-      workloadLaunched: true, stopProof: 'verified', stages: [{ stage: 'workload-exit', status: 'succeeded' }],
-      streams: { stdout: 'captured', stderr: 'captured', session: 'captured' },
-      streamCoverage: {
-        stdout: { artifactSource: 'backend-stream', agentSession: 'unavailable' },
-        stderr: { artifactSource: 'backend-stream', agentSession: 'unavailable' }, copilotDiagnostics: 'unavailable',
-      },
-      session: { status: 'empty', bytes: 0 },
-      backendEvidence: { dockerInspect: { status: 'not-applicable' }, vmCounters: { status: 'unavailable' },
-        network: { status: 'unavailable' } },
-    };
-  }
+  const f = legacyCollectorFixture();
+  const { prepareRun, invocation, collectRun, commonEnvelope, uid, gid, runId, invocationId } = f;
 
   it('collects a common entrypoint operation failure without a session transcript', () => {
     prepareRun();
@@ -66,11 +25,11 @@ describe('public enclave session projections', () => {
       { mode: 0o600 });
     fs.writeFileSync(path.join(source, 'enclave-session.log'), '', { mode: 0o600 });
     collectRun();
-    const projected = JSON.parse(fs.readFileSync(path.join(run, 'upload/diagnostics.json'), 'utf8'));
+    const projected = JSON.parse(fs.readFileSync(path.join(f.run, 'upload/diagnostics.json'), 'utf8'));
     expect(projected.primaryFailure).toEqual(failure);
     expect(projected.stages).toContainEqual(failure);
     expect(projected.session).toEqual({ status: 'missing' });
-    expect(fs.readFileSync(path.join(run, 'upload/enclave-session.log'), 'utf8')).toBe('');
+    expect(fs.readFileSync(path.join(f.run, 'upload/enclave-session.log'), 'utf8')).toBe('');
   });
   it.each([
     { operation: 'PRIVATE_OPERATION' },
