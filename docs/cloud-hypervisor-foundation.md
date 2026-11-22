@@ -338,13 +338,16 @@ authorization.
 
 #### Shared public diagnostics exporter
 
-`scripts/ci/collect-enclave-smoke-debug.cjs` is the supported standalone exporter
+`scripts/ci/collect-enclave-smoke-debug.cjs` is the supported exporter entrypoint
 for both `docker` and `cloud-hypervisor`. The historical filename remains stable;
 consumers do not need to copy its implementation or duplicate the diagnostic
 schema. Pin the exporter checkout to a reviewed AWF release or full commit SHA
-containing this interface. Its closed startup-check catalog is embedded in the
-exporter, so standalone installations do not need a companion schema or built
-`dist` files. A regression test keeps that catalog synchronized with the host
+containing this interface. Install the entrypoint together with the sibling
+`collect-enclave-smoke-debug/*.cjs` modules from that same checkout; TypeScript
+tests are not deployment dependencies. The modules use only Node.js built-ins,
+and the closed startup-check catalog is embedded in them, so isolated
+installations do not need the AWF package, a separate schema, or built `dist`
+files. A regression test keeps that catalog synchronized with the host
 preflight schema. Pin the AWF execution installation separately.
 
 The daily agent regression also retains `startup.json` in the protected export
@@ -489,7 +492,8 @@ Examples of failed checks are `retention-eligibility`, `diagnostics-identity`,
 not an inferred workload root cause.
 
 **Version-pinned Docker consumer example.** This example pins the exporter to the
-implementation commit below; review it independently before adoption and keep
+implementation commit below (or a reviewed successor containing the modular
+entrypoint); review it independently before adoption and keep
 future upgrades pinned to a reviewed release or full commit SHA.
 The exporter is installed before the agent can modify the checkout. AWF must
 already be installed at a reviewed version supporting public Docker retention,
@@ -511,6 +515,11 @@ steps:
       sudo install -m 0600 -o root -g root \
         "$GITHUB_WORKSPACE/trusted-awf-exporter/scripts/ci/collect-enclave-smoke-debug.cjs" \
         /var/lib/awf-enclave-smoke-export/collector.cjs
+      sudo install -d -m 0700 -o root -g root \
+        /var/lib/awf-enclave-smoke-export/collect-enclave-smoke-debug
+      sudo install -m 0600 -o root -g root \
+        "$GITHUB_WORKSPACE/trusted-awf-exporter/scripts/ci/collect-enclave-smoke-debug/"*.cjs \
+        /var/lib/awf-enclave-smoke-export/collect-enclave-smoke-debug/
       sudo node /var/lib/awf-enclave-smoke-export/collector.cjs \
         prepare docker "$DEBUG_RUN_KEY" "$(id -u)" "$(id -g)"
   - name: Execute AWF

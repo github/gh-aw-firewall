@@ -215,6 +215,13 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
   });
 
   it('retains branch-only source builds, public debug protections and postprocessor idempotency', () => {
+    const prepare = agentSteps.find(step => step.name === 'Prepare host-only enclave debug collection');
+    expect(prepare?.run).toContain(
+      'sudo install -d -m 0700 -o root -g root /var/lib/awf-enclave-smoke-export/collect-enclave-smoke-debug'
+    );
+    expect(prepare?.run).toContain(
+      'sudo install -m 0600 -o root -g root scripts/ci/collect-enclave-smoke-debug/*.cjs /var/lib/awf-enclave-smoke-export/collect-enclave-smoke-debug/'
+    );
     expect(usesPublishedAwfRelease(workflowPath)).toBe(true);
     const install = agentSteps.find(step => step.name === 'Install awf binary (local)');
     expect(install?.if).toContain("github.repository == 'github/gh-aw-firewall'");
