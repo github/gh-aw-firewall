@@ -137,6 +137,16 @@ describe('artifact-permissions', () => {
       imageRegistry: 'registry.example.com/awf',
       imageTag: 'v1.2.3',
     },
+    {
+      dockerHostPathPrefix: ' runner/ ',
+      imageRegistry: 'registry.example.com/awf',
+      imageTag: 'v1.2.3',
+    },
+    {
+      dockerHostPathPrefix: '/tmp',
+      imageRegistry: 'ghcr.io/github/gh-aw-firewall',
+      imageTag: 'latest',
+    },
   ])('runs rootless permission repair with translated mount paths ($dockerHostPathPrefix)', (options) => {
     const auditDir = makeTempDir();
     try {

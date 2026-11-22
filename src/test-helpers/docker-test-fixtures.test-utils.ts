@@ -35,6 +35,13 @@ export function expectPreserveCleanupDockerRun(
     imageTag: string;
   },
 ): void {
+  const trimmedPrefix = dockerHostPathPrefix.trim();
+  const prefix = (trimmedPrefix.startsWith('/') ? trimmedPrefix : `/${trimmedPrefix}`).replace(/\/+$/, '') || '/';
+  const auditPath = path.resolve(auditDir);
+  const mountPath = prefix === '/' || auditPath === prefix || auditPath.startsWith(`${prefix}/`)
+    ? auditPath
+    : path.join(prefix, auditPath);
+
   expect(mockExecaSync).toHaveBeenCalledWith(
     'docker',
     expect.arrayContaining([
@@ -44,7 +51,7 @@ export function expectPreserveCleanupDockerRun(
       '--entrypoint',
       'sh',
       '-v',
-      `${path.join(dockerHostPathPrefix, path.resolve(auditDir))}:/fix:rw`,
+      `${mountPath}:/fix:rw`,
       `${imageRegistry}/agent:${imageTag}`,
       '-c',
       'chown -R "$TUID:$TGID" /fix 2>/dev/null; chmod -R a+rwX /fix',
