@@ -70,6 +70,7 @@ export function legacyCollectorFixture(bind?: (state: {
     return source;
   }
   const collectRun = () => collect(run, uid, gid, roots, uid, temp);
+  const setRun = (nextRun: string) => { run = nextRun; };
   function commonEnvelope() {
     return {
       version: 1, runId, invocationId, entryId: 'script', runtime: 'cloud-hypervisor', executorKind: 'script',
@@ -87,7 +88,7 @@ export function legacyCollectorFixture(bind?: (state: {
   }
   return {
     get temp() { return temp; }, get run() { return run; }, get roots() { return roots; },
-    uid, gid, runId, invocationId, prepareRun, invocation, collectRun, commonEnvelope,
+    uid, gid, runId, invocationId, prepareRun, invocation, collectRun, setRun, commonEnvelope,
   };
 }
 

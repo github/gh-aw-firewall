@@ -14,7 +14,7 @@ describe('host-only public enclave debug publication', () => {
     run = state.run;
     roots = state.roots;
   });
-  const { prepareRun, invocation, collectRun, commonEnvelope, uid, gid, runId, invocationId } = f;
+  const { prepareRun, invocation, collectRun, commonEnvelope, setRun, uid, gid, runId, invocationId } = f;
   function retainStartup(structured = false, earlyFailure?: Record<string, unknown>, startupChecks?: object) {
     const binding = { backend: 'cloud-hypervisor', runnerUid: uid, runnerGid: gid };
     prepare(run, roots, uid, temp, binding);
@@ -670,6 +670,7 @@ describe('host-only public enclave debug publication', () => {
     fs.rmSync(path.join(roots.debug, runId), { recursive: true });
     fs.unlinkSync(path.join(roots.journal, `${runId}.journal`));
     run = path.join(temp, 'second-scope');
+    setRun(run);
     prepareRun();
     const bounded = path.join(invocation(), 'guest-stderr.raw.log');
     fs.writeFileSync(bounded, Buffer.alloc(MAX_STREAM_BYTES));
