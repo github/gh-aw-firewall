@@ -55,6 +55,19 @@ describe('generateSquidConfig', () => {
       expect(result).not.toContain('https://');
     });
 
+    it.each([
+      ['HTTP://api.github.com', 'http', '!CONNECT'],
+      ['Http://api.github.com/', 'http', '!CONNECT'],
+      ['HTTPS://api.github.com', 'https', 'CONNECT'],
+      ['Https://api.github.com/', 'https', 'CONNECT'],
+    ])('should preserve protocol restrictions for %s', (domain, protocol, method) => {
+      const result = generateSquidConfig({ domains: [domain], port: defaultPort });
+      expect(result).toContain(`acl allowed_${protocol}_only dstdomain .api.github.com`);
+      expect(result).toContain(`http_access allow ${method} allowed_${protocol}_only`);
+      expect(result).not.toContain('acl allowed_domains dstdomain');
+      expect(result).not.toContain(domain);
+    });
+
     it('should treat domain without prefix as allowing both protocols', () => {
       const config: SquidConfig = {
         domains: ['github.com'],
@@ -100,25 +113,28 @@ describe('generateSquidConfig', () => {
       expect(result).not.toContain('example.com/');
     });
 
-    it('should handle domain with port number', () => {
+    it('should reject domain with port number', () => {
       const config: SquidConfig = {
         domains: ['example.com:8080'],
         port: defaultPort,
       };
-      const result = generateSquidConfig(config);
-      // Port should be preserved in the domain
-      expect(result).toContain('acl allowed_domains dstdomain .example.com:8080');
+      expect(() => generateSquidConfig(config)).toThrow('Use a bare domain without a port');
     });
 
-    it('should handle domain with path', () => {
+    it('should reject domain with path', () => {
       const config: SquidConfig = {
         domains: ['https://api.github.com/v3/users'],
         port: defaultPort,
       };
-      const result = generateSquidConfig(config);
-      // Path should be preserved (Squid handles domain matching), as HTTPS-only
-      expect(result).toContain('acl allowed_https_only dstdomain .api.github.com/v3/users');
+      expect(() => generateSquidConfig(config)).toThrow('use --allow-urls with --ssl-bump');
     });
+
+    it.each(['github.com:443', 'https://github.com:8443', 'ftp://example.com'])(
+      'should reject non-domain ACL input %s',
+      domain => {
+        expect(() => generateSquidConfig({ domains: [domain], port: defaultPort })).toThrow();
+      }
+    );
   });
 
   describe('Subdomain Handling', () => {

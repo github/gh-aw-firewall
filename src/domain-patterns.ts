@@ -33,14 +33,14 @@ type DomainProtocol = 'http' | 'https' | 'both';
 export function parseDomainWithProtocol(input: string): { domain: string; protocol: DomainProtocol } {
   const trimmed = input.trim();
 
-  if (trimmed.startsWith('http://')) {
+  if (/^http:\/\//i.test(trimmed)) {
     return {
       domain: trimmed.slice(7).replace(/\/$/, ''),
       protocol: 'http',
     };
   }
 
-  if (trimmed.startsWith('https://')) {
+  if (/^https:\/\//i.test(trimmed)) {
     return {
       domain: trimmed.slice(8).replace(/\/$/, ''),
       protocol: 'https',

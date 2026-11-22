@@ -1,5 +1,13 @@
 # Usage Guide
 
+Domain entries in `--allow-domains` and `--allow-domains-file` accept bare domains
+or wildcard patterns, optionally prefixed with `http://` or `https://`
+(case-insensitive). A single trailing `/` is accepted. Ports, URL paths, queries,
+user information, and other schemes are rejected rather than silently stripped.
+Use a bare domain without a port, or `--allow-urls` with `--ssl-bump` for URL
+path filtering. For host-service ports, use `--allow-host-ports` with
+`--enable-host-access`; domain entries do not configure ports.
+
 ## Command-Line Options
 
 ```
