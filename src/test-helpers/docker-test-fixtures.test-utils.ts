@@ -10,7 +10,55 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { resolveEnclavePaths } from '../enclave/paths';
 import { WrapperConfig } from '../types';
+
+/**
+ * Creates the enclave root and audit destination for audit-preservation tests.
+ */
+export function setupEnclaveAuditFixture(dir: string): string {
+  fs.mkdirSync(resolveEnclavePaths(dir).root, { recursive: true });
+  const auditDir = path.join(dir, 'audit');
+  fs.mkdirSync(auditDir);
+  return auditDir;
+}
+
+/**
+ * Checks the rootless cleanup permission-repair Docker invocation.
+ */
+export function expectPreserveCleanupDockerRun(
+  mockExecaSync: jest.Mock,
+  { auditDir, dockerHostPathPrefix, imageRegistry, imageTag }: {
+    auditDir: string;
+    dockerHostPathPrefix: string;
+    imageRegistry: string;
+    imageTag: string;
+  },
+): void {
+  const trimmedPrefix = dockerHostPathPrefix.trim();
+  const prefix = (trimmedPrefix.startsWith('/') ? trimmedPrefix : `/${trimmedPrefix}`).replace(/\/+$/, '') || '/';
+  const auditPath = path.resolve(auditDir);
+  const mountPath = prefix === '/' || auditPath === prefix || auditPath.startsWith(`${prefix}/`)
+    ? auditPath
+    : path.join(prefix, auditPath);
+
+  expect(mockExecaSync).toHaveBeenCalledWith(
+    'docker',
+    expect.arrayContaining([
+      'run',
+      '--pull',
+      'never',
+      '--entrypoint',
+      'sh',
+      '-v',
+      `${mountPath}:/fix:rw`,
+      `${imageRegistry}/agent:${imageTag}`,
+      '-c',
+      'chown -R "$TUID:$TGID" /fix 2>/dev/null; chmod -R a+rwX /fix',
+    ]),
+    expect.objectContaining({ reject: false }),
+  );
+}
 
 /**
  * Baseline WrapperConfig used in unit tests. Omits `workDir` so each test can

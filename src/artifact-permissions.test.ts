@@ -13,6 +13,7 @@ import {
   isBenignArtifactPermissionError,
 } from './artifact-permissions';
 import { mockExecaSync } from './test-helpers/mock-execa.test-utils';
+import { expectPreserveCleanupDockerRun } from './test-helpers/docker-test-fixtures.test-utils';
 
 function makeTempDir(prefix = 'awf-artifact-perms-'): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -125,33 +126,39 @@ describe('artifact-permissions', () => {
     })).toBe(true);
   });
 
-  it('runs rootless permission repair with translated mount paths', () => {
+  it.each([
+    {
+      dockerHostPathPrefix: '/host',
+      imageRegistry: 'ghcr.io/github/gh-aw-firewall',
+      imageTag: 'latest',
+    },
+    {
+      dockerHostPathPrefix: '/runner',
+      imageRegistry: 'registry.example.com/awf',
+      imageTag: 'v1.2.3',
+    },
+    {
+      dockerHostPathPrefix: ' runner/ ',
+      imageRegistry: 'registry.example.com/awf',
+      imageTag: 'v1.2.3',
+    },
+    {
+      dockerHostPathPrefix: '/tmp',
+      imageRegistry: 'ghcr.io/github/gh-aw-firewall',
+      imageTag: 'latest',
+    },
+  ])('runs rootless permission repair with translated mount paths ($dockerHostPathPrefix)', (options) => {
     const auditDir = makeTempDir();
     try {
       getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
       fixArtifactPermissionsForRootless(
         [auditDir],
-        '/host',
-        'ghcr.io/github/gh-aw-firewall',
-        'latest',
+        options.dockerHostPathPrefix,
+        options.imageRegistry,
+        options.imageTag,
         undefined,
       );
-      expect(mockExecaSync).toHaveBeenCalledWith(
-        'docker',
-        expect.arrayContaining([
-          'run',
-          '--pull',
-          'never',
-          '--entrypoint',
-          'sh',
-          '-v',
-          `/host${path.resolve(auditDir)}:/fix:rw`,
-          'ghcr.io/github/gh-aw-firewall/agent:latest',
-          '-c',
-          'chown -R "$TUID:$TGID" /fix 2>/dev/null; chmod -R a+rwX /fix',
-        ]),
-        expect.objectContaining({ reject: false }),
-      );
+      expectPreserveCleanupDockerRun(mockExecaSync, { auditDir, ...options });
     } finally {
       fs.rmSync(auditDir, { recursive: true, force: true });
     }
