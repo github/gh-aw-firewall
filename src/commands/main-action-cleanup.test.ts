@@ -2,18 +2,13 @@ import './main-action-enclave-mocks.test-utils';
 import { mainActionFsMocks } from './main-action-fs-mock.test-utils';
 import { createMainAction, testHelpers } from './main-action';
 import { buildCleanupFn } from './main-action-cleanup';
-import * as enclaveGateway from '../enclave/gateway';
-import * as enclaveManager from '../enclave/manager';
 import { captureEnclaveStartupDiagnostics } from '../enclave/startup-diagnostics';
-import * as enclaveGithubGateway from '../enclave/github-gateway';
-import * as enclaveHostLifecycle from '../enclave/cloud-hypervisor-lifecycle';
 import * as dockerHostLifecycle from '../enclave/docker-lifecycle';
 import * as dynamicDelegation from '../enclave/dynamic-delegation';
-import * as externalRuntimeResolver from '../external-runtime-backend-resolver';
 import {
   MAIN_ACTION_STUB_CONFIG,
-  getMainActionMocks,
-  setupMainActionPlatformHarness,
+  describeMainAction,
+  makeEnclaveConfig,
 } from './main-action.test-utils';
 import type { WrapperConfig } from '../types';
 import { RoutingFailureExitError } from '../routing/bootstrap';
@@ -25,36 +20,23 @@ const {
   fchmodSync: mockFchmodSync,
 } = mainActionFsMocks;
 
-const {
+describeMainAction(({
   mockedLogger,
   mockedDockerManager,
   mockedHostIptables,
   mockedCliWorkflow,
-  mockedRedactSecrets,
   mockedSignalHandler,
   mockedValidateOptions,
-} = getMainActionMocks();
-const mockedEnclaveGateway = enclaveGateway as jest.Mocked<typeof enclaveGateway>;
-const mockedEnclaveGithubGateway =
-  enclaveGithubGateway as jest.Mocked<typeof enclaveGithubGateway>;
-const mockedExternalRuntimeResolver = externalRuntimeResolver as jest.Mocked<typeof externalRuntimeResolver>;
-const mockedEnclaveHostLifecycle = enclaveHostLifecycle as jest.Mocked<typeof enclaveHostLifecycle>;
-const mockedEnclaveManager = enclaveManager as jest.Mocked<typeof enclaveManager>;
-
-describe('createMainAction', () => {
-  const platformHarness = setupMainActionPlatformHarness();
+  mockedEnclaveGateway,
+  mockedEnclaveGithubGateway,
+  mockedExternalRuntimeResolver,
+  mockedEnclaveHostLifecycle,
+  platformHarness,
+}) => {
   let processExitSpy: jest.SpyInstance;
   let getOptionValueSource: jest.Mock;
 
   beforeEach(() => {
-    mockedEnclaveManager.prepareEnclaves.mockResolvedValue(undefined);
-    mockedDockerManager.runAgentCommand.mockResolvedValue({ exitCode: 0, blockedDomains: [] });
-    mockedRedactSecrets.deriveSensitiveEndpointForms.mockImplementation((domains?: string[]) =>
-      domains ?? []
-    );
-    mockedRedactSecrets.redactSensitiveValues.mockImplementation((value: string, values: string[]) =>
-      values.reduce((redacted, sensitive) => redacted.split(sensitive).join('[REDACTED]'), value)
-    );
     processExitSpy = platformHarness.processExitSpy;
     getOptionValueSource = platformHarness.getOptionValueSource;
   });
@@ -572,19 +554,12 @@ describe('createMainAction', () => {
 
     it('marks the protected audit incomplete when preservation fails', async () => {
       mockedDockerManager.preserveIptablesAudit.mockReturnValueOnce(false);
-      const config = {
-        ...MAIN_ACTION_STUB_CONFIG,
-        enclaves: {
+      const config = makeEnclaveConfig({
+        agent: {
           enabled: true,
-          executors: {
-            script: { enabled: false },
-            agent: {
-              enabled: true,
-              github: { cli: 'issues-read-v1' },
-            },
-          },
+          github: { cli: 'issues-read-v1' },
         },
-      } as unknown as import('../types').WrapperConfig;
+      });
       const performCleanup = testHelpers.buildCleanupFn(
         config,
         () => true,
@@ -614,19 +589,12 @@ describe('createMainAction', () => {
       mockOpenSync.mockImplementationOnce(() => {
         throw new Error('marker write failed');
       });
-      const config = {
-        ...MAIN_ACTION_STUB_CONFIG,
-        enclaves: {
+      const config = makeEnclaveConfig({
+        agent: {
           enabled: true,
-          executors: {
-            script: { enabled: false },
-            agent: {
-              enabled: true,
-              github: { cli: 'issues-read-v1' },
-            },
-          },
+          github: { cli: 'issues-read-v1' },
         },
-      } as unknown as import('../types').WrapperConfig;
+      });
       const performCleanup = testHelpers.buildCleanupFn(
         config,
         () => true,
