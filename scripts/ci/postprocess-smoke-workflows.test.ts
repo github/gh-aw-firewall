@@ -10,6 +10,10 @@
  */
 
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
+import { spawnSync } from 'child_process';
+import * as yaml from 'js-yaml';
 import {
   installStepRegex,
   duplicateSetupNodeRegex,
@@ -636,6 +640,70 @@ describe('buildCopilotCliDaemonCopyStep', () => {
     const result = buildCopilotCliDaemonCopyStep('      ', 'copilot');
     expect(result).toMatch(/^      - name: Copy Copilot CLI to daemon-visible path\n/);
     expect(result).toContain('        run: |\n');
+  });
+
+  describe('runtime behavior', () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'copilot staging-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    function runCopy(sourceDir: string) {
+      const [step] = yaml.load(buildCopilotCliDaemonCopyStep('', 'copilot')) as Array<{ run: string }>;
+      return spawnSync('/bin/bash', ['-euo', 'pipefail', '-c', step.run], {
+        env: { RUNNER_TEMP: tempDir, PATH: `${sourceDir}:/usr/bin:/bin` },
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+    }
+
+    it.each([
+      'identical path', 'hard link', 'source symlink', 'destination symlink',
+      'missing destination', 'distinct destination',
+    ])('stages successfully with a %s', kind => {
+      const dest = path.join(tempDir, 'gh-aw/bin/copilot');
+      const source = kind === 'identical path' ? dest : path.join(tempDir, 'bin/copilot');
+      const contents = '#!/bin/bash\nexit 0\n';
+      fs.mkdirSync(path.dirname(source), { recursive: true });
+      fs.writeFileSync(source, contents, { mode: 0o755 });
+      if (kind !== 'missing destination') {
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+      }
+      if (kind === 'hard link') fs.linkSync(source, dest);
+      if (kind === 'source symlink') {
+        fs.renameSync(source, dest);
+        fs.symlinkSync(dest, source);
+      }
+      if (kind === 'destination symlink') fs.symlinkSync(source, dest);
+      if (kind === 'distinct destination') fs.writeFileSync(dest, 'old binary', { mode: 0o644 });
+
+      const result = runCopy(path.dirname(source));
+
+      expect(result.error).toBeUndefined();
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+      expect(fs.readFileSync(dest, 'utf8')).toBe(contents);
+      expect(fs.statSync(dest).mode & 0o111).toBe(0o111);
+    });
+
+    it.each(['missing', 'non-executable'])('fails fast for a %s Copilot CLI', kind => {
+      const sourceDir = path.join(tempDir, 'bin');
+      fs.mkdirSync(sourceDir);
+      if (kind === 'non-executable') {
+        fs.writeFileSync(path.join(sourceDir, 'copilot'), 'not executable', { mode: 0o644 });
+      }
+
+      const result = runCopy(sourceDir);
+
+      expect(result.status).toBe(127);
+      expect(result.stderr).toContain('GitHub Copilot CLI executable not found on PATH after installation');
+      expect(fs.existsSync(path.join(tempDir, 'gh-aw/bin/copilot'))).toBe(false);
+    });
   });
 });
 
