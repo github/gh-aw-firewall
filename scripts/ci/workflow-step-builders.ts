@@ -103,7 +103,9 @@ export function buildCopilotCliDaemonCopyStep(indent: string, engineId: string):
     `${ri}  echo "GitHub Copilot CLI executable not found on PATH after installation" >&2\n` +
     `${ri}  exit 127\n` +
     `${ri}fi\n` +
-    `${ri}cp "$COPILOT_SRC" "\${RUNNER_TEMP}/gh-aw/bin/copilot"\n` +
+    `${ri}if [[ ! "$COPILOT_SRC" -ef "\${RUNNER_TEMP}/gh-aw/bin/copilot" ]]; then\n` +
+    `${ri}  cp "$COPILOT_SRC" "\${RUNNER_TEMP}/gh-aw/bin/copilot"\n` +
+    `${ri}fi\n` +
     `${ri}chmod +x "\${RUNNER_TEMP}/gh-aw/bin/copilot"\n`
   );
 }

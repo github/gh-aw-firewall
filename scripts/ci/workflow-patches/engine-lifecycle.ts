@@ -65,6 +65,11 @@ export function gateEngineLifecycle(content: string): TransformResult {
       );
     }
   } else {
+    content = content.replace(
+      /^([ \t]+)cp "\$COPILOT_SRC" "\$\{RUNNER_TEMP\}\/gh-aw\/bin\/copilot"\n(?=\1chmod \+x "\$\{RUNNER_TEMP\}\/gh-aw\/bin\/copilot")/gm,
+      '$1if [[ ! "$COPILOT_SRC" -ef "${RUNNER_TEMP}/gh-aw/bin/copilot" ]]; then\n' +
+        '$1  cp "$COPILOT_SRC" "${RUNNER_TEMP}/gh-aw/bin/copilot"\n$1fi\n',
+    );
     messages.push(`  'Copy Copilot CLI to daemon-visible path' step already engine-gated`);
   }
   return { content, messages };

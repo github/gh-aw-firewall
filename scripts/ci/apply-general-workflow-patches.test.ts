@@ -285,6 +285,34 @@ describe('applyGeneralWorkflowPatches Copilot CLI copy step gating', () => {
     expect(content).toContain('exit 127');
   });
 
+  it('guards file identity in both agent and threat-detection copy steps', () => {
+    const input =
+      'env:\n  GH_AW_ENGINE_ID: "copilot"\njobs:\n' +
+      '  agent:\n    steps:\n' + COMPILER_EMITTED_COPY_STEP +
+      '  threat_detection:\n    steps:\n' + COMPILER_EMITTED_COPY_STEP;
+    const { content } = applyGeneralWorkflowPatches(input, '/tmp/example.lock.yml');
+    const guard = 'if [[ ! "$COPILOT_SRC" -ef "${RUNNER_TEMP}/gh-aw/bin/copilot" ]]; then';
+
+    expect(content.split(guard)).toHaveLength(3);
+    expect(content.split('chmod +x "${RUNNER_TEMP}/gh-aw/bin/copilot"')).toHaveLength(3);
+    expect(applyGeneralWorkflowPatches(content, '/tmp/example.lock.yml').content).toBe(content);
+  });
+
+  it('upgrades previously engine-gated copy steps without nesting identity guards', () => {
+    const legacy =
+      '      - name: Copy Copilot CLI to daemon-visible path\n' +
+      '        run: |\n' +
+      `          ${copilotCliDaemonCopyStepSentinel} (copilot)\n` +
+      '          mkdir -p "${RUNNER_TEMP}/gh-aw/bin"\n' +
+      '          COPILOT_SRC="$(command -v copilot 2>/dev/null || true)"\n' +
+      '          cp "$COPILOT_SRC" "${RUNNER_TEMP}/gh-aw/bin/copilot"\n' +
+      '          chmod +x "${RUNNER_TEMP}/gh-aw/bin/copilot"\n';
+    const { content } = applyGeneralWorkflowPatches(legacy, '/tmp/example.lock.yml');
+
+    expect(content).toContain('if [[ ! "$COPILOT_SRC" -ef "${RUNNER_TEMP}/gh-aw/bin/copilot" ]]; then');
+    expect(applyGeneralWorkflowPatches(content, '/tmp/example.lock.yml').content).toBe(content);
+  });
+
   it('is idempotent across repeated postprocess runs', () => {
     const first = applyGeneralWorkflowPatches(lockFileWithEngine('claude'), '/tmp/example.lock.yml');
     const second = applyGeneralWorkflowPatches(first.content, '/tmp/example.lock.yml');
