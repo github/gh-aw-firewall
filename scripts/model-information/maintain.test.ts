@@ -680,24 +680,28 @@ describe('offline scheduled source maintenance', () => {
         },
       },
     });
-    expect(backendScopedFallbackEffects(before, after)).toContainEqual({
-      pointer: '/backendScopedFallback/openrouter~1deepseek~1deepseek-chat-v3-0324',
-      before: {
-        exists: true,
-        pricing: {
-          modelId: 'deepseek/deepseek-chat-v3-0324', input: '0.29', output: '1.14',
-          cachedInput: '0.11', cacheWrite: null,
-        },
+    expect(backendScopedFallbackEffects(before, after)).toEqual(expect.arrayContaining([
+      {
+        pointer: '/backendScopedFallback/openrouter~1deepseek~1deepseek-chat-v3-0324/estimatedComponents',
+        before: null,
+        after: ['cachedInput'],
       },
-      after: {
-        exists: true,
-        pricing: {
-          modelId: 'deepseek/deepseek-chat-v3-0324', input: '0.25', output: '1',
-          cachedInput: '0.025', cacheWrite: null,
-        },
-        estimatedComponents: ['cachedInput'],
+      {
+        pointer: '/backendScopedFallback/openrouter~1deepseek~1deepseek-chat-v3-0324/pricing/cachedInput',
+        before: '0.11',
+        after: '0.025',
       },
-    });
+      {
+        pointer: '/backendScopedFallback/openrouter~1deepseek~1deepseek-chat-v3-0324/pricing/input',
+        before: '0.29',
+        after: '0.25',
+      },
+      {
+        pointer: '/backendScopedFallback/openrouter~1deepseek~1deepseek-chat-v3-0324/pricing/output',
+        before: '1.14',
+        after: '1',
+      },
+    ]));
   });
 
   it('normalizes modality ordering but records modality-only and alias-only changes', async () => {
