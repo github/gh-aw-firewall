@@ -129,8 +129,8 @@ and the candidate's exact `updated_at`. Use the shared
 `{number, updatedAt, disposition, evidence}` shape with specific code/test
 citations; for each attempted deferred candidate also set
 `deferredAttemptedAt` to a fresh UTC ISO-8601 timestamp after attempting a
-PR-content read (including denied or filtered reads), so the next intake rotates
-after actual attempts, not the offered batch. Never set it merely because a
+PR-content read (including denied or filtered reads). The deferred queue
+rotates after actual attempts, not the offered batch. Never set it merely because a
 candidate was offered; never bulk-classify from titles. For a verified proposal being staged,
 save `publication-pending` with the verified evidence and proposal identity; on a
 later run, check publication and replace it with `proposed` plus the public URL

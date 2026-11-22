@@ -86,8 +86,8 @@ historical window has been traversed.
 
 For a deferred candidate whose PR-content read was attempted (including denied
 or filtered reads), a receipt may also include `deferredAttemptedAt`, a fresh
-UTC ISO-8601 timestamp. The collector uses the latest such attempt to rotate the
-deferred queue; do not set it merely because a candidate was offered.
+UTC ISO-8601 timestamp. The collector uses the latest such attempt to rotate the deferred queue;
+deferred rotation is by actual attempts, not the offered batch; do not set it merely because a candidate was offered.
 
 The `diagnosis-intake` artifact makes unclassified/deferred changes and all
 three cursors visible even if the agent fails. The `updatedSince` watermark
