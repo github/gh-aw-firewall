@@ -117,7 +117,9 @@ function parseJsonObject(text, index, depth) {
     const value = parseJsonValue(text, i, depth + 1);
     if (!value) return undefined;
     if (Object.prototype.hasOwnProperty.call(obj, key.value)) return undefined;
-    obj[key.value] = value.value;
+    Object.defineProperty(obj, key.value, {
+      value: value.value, enumerable: true, writable: true, configurable: true,
+    });
     i = skipJsonWhitespace(text, value.endIndex);
     if (text[i] === ',') { i += 1; continue; }
     if (text[i] === '}') return { value: obj, endIndex: i + 1 };
