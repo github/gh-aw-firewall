@@ -71,10 +71,15 @@ body/stream to the caller.
 Contract revision: `awf-directed-protocol-v1`. Each contract pins its implementation
 bytes using SHA-256:
 
-- `wire-api-compat.js`: `99195a2687352cbb4c65aaa1c31b7f630f71ed1d0a3647638092e3a1e5676125`
+- `wire-api-compat.js`: `db7121abee27b8e453b1b7c4833fcb95c36523670d1829e7a9fb5805790bbff9`
 - `anthropic-chat-compat.js`: `47e879c966fca727e6a483649366a60f77e354adbeeede11b3c0c8b6853c0f2b`
 
-The revision test fails when either translator changes. Re-characterize affected
+The wire facade preserves the public API and `_testing` exports. Its implementation
+is split into `wire-api/shared.js`, `wire-api/request-translation.js`,
+`wire-api/response-translation.js`, and `wire-api/sse-transforms.js`; their SHA-256
+pins are recorded in the wire contract's immutable `implementation.dependencies`.
+
+The revision test fails when either translator or a pinned dependency changes. Re-characterize affected
 fixtures and conditions, update the implementation pin, and revise the contract
 revision when its meaning changes; do not merely update hashes to silence drift.
 

@@ -144,8 +144,10 @@ describe('directed protocol compatibility contracts', () => {
   test('pins evidence to the actual implementation bytes and exported boundaries', () => {
     for (const contract of CONTRACTS) {
       const implementationPath = path.join(__dirname, contract.implementation.file);
-      const hash = createHash('sha256').update(fs.readFileSync(implementationPath)).digest('hex');
-      expect(hash).toBe(contract.implementation.sha256);
+      for (const file of [contract.implementation, ...(contract.implementation.dependencies || [])]) {
+        const hash = createHash('sha256').update(fs.readFileSync(path.join(__dirname, file.file))).digest('hex');
+        expect(hash).toBe(file.sha256);
+      }
       const implementation = require(implementationPath);
       for (const name of contract.entryPoints) expect(typeof implementation[name]).toBe('function');
     }

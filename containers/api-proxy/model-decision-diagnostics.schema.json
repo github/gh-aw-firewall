@@ -82,8 +82,37 @@
                 "required": ["file", "sha256"],
                 "properties": {
                   "file": { "enum": ["wire-api-compat.js", "anthropic-chat-compat.js"] },
-                  "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
-                }
+                  "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                  "dependencies": {
+                    "type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true,
+                    "items": {
+                      "type": "object", "additionalProperties": false,
+                      "required": ["file", "sha256"],
+                      "properties": {
+                        "file": {
+                          "enum": [
+                            "wire-api/shared.js", "wire-api/request-translation.js",
+                            "wire-api/response-translation.js", "wire-api/sse-transforms.js"
+                          ]
+                        },
+                        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                      }
+                    }
+                  }
+                },
+                "allOf": [
+                  {
+                    "if": { "properties": { "file": { "const": "wire-api-compat.js" } } },
+                    "then": {
+                      "properties": { "dependencies": true },
+                      "required": ["dependencies"]
+                    }
+                  },
+                  {
+                    "if": { "properties": { "file": { "const": "anthropic-chat-compat.js" } } },
+                    "then": { "properties": { "dependencies": false } }
+                  }
+                ]
               }
             }
           }

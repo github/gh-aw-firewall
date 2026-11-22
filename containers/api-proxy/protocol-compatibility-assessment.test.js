@@ -284,7 +284,13 @@ describe('actual automatic fallback request assessment', () => {
     expect(assess(Buffer.from('invalid-json')).status).toBe('unverified');
   });
 
-  test('stale translator bytes fail closed in the shipped layout', () => {
+  test.each([
+    'wire-api-compat.js',
+    'wire-api/shared.js',
+    'wire-api/request-translation.js',
+    'wire-api/response-translation.js',
+    'wire-api/sse-transforms.js',
+  ])('stale translator bytes in %s fail closed in the shipped layout', file => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-assessment-drift-'));
     try {
       const proxy = __dirname;
@@ -298,7 +304,7 @@ describe('actual automatic fallback request assessment', () => {
             copy[2] === './' ? path.join(root, path.basename(source)) : path.join(root, copy[2]), { recursive: true });
         }
       }
-      fs.appendFileSync(path.join(root, 'wire-api-compat.js'), '\n// drift\n');
+      fs.appendFileSync(path.join(root, file), '\n// drift\n');
       const script = `
         const {assessRequestCompatibility} = require('./protocol-compatibility/assessment');
         const result = assessRequestCompatibility({body:{model:'fixture',messages:[]},
