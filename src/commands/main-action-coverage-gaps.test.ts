@@ -227,7 +227,7 @@ describe('createMainAction coverage gaps', () => {
   describe('sbx: dnsOverHttps and difcProxyHost wiring', () => {
     it('sets dohProxyIp when dnsOverHttps is enabled', async () => {
       const sbxConfig = makeSbxConfig({
-        dnsOverHttps: true,
+        dnsOverHttps: 'https://dns.google/dns-query',
         containerWorkDir: '/workspace',
       });
       mockedValidateOptions.validateOptions.mockReturnValue(sbxConfig);

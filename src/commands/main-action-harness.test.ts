@@ -84,11 +84,14 @@ describeMainAction(({
   let previousExitSpy: jest.SpyInstance;
 
   it.each([1, 2])('shares module mocks and refreshes suite defaults (case %i)', async (testCase) => {
-    expect(mockedEnclaveManager).toBe(enclaveManager);
-    expect(mockedEnclaveGateway).toBe(enclaveGateway);
-    expect(mockedEnclaveGithubGateway).toBe(enclaveGithubGateway);
-    expect(mockedEnclaveHostLifecycle).toBe(enclaveHostLifecycle);
-    expect(mockedExternalRuntimeResolver).toBe(externalRuntimeResolver);
+    expect(mockedEnclaveManager.prepareEnclaves).toBe(enclaveManager.prepareEnclaves);
+    expect(mockedEnclaveGateway.shutdownEnclaveGateway).toBe(enclaveGateway.shutdownEnclaveGateway);
+    expect(mockedEnclaveGithubGateway.resolveEnclaveGithubGatewayContract)
+      .toBe(enclaveGithubGateway.resolveEnclaveGithubGatewayContract);
+    expect(mockedEnclaveHostLifecycle.isCloudHypervisorEnclaveSelected)
+      .toBe(enclaveHostLifecycle.isCloudHypervisorEnclaveSelected);
+    expect(mockedExternalRuntimeResolver.resolveExternalRuntimeBackend)
+      .toBe(externalRuntimeResolver.resolveExternalRuntimeBackend);
     expect(process.platform).toBe('linux');
     expect(process.geteuid?.()).toBe(0);
     expect(platformHarness.processExitSpy).not.toBe(previousExitSpy);
