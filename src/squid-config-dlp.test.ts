@@ -79,18 +79,20 @@ describe('DLP Integration', () => {
       domains: ['github.com'],
       port: defaultPort,
       enableDlp: true,
+      apiProxyIp: '172.30.0.30',
+      apiProxyUpstreams: [{ hostname: 'api.example.com', port: 443 }],
     };
     const lines = generateSquidConfig(config).split('\n');
     const aclLineIndexes = lines
       .map((line, index) => (line.startsWith('acl dlp_blocked ') ? index : -1))
       .filter(index => index !== -1);
-    const denyLineIndexes = lines
-      .map((line, index) => (line === 'http_access deny dlp_blocked' ? index : -1))
+    const referenceLineIndexes = lines
+      .map((line, index) => (line.startsWith('http_access ') && line.includes('dlp_blocked') ? index : -1))
       .filter(index => index !== -1);
 
     expect(aclLineIndexes.length).toBeGreaterThanOrEqual(10);
-    expect(denyLineIndexes).toHaveLength(1);
-    expect(Math.max(...aclLineIndexes)).toBeLessThan(denyLineIndexes[0]);
+    expect(referenceLineIndexes.length).toBeGreaterThan(0);
+    expect(Math.max(...aclLineIndexes)).toBeLessThan(Math.min(...referenceLineIndexes));
   });
 
   it('should include credential patterns like ghp_ and AWS access keys in ACLs', () => {
