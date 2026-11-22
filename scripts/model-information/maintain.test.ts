@@ -6,7 +6,8 @@ import { execFileSync } from 'node:child_process';
 const {
   captureSources, loadCaptures, refreshImport, proposeCopilotPricing, buildReport, selectPullRequest,
   reviewReasons, differences, inspectCatalogue, documentText, hash, json, facts,
-  catalogueFacts, runtimeResolutionFacts, verifyCommittedTree,
+  catalogueFacts, runtimeResolutionFacts, backendScopedFallbackFacts, backendScopedFallbackEffects,
+  verifyCommittedTree,
   projections,
 } = require('./maintain.cjs');
 const sources = require('./maintenance-sources.json');
@@ -635,6 +636,68 @@ describe('offline scheduled source maintenance', () => {
     expect(report.runtimeConsumerEffects[0].changes).toEqual(expect.arrayContaining([
       expect.objectContaining({ pointer: expect.stringContaining('/@lookup=gemma-4-31b-it/pricing') }),
     ]));
+  });
+
+  it('reports only fixed backend-scoped imported rates and marks estimated cached-input rates', () => {
+    const before = catalog([{
+      ...priced('tencent/hy3', '0.000000132'),
+      pricing: {
+        prompt: '0.000000132', completion: '0.000000528', input_cache_read: '0.000000033',
+        overrides: [{ utc_start: 0, utc_end: 1600, prompt: '0.000000132' }],
+      },
+    }, {
+      ...priced('deepseek/deepseek-chat-v3-0324', '0.00000029'),
+      pricing: { prompt: '0.00000029', completion: '0.00000114', input_cache_read: '0.00000011' },
+    }]);
+    const after = catalog([{
+      ...priced('tencent/hy3', '0.00000014'),
+      pricing: { prompt: '0.00000014', completion: '0.00000058', input_cache_read: '0.000000035' },
+    }, {
+      ...priced('deepseek/deepseek-chat-v3-0324', '0.00000025'),
+      pricing: { prompt: '0.00000025', completion: '0.000001' },
+    }]);
+
+    expect(backendScopedFallbackFacts(before)).not.toHaveProperty('openrouter/tencent/hy3');
+    expect(backendScopedFallbackFacts(after)['openrouter/tencent/hy3']).toEqual({
+      exists: true,
+      pricing: {
+        modelId: 'tencent/hy3', input: '0.14', output: '0.58',
+        cachedInput: '0.035', cacheWrite: null,
+      },
+    });
+    expect(backendScopedFallbackFacts(after)['openrouter/deepseek/deepseek-chat-v3-0324']).toMatchObject({
+      pricing: { cachedInput: '0.025' },
+      estimatedComponents: ['cachedInput'],
+    });
+    expect(backendScopedFallbackEffects(before, after)).toContainEqual({
+      pointer: '/backendScopedFallback/openrouter~1tencent~1hy3',
+      before: null,
+      after: {
+        exists: true,
+        pricing: {
+          modelId: 'tencent/hy3', input: '0.14', output: '0.58',
+          cachedInput: '0.035', cacheWrite: null,
+        },
+      },
+    });
+    expect(backendScopedFallbackEffects(before, after)).toContainEqual({
+      pointer: '/backendScopedFallback/openrouter~1deepseek~1deepseek-chat-v3-0324',
+      before: {
+        exists: true,
+        pricing: {
+          modelId: 'deepseek/deepseek-chat-v3-0324', input: '0.29', output: '1.14',
+          cachedInput: '0.11', cacheWrite: null,
+        },
+      },
+      after: {
+        exists: true,
+        pricing: {
+          modelId: 'deepseek/deepseek-chat-v3-0324', input: '0.25', output: '1',
+          cachedInput: '0.025', cacheWrite: null,
+        },
+        estimatedComponents: ['cachedInput'],
+      },
+    });
   });
 
   it('normalizes modality ordering but records modality-only and alias-only changes', async () => {

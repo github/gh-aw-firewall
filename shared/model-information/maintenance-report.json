@@ -38,6 +38,30 @@
           "after": 1
         },
         {
+          "pointer": "/backendScopedFallback/openrouter~1deepseek~1deepseek-chat-v3-0324",
+          "before": {
+            "exists": true,
+            "pricing": {
+              "modelId": "deepseek/deepseek-chat-v3-0324",
+              "input": "0.29",
+              "output": "1.14",
+              "cachedInput": "0.11",
+              "cacheWrite": null
+            }
+          },
+          "after": {
+            "exists": true,
+            "pricing": {
+              "modelId": "deepseek/deepseek-chat-v3-0324",
+              "input": "0.25",
+              "output": "1",
+              "cachedInput": "0.025",
+              "cacheWrite": null
+            },
+            "estimatedComponents": ["cachedInput"]
+          }
+        },
+        {
           "pointer": "/runtimeResolution/@lookup=deepseek-flash-latest/pricing/cachedInput",
           "before": 0.0015,
           "after": 0.01
@@ -356,6 +380,20 @@
           "pointer": "/runtimeResolution/@lookup=hy3/pricing/output",
           "before": 0.5279999999999999,
           "after": 0.58
+        },
+        {
+          "pointer": "/backendScopedFallback/openrouter~1tencent~1hy3",
+          "before": null,
+          "after": {
+            "exists": true,
+            "pricing": {
+              "modelId": "tencent/hy3",
+              "input": "0.14",
+              "output": "0.58",
+              "cachedInput": "0.035",
+              "cacheWrite": null
+            }
+          }
         },
         {
           "pointer": "/runtimeResolution/@lookup=hy3-preview",
