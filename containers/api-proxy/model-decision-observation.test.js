@@ -83,7 +83,13 @@ test('explicit production decisions publish on upstream finish, never by reading
       outcome: 'accepted', status: 'compatible', return_conditions: 'provider_response_unobserved',
       contract_revision: REVISION, assessment_revision: 'awf-fallback-assessment-v1',
       pins: { eligibility_revision: 3, catalogue_revision: catalogueRevision },
-      contracts: [{ id: CONTRACTS[0].id, implementation: CONTRACTS[0].implementation }],
+      contracts: [{
+        id: CONTRACTS[0].id,
+        implementation: {
+          file: CONTRACTS[0].implementation.file,
+          sha256: CONTRACTS[0].implementation.sha256,
+        },
+      }],
     },
     reasoning: {
       support: 'supported', mode: 'optional', reason: 'reasoning_effort_accepted',
@@ -91,6 +97,8 @@ test('explicit production decisions publish on upstream finish, never by reading
     },
   });
   expect(diagnostics.recent.decisions[1].reasoning).not.toHaveProperty('selected_evidence');
+  expect(diagnostics.recent.decisions[1].compatibility.contracts[0].implementation)
+    .not.toHaveProperty('dependencies');
   expect(JSON.stringify(diagnostics)).not.toContain('prompt/tool/credential');
   expect(validateDiagnostics(diagnostics)).toBe(true);
 });
