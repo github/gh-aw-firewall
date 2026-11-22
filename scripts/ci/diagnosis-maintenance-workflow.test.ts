@@ -68,6 +68,9 @@ describe('shared diagnosis-maintenance contract', () => {
     expect(shared).toContain('needs-evidence');
     expect(shared).toContain('publication-pending');
     expect(shared).toContain('not an\nevidence gap');
+    expect(shared).toContain('`deferredAttemptedAt`');
+    expect(shared).toContain('latest such attempt to rotate the deferred queue');
+    expect(shared).toContain('do not set it merely because a candidate was offered');
     expect(shared).toContain('npm run diagnostics:freshness');
     expect(shared).toContain('reviewQueue.firstTime');
     expect(shared).toContain('reviewQueue.deferred');
@@ -369,6 +372,10 @@ describe('shared diagnosis-maintenance contract', () => {
     expect(source).toContain('never fill the shared\n50-review ceiling merely because the queue is large');
     expect(source).toContain('Do not shrink the selected batch after encountering an\nevidence gap');
     expect(source).toContain('Save each reviewed candidate\'s receipt immediately');
+    expect(source).toContain('`deferredAttemptedAt`');
+    expect(source).toContain('rotates after actual attempts, not the offered batch');
+    expect(source).toContain('after attempting a\nPR-content read');
+    expect(source).toContain('Never set it merely because a\ncandidate was offered');
     expect(source).toContain('Reserve the remaining budget');
   });
 

@@ -136,6 +136,47 @@ describe('diagnosis merged intake', () => {
     );
   });
 
+  it('rotates deferred candidates after actual attempts across partial batches and early denial', async () => {
+    const state = checkpoint();
+    state.pending = Array.from({ length: 20 }, (_, i) => candidate(i + 1));
+    const receipts: Receipt[] = state.pending.map(({ number, updated_at }) => ({
+      number, updatedAt: updated_at, disposition: 'needs-evidence',
+      evidence: 'Missing source test to distinguish the cause',
+    }));
+
+    const offered = await collectIntake(state, receipts, async () => [], now);
+    expect(offered.reviewQueue.deferred.map(({ number }) => number)).toEqual(
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    );
+    expect(offered.deferredCursor).toBe(10);
+
+    const partiallyAttempted = receipts.map((receipt) => {
+      const attemptedIndex = receipt.number - 1;
+      return attemptedIndex < 5
+        ? { ...receipt, deferredAttemptedAt: `2026-11-09T00:00:0${attemptedIndex + 1}Z` }
+        : receipt;
+    });
+    const afterPartialBatch = await collectIntake(
+      offered, partiallyAttempted, async () => [], now,
+    );
+    expect(afterPartialBatch.reviewQueue.deferred.map(({ number }) => number)).toEqual(
+      [6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    );
+    expect(afterPartialBatch.deferredCursor).toBe(5);
+
+    const deniedEarly = partiallyAttempted.map((receipt) =>
+      receipt.number === 6
+        ? { ...receipt, deferredAttemptedAt: '2026-11-09T00:00:06Z' }
+        : receipt);
+    const afterEarlyDenial = await collectIntake(
+      afterPartialBatch, deniedEarly, async () => [], now,
+    );
+    expect(afterEarlyDenial.reviewQueue.deferred.map(({ number }) => number)).toEqual(
+      [7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+    );
+    expect(afterEarlyDenial.deferredCursor).toBe(6);
+  });
+
   it('refreshes an older merge by update time before applying an exact-revision receipt', async () => {
     const old = candidate(1, '2026-11-02T00:00:00Z');
     const changed = candidate(1, '2026-11-09T00:00:00Z');
@@ -334,6 +375,8 @@ describe('diagnosis merged intake', () => {
       };
       fs.writeFileSync(file, JSON.stringify([valid, publicationPending, {
         number: 2, updatedAt: 'not-a-date', disposition: 'covered', evidence: 'invalid timestamp',
+      }, {
+        ...valid, deferredAttemptedAt: 'not-a-date',
       }]));
       expect(readReceipts(file)).toEqual([valid, publicationPending]);
       fs.writeFileSync(file, JSON.stringify({ invalid: true }));

@@ -49,6 +49,7 @@ export interface Receipt {
   updatedAt: string;
   disposition: 'covered' | 'proposed' | 'no-impact' | 'needs-evidence' | 'publication-pending';
   evidence: string;
+  deferredAttemptedAt?: string;
 }
 
 export interface ReviewQueue {
@@ -110,6 +111,7 @@ export function validateReceipts(receipts: Receipt[]): void {
       throw new Error('Every intake receipt requires a disposition and specific review evidence');
     }
     instant(receipt.updatedAt);
+    if (receipt.deferredAttemptedAt !== undefined) instant(receipt.deferredAttemptedAt);
   }
 }
 
@@ -119,9 +121,11 @@ function isValidReceipt(value: unknown): value is Receipt {
   if (!Number.isSafeInteger(receipt.number) || (receipt.number ?? 0) < 1 ||
     !['covered', 'proposed', 'no-impact', 'needs-evidence', 'publication-pending'].includes(receipt.disposition ?? '') ||
     typeof receipt.evidence !== 'string' || receipt.evidence.trim().length < 12 ||
-    typeof receipt.updatedAt !== 'string') return false;
+    typeof receipt.updatedAt !== 'string' ||
+    (receipt.deferredAttemptedAt !== undefined && typeof receipt.deferredAttemptedAt !== 'string')) return false;
   try {
     instant(receipt.updatedAt);
+    if (receipt.deferredAttemptedAt !== undefined) instant(receipt.deferredAttemptedAt);
     return true;
   } catch {
     return false;
@@ -207,18 +211,31 @@ export async function collectIntake(
   const deferred = allPending.filter((candidate) =>
     receiptStatus.get(`${candidate.number}:${candidate.updated_at}`)?.needsEvidence);
   const firstTime = allPending.filter((candidate) => !deferred.includes(candidate));
+  const latestDeferredAttempt = receipts.reduce<Receipt | undefined>((latest, receipt) => {
+    const attemptedAt = receipt.deferredAttemptedAt;
+    const latestAttemptedAt = latest?.deferredAttemptedAt;
+    return attemptedAt && (!latestAttemptedAt || instant(attemptedAt) > instant(latestAttemptedAt))
+      ? receipt : latest;
+  }, undefined);
   const deferredCursorIndex = state.deferredCursor === undefined
     ? -1 : deferred.findIndex(({ number }) => number === state.deferredCursor);
-  const deferredStart = deferred.length === 0 ? 0 : (deferredCursorIndex + 1) % deferred.length;
+  const deferredAfterAttempt = latestDeferredAttempt
+    ? deferred.findIndex((candidate) =>
+      instant(candidate.updated_at) > instant(latestDeferredAttempt.updatedAt) ||
+      (instant(candidate.updated_at) === instant(latestDeferredAttempt.updatedAt) &&
+        candidate.number > latestDeferredAttempt.number))
+    : -1;
+  const deferredStart = deferred.length === 0 ? 0 : latestDeferredAttempt
+    ? (deferredAfterAttempt < 0 ? 0 : deferredAfterAttempt)
+    : (deferredCursorIndex + 1) % deferred.length;
   const rotatedDeferred = deferred.length === 0 ? [] : [
     ...deferred.slice(deferredStart), ...deferred.slice(0, deferredStart),
   ];
   const deferredReview = rotatedDeferred.slice(0, DEFERRED_REVIEW_LIMIT);
   return {
     ...state, since, updatedSince, historyBefore,
-    deferredCursor: deferredReview.length > 0
-      ? deferredReview[deferredReview.length - 1].number
-      : state.deferredCursor,
+    deferredCursor: latestDeferredAttempt?.number ??
+      (deferredReview.length > 0 ? deferredReview[deferredReview.length - 1].number : state.deferredCursor),
     pending: allPending,
     reviewQueue: {
       firstTime,

@@ -120,7 +120,11 @@ Save each reviewed candidate's receipt immediately to
 `/tmp/gh-aw/cache-memory/diagnosis/receipts.json`, preserving previous receipts
 and the candidate's exact `updated_at`. Use the shared
 `{number, updatedAt, disposition, evidence}` shape with specific code/test
-citations; never bulk-classify from titles. For a verified proposal being staged,
+citations; for each attempted deferred candidate also set
+`deferredAttemptedAt` to a fresh UTC ISO-8601 timestamp after attempting a
+PR-content read (including denied or filtered reads), so the next intake rotates
+after actual attempts, not the offered batch. Never set it merely because a
+candidate was offered; never bulk-classify from titles. For a verified proposal being staged,
 save `publication-pending` with the verified evidence and proposal identity; on a
 later run, check publication and replace it with `proposed` plus the public URL
 only when confirmed. An unpublished proposal remains pending without being an
