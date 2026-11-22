@@ -6,7 +6,7 @@ import * as yaml from 'js-yaml';
 import { resolveEnclavePaths } from './enclave/paths';
 
 import { mockExecaFn, mockExecaSync } from './test-helpers/mock-execa.test-utils';
-import { useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
+import { setupEnclaveAuditFixture, useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
@@ -209,9 +209,7 @@ describe('docker-manager diagnostics', () => {
     });
 
     it('should copy enclave audit, telemetry, and sessions before cleanup', () => {
-      fs.mkdirSync(resolveEnclavePaths(getDir()).root, { recursive: true });
-      const auditDir = path.join(getDir(), 'audit');
-      fs.mkdirSync(auditDir);
+      const auditDir = setupEnclaveAuditFixture(getDir());
 
       preserveIptablesAudit(getDir(), auditDir);
 
@@ -255,9 +253,7 @@ describe('docker-manager diagnostics', () => {
     });
 
     linuxIt('does not mark audit incomplete when no agent session directory exists', () => {
-      fs.mkdirSync(resolveEnclavePaths(getDir()).root, { recursive: true });
-      const auditDir = path.join(getDir(), 'audit');
-      fs.mkdirSync(auditDir);
+      const auditDir = setupEnclaveAuditFixture(getDir());
       const mockAuditCopy = (mode: number) => mockExecaSync.mockImplementationOnce(
         (_command, args) => {
           fs.writeFileSync(args[2], '', { mode });
@@ -277,9 +273,7 @@ describe('docker-manager diagnostics', () => {
 
     it('should copy enclave protected audit and runtime telemetry before cleanup', () => {
       const enclaveRoot = resolveEnclavePaths(getDir()).root;
-      fs.mkdirSync(enclaveRoot, { recursive: true });
-      const auditDir = path.join(getDir(), 'audit');
-      fs.mkdirSync(auditDir);
+      const auditDir = setupEnclaveAuditFixture(getDir());
 
       preserveIptablesAudit(getDir(), auditDir);
 

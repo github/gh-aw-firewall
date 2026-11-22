@@ -50,6 +50,7 @@ import { logger } from './logger';
 import { openArtifactDirectory } from './resolved-config-artifact';
 import { resolveEnclavePaths } from './enclave/paths';
 import { mockExecaSync } from './test-helpers/mock-execa.test-utils';
+import { expectPreserveCleanupDockerRun } from './test-helpers/docker-test-fixtures.test-utils';
 import {
   preserveIptablesAudit,
   preserveCleanupArtifacts,
@@ -323,29 +324,14 @@ describe('artifact-preservation – error paths', () => {
       const workDir = makeTempDir();
       try {
         getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
-        expect(() => preserveCleanupArtifacts(workDir, {
+        const options = {
           auditDir,
           dockerHostPathPrefix: '/host',
           imageRegistry: 'ghcr.io/github/gh-aw-firewall',
           imageTag: 'latest',
-        })).not.toThrow();
-
-        expect(mockExecaSync).toHaveBeenCalledWith(
-          'docker',
-          expect.arrayContaining([
-            'run',
-            '--pull',
-            'never',
-            '--entrypoint',
-            'sh',
-            '-v',
-            `/host${path.resolve(auditDir)}:/fix:rw`,
-            'ghcr.io/github/gh-aw-firewall/agent:latest',
-            '-c',
-            'chown -R "$TUID:$TGID" /fix 2>/dev/null; chmod -R a+rwX /fix',
-          ]),
-          expect.objectContaining({ reject: false }),
-        );
+        };
+        expect(() => preserveCleanupArtifacts(workDir, options)).not.toThrow();
+        expectPreserveCleanupDockerRun(mockExecaSync, options);
       } finally {
         realFs.rmSync(auditDir, { recursive: true, force: true });
         realFs.rmSync(workDir, { recursive: true, force: true });
