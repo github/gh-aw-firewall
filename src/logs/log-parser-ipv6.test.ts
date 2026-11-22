@@ -1,9 +1,64 @@
 /**
- * Additional tests for log-parser.ts covering IPv6 dest parsing branches
- * (lines 180-189, 195, 202 in parseAuditJsonlLine).
+ * Additional tests for log-parser.ts covering IPv6 address parsing.
  */
 
-import { parseAuditJsonlLine } from './log-parser';
+import { parseLogLine, parseAuditJsonlLine } from './log-parser';
+
+describe('log-parser — parseLogLine IPv6 addresses', () => {
+  it('parses an unbracketed IPv6 upstream for CONNECT', () => {
+    const line =
+      '1795321629.047 172.30.0.20:42206 api.github.com:443 2606:50c0:8000::154:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT api.github.com:443 "curl/8.23.0"';
+
+    expect(parseLogLine(line)).toMatchObject({
+      clientIp: '172.30.0.20',
+      clientPort: '42206',
+      destIp: '2606:50c0:8000::154',
+      destPort: '443',
+      domain: 'api.github.com',
+      isAllowed: true,
+      isHttps: true,
+    });
+  });
+
+  it.each([
+    ['2606:2800:21f:cb07:6820:80ad:4ad3:a4ba', '80'],
+    ['2001:db8::1', '8080'],
+    ['::1', '3129'],
+    ['::ffff:192.0.2.1', '80'],
+    ['2001:db8::1', '-'],
+    ['93.184.216.34', '80'],
+    ['-', '-'],
+  ])('splits upstream %s:%s at the last colon', (destIp, destPort) => {
+    const line =
+      `1795321630.112 172.30.0.20:42210 example.com ${destIp}:${destPort} 1.1 GET 200 TCP_MISS:HIER_DIRECT http://example.com/ "curl/8.23.0"`;
+
+    expect(parseLogLine(line)).toMatchObject({
+      destIp,
+      destPort,
+      protocol: '1.1',
+      method: 'GET',
+      domain: 'example.com',
+      isAllowed: true,
+      isHttps: false,
+    });
+  });
+
+  it.each(['::1', '2001:db8::20', '::ffff:172.30.0.20'])(
+    'parses an unbracketed IPv6 client %s',
+    (clientIp) => {
+      const line =
+        `1795321630.112 ${clientIp}:42210 example.com 2001:db8::1:80 1.1 GET 200 TCP_MISS:HIER_DIRECT http://example.com/ "curl/8.23.0"`;
+
+      expect(parseLogLine(line)).toMatchObject({
+        clientIp,
+        clientPort: '42210',
+        host: 'example.com',
+        destIp: '2001:db8::1',
+        destPort: '80',
+      });
+    }
+  );
+});
 
 describe('log-parser — parseAuditJsonlLine IPv6 and edge-case dest parsing', () => {
   describe('bracketed IPv6 dest (lines 180-189)', () => {
