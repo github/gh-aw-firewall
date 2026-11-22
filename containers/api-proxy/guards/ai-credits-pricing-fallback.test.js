@@ -368,6 +368,28 @@ describe('AI credit pricing fallback and model resolution', () => {
     });
   });
 
+  it('labels the estimated cached-input rate when the imported model has no cached-input price', () => {
+    const usage = applyAiCreditsUsage({
+      input_tokens_include_cache: true,
+      input_tokens: 0,
+      cache_read_tokens: 1000,
+      output_tokens: 0,
+    }, 'deepseek/deepseek-chat-v3-0324', 'openrouter');
+
+    expect(usage).toMatchObject({
+      pricingSource: 'models.dev',
+      cachedInputCreditsThisResponse: 0.0025,
+      pricingEstimate: {
+        basis: 'imported_component',
+        component: 'cachedInput',
+        method: 'ten_percent_of_input',
+        sources: ['models.dev'],
+      },
+      accountingPolicy: 'models_dev_missing_cached_input_estimate',
+      fallbackPricingUsed: true,
+    });
+  });
+
   it('treats zero-cost catalog models as free instead of unknown', () => {
     process.env.AWF_MAX_AI_CREDITS = '10';
     resetAiCreditsGuardForTests();

@@ -468,6 +468,67 @@ function runtimeResolutionFacts(bytes) {
     [`@lookup=${key.replace(/~/g, '~0').replace(/\//g, '~1')}`, value]));
 }
 
+function backendScopedFallbackFacts(bytes) {
+  const { importLegacySnapshot } = require('../../shared/model-information/import-legacy-snapshot');
+  const digest = hash(bytes);
+  const snapshot = importLegacySnapshot(bytes, {
+    source: 'https://openrouter.ai/api/v1/models', revision: digest,
+    retrievedAt: '1970-01-01T00:00:00.000Z', sha256: digest,
+    license: 'Maintenance report projection; no license rights inferred.',
+  });
+  const divideByTen = value => {
+    const [integer, fraction = ''] = value.split('.');
+    const digits = `${integer}${fraction}`;
+    const scale = fraction.length + 1;
+    const padded = digits.padStart(scale + 1, '0');
+    const whole = padded.slice(0, -scale);
+    const decimal = padded.slice(-scale).replace(/0+$/, '');
+    return decimal ? `${whole}.${decimal}` : whole;
+  };
+  return Object.fromEntries(snapshot.models.filter(model => model.importedPricing).map(model => {
+    const imported = model.importedPricing;
+    const pricing = Object.fromEntries(Object.entries(imported.components).map(([field, item]) =>
+      [field, item.price]));
+    const estimatedComponents = [];
+    if (!Object.hasOwn(pricing, 'cachedInput')) {
+      pricing.cachedInput = divideByTen(pricing.input);
+      estimatedComponents.push('cachedInput');
+    }
+    if (!Object.hasOwn(pricing, 'cacheWrite')) pricing.cacheWrite = null;
+    return [`openrouter/${model.identity.provider}/${model.identity.rawId}`, {
+      exists: true,
+      pricing: { modelId: `${model.identity.provider}/${model.identity.rawId}`, ...pricing },
+      ...(estimatedComponents.length ? { estimatedComponents } : {}),
+    }];
+  }));
+}
+
+function backendScopedFallbackEffects(beforeBytes, afterBytes) {
+  const affected = new Set();
+  const rows = [beforeBytes, afterBytes].map(bytes => new Map(
+    JSON.parse(bytes).data.filter(entry => typeof entry?.id === 'string')
+      .map(entry => [`openrouter/${entry.id}`, entry]),
+  ));
+  for (const id of new Set(rows.flatMap(row => [...row.keys()]))) {
+    const [before, after] = rows.map(row => row.get(id));
+    const hadOverrides = [before, after].some(entry =>
+      Array.isArray(entry?.pricing?.overrides) && entry.pricing.overrides.length);
+    const cacheComponentChanged = Object.hasOwn(before?.pricing || {}, 'input_cache_read') !==
+      Object.hasOwn(after?.pricing || {}, 'input_cache_read');
+    if (hadOverrides || cacheComponentChanged) {
+      affected.add(id);
+    }
+  }
+  const project = bytes => {
+    const facts = backendScopedFallbackFacts(bytes);
+    return Object.fromEntries([...affected].map(id => [id, facts[id] || null]));
+  };
+  return differences(
+    { backendScopedFallback: project(beforeBytes) },
+    { backendScopedFallback: project(afterBytes) },
+  );
+}
+
 function reviewReasons(changes) {
   const reasons = new Set(['human-review-required']);
   for (const change of changes) {
@@ -500,10 +561,13 @@ function runtimeConsumerEffects(cwd, base) {
     const beforeBytes = Buffer.from(git(cwd, 'show', `${base}:${file}`));
     const afterBytes = fs.readFileSync(path.join(cwd, file));
     const changes = file === rawImport
-      ? differences(
-        { runtimeResolution: runtimeResolutionFacts(beforeBytes) },
-        { runtimeResolution: runtimeResolutionFacts(afterBytes) },
-      )
+      ? [
+        ...differences(
+          { runtimeResolution: runtimeResolutionFacts(beforeBytes) },
+          { runtimeResolution: runtimeResolutionFacts(afterBytes) },
+        ),
+        ...backendScopedFallbackEffects(beforeBytes, afterBytes),
+      ]
       : differences(JSON.parse(beforeBytes), JSON.parse(afterBytes));
     if (changes.length) effects.push({ file, changes });
   }
@@ -723,4 +787,5 @@ module.exports = {
   refreshCopilotPricing: proposeCopilotPricing,
   facts, differences, reviewReasons, inspectCatalogue, documentText, hash, json, allowed, projections,
   catalogueFacts, runtimeResolutionFacts, runtimeConsumerEffects, verifyCommittedTree, maintenanceTitle,
+  backendScopedFallbackFacts, backendScopedFallbackEffects,
 };

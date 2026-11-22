@@ -114,8 +114,8 @@ function getImportedPricingFact(provider, model) {
     if (typeof item.price === 'object') return [field, null];
     return [field, exact.decimal(item.price)];
   }));
-  // Retain the explicit legacy missing-cache policy; zero is a supplied price.
-  if (!Object.hasOwn(pricing, 'cachedInput')) {
+  const estimatedCachedInput = !Object.hasOwn(pricing, 'cachedInput');
+  if (estimatedCachedInput) {
     pricing.cachedInput = exact.multiply(pricing.input, exact.decimal('0.1'));
   }
   if (!Object.hasOwn(pricing, 'cacheWrite')) pricing.cacheWrite = null;
@@ -123,6 +123,14 @@ function getImportedPricingFact(provider, model) {
     pricingCatalogId: imported.provenance.source,
     pricingCatalogVersion: imported.provenance.revision,
     observedAt: imported.provenance.at,
+    ...(estimatedCachedInput ? {
+      accountingPolicy: 'models_dev_missing_cached_input_estimate',
+      usedFallbackPricing: true,
+      estimate: {
+        basis: 'imported_component', component: 'cachedInput',
+        method: 'ten_percent_of_input', sources: ['models.dev'],
+      },
+    } : {}),
   } };
 }
 

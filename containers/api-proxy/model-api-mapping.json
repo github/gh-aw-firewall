@@ -587,6 +587,39 @@
                   "at": "2026-11-19T00:45:58.385Z",
                   "confidence": "verified"
                 }
+              },
+              "native_live_integration": {
+                "state": "conditional",
+                "condition": "Native GPT-Live can call Decisions directly or trigger decisions as input or output transcripts arrive. This passage establishes only integration with native gpt-6-luna Decisions, not Copilot support, harness requirements, credential eligibility or cross-API translation.",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://developers.openai.com/api/docs/guides/decisions",
+                  "revision": "35fffcf384164c36cc1de772701c13310bc017327902e3382c4f5382fc30b68c",
+                  "at": "2026-11-22T12:30:39.303Z",
+                  "confidence": "verified"
+                }
+              },
+              "private_link": {
+                "state": "conditional",
+                "condition": "The native Decisions guide documents sending Decisions requests over a private connection using Private Link. Deployment prerequisites, credential eligibility, Copilot support and AWF networking behavior remain unknown from this passage.",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://developers.openai.com/api/docs/guides/decisions",
+                  "revision": "35fffcf384164c36cc1de772701c13310bc017327902e3382c4f5382fc30b68c",
+                  "at": "2026-11-22T12:30:39.303Z",
+                  "confidence": "verified"
+                }
+              },
+              "safety_identifier": {
+                "state": "conditional",
+                "condition": "The official Decisions SDK accepts an opaque caller-provided end-user identifier scoped by the verified organization, with the same limit as Responses. It is never the authenticated user identity. The SDK does not publish the numeric limit in this passage; no Copilot acceptance or credential eligibility is inferred.",
+                "provenance": {
+                  "authority": "maintained",
+                  "source": "https://raw.githubusercontent.com/openai/openai-python/main/src/openai/resources/decisions.py",
+                  "revision": "611c66fb31858d0f37e61e7dbd7c9e5dd7140bdd23aceef70bf449b6658972d2",
+                  "at": "2026-11-22T12:30:39.390Z",
+                  "confidence": "verified"
+                }
               }
             }
           }
