@@ -61,6 +61,7 @@ on:
       - 'scripts/ci/cloud-hypervisor-enclave-environment-probe.js'
       - 'scripts/ci/cloud-hypervisor-enclave-diagnostics.js'
       - 'scripts/ci/collect-enclave-smoke-debug.cjs'
+      - 'scripts/ci/collect-enclave-smoke-debug/**'
       - 'scripts/ci/cloud-hypervisor-enclave-host-preflight.js'
       - 'examples/enclave-environment-probe/**'
       - 'docs/cloud-hypervisor-foundation.md'
@@ -165,6 +166,11 @@ jobs:
             scripts/ci/cloud-hypervisor-enclave-environment-probe.test.ts \
             scripts/ci/cloud-hypervisor-enclave-diagnostics.test.ts \
             scripts/ci/collect-enclave-smoke-debug.test.ts \
+            scripts/ci/collect-enclave-smoke-debug/projections.test.ts \
+            scripts/ci/collect-enclave-smoke-debug/safe-fs.test.ts \
+            scripts/ci/collect-enclave-smoke-debug/redaction.test.ts \
+            scripts/ci/collect-enclave-smoke-debug/publication.test.ts \
+            scripts/ci/collect-enclave-smoke-debug/cli.test.ts \
             scripts/ci/cloud-hypervisor-enclave-host-preflight.test.ts \
             scripts/ci/cloud-hypervisor-environment-probe.test.ts \
             scripts/ci/test-cloud-hypervisor-enclave-workflow.test.ts \

@@ -338,13 +338,16 @@ authorization.
 
 #### Shared public diagnostics exporter
 
-`scripts/ci/collect-enclave-smoke-debug.cjs` is the supported standalone exporter
+`scripts/ci/collect-enclave-smoke-debug.cjs` is the supported exporter entrypoint
 for both `docker` and `cloud-hypervisor`. The historical filename remains stable;
 consumers do not need to copy its implementation or duplicate the diagnostic
 schema. Pin the exporter checkout to a reviewed AWF release or full commit SHA
-containing this interface. Its closed startup-check catalog is embedded in the
-exporter, so standalone installations do not need a companion schema or built
-`dist` files. A regression test keeps that catalog synchronized with the host
+containing this interface. Install the entrypoint together with the sibling
+`collect-enclave-smoke-debug/*.cjs` modules from that same checkout; TypeScript
+tests are not deployment dependencies. The modules use only Node.js built-ins,
+and the closed startup-check catalog is embedded in them, so isolated
+installations do not need the AWF package, a separate schema, or built `dist`
+files. A regression test keeps that catalog synchronized with the host
 preflight schema. Pin the AWF execution installation separately.
 
 The daily agent regression also retains `startup.json` in the protected export
@@ -500,7 +503,7 @@ steps:
   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
     with:
       repository: github/gh-aw-firewall
-      ref: '22c1f117cb73ad5101746aa2c22b17da9e5f39a6'
+      ref: '551e4c5e9575c8d5075acfdd879083fbe2ece49b'
       path: trusted-awf-exporter
       persist-credentials: false
   - name: Prepare public Docker diagnostics
@@ -511,6 +514,11 @@ steps:
       sudo install -m 0600 -o root -g root \
         "$GITHUB_WORKSPACE/trusted-awf-exporter/scripts/ci/collect-enclave-smoke-debug.cjs" \
         /var/lib/awf-enclave-smoke-export/collector.cjs
+      sudo install -d -m 0700 -o root -g root \
+        /var/lib/awf-enclave-smoke-export/collect-enclave-smoke-debug
+      sudo install -m 0600 -o root -g root \
+        "$GITHUB_WORKSPACE/trusted-awf-exporter/scripts/ci/collect-enclave-smoke-debug/"*.cjs \
+        /var/lib/awf-enclave-smoke-export/collect-enclave-smoke-debug/
       sudo node /var/lib/awf-enclave-smoke-export/collector.cjs \
         prepare docker "$DEBUG_RUN_KEY" "$(id -u)" "$(id -g)"
   - name: Execute AWF

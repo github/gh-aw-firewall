@@ -70,6 +70,19 @@ const find = (name: string) => {
   return found;
 };
 
+it('installs the collector and its modules with protected ownership and permissions', () => {
+  const prepare = find('Prepare protected public enclave diagnostics').run;
+  expect(prepare).toContain(
+    'sudo install -m 0600 -o root -g root scripts/ci/collect-enclave-smoke-debug.cjs /var/lib/awf-enclave-smoke-export/collector.cjs'
+  );
+  expect(prepare).toContain(
+    'sudo install -d -m 0700 -o root -g root /var/lib/awf-enclave-smoke-export/collect-enclave-smoke-debug'
+  );
+  expect(prepare).toContain(
+    'sudo install -m 0600 -o root -g root scripts/ci/collect-enclave-smoke-debug/*.cjs /var/lib/awf-enclave-smoke-export/collect-enclave-smoke-debug/'
+  );
+});
+
 it('fans out six real enclave agents from exactly the broader matrix shared builds', () => {
   expect(job.strategy).toEqual({ 'fail-fast': false, matrix: { agent: ['copilot'], runtime: runtimes } });
   const other = workflow.jobs['enclave-regression-non-copilot'];
