@@ -5,7 +5,7 @@ import {
 
 describe('public enclave session projections', () => {
   const f = legacyCollectorFixture();
-  const { prepareRun, invocation, collectRun, commonEnvelope, uid, gid, runId, invocationId } = f;
+  const { prepareRun, invocation, collectRun, commonEnvelope, runId, invocationId } = f;
 
   it('collects a common entrypoint operation failure without a session transcript', () => {
     prepareRun();
