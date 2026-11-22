@@ -3,6 +3,7 @@
  */
 
 import { LogFormatter } from './log-formatter';
+import { parseLogLine } from './log-parser';
 import { ParsedLogEntry } from '../types';
 import { createLogEntry } from './log-test-fixtures.test-utils';
 
@@ -188,6 +189,38 @@ describe('LogFormatter', () => {
 
       expect(result).toContain('ALLOWED');
       expect(result).toContain('DENIED');
+    });
+  });
+
+  describe('parsed IPv6 access.log entries', () => {
+    it.each([
+      [
+        '1795321629.047 172.30.0.20:42206 api.github.com:443 2606:50c0:8000::154:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT api.github.com:443 "curl/8.23.0"',
+        '2606:50c0:8000::154',
+        '443',
+        'CONNECT api.github.com → 200',
+      ],
+      [
+        '1795321630.112 172.30.0.20:42210 example.com 2606:2800:21f:cb07:6820:80ad:4ad3:a4ba:80 1.1 GET 200 TCP_MISS:HIER_DIRECT http://example.com/ "curl/8.23.0"',
+        '2606:2800:21f:cb07:6820:80ad:4ad3:a4ba',
+        '80',
+        'GET example.com → 200',
+      ],
+      [
+        '1795321630.112 172.30.0.20:42210 example.com:8080 2001:db8::1:8080 1.1 GET 200 TCP_MISS:HIER_DIRECT http://example.com:8080/ "curl/8.23.0"',
+        '2001:db8::1',
+        '8080',
+        'GET example.com:8080 → 200',
+      ],
+    ])('formats %s correctly as JSON and pretty output', (line, destIp, destPort, target) => {
+      const entry = parseLogLine(line);
+      expect(entry).not.toBeNull();
+
+      const json = new LogFormatter({ format: 'json' }).formatEntry(entry!);
+      expect(JSON.parse(json)).toMatchObject({ destIp, destPort, isAllowed: true });
+
+      const pretty = new LogFormatter({ format: 'pretty', colorize: false }).formatEntry(entry!);
+      expect(pretty).toContain(target);
     });
   });
 

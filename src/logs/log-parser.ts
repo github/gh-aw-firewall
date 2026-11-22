@@ -18,6 +18,9 @@ export function isNoneDecision(decision: string): boolean {
 /**
  * Regex pattern for parsing Squid's firewall_detailed log format
  *
+ * Address captures are greedy within each field so unbracketed IPv6 addresses
+ * are split from their ports at the last colon.
+ *
  * Groups:
  * 1: timestamp (e.g., "1761074374.646")
  * 2: client IP (e.g., "172.30.0.20")
@@ -32,7 +35,7 @@ export function isNoneDecision(decision: string): boolean {
  * 11: URL (e.g., "api.github.com:443")
  * 12: user agent (e.g., "-", "curl/7.81.0")
  */
-const LOG_PATTERN = /^(\d+\.\d+)\s+([^:]+):(\d+)\s+(\S+)\s+([^:]+):(\S+)\s+(\S+)\s+(\S+)\s+(\d+)\s+(\S+)\s+(\S+)\s+"([^"]*)"/;
+const LOG_PATTERN = /^(\d+\.\d+)\s+(\S+):(\d+)\s+(\S+)\s+(\S+):(\d+|-)\s+(\S+)\s+(\S+)\s+(\d+)\s+(\S+)\s+(\S+)\s+"([^"]*)"/;
 
 /**
  * Parses a single Squid log line into a structured entry
