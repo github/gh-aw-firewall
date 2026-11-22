@@ -33,6 +33,8 @@ tools:
     - "sha256sum"
     - "git show:*"
     - "git diff:*"
+    - "git status:*"
+    - "git log:*"
     - "/tmp/gh-aw/model-maintenance-command.cjs"
   edit:
 network:
@@ -431,7 +433,14 @@ projection set. If `existing-pr.json` is non-null, invoke only
 `create_pull_request`, title `refresh canonical model sources` (the configured
 prefix produces `chore: refresh canonical model sources`), branch
 `automation/model-source-maintenance-` followed by this run's `GITHUB_RUN_ID`.
-Use the selected PR's actual local branch name. The host's post-agent gate
+Use the selected PR's actual local branch name.
+Every segment of a chained shell command must match the allowlist, and
+unattended runs deny any unmatched segment. Run each publishing step as its
+own plain `git checkout -b`/`git switch`, `git add <paths>`, `git commit -m …`,
+`git status`, `git diff` or `git log` command. Do not use global git options
+such as `git --no-pager` or `git -c`, and do not chain or pipe publishing
+commands. If a command is denied, rerun it in this allowlisted form instead of
+abandoning publication. The host's post-agent gate
 restores trusted validators into this workspace, runs focused tests against the
 agent-produced files, and requires a clean committed tree before safe outputs.
 The stable title/head-prefix, pre-run selection and non-cancelling concurrency

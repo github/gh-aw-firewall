@@ -188,7 +188,7 @@ describe('scheduled canonical model source maintenance', () => {
 
   it('grants only required script invocations, not unrestricted interpreters or package runners', () => {
     expect(frontmatter.tools.bash).toEqual([
-      'cat', 'jq', 'sha256sum', 'git show:*', 'git diff:*',
+      'cat', 'jq', 'sha256sum', 'git show:*', 'git diff:*', 'git status:*', 'git log:*',
       '/tmp/gh-aw/model-maintenance-command.cjs',
     ]);
     for (const tool of ['shell(node', 'shell(npm', 'shell(npx', 'shell(git:*)']) {
@@ -197,6 +197,13 @@ describe('scheduled canonical model source maintenance', () => {
     const launch = lock.jobs.agent.steps.find((step: { run?: string }) =>
       step.run?.includes('copilot_harness.cjs'))!.run;
     expect(launch).toContain('shell(/tmp/gh-aw/model-maintenance-command.cjs)');
+    // Run 44968178263 lost its proposal when `git status --short` and
+    // `git --no-pager log` segments of a chained commit were denied unattended.
+    for (const tool of ['shell(git status:*)', 'shell(git log:*)', 'shell(git add:*)', 'shell(git commit:*)']) {
+      expect(launch).toContain(tool);
+    }
+    expect(source).toContain('Do not use global git options');
+    expect(source).toContain('do not chain or pipe publishing');
     const entrypoint = path.resolve(__dirname, '../model-information/maintenance-command.cjs');
     expect(fs.statSync(entrypoint).mode & 0o111).not.toBe(0);
     for (const command of ['refresh-copilot-pricing', 'generate', 'report', 'test', 'test-api-proxy', 'check', 'verify']) {
