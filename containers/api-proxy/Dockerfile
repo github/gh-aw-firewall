@@ -94,6 +94,7 @@ COPY providers/ ./providers/
 COPY transforms/ ./transforms/
 COPY catalogue-contract/ ./catalogue-contract/
 COPY protocol-compatibility/ ./protocol-compatibility/
+COPY wire-api/ ./wire-api/
 
 # Create non-root user
 RUN addgroup -S apiproxy && adduser -S apiproxy -G apiproxy

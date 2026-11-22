@@ -23,7 +23,11 @@ export interface DirectedContract {
   readonly target: Protocol;
   readonly direction: TranslationDirection;
   readonly revision: string;
-  readonly implementation: Readonly<{ file: string; sha256: string }>;
+  readonly implementation: Readonly<{
+    file: string;
+    sha256: string;
+    dependencies?: readonly Readonly<{ file: string; sha256: string }>[];
+  }>;
   readonly entryPoints: readonly string[];
   readonly features: readonly FeatureEvidence[];
 }

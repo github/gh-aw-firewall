@@ -35,7 +35,8 @@ function setModels() {
 async function collect(transform, text) {
   const chunks = [];
   transform.on('data', chunk => chunks.push(chunk.toString('utf8')));
-  transform.end(text);
+  for (const chunk of Array.isArray(text) ? text : [text]) transform.write(chunk);
+  transform.end();
   await once(transform, 'end');
   return chunks.join('');
 }
@@ -43,6 +44,43 @@ async function collect(transform, text) {
 describe('Copilot wire API compatibility', () => {
   beforeEach(setModels);
   afterEach(() => clearRuntimeModels());
+
+  test('preserves facade exports and testing entry points from the focused modules', () => {
+    const wire = require('./wire-api-compat');
+    const shared = require('./wire-api/shared');
+    const request = require('./wire-api/request-translation');
+    const response = require('./wire-api/response-translation');
+    const sse = require('./wire-api/sse-transforms');
+    expect(wire).toEqual({
+      WireApiCompatibilityError: shared.WireApiCompatibilityError,
+      endpointForPath: shared.endpointForPath,
+      translateCopilotWireApi: request.translateCopilotWireApi,
+      translateChatRequest: request.translateChatRequest,
+      translateResponsesRequest: request.translateResponsesRequest,
+      replaceUpstreamEndpoint: shared.replaceUpstreamEndpoint,
+      transformWireApiResponseBody: response.transformWireApiResponseBody,
+      createWireApiSseTransform: sse.createWireApiSseTransform,
+      carryForwardWireApiCompatibility: shared.carryForwardWireApiCompatibility,
+      _testing: {
+        endpointForPath: shared.endpointForPath,
+        translateChatRequest: request.translateChatRequest,
+        translateResponsesRequest: request.translateResponsesRequest,
+        transformChatResponse: response.transformChatResponse,
+        transformResponsesResponse: response.transformResponsesResponse,
+      },
+    });
+    expect(() => request.translateChatRequest({ messages: [], unsupported: true }))
+      .toThrow(wire.WireApiCompatibilityError);
+    expect(() => request.translateResponsesRequest({ input: [], unsupported: true }))
+      .toThrow(wire.WireApiCompatibilityError);
+  });
+
+  test.each([null, undefined, { passthrough: true }])('preserves no-op compatibility %j', compatibility => {
+    expect(transformWireApiResponseBody(buffer({}), compatibility)).toBeNull();
+    expect(createWireApiSseTransform(compatibility)).toBeNull();
+    expect(require('./wire-api-compat').carryForwardWireApiCompatibility(compatibility))
+      .toBe(compatibility || null);
+  });
 
   test.each(['/decisions', '/v1/decisions'])('never translates Decisions at %s to another API', endpoint => {
     replaceRuntimeModels('copilot', parseProviderModelMetadata('copilot', { data: [
@@ -402,4 +440,50 @@ describe('Copilot wire API compatibility', () => {
     expect(responsesResult).toContain('"arguments":"{\\"q\\":\\"x\\"}"');
     expect(responsesResult).toContain('"output_tokens":1');
   });
+
+  test.each(['responses_to_chat', 'chat_to_responses'])(
+    'preserves %s SSE framing across UTF-8 bytes, CRLF delimiters and an unterminated final block', async direction => {
+      const events = direction === 'responses_to_chat'
+        ? [
+          { id: 'chat_1', choices: [{ delta: { content: 'hello 🌍' }, finish_reason: 'length' }] },
+          { choices: [], usage: { prompt_tokens: 2, completion_tokens: 1 } },
+        ]
+        : [
+          { type: 'response.created', response: { id: 'resp_1', created_at: 1 } },
+          { type: 'response.output_text.delta', delta: 'hello 🌍' },
+          { type: 'response.completed', response: { status: 'incomplete', output: [], usage: { input_tokens: 2, output_tokens: 1 } } },
+        ];
+      const source = events.map(event => `data: ${JSON.stringify(event)}`).join('\r\n\r\n');
+      const chunks = Array.from(Buffer.from(source), byte => Buffer.from([byte]));
+      const result = await collect(createWireApiSseTransform({ direction, includeUsage: true }), chunks);
+      expect(result).toContain('hello 🌍');
+      if (direction === 'responses_to_chat') {
+        expect(result).toContain('"reason":"max_output_tokens"');
+        expect(result.match(/event: response.completed/g)).toHaveLength(1);
+        expect(result).toContain('"input_tokens":2');
+      } else {
+        expect(result).toContain('"finish_reason":"length"');
+        expect(result.match(/data: \[DONE\]/g)).toHaveLength(1);
+        expect(result).toContain('"prompt_tokens":2');
+      }
+    });
+
+  test.each(['responses_to_chat', 'chat_to_responses'])(
+    'keeps %s refusal and error events without fabricating successful completion', async direction => {
+      const events = direction === 'responses_to_chat'
+        ? [
+          { choices: [{ delta: { refusal: 'cannot comply' } }] },
+          { error: { message: 'upstream failed' } },
+        ]
+        : [
+          { type: 'response.refusal.delta', delta: 'cannot comply' },
+          { type: 'response.failed', error: { message: 'upstream failed' } },
+        ];
+      const result = await collect(createWireApiSseTransform({ direction }),
+        events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('') + 'data: [DONE]\n\n');
+      expect(result).toContain('cannot comply');
+      expect(result).toContain('"error":{"message":"upstream failed"}');
+      expect(result).not.toContain('event: response.completed');
+      expect(result).not.toContain('data: [DONE]');
+    });
 });

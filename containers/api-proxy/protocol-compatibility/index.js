@@ -17,7 +17,25 @@ const FEATURES = Object.freeze([
 const IMPLEMENTATIONS = Object.freeze({
   wire: Object.freeze({
     file: 'wire-api-compat.js',
-    sha256: '99195a2687352cbb4c65aaa1c31b7f630f71ed1d0a3647638092e3a1e5676125',
+    sha256: 'db7121abee27b8e453b1b7c4833fcb95c36523670d1829e7a9fb5805790bbff9',
+    dependencies: Object.freeze([
+      Object.freeze({
+        file: 'wire-api/shared.js',
+        sha256: 'd41d6a8fe953d2edc955940cd1681d377d9219f558c7e60f91a53dabc9c2f51d',
+      }),
+      Object.freeze({
+        file: 'wire-api/request-translation.js',
+        sha256: 'e86caaadf9eb81caa5c619ecabdbdfa957e38270018a1e76833a6e3e29983c06',
+      }),
+      Object.freeze({
+        file: 'wire-api/response-translation.js',
+        sha256: '0a46f0fbe4c3aab213514ce8646c7720f32c9b5aefb824d7256d9417a5c38fb2',
+      }),
+      Object.freeze({
+        file: 'wire-api/sse-transforms.js',
+        sha256: '80635b61032ce2665f64dc997e89d6a6a94948e96f48628e9d23a57637e95fd0',
+      }),
+    ]),
   }),
   anthropic: Object.freeze({
     file: 'anthropic-chat-compat.js',

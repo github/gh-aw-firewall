@@ -37,6 +37,9 @@ test('contracts and declarations load with translators from the actual Docker CO
     }
     expect(fs.existsSync(path.join(root, 'protocol-compatibility', 'index.d.ts'))).toBe(true);
     expect(fs.existsSync(path.join(root, 'fixtures'))).toBe(false);
+    for (const name of ['shared', 'request-translation', 'response-translation', 'sse-transforms']) {
+      expect(fs.existsSync(path.join(root, 'wire-api', `${name}.js`))).toBe(true);
+    }
     for (const name of ['upstream-dispatch', 'upstream-attempt-recovery', 'upstream-protocol-translation']) {
       expect(fs.existsSync(path.join(root, `${name}.js`))).toBe(true);
     }

@@ -9,7 +9,7 @@ const { chatRequestToAnthropic } = require('../anthropic-chat-compat');
 const { assessReasoningEffort } = require('../catalogue-contract/reasoning');
 
 const ASSESSMENT_REVISION = 'awf-fallback-assessment-v1';
-const CONTRACT_DIGEST = 'bd6db2fe3fea4b4879b0ef4289fc06271f812019131fb73c553e05362f51891a';
+const CONTRACT_DIGEST = '817972c161924d14e62f8e0a35561f4ba4336d5a1f1c1c70b7ff28367dc0d15b';
 const REASON_CODES = Object.freeze([
   'assessment_limit', 'request_shape_unverified', 'direction_unimplemented', 'implementation_drift',
   'condition_unverified', 'unknown_required_feature', 'unknown_nested_field', 'translator_rejected', 'request_build_failed',
@@ -35,9 +35,11 @@ const implementationsMatch = (() => {
   try {
     return REVISION === 'awf-directed-protocol-v1' &&
       createHash('sha256').update(JSON.stringify(CONTRACTS)).digest('hex') === CONTRACT_DIGEST &&
-      CONTRACTS.every(contract => createHash('sha256')
-        .update(fs.readFileSync(path.join(__dirname, '..', contract.implementation.file)))
-        .digest('hex') === contract.implementation.sha256);
+      CONTRACTS.flatMap(contract => [
+        contract.implementation, ...(contract.implementation.dependencies || []),
+      ]).every(implementation => createHash('sha256')
+        .update(fs.readFileSync(path.join(__dirname, '..', implementation.file)))
+        .digest('hex') === implementation.sha256);
   } catch {
     return false;
   }

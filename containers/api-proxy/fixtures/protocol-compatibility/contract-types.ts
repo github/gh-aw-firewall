@@ -16,6 +16,10 @@ contract.features.push(contract.features[0]);
 contract.features[0].conditions.push('anything');
 // @ts-expect-error Implementation revision is immutable.
 contract.implementation.sha256 = 'anything';
+// @ts-expect-error Implementation dependencies are immutable.
+contract.implementation.dependencies?.push({ file: 'anything', sha256: 'anything' });
+// @ts-expect-error Dependency pins are immutable.
+contract.implementation.dependencies![0].sha256 = 'anything';
 // @ts-expect-error Assessment is not a whole-request success verdict.
 void (assessment.compatible);
 // @ts-expect-error Request versus return response is explicit.
