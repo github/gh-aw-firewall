@@ -1,4 +1,5 @@
 import { isValidIPv4, isValidIPv6 } from '../domain-utils';
+import { parseDomainWithProtocol } from '../domain-patterns';
 
 const DEFAULT_DOH_RESOLVER = 'https://dns.google/dns-query';
 
@@ -56,16 +57,11 @@ export function processLocalhostKeyword(
   enableHostAccess: boolean,
   allowHostPorts: string | undefined
 ): LocalhostProcessingResult {
-  const localhostIndex = allowedDomains.findIndex(d =>
-    d === 'localhost' ||
-    d === 'http://localhost' ||
-    d === 'https://localhost'
-  );
-  const hostGatewayIndex = localhostIndex === -1 ? allowedDomains.findIndex(d =>
-    d === 'host.docker.internal' ||
-    d === 'http://host.docker.internal' ||
-    d === 'https://host.docker.internal'
-  ) : localhostIndex;
+  const parsedDomains = allowedDomains.map(parseDomainWithProtocol);
+  const localhostIndex = parsedDomains.findIndex(d => d.domain === 'localhost');
+  const hostGatewayIndex = localhostIndex === -1
+    ? parsedDomains.findIndex(d => d.domain === 'host.docker.internal')
+    : localhostIndex;
 
   if (hostGatewayIndex === -1) {
     return {
@@ -80,19 +76,15 @@ export function processLocalhostKeyword(
 
   // Normalize localhost to host.docker.internal. An explicit
   // host.docker.internal entry is already normalized.
-  const localhostValue = allowedDomains[hostGatewayIndex];
+  const { protocol } = parsedDomains[hostGatewayIndex];
   const updatedDomains = [...allowedDomains];
   updatedDomains.splice(hostGatewayIndex, 1);
 
   // Preserve protocol if specified
-  if (localhostValue === 'host.docker.internal') {
-    updatedDomains.push(localhostValue);
-  } else if (localhostValue.startsWith('http://')) {
-    updatedDomains.push('http://host.docker.internal');
-  } else if (localhostValue.startsWith('https://')) {
-    updatedDomains.push('https://host.docker.internal');
-  } else {
+  if (protocol === 'both') {
     updatedDomains.push('host.docker.internal');
+  } else {
+    updatedDomains.push(`${protocol}://host.docker.internal`);
   }
 
   return {
