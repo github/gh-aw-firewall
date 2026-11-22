@@ -144,17 +144,20 @@ describe('integration suite workflow', () => {
     expect(steps.indexOf(load)).toBeLessThan(steps.indexOf(step(job, 'Pre-test cleanup')));
     const test = steps.find(entry => entry.run?.includes('--testPathPatterns'))!;
     const timings = step(job, 'Upload Jest timings');
+    const summary = step(job, 'Summarize Jest timings');
     const output = `/tmp/awf-jest-${job.replace(/^test-/, '')}.json`;
     expect(test.run).toContain(`--json --outputFile=${output}`);
-    expect(test.run).toContain(`--testPathPatterns="${originalPatterns[job]}"`);
     expect(test.env?.JEST_TIMEOUT).toBe(180000);
     expect(timings.if).toBe('always()');
     expect(timings.uses).toBe('actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9');
     expect(timings.with).toEqual({
       name: `jest-timings-${job.replace(/^test-/, '')}`, path: output, 'retention-days': 7,
     });
+    expect(summary.if).toBe('always()');
+    expect(summary.env?.JEST_RESULTS).toBe(output);
     expect(steps.indexOf(test)).toBeLessThan(steps.indexOf(timings));
-    expect(steps.indexOf(timings)).toBeLessThan(steps.indexOf(step(job, 'Post-test cleanup')));
+    expect(steps.indexOf(timings)).toBeLessThan(steps.indexOf(summary));
+    expect(steps.indexOf(summary)).toBeLessThan(steps.indexOf(step(job, 'Post-test cleanup')));
     expect(step(job, 'Post-test cleanup').if).toBe('always()');
     expect(step(job, 'Collect logs on failure').if).toBe('failure()');
     expect(step(job, 'Collect logs on failure').run).toContain('docker logs awf-squid');
@@ -175,6 +178,69 @@ describe('integration suite workflow', () => {
     }
     expect(selected.sort()).toEqual(original.sort());
     expect(new Set(selected).size).toBe(selected.length);
+  });
+
+  it('only moves the measured Network files to lighter jobs', () => {
+    const files = fs.readdirSync(path.join(root, 'tests/integration'))
+      .filter(file => file.endsWith('.test.ts'));
+    for (const job of Object.keys(originalPatterns)) {
+      const run = workflow.jobs[job].steps.find(entry => entry.run?.includes('--testPathPatterns'))!.run!;
+      const pattern = run.match(/--testPathPatterns="([^"]+)"/)![1];
+      const expected = files.filter(file => new RegExp(originalPatterns[job]).test(file));
+      if (job === 'test-network') {
+        expected.splice(expected.indexOf('host-tcp-services.test.ts'), 1);
+        expected.splice(expected.indexOf('topology-compose.test.ts'), 1);
+      }
+      if (job === 'test-api-proxy') expected.push('host-tcp-services.test.ts');
+      if (job === 'test-container-ops') expected.push('topology-compose.test.ts');
+      expect(files.filter(file => new RegExp(pattern).test(file)).sort()).toEqual(expected.sort());
+    }
+    const config = fs.readFileSync(path.join(root, 'tests/setup/jest.integration.config.js'), 'utf8');
+    expect(config).toMatch(/^\s*maxWorkers:\s*1,/m);
+  });
+
+  it.each(['valid', 'missing', 'corrupt', 'invalid', 'empty'])('summarizes %s Jest reports without changing test outcomes', report => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'integration-workflow-'));
+    try {
+      const input = path.join(dir, 'jest.json');
+      const summary = path.join(dir, 'summary');
+      if (report !== 'missing') {
+        fs.writeFileSync(input, report === 'corrupt' ? '{' : JSON.stringify({
+          numTotalTests: 3,
+          testResults: report === 'invalid' ? null : report === 'empty' ? [] : [
+            { name: '/workspace/tests/integration/fast.test.ts', startTime: 1000, endTime: 1250 },
+            { name: '/workspace/tests/integration/slow.test.ts', startTime: 2000, endTime: 4345 },
+            { name: '/workspace/tests/integration/unsafe|<>&\n`.test.ts', startTime: 5000, endTime: 5000 },
+          ],
+        }));
+      }
+      fs.writeFileSync(summary, 'Existing summary\n');
+      const scripts = Object.keys(originalPatterns).map(job => step(job, 'Summarize Jest timings').run);
+      expect(new Set(scripts).size).toBe(1);
+      const result = spawnSync('bash', ['-e', '-o', 'pipefail'], {
+        encoding: 'utf8',
+        env: { ...process.env, JEST_RESULTS: input, GITHUB_STEP_SUMMARY: summary },
+        input: scripts[0],
+      });
+      expect(result.status).toBe(0);
+      const output = fs.readFileSync(summary, 'utf8');
+      expect(output).toContain('Existing summary\n## Per-file Jest timings');
+      if (report === 'valid') {
+        expect(output).toContain('- Total tests: 3');
+        expect(output).toContain('| slow.test.ts | 2.345 |');
+        expect(output).toContain('| fast.test.ts | 0.250 |');
+        expect(output).toContain('| unsafe______.test.ts | 0.000 |');
+        expect(output.indexOf('slow.test.ts')).toBeLessThan(output.indexOf('fast.test.ts'));
+        expect(output).not.toContain('/workspace');
+      } else if (report === 'empty') {
+        expect(output).toContain('- Total tests: 3');
+        expect(output).not.toContain('unavailable');
+      } else {
+        expect(output).toContain('Timing results unavailable');
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('uses the same image loading script in all five jobs', () => {
@@ -269,6 +335,52 @@ describe('integration suite workflow', () => {
       expect(summary).toContain(`exit status: ${scenario.status}`);
       expect(summary.match(/### /g)).toHaveLength(scenario.expectedBuilds);
       expect(step('build-images', 'Build local containers').shell).toBe('bash');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    { log: '#3 exporting cache\\n#3 DONE 1.0s', warning: false },
+    { log: '#3 preparing build cache for export\\n#3 writing layer sha256:abc 12.34MB done\\n#3 DONE 1.0s', warning: false },
+    { log: '#3 ERROR: failed to export cache: timeout', warning: true },
+    { log: '#3 preparing build cache for export\\n#3 ERROR: maximum timeout reached', warning: true },
+    { log: '#3 exporting to GitHub Actions Cache\\n#3 ERROR: permission denied', warning: true },
+    { log: 'ERROR: failed to solve: cache export failed', warning: true },
+    { log: '#3 error writing layer: timeout', warning: true },
+    { log: '#1 importing cache manifest\\n#1 ERROR: cache not found', warning: false },
+    { log: '#2 WARNING: compiler warning', warning: false },
+    {
+      log: Array.from({ length: 105 }, (_, index) => `#3 writing layer layer-${index} 12.34MB done`).join('\\n'),
+      warning: false,
+    },
+  ])('surfaces ignored cache export errors without failing a successful image build: %j', scenario => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'integration-workflow-'));
+    try {
+      const result = spawnSync('bash', ['-e', '-o', 'pipefail'], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          EXPORT_BUILD_CACHE: 'true',
+          CACHE_LOG: scenario.log,
+          RUNNER_TEMP: dir,
+          GITHUB_STEP_SUMMARY: path.join(dir, 'summary'),
+        },
+        input: `
+          docker() { printf '%b\\n' "$CACHE_LOG"; }
+          ${step('build-images', 'Build local containers').run}
+        `,
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout.includes('::warning::')).toBe(scenario.warning);
+      const summary = fs.readFileSync(path.join(dir, 'summary'), 'utf8');
+      expect(summary).toContain('Cache scope: it-agent; mode: max');
+      if (scenario.log.includes('12.34MB')) expect(summary).toContain('12.34MB');
+      if (scenario.log.includes('layer-104')) {
+        expect(summary.match(/writing layer/g)).toHaveLength(300);
+        expect(summary).toContain('layer-99 ');
+        expect(summary).not.toContain('layer-100 ');
+      }
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
