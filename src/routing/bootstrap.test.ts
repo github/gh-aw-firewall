@@ -106,6 +106,66 @@ describe('routing bootstrap', () => {
     expect(fs.existsSync(state.root)).toBe(false);
   });
 
+  describe('adaptive summary', () => {
+    let summaryDir: string;
+
+    beforeEach(() => {
+      // Outside every agent-visible path, as ${RUNNER_TEMP} is on a runner.
+      summaryDir = fs.mkdtempSync('/var/tmp/awf-adaptive-summary-');
+    });
+
+    afterEach(() => {
+      fs.rmSync(summaryDir, { recursive: true, force: true });
+    });
+
+    function stageWithSummary(prepare: (file: string) => void) {
+      const conversationFile = path.join(tempDir, 'conversation.json');
+      writeConversation(conversationFile);
+      const config = makeConfig(workDirFor(tempDir), conversationFile);
+      const summaryFile = path.join(summaryDir, 'adaptive-summary.json');
+      prepare(summaryFile);
+      config.modelRouting = { ...config.modelRouting!, adaptiveSummaryFile: summaryFile };
+      const state = stageRoutingConversation(config)!;
+      try {
+        expect(state.containerAdaptiveInputFile).toBe('/run/awf-routing/input/adaptive-summary.json');
+        expect(state.adaptiveInputFile).toBe(path.join(state.inputDir, 'adaptive-summary.json'));
+        expect(fs.statSync(state.adaptiveInputFile!).mode & 0o777).toBe(0o600);
+        return JSON.parse(fs.readFileSync(state.adaptiveInputFile!, 'utf8'));
+      } finally {
+        cleanupRoutingState(config);
+      }
+    }
+
+    it('stages a private copy of the summary as read before the agent starts', () => {
+      const summary = { v: 2, workflow: 'pr-sous-chef', pairs: [] };
+      expect(stageWithSummary(file => fs.writeFileSync(file, JSON.stringify(summary))))
+        .toEqual({ status: 'present', summary });
+    });
+
+    it.each([
+      ['missing', () => undefined, { status: 'missing' }],
+      ['not JSON', (file: string) => fs.writeFileSync(file, '{'), { status: 'invalid' }],
+      ['oversized', (file: string) => fs.writeFileSync(file, JSON.stringify({ pad: 'x'.repeat(40_000) })), { status: 'invalid' }],
+      ['a link', (file: string) => {
+        const target = `${file}.target`;
+        fs.writeFileSync(target, '{}');
+        fs.symlinkSync(target, file);
+      }, { status: 'invalid' }],
+    ])('records a summary that is %s for the proxy to report', (_name, prepare, envelope) => {
+      expect(stageWithSummary(prepare)).toEqual(envelope);
+    });
+
+    it('refuses a summary in an agent-visible path', () => {
+      const conversationFile = path.join(tempDir, 'conversation.json');
+      writeConversation(conversationFile);
+      const config = makeConfig(workDirFor(tempDir), conversationFile);
+      config.modelRouting = { ...config.modelRouting!, adaptiveSummaryFile: path.join(tempDir, 'summary.json') };
+      expect(() => stageRoutingConversation(config))
+        .toThrow('apiProxy.routing.adaptiveSummaryFile must not be in an agent-visible path');
+      expect(config.modelRoutingBootstrap).toBeUndefined();
+    });
+  });
+
   it('stages routing under the selected local home rather than the runner home', () => {
     const home = fs.mkdtempSync('/var/tmp/awf-routing-home-');
     const conversationFile = path.join(tempDir, 'conversation.json');

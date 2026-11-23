@@ -5,9 +5,12 @@ const os = require('os');
 const path = require('path');
 
 const {
+  adaptiveJob,
+  createAdaptivePrice,
   createProductionRoutingController,
   createProductionRoutingSession,
   createRoutingObserver,
+  loadAdaptiveInput,
   loadRoutingConversation,
   readPrivateRoutingJson,
 } = require('./routing-runtime');
@@ -54,6 +57,70 @@ describe('readPrivateRoutingJson', () => {
     fs.writeFileSync(target, '{}');
     fs.symlinkSync(target, link);
     expect(() => readPrivateRoutingJson(link)).toThrow();
+  });
+});
+
+describe('adaptive input', () => {
+  const env = {
+    GITHUB_WORKFLOW_REF: 'octo/repo/.github/workflows/pr-sous-chef.lock.yml@refs/heads/main',
+    GITHUB_RUN_ID: '45000000812',
+    GITHUB_RUN_ATTEMPT: '2',
+  };
+
+  test('names the job AWF runs in, as gh-aw names its workflow', () => {
+    expect(adaptiveJob(env)).toEqual({ workflow: 'pr-sous-chef', run_id: '45000000812', attempt: 2 });
+    expect(adaptiveJob({ GITHUB_WORKFLOW_REF: 'o/r/.github/workflows/ci.yml@refs/heads/main', GITHUB_RUN_ID: '7' }))
+      .toEqual({ workflow: 'ci', run_id: '7', attempt: 1 });
+    expect(adaptiveJob({})).toEqual({ workflow: '', run_id: '', attempt: 1 });
+  });
+
+  test.each([
+    [{ status: 'present', summary: { v: 2 } }, { v: 2 }],
+    [{ status: 'missing' }, null],
+    [{ status: 'invalid' }, 'invalid'],
+    [{ status: 'present' }, 'invalid'],
+    [['not', 'an', 'envelope'], 'invalid'],
+  ])('reads the staged envelope %j', (envelope, summary) => {
+    const file = path.join(makeOutputDir(), 'adaptive-summary.json');
+    fs.writeFileSync(file, JSON.stringify(envelope));
+    expect(loadAdaptiveInput(file, env)).toEqual({ job: adaptiveJob(env), summary });
+  });
+
+  test('treats an unstaged or unreadable copy as invalid evidence', () => {
+    const dir = makeOutputDir();
+    expect(loadAdaptiveInput(path.join(dir, 'absent.json'), env).summary).toBe('invalid');
+    const file = path.join(dir, 'garbled.json');
+    fs.writeFileSync(file, '{');
+    expect(loadAdaptiveInput(file, env).summary).toBe('invalid');
+  });
+});
+
+describe('createAdaptivePrice', () => {
+  const mapping = { wireModel: 'model-b', provider: 'copilot' };
+  const tokens = { input: 1_000_000, cache_read: 2_000_000, cache_write: 100_000, output: 400_000, reasoning: 100_000 };
+  const tariff = { input: 2, cachedInput: 0.2, cacheWrite: 2.5, output: 8 };
+
+  test('prices a run at the model\'s own base tariff with the meter\'s semantics', () => {
+    const resolve = jest.fn(() => ({ source: 'provider', pricing: tariff }));
+    // $2 + $0.40 + $0.25 + $3.20 = $5.85 = 585 credits; reasoning without its own rate is output.
+    expect(createAdaptivePrice(resolve)(mapping, tokens)).toBeCloseTo(585, 9);
+    expect(resolve).toHaveBeenCalledWith('model-b', undefined, 'copilot', 0, { quiet: true, allowMedianEstimate: false });
+    const reasoningRate = jest.fn(() => ({ source: 'curated', pricing: { ...tariff, reasoning: 16 } }));
+    expect(createAdaptivePrice(reasoningRate)(mapping, tokens)).toBeCloseTo(585 + 0.1 * 8 * 100, 9);
+    const noReasoningTokens = createAdaptivePrice(reasoningRate)(mapping, { ...tokens, reasoning: null });
+    expect(noReasoningTokens).toBeCloseTo(585, 9);
+  });
+
+  test.each([
+    ['no tariff', () => null],
+    ['a median estimate', () => ({ source: 'provider', estimate: { basis: 'median' }, pricing: tariff })],
+    ['a fallback price', () => ({ source: 'provider', usedFallbackPricing: true, pricing: tariff })],
+    ...['dynamic_selector_fallback', 'configured_default', 'median_estimate', 'builtin_fallback']
+      .map(source => [source, () => ({ source, pricing: tariff })]),
+    ['a tariff without an output rate', () => ({ source: 'provider', pricing: { ...tariff, output: null } })],
+    ['a resolver failure', () => { throw new Error('pricing_resolution_error'); }],
+  ])('gives no estimate from %s', (_name, resolve) => {
+    expect(createAdaptivePrice(resolve)(mapping, tokens)).toBeNull();
   });
 });
 

@@ -99,6 +99,16 @@ function shortlistPrimaryOptions(eligibleRank, topK = PILOT_TOP_K) {
   return Object.freeze(options);
 }
 
+/**
+ * The pair name gh-aw's routing history uses (contract 1 of gh-aw adaptive routing):
+ * `<provider>/<wire model>@<effort>`, with Copilot written `github-copilot` and `none` when
+ * the route has no effort.
+ */
+function routingPairName(mapping) {
+  const provider = Object.hasOwn(PROVIDERS, mapping.provider) ? PROVIDERS[mapping.provider].canonical : mapping.provider;
+  return `${provider}/${mapping.wireModel}@${mapping.effort ?? 'none'}`;
+}
+
 // Only consume the rank accepted by validateRouteResponse, never the (potentially
 // larger) catalogue or offered pool. Resolve IDs to the immutable offered choices.
 function resolvePrimaryRank(rankedChoices, pool) {
@@ -204,6 +214,7 @@ module.exports = {
   PILOT_TOP_K,
   assertValidTopK,
   resolvePrimaryRank,
+  routingPairName,
   shortlistPrimaryOptions,
   buildRoutingCandidates,
   getModelRoutingChoices,

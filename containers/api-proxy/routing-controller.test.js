@@ -223,6 +223,104 @@ describe('routing controller', () => {
     expect(calls.checkBeforePrimary).toHaveLength(0);
   });
 
+  describe('adaptive selection', () => {
+    const job = Object.freeze({ workflow: 'pr-sous-chef', run_id: '45000000812', attempt: 1 });
+    const tokens = { input: 52000, cache_read: 410000, cache_write: 0, output: 14000, reasoning: null };
+    // Per-token rates: B's tokens cost 28 credits; A costs twice as much per token and C 12/28 as much.
+    const rates = { 'model-a': 2 * 28 / 29.8, 'model-b': 28 / 29.8, 'model-c': 12 / 29.8 };
+    const priceRoute = (mapping, usage) => rates[mapping.wireModel] *
+      (usage.input * 0.0002 + usage.cache_read * 0.00002 + usage.output * 0.0008);
+    const discounted = count => Array.from({ length: count }, (_, k) => 0.98 ** k).reduce((a, b) => a + b, 0);
+    const summary = (overrides = {}) => ({
+      v: 2, workflow: job.workflow, run: { id: job.run_id, number: 812, attempt: 1 }, generation: '9f2c41d0',
+      mode: 'live', scope: 'copilot/cost/shared', level: 'balanced',
+      explore: { allowed: true, reason: 'clear', mode: 'queued', share: true, turn: true, in_flight: 0 },
+      incumbent: 'github-copilot/model-b@high',
+      pairs: [{
+        pair: 'github-copilot/model-b@high', wins: discounted(40), losses: 0, runs: 40, credits: 28,
+        model_credits: 28, bills: 40, tokens, streak: 0, tests: 0, suspended: null,
+      }],
+      ...overrides,
+    });
+    const run = (adaptiveSummary, overrides = {}) => {
+      const writeAdaptiveReceipt = jest.fn();
+      const harness = replayRank({
+        ...overrides,
+        dependencies: { adaptive: { job, summary: adaptiveSummary }, priceRoute, writeAdaptiveReceipt },
+      });
+      return { ...harness, writeAdaptiveReceipt };
+    };
+
+    it('tests the rival the evidence favours and records the receipt once the final guard accepts it', async () => {
+      const { controller, calls, records, executor, writeAdaptiveReceipt } = run(summary());
+      const result = await controller.run();
+      expect(result.selection).toMatchObject({ choice: rankFixture.fullRank[4], wire_model: 'model-c' });
+      expect(calls.checkBeforePrimary.map(call => call.selection)).toEqual([result.selection]);
+      expect(calls.classify).toHaveLength(1);
+      expect(calls.route).toHaveLength(1);
+      expect(records[1]).toMatchObject({ selected_model: 'github-copilot/model-c', selected_effort: 'medium' });
+      expect(records[1].ranked_choices).toEqual(rankFixture.fullRank.map(({ model, effort }) => ({ model, effort })));
+      expect(writeAdaptiveReceipt).toHaveBeenCalledTimes(1);
+      const receipt = writeAdaptiveReceipt.mock.calls[0][0];
+      expect(receipt).toEqual(result.adaptiveReceipt);
+      expect(receipt).toMatchObject({
+        event: 'adaptive_selection', role: 'test', selected: 'github-copilot/model-c@medium',
+        ordinary: 'github-copilot/model-a@low', reason: 'challenger_hopeful_clears_need',
+        incumbent: { before: 'github-copilot/model-b@high', after: 'github-copilot/model-b@high' },
+        concurrency: { turn: true, in_flight: 0, capacity: 1 },
+      });
+      expect(receipt.costs['github-copilot/model-b@high']).toEqual({ credits: 28, basis: 'measured' });
+      expect(receipt.costs['github-copilot/model-c@medium'].basis).toBe('estimated');
+      expect(receipt.costs['github-copilot/model-c@medium'].credits).toBeCloseTo(12, 9);
+      expect(executor.checkBeforePrimary.mock.invocationCallOrder[0])
+        .toBeLessThan(writeAdaptiveReceipt.mock.invocationCallOrder[0]);
+    });
+
+    it('keeps the ordinary pick in observe mode and reports what live mode would run', async () => {
+      const observe = summary({
+        mode: 'observe', incumbent: null,
+        explore: { allowed: false, reason: 'observe', mode: 'queued', share: true, turn: true, in_flight: 0 },
+      });
+      const { controller, writeAdaptiveReceipt } = run(observe);
+      const result = await controller.run();
+      expect(result.selection.choice).toEqual(rankFixture.fullRank[0]);
+      expect(writeAdaptiveReceipt.mock.calls[0][0]).toMatchObject({
+        role: 'observe', selected: 'github-copilot/model-a@low', would: 'github-copilot/model-c@medium',
+        reason: 'challenger_hopeful_clears_need',
+      });
+    });
+
+    it.each([
+      [null, 'summary_missing'],
+      ['invalid', 'invalid_evidence'],
+    ])('routes ordinarily with a visible reason when the summary is %s', async (adaptiveSummary, reason) => {
+      const { controller, writeAdaptiveReceipt } = run(adaptiveSummary);
+      const result = await controller.run();
+      expect(result.selection.choice).toEqual(rankFixture.fullRank[0]);
+      expect(writeAdaptiveReceipt.mock.calls[0][0]).toMatchObject({ role: 'ordinary', reason, concurrency: null });
+    });
+
+    it('does not soften the final guard: a vetoed selection fails without a receipt', async () => {
+      const checkBeforePrimary = ({ selection }) => {
+        if (selection.wire_model === 'model-c') {
+          throw createRoutingError('model_policy_violation', 'The selected model is not permitted');
+        }
+      };
+      const { controller, calls, writeAdaptiveReceipt } = run(summary(), { checkBeforePrimary });
+      await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'model_policy_violation' } });
+      expect(calls.checkBeforePrimary.map(call => call.selection.wire_model)).toEqual(['model-c']);
+      expect(writeAdaptiveReceipt).not.toHaveBeenCalled();
+    });
+
+    it('writes no receipt without opt-in', async () => {
+      const writeAdaptiveReceipt = jest.fn();
+      const { controller } = replayRank({ dependencies: { writeAdaptiveReceipt } });
+      const result = await controller.run();
+      expect(result).not.toHaveProperty('adaptiveReceipt');
+      expect(writeAdaptiveReceipt).not.toHaveBeenCalled();
+    });
+  });
+
   describe('two offered IDs for the same model and effort', () => {
     const models = ['model-b', 'github-copilot/model-b'].map(id =>
       ({ id, efforts: ['high'], protocols: ['responses'], contextWindow: 128_000 }));

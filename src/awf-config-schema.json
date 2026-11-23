@@ -634,6 +634,11 @@
               "maximum": 32,
               "description": "Request up to this many distinct eligible primary models in the private options summary. Omit to keep the ordinary selection format."
             },
+            "adaptiveSummaryFile": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Host path to gh-aw's evidence summary for adaptive selection, read once before the agent starts. It must not be in an agent-visible path. Omit to route ordinarily without a selection receipt."
+            },
             "objective": {
               "type": "object",
               "additionalProperties": false,

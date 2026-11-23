@@ -1,7 +1,8 @@
 'use strict';
 
+const { selectAdaptive } = require('./adaptive-select');
 const { getModelMultiplierCapBlockState } = require('./guards/max-model-multiplier-guard');
-const { resolvePrimaryRank, shortlistPrimaryOptions } = require('./routing-candidates');
+const { resolvePrimaryRank, routingPairName, shortlistPrimaryOptions } = require('./routing-candidates');
 const { pinRequestEligibility, proxyEligibilityStore } = require('./model-eligibility');
 const { classifyRouting } = require('./routing-classify');
 const {
@@ -11,6 +12,7 @@ const {
 } = require('./routing-contract');
 const { createRoutingError, RoutingError, toRoutingFailure } = require('./routing-errors');
 const { recordSelection, recordFailure } = require('./routing-observation-records');
+const { writeAdaptiveSelection } = require('./routing-persistence');
 const { createSystemClock } = require('./routing-planner');
 const {
   countCatalogueOverlap, createRoutingStages, deepFreezeJson, mapPlannerFailure, validateRoutingDependencies,
@@ -57,6 +59,9 @@ function createRoutingController(dependencies) {
     random = Math.random,
     eligibilityStore = proxyEligibilityStore,
     eligibilityScope,
+    adaptive,
+    priceRoute = () => null,
+    writeAdaptiveReceipt = writeAdaptiveSelection,
   } = dependencies;
 
   let runPromise;
@@ -119,15 +124,31 @@ function createRoutingController(dependencies) {
       const route = validateRouteResponse(rawRoute, pool.choices);
       // Ordinary routing uses choice IDs; only the opt-in options contract requires unique pairs.
       const ordinaryPick = route.ranked_choices[0];
-      const selection = createSelection(ordinaryPick, pool.byId[ordinaryPick.id]);
-      let routeOptions;
-      if (config.topK !== undefined) {
-        const fullRank = resolvePrimaryRank(route.ranked_choices, pool);
+      let withinCap;
+      if (config.topK !== undefined || adaptive) {
         // The cap matches native wire IDs, not router IDs. It must not steer the primary past a guard veto.
-        const withinCap = fullRank.filter(({ id }) => {
+        withinCap = resolvePrimaryRank(route.ranked_choices, pool).filter(({ id }) => {
           const { wireModel, provider } = pool.byId[id];
           return !getModelMultiplierCapBlockState(wireModel, provider);
         });
+      }
+      let selectedChoice = ordinaryPick;
+      let adaptiveReceipt;
+      if (adaptive) {
+        // The workflow's evidence chooses among the eligible pairs; the ordinary pick stays the router's.
+        const byPair = new Map(withinCap.map(choice => [routingPairName(pool.byId[choice.id]), choice]));
+        adaptiveReceipt = selectAdaptive({
+          summary: adaptive.summary,
+          rank: [...byPair.keys()],
+          ordinary: routingPairName(pool.byId[ordinaryPick.id]),
+          job: adaptive.job,
+          price: (pair, tokens) => (byPair.has(pair) ? priceRoute(pool.byId[byPair.get(pair).id], tokens) : null),
+        });
+        selectedChoice = byPair.get(adaptiveReceipt.selected) ?? ordinaryPick;
+      }
+      const selection = createSelection(selectedChoice, pool.byId[selectedChoice.id]);
+      let routeOptions;
+      if (config.topK !== undefined) {
         routeOptions = deepFreezeJson({
           ordinaryPick: modelEffortPair(ordinaryPick),
           options: shortlistPrimaryOptions(withinCap, config.topK).map(modelEffortPair),
@@ -139,6 +160,8 @@ function createRoutingController(dependencies) {
           selection, signal: phaseSignal, awfEligibility: eligibilityRequest.awfEligibility,
           awfEligibilityScope: eligibilityRequest.awfEligibilityScope,
         }));
+      // Recorded before the primary starts, once the final guard has accepted the selection.
+      if (adaptiveReceipt) writeAdaptiveReceipt(deepFreezeJson(adaptiveReceipt));
 
       recordSelection(observer, {
         config, selection, classification, successfulClassifier, rawCapabilities, route,
@@ -149,6 +172,7 @@ function createRoutingController(dependencies) {
         ok: true,
         selection,
         ...(routeOptions ? { routeOptions } : {}),
+        ...(adaptiveReceipt ? { adaptiveReceipt } : {}),
         degradedClassification: classification === null,
         ...(degradedReason ? { degradedReason } : {}),
       });

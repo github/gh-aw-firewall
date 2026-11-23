@@ -21,6 +21,8 @@ const privateFs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
 const { TextDecoder } = require('util');
+const exact = require('./catalogue-contract/exact-pricing');
+const { resolveModelPricing } = require('./guards/ai-credits-guard');
 const { normalizePolicyList } = require('./routing-candidates');
 const { createRoutingCatalogue } = require('./routing-catalogue');
 const { parseRoutingConfig } = require('./routing-config');
@@ -63,6 +65,74 @@ async function loadRoutingConversation(filePath, { signal } = {}) {
     }
     throw createRoutingError('routing_configuration_error', 'The private routing conversation is unavailable');
   }
+}
+
+const STAGED_ADAPTIVE_BYTES = 64 * 1024;
+// Never estimate a pair's cost from a price that is not the model's own tariff.
+const NOT_A_TARIFF = new Set(['dynamic_selector_fallback', 'configured_default', 'median_estimate', 'builtin_fallback']);
+
+/**
+ * The job AWF itself runs in, which the evidence summary must name: gh-aw's workflow ID (the
+ * lock file name without `.lock.yml`), the run ID and the attempt.
+ */
+function adaptiveJob(env = process.env) {
+  const file = (env.GITHUB_WORKFLOW_REF || '').trim().split('@')[0].split('/').pop() || '';
+  return Object.freeze({
+    workflow: file.endsWith('.lock.yml') ? file.slice(0, -'.lock.yml'.length) : file.replace(/\.ya?ml$/, ''),
+    run_id: (env.GITHUB_RUN_ID || '').trim(),
+    attempt: Number.parseInt((env.GITHUB_RUN_ATTEMPT || '1').trim(), 10),
+  });
+}
+
+/**
+ * Read the evidence summary the host staged from `apiProxy.routing.adaptiveSummaryFile`: an
+ * envelope saying whether the host found the file, and the parsed summary if so. Anything the
+ * host could not stage is invalid evidence, so the run routes ordinarily with that reason.
+ */
+function loadAdaptiveInput(filePath, env = process.env) {
+  const job = adaptiveJob(env);
+  let staged;
+  try {
+    staged = readPrivateRoutingJson(filePath, STAGED_ADAPTIVE_BYTES);
+  } catch {
+    return Object.freeze({ job, summary: 'invalid' });
+  }
+  if (staged?.status === 'missing') return Object.freeze({ job, summary: null });
+  if (staged?.status === 'present' && staged.summary !== undefined) return Object.freeze({ job, summary: staged.summary });
+  return Object.freeze({ job, summary: 'invalid' });
+}
+
+/**
+ * Credits for a run's average tokens at a model's own base tariff, with the meter's semantics:
+ * input excludes cache reads and writes, and reasoning is part of output, charged at the
+ * reasoning rate when the tariff has one. Long-context tiers and promotions apply per request,
+ * so a per-run estimate uses the default tier at list price. Fallback prices give no estimate.
+ */
+function createAdaptivePrice(resolve = resolveModelPricing) {
+  return (mapping, tokens) => {
+    let resolution;
+    try {
+      resolution = resolve(mapping.wireModel, undefined, mapping.provider, 0, { quiet: true, allowMedianEstimate: false });
+    } catch {
+      return null;
+    }
+    if (!resolution || resolution.estimate || resolution.usedFallbackPricing === true ||
+        NOT_A_TARIFF.has(resolution.source)) return null;
+    const { pricing } = resolution;
+    const perToken = field => {
+      if (pricing[field] === undefined || pricing[field] === null) return null;
+      const value = exact.rate(pricing, field);
+      return Number(value.n) / Number(value.d) / 10_000; // $ per million tokens at $0.01 per credit
+    };
+    const input = perToken('input');
+    const output = perToken('output');
+    if (input === null || output === null) return null;
+    const reasoningRate = pricing.reasoning === undefined ? output : (perToken('reasoning') ?? 0);
+    const reasoning = tokens.reasoning === null ? 0 : Math.min(tokens.reasoning, tokens.output);
+    return tokens.input * input + tokens.cache_read * (perToken('cachedInput') ?? 0) +
+      tokens.cache_write * (perToken('cacheWrite') ?? 0) + (tokens.output - reasoning) * output +
+      reasoning * reasoningRate;
+  };
 }
 
 /**
@@ -144,9 +214,11 @@ function createProductionRoutingController({
     checkRateLimit,
   });
 
+  const adaptive = config.adaptiveSummaryFile ? loadAdaptiveInput(config.adaptiveSummaryFile) : undefined;
   return createRoutingController({
     config,
     planner: createRoutingRouterClient({ transport: routerTransport, tracing: routerTracing }),
+    ...(adaptive ? { adaptive, priceRoute: createAdaptivePrice() } : {}),
     catalogue,
     policy,
     loadConversation: loadRoutingConversation,
@@ -353,6 +425,9 @@ function createProductionRoutingSession({
 }
 
 module.exports = {
+  adaptiveJob,
+  createAdaptivePrice,
+  loadAdaptiveInput,
   createProductionRoutingController,
   createRoutingObserver,
   loadRoutingConversation,

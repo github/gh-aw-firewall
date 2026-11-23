@@ -251,6 +251,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.routing` → *(config-only; requires `experimental.modelRouting: true`; task-level routing objective and task conversation input)*
 - `apiProxy.routing.candidateModels` → *(optional glob patterns that limit router/classifier choices; intersected with the model policy; defaults to `apiProxy.allowedModels`)*
 - `apiProxy.routing.topK` → *(optional integer from 1 to 32; request this many distinct primary models in the private result, or fewer if the rank runs out)*
+- `apiProxy.routing.adaptiveSummaryFile` → *(optional host path to gh-aw's evidence summary; enables adaptive selection and the selection receipt, see §13a.2)*
 - `apiProxy.modelRouter.providerType` → *(config-only; maps to `COPILOT_PROVIDER_TYPE`)*
 - `apiProxy.modelRouter.baseUrl` → *(config-only; maps to `COPILOT_PROVIDER_BASE_URL`)*
 - `apiProxy.allowedModels` → *(config-only; maps to `AWF_ALLOWED_MODELS` — JSON array of glob patterns; only matching models are permitted)*
@@ -2622,6 +2623,7 @@ apiProxy:
 | `provider` | `copilot` (default), `openai`, `anthropic` | Restricts routing to one configured native API-proxy provider; AWF does not switch credentials or translate across providers. |
 | `candidateModels` | non-empty array of model glob patterns | Limits router/classifier choices without widening the request policy; defaults to `apiProxy.allowedModels`. |
 | `topK` | integer from 1 to 32 | Reports up to K distinct eligible models in the private result. The pilot requests `3`. Omit for no list. |
+| `adaptiveSummaryFile` | non-empty string | Host path to gh-aw's evidence summary. Enables adaptive selection (§13a.2); must not be in an agent-visible path. |
 | `objective.goal` | `cost` | Optimization goal used by the router; `cost-speed` is unsupported and MUST NOT be aliased to `cost` |
 | `objective.mode` | `economy`, `balanced`, `robust`, `auto` | Fixed routing profile, or `auto` classification |
 | `task.conversationFile` | non-empty string | Host path to the task conversation whose description the router classifies |
@@ -2647,7 +2649,8 @@ routing profile) selects the one model and effort the agent is seeded with for
 the whole run. The router is not invoked again per request or per sub-agent.
 
 The routing object is closed: `objective` and `task` are required; `provider`,
-`candidateModels` and `topK` are optional. Unknown properties are rejected.
+`candidateModels`, `topK` and `adaptiveSummaryFile` are optional. Unknown
+properties are rejected.
 Omitting `provider` preserves Copilot routing. OpenAI and Anthropic routing
 require the matching provider to be configured for the agent and currently
 require the native `api.openai.com` or `api.anthropic.com` target; AWF does not
@@ -2824,6 +2827,104 @@ Audit writes are synchronous and best-effort; disk success is not guaranteed,
 and logging errors MUST NOT change routing or inference behavior. The writer
 MUST use owner-only file permissions (`0600`)
 and MUST NOT follow symbolic links. No explicit flush is required.
+
+### 13a.2 Adaptive selection
+
+`apiProxy.routing.adaptiveSummaryFile` lets a workflow's own routing evidence
+choose the primary pair among the models the router already permits. gh-aw's
+trusted prepare step writes the **evidence summary** to that host file before AWF
+starts: for the workflow, its incumbent pair and, for each pair with a record,
+discounted success and failure counts over its last 50 outcomes within 60 days,
+its streak, tests and suspension, and its average measured cost and tokens on
+this workflow, together with whether this run may explore. AWF makes one
+deterministic choice, records it, and keeps no state of its own. Without the
+option, routing, logs and router calls are unchanged.
+
+AWF reads the file once during the routing bootstrap, before the agent starts,
+and stages a private copy that only the proxy can read. The path MUST NOT be
+inside an agent-visible path (the work directory, the workspace, `/tmp`, the
+session state directory or any agent volume); AWF refuses to start otherwise.
+`${RUNNER_TEMP}` qualifies. The proxy accepts the summary only if it has version
+`2`, at most 32 pairs and at most 16 KiB of `JSON.stringify` output, and names
+the job AWF runs in: the workflow ID (the `GITHUB_WORKFLOW_REF` file name
+without `.lock.yml`), `GITHUB_RUN_ID` and `GITHUB_RUN_ATTEMPT`. A missing file
+routes ordinarily with reason `summary_missing`, and an invalid one with
+`invalid_evidence`; neither fails the run.
+
+Pairs are named `<provider>/<wire model>@<effort>`, with the Copilot provider
+written `github-copilot` and `none` for a route without an effort. The selector
+works on the full validated rank after the multiplier cap:
+
+- **Incumbent.** It keeps the summary's incumbent while it is eligible and its
+  base model is not suspended. Otherwise it chooses the eligible pair with the
+  lowest expected cost per success among pairs that have succeeded here and have
+  a measured cost, else the highest-ranked pair that has succeeded here, else
+  the first eligible pair.
+- **Switch.** A rival with its own record takes over when its expected success
+  rate exceeds its need, the rate at which it would cost no more per success
+  than the incumbent's optimistic rate. Switching needs no permission to explore.
+- **Probe.** A suspended pair whose probe is due runs once, before any test, the
+  highest-ranked first. A suspension covers every effort of its base.
+- **Test.** The shortlist is the first effort of up to three distinct base models
+  in rank order. The rival with the best optimistic score is tested if its
+  optimistic rate exceeds its need and it has fewer than 20 tests.
+- **Permission.** A test or probe needs `explore.allowed`, attempt 1, the share
+  (the previous live run did not explore), a test turn, and fewer earlier
+  turn-holders in flight than the rival's capacity (a probe needs none in
+  flight). Capacity is the largest n up to 3 for which the rival would still
+  deserve a test, and would not be suspended, after n - 1 assumed failures.
+  Otherwise the run serves the incumbent with the first unmet requirement as its
+  reason; it never falls back to a lower-scored rival.
+- **All suspended.** When every eligible base is suspended, the run serves the
+  eligible pair with a record and the highest expected rate (ties by rank), or the
+  ordinary pick without one.
+- **Observe mode.** The run keeps the ordinary pick and reports in `would` what a
+  live run would have chosen.
+
+Each cost the decision uses is `measured` (the pair's average AWF-priced cost on
+this workflow) or `estimated`. An estimate prices the incumbent's average tokens
+at the pair's own tariff and scales only the incumbent model's share of the cost:
+`credits(incumbent) + model_credits(incumbent) × (price(pair) / price(incumbent) − 1)`.
+Prices use the meter's semantics at the default tier and list price. A
+dynamic-selector, configured-default, median or built-in fallback price gives no
+estimate, and a pair without a cost is never chosen on cost.
+
+After the selection passes its final guard and before the primary starts, the
+proxy appends one **selection receipt** to `adaptive-selection.jsonl` in
+`apiProxy.logging.tokenLogDir`, with the same owner-only, no-follow semantics as
+`model-routing.jsonl`, plus `timestamp`. The write is best effort and nothing
+waits for an acknowledgment: gh-aw counts a run only when it finds a receipt
+bound to it. The selection record in `model-routing.jsonl` names the pair the
+receipt selected.
+
+| Field | Meaning |
+|---|---|
+| `event`, `v` | `adaptive_selection`, version `2` |
+| `workflow`, `run.id`, `run.attempt` | The job AWF runs in |
+| `generation`, `mode`, `scope` | Copied from the summary (`null` without a valid one) |
+| `role` | `serve`, `test`, `probe`, `observe` or `ordinary` |
+| `explore_allowed` | Whether the summary allowed exploration on attempt 1 |
+| `selected`, `ordinary`, `would` | The pair AWF asked the harness to run, the router's pick, and in observe mode what live mode would have run |
+| `incumbent.before`, `incumbent.after` | The summary's incumbent and the incumbent after this decision; they differ only when the rule chose or switched one |
+| `costs` | For the incumbent and each pair compared: `credits` and `basis` (`measured` or `estimated`) |
+| `concurrency` | `turn` and `in_flight` from the summary, and the `capacity` computed for the challenger or probe considered (or `null`) |
+| `reason` | One of the reasons below |
+
+| Role | Reasons |
+|---|---|
+| `ordinary` | `summary_missing`, `invalid_evidence` |
+| `serve` | `incumbent_chosen`, `incumbent_switched`, `no_challenger`, `all_suspended`; or, when a test or probe could not run, `explore_denied`, `attempt_not_first`, `share_taken` or `no_turn` |
+| `probe` | `probe_due` |
+| `test` | `challenger_hopeful_clears_need` |
+
+For example, at `balanced` (a failure weighs 500 credits), incumbent B has 40
+clean runs at a measured 28 credits. A has never run here, and B's average tokens
+cost 12/28 as much at A's rates, so A's estimate is 12 credits. A needs a success
+rate above 0.999 × 512 / 528 ≈ 0.969, which its optimistic rate of 0.999 clears,
+so a run with permission tests A with `capacity` 1. A run without a turn, or with
+an earlier turn-holder in flight, serves B with reason `no_turn`. The
+[oracle vectors](../containers/api-proxy/fixtures/adaptive/fw2-selector.json),
+generated from gh-aw's reference bandit, pin every decision and reason.
 
 ## 13. Model Alias Logging
 

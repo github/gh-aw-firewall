@@ -101,6 +101,7 @@ module.exports = {
   acknowledgeAiCreditSteeringWarning,
   claimAiCreditSteeringWarning,
   checkModelPricing,
+  resolveModelPricing,
   isRecognizedDynamicSelector,
   isModelPriceable,
   canonicalizeModel,
