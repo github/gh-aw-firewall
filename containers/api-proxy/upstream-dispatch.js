@@ -8,6 +8,7 @@ const { signOutboundRequest, buildUpstreamRequestOptions } = require('./upstream
 const { logRequestShape } = require('./logging');
 const { protectUpstreamResponse, redactCredentialError } = require('./credential-protection');
 const { createInvocationModelBudget } = require('./enclave-model-budget');
+const { applyRequestTraceHeaders } = require('./request-headers');
 
 const invocationModelBudget = createInvocationModelBudget(
   process.env.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET,
@@ -89,6 +90,11 @@ function createDispatchUpstreamRequest({
       requestBytes = body.length;
     }
     req.awfEnclaveModelBudgetAttempt = budgetAttempt;
+
+    requestHeaders = { ...requestHeaders };
+    applyRequestTraceHeaders(requestHeaders, {
+      provider, targetHost, targetScheme, traceHeaders: otel.getRequestTraceHeaders?.(span),
+    });
 
     const outboundHeaders = signOutboundRequest({
       requestSigner, requestHeaders, body, req, upstreamPath, targetHost, budgetAttempt,

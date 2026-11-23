@@ -6,6 +6,117 @@ const {
 } = require('./request-headers');
 const { createCopilotAdapter } = require('./providers/copilot');
 
+describe('configured endpoint trace headers', () => {
+  const traceparent = '00-aabbccddeeff00112233445566778899-1122334455667788-01';
+  const targetEnvVars = [
+    'COPILOT_PROVIDER_BASE_URL', 'COPILOT_API_TARGET', 'OPENAI_API_TARGET',
+    'ANTHROPIC_API_TARGET', 'GEMINI_API_TARGET', 'VERTEX_API_TARGET', 'FOUNDRY_API_TARGET',
+  ];
+  let savedEnv;
+
+  beforeEach(() => {
+    savedEnv = Object.fromEntries(targetEnvVars.map(name => [name, process.env[name]]));
+    for (const name of targetEnvVars) delete process.env[name];
+  });
+
+  afterEach(() => {
+    for (const [name, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+
+  function build(targetHost = 'gateway.example.com', options = {}) {
+    return buildRequestHeaders(Buffer.from('{}'), 2, {
+      headers: {
+        Traceparent: 'caller-trace', tracestate: 'caller=value', Baggage: 'private=value',
+      },
+    }, {
+      injectHeaders: { baggage: 'injected-private=value' },
+      provider: 'copilot', targetHost, requestId: 'trace-test',
+      traceHeaders: { traceparent, tracestate: 'vendor=value', baggage: 'span-private=value' },
+      ...options,
+    });
+  }
+
+  test.each([
+    ['copilot', 'COPILOT_PROVIDER_BASE_URL'],
+    ['copilot', 'COPILOT_API_TARGET'],
+    ['openai', 'COPILOT_PROVIDER_BASE_URL'],
+    ['openai', 'OPENAI_API_TARGET'],
+    ['anthropic', 'ANTHROPIC_API_TARGET'],
+    ['gemini', 'GEMINI_API_TARGET'],
+    ['vertex', 'VERTEX_API_TARGET'],
+    ['foundry', 'FOUNDRY_API_TARGET'],
+  ])('injects proxy trace context for %s using %s', (provider, envVar) => {
+    process.env[envVar] = 'https://Gateway.Example.com/openai/v1';
+    const headers = build('gateway.example.com', { provider });
+    expect(headers.traceparent).toBe(traceparent);
+    expect(headers.tracestate).toBe('vendor=value');
+    expect(headers).not.toHaveProperty('Traceparent');
+    expect(Object.keys(headers).map(name => name.toLowerCase())).not.toContain('baggage');
+  });
+
+  test.each([
+    ['https://gateway.example.com:8443/openai/v1', 'gateway.example.com:8443', 'https'],
+    ['http://localhost:8080/openai/v1', 'localhost:8080', 'http'],
+    ['http://[::1]:8080/openai/v1', '[::1]:8080', 'http'],
+  ])('propagates to the configured origin %s', (configured, targetHost, targetScheme) => {
+    process.env.COPILOT_PROVIDER_BASE_URL = configured;
+    expect(build(targetHost, { targetScheme }).traceparent).toBe(traceparent);
+  });
+
+  test.each([
+    ['https://gateway.example.com/openai/v1', 'other.example.com', 'https'],
+    ['https://gateway.example.com/openai/v1', 'sub.gateway.example.com', 'https'],
+    ['https://gateway.example.com/openai/v1', 'gateway.example.com.evil.test', 'https'],
+    ['https://gateway.example.com:8443/openai/v1', 'gateway.example.com', 'https'],
+    ['https://gateway.example.com/openai/v1', 'gateway.example.com', 'http'],
+    ['ftp://gateway.example.com', 'gateway.example.com', 'https'],
+    ['not a URL', 'gateway.example.com', 'https'],
+    ['', 'api.githubcopilot.com', 'https'],
+  ])('does not propagate trace context from %s to %s (%s)', (configured, targetHost, targetScheme) => {
+    process.env.COPILOT_PROVIDER_BASE_URL = configured;
+    const headers = build(targetHost, { targetScheme });
+    for (const name of ['traceparent', 'tracestate', 'baggage', 'Traceparent', 'Baggage']) {
+      expect(headers).not.toHaveProperty(name);
+    }
+  });
+
+  test('does not use a different provider configuration', () => {
+    process.env.COPILOT_PROVIDER_BASE_URL = 'https://gateway.example.com';
+    const headers = build('gateway.example.com', { provider: 'anthropic' });
+    expect(headers).not.toHaveProperty('traceparent');
+    expect(headers).not.toHaveProperty('tracestate');
+  });
+
+  test('omits tracestate when the request span has none', () => {
+    process.env.COPILOT_PROVIDER_BASE_URL = 'https://gateway.example.com';
+    const headers = build('gateway.example.com', { traceHeaders: { traceparent } });
+    expect(headers.traceparent).toBe(traceparent);
+    expect(headers).not.toHaveProperty('tracestate');
+  });
+
+  test('does not forward caller context when no request span exists', () => {
+    process.env.COPILOT_PROVIDER_BASE_URL = 'https://gateway.example.com';
+    const headers = build('gateway.example.com', { traceHeaders: null });
+    for (const name of ['traceparent', 'tracestate', 'baggage', 'Traceparent', 'Baggage']) {
+      expect(headers).not.toHaveProperty(name);
+    }
+  });
+
+  test.each([
+    { traceparent: 7, tracestate: 'vendor=value' },
+    { traceparent: `${traceparent}\r\nx-injected: 1` },
+    { traceparent, tracestate: 'vendor=value\r\nx-injected: 1' },
+  ])('ignores unsafe trace headers: %p', traceHeaders => {
+    process.env.COPILOT_PROVIDER_BASE_URL = 'https://gateway.example.com';
+    const headers = build('gateway.example.com', { traceHeaders });
+    expect(headers).not.toHaveProperty('traceparent');
+    expect(headers).not.toHaveProperty('tracestate');
+  });
+});
+
 describe('request-headers', () => {
   afterEach(() => {
     resetCopilotInteractionIdForTests();
