@@ -9,7 +9,6 @@ const { TRUSTED_SERVICE, TRUSTED_SERVICE_HEADERS } = require('./trusted-service'
 const { rememberInjectedCredentials } = require('./credential-protection');
 const { validateHeaderValue } = require('http');
 const providerEnv = require('./provider-env-constants');
-const { matchesTargetOrigin } = require('./providers/cloud-oidc-init');
 
 const TRACE_HEADERS = new Set(['traceparent', 'tracestate', 'baggage']);
 
@@ -147,7 +146,8 @@ function applyRequestTraceHeaders(headers, { traceHeaders, provider, targetHost,
   for (const name of Object.keys(headers)) {
     if (TRACE_HEADERS.has(name.toLowerCase())) delete headers[name];
   }
-  if (typeof traceHeaders?.traceparent !== 'string' || !traceHeaders.traceparent) return;
+  if (typeof traceHeaders?.traceparent !== 'string' || !traceHeaders.traceparent
+    || isCopilotIntegrationHost(targetHost)) return;
 
   const envVars = providerEnv[`${provider.toUpperCase()}_ENV`];
   if (!envVars) return;
@@ -155,6 +155,8 @@ function applyRequestTraceHeaders(headers, { traceHeaders, provider, targetHost,
   if (provider === 'copilot' || provider === 'openai') {
     configuredTargets.push(env[providerEnv.COPILOT_ENV.PROVIDER_BASE_URL]);
   }
+  // Keep header-only utilities independent of the OIDC transport dependencies.
+  const { matchesTargetOrigin } = require('./providers/cloud-oidc-init');
   if (!configuredTargets.some(target => matchesTargetOrigin(`${targetScheme}://${targetHost}`, target))) return;
 
   try {

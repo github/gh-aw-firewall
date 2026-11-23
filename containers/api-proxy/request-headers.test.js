@@ -90,6 +90,16 @@ describe('configured endpoint trace headers', () => {
     expect(headers).not.toHaveProperty('tracestate');
   });
 
+  test.each(['api.githubcopilot.com', 'copilot-api.tenant.ghe.com'])(
+    'does not propagate to the first-party Copilot target %s even when supplied by broker setup',
+    targetHost => {
+      process.env.COPILOT_API_TARGET = targetHost;
+      const headers = build(targetHost);
+      expect(headers).not.toHaveProperty('traceparent');
+      expect(headers).not.toHaveProperty('tracestate');
+    },
+  );
+
   test('omits tracestate when the request span has none', () => {
     process.env.COPILOT_PROVIDER_BASE_URL = 'https://gateway.example.com';
     const headers = build('gateway.example.com', { traceHeaders: { traceparent } });

@@ -32,9 +32,10 @@ Spans are children of the workflow's parent trace (linked via `GITHUB_AW_OTEL_TR
 LLM requests to an explicitly configured provider endpoint (`COPILOT_PROVIDER_BASE_URL`
 or the provider's `*_API_TARGET`) carry the request span's W3C `traceparent`, plus
 `tracestate` when present. The upstream origin (scheme, host and port) must match that
-configuration; default endpoints and other hosts receive no trace context. Caller trace
-headers are replaced, and `baggage` is never forwarded. This lets a BYOK gateway join the
-workflow trace as a child of `api_proxy.<provider>.request`.
+configuration; default endpoints, first-party Copilot endpoints (including token-broker
+defaults) and other hosts receive no trace context. Caller trace headers are replaced,
+and `baggage` is never forwarded, including on untraced WebSocket upgrades. This lets a
+BYOK gateway join the workflow trace as a child of `api_proxy.<provider>.request`.
 
 ## Attribute Locations in Sentry UI
 
