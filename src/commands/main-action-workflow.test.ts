@@ -3,12 +3,10 @@ import { mainActionFsMocks } from './main-action-fs-mock.test-utils';
 import { constants as fsConstants } from 'fs';
 import { createMainAction, testHelpers } from './main-action';
 import { publishEarlyResolvedConfig } from '../resolved-config-artifact';
-import * as enclaveManager from '../enclave/manager';
-import * as externalRuntimeResolver from '../external-runtime-backend-resolver';
 import {
   MAIN_ACTION_STUB_CONFIG,
-  getMainActionMocks,
-  setupMainActionPlatformHarness,
+  describeMainAction,
+  makeSbxConfig,
 } from './main-action.test-utils';
 import type { WrapperConfig } from '../types';
 import { CloudHypervisorUnsupportedHostError } from '../cloud-hypervisor/errors';
@@ -31,7 +29,7 @@ const {
   fsyncSync: mockFsyncSync,
 } = mainActionFsMocks;
 
-const {
+describeMainAction(({
   mockedLogger,
   mockedDockerManager,
   mockedHostIptables,
@@ -43,24 +41,14 @@ const {
   mockedSignalHandler,
   mockedValidateOptions,
   mockedSbxManager,
-} = getMainActionMocks();
-const mockedExternalRuntimeResolver = externalRuntimeResolver as jest.Mocked<typeof externalRuntimeResolver>;
-const mockedEnclaveManager = enclaveManager as jest.Mocked<typeof enclaveManager>;
-
-describe('createMainAction', () => {
-  const platformHarness = setupMainActionPlatformHarness();
+  mockedExternalRuntimeResolver,
+  mockedEnclaveManager,
+  platformHarness,
+}) => {
   let processExitSpy: jest.SpyInstance;
   let getOptionValueSource: jest.Mock;
 
   beforeEach(() => {
-    mockedEnclaveManager.prepareEnclaves.mockResolvedValue(undefined);
-    mockedDockerManager.runAgentCommand.mockResolvedValue({ exitCode: 0, blockedDomains: [] });
-    mockedRedactSecrets.deriveSensitiveEndpointForms.mockImplementation((domains?: string[]) =>
-      domains ?? []
-    );
-    mockedRedactSecrets.redactSensitiveValues.mockImplementation((value: string, values: string[]) =>
-      values.reduce((redacted, sensitive) => redacted.split(sensitive).join('[REDACTED]'), value)
-    );
     processExitSpy = platformHarness.processExitSpy;
     getOptionValueSource = platformHarness.getOptionValueSource;
   });
@@ -353,14 +341,12 @@ describe('createMainAction', () => {
 
     describe('sbx runtime wiring', () => {
       it('passes configured mounts/workdir/environment into sbx create/exec', async () => {
-        const sbxConfig = {
-          ...MAIN_ACTION_STUB_CONFIG,
-          containerRuntime: 'sbx',
+        const sbxConfig = makeSbxConfig({
           containerWorkDir: '/home/runner/work/repo/repo',
           volumeMounts: ['/tmp/tooling:/tmp/tooling:ro'],
           enableApiProxy: true,
           tty: true,
-        } as unknown as import('../types').WrapperConfig;
+        });
         mockedValidateOptions.validateOptions.mockReturnValue(sbxConfig);
         mockedCliWorkflow.runMainWorkflow.mockImplementation(async (_config, deps, _callbacks) => {
           await deps.startContainers('/tmp/awf-test', ['github.com']);

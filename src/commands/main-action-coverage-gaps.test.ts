@@ -12,6 +12,7 @@ import { DOH_PROXY_IP } from '../host-iptables-shared';
 import {
   MAIN_ACTION_STUB_CONFIG,
   getMainActionMocks,
+  makeSbxConfig,
   setupMainActionTestHarness,
 } from './main-action.test-utils';
 
@@ -49,10 +50,7 @@ describe('createMainAction coverage gaps', () => {
 
   describe('sbx: isSbxAvailable false throws', () => {
     it('throws when sbx CLI is not found', async () => {
-      const sbxConfig = {
-        ...MAIN_ACTION_STUB_CONFIG,
-        containerRuntime: 'sbx',
-      } as unknown as import('../types').WrapperConfig;
+      const sbxConfig = makeSbxConfig();
       mockedValidateOptions.validateOptions.mockReturnValue(sbxConfig);
       mockedSbxManager.isSbxAvailable.mockResolvedValue(false);
       mockedCliWorkflow.runMainWorkflow.mockImplementation(async (_config, deps) => {
@@ -71,12 +69,10 @@ describe('createMainAction coverage gaps', () => {
 
   describe('sbx: api-proxy reflection preflight failure', () => {
     it('fails closed when /reflect is unreachable', async () => {
-      const sbxConfig = {
-        ...MAIN_ACTION_STUB_CONFIG,
-        containerRuntime: 'sbx',
+      const sbxConfig = makeSbxConfig({
         enableApiProxy: true,
         containerWorkDir: '/workspace',
-      } as unknown as import('../types').WrapperConfig;
+      });
       mockedValidateOptions.validateOptions.mockReturnValue(sbxConfig);
       mockedSbxManager.assertSbxApiProxyReflect.mockRejectedValue(
         new Error('sbx sandbox cannot reach the API proxy /reflect endpoint'),
@@ -100,12 +96,10 @@ describe('createMainAction coverage gaps', () => {
 
   describe('sbx: runAgentCommand logs api-proxy diagnostics on non-zero exit', () => {
     it('dumps api-proxy logs when agent exits non-zero with enableApiProxy', async () => {
-      const sbxConfig = {
-        ...MAIN_ACTION_STUB_CONFIG,
-        containerRuntime: 'sbx',
+      const sbxConfig = makeSbxConfig({
         enableApiProxy: true,
         containerWorkDir: '/workspace',
-      } as unknown as import('../types').WrapperConfig;
+      });
       mockedValidateOptions.validateOptions.mockReturnValue(sbxConfig);
 
       // Reflection preflight is mocked separately; squid diag succeeds, agent fails.
@@ -150,11 +144,9 @@ describe('createMainAction coverage gaps', () => {
 
   describe('sbx cleanup: keepContainers=false removes sandbox', () => {
     it('calls removeSandbox during cleanup when not keepContainers', async () => {
-      const sbxConfig = {
-        ...MAIN_ACTION_STUB_CONFIG,
-        containerRuntime: 'sbx',
+      const sbxConfig = makeSbxConfig({
         keepContainers: false,
-      } as unknown as import('../types').WrapperConfig;
+      });
       mockedValidateOptions.validateOptions.mockReturnValue(sbxConfig);
       mockedCliWorkflow.runMainWorkflow.mockImplementation(async (_config, _deps, callbacks) => {
         await callbacks.performCleanup();
@@ -170,11 +162,9 @@ describe('createMainAction coverage gaps', () => {
 
   describe('sbx signal handling', () => {
     it('stops the selected external backend instead of the compose agent', async () => {
-      const sbxConfig = {
-        ...MAIN_ACTION_STUB_CONFIG,
-        containerRuntime: 'sbx',
+      const sbxConfig = makeSbxConfig({
         keepContainers: false,
-      } as unknown as import('../types').WrapperConfig;
+      });
       mockedValidateOptions.validateOptions.mockReturnValue(sbxConfig);
       let signalOptions: Parameters<typeof mockedSignalHandler.registerSignalHandlers>[0] | undefined;
       mockedSignalHandler.registerSignalHandlers.mockImplementation((options) => {
@@ -192,11 +182,9 @@ describe('createMainAction coverage gaps', () => {
 
   describe('sbx cleanup: keepContainers=true skips removeSandbox', () => {
     it('does not call removeSandbox when keepContainers is true', async () => {
-      const sbxConfig = {
-        ...MAIN_ACTION_STUB_CONFIG,
-        containerRuntime: 'sbx',
+      const sbxConfig = makeSbxConfig({
         keepContainers: true,
-      } as unknown as import('../types').WrapperConfig;
+      });
       mockedValidateOptions.validateOptions.mockReturnValue(sbxConfig);
       mockedCliWorkflow.runMainWorkflow.mockImplementation(async (_config, _deps, callbacks) => {
         await callbacks.performCleanup();
@@ -238,12 +226,10 @@ describe('createMainAction coverage gaps', () => {
 
   describe('sbx: dnsOverHttps and difcProxyHost wiring', () => {
     it('sets dohProxyIp when dnsOverHttps is enabled', async () => {
-      const sbxConfig = {
-        ...MAIN_ACTION_STUB_CONFIG,
-        containerRuntime: 'sbx',
-        dnsOverHttps: true,
+      const sbxConfig = makeSbxConfig({
+        dnsOverHttps: 'https://dns.google/dns-query',
         containerWorkDir: '/workspace',
-      } as unknown as import('../types').WrapperConfig;
+      });
       mockedValidateOptions.validateOptions.mockReturnValue(sbxConfig);
       mockedSbxManager.execInSandbox.mockResolvedValue({ exitCode: 0 });
       mockedCliWorkflow.runMainWorkflow.mockImplementation(async (_config, deps) => {
@@ -271,11 +257,9 @@ describe('createMainAction coverage gaps', () => {
   describe('sbx: GITHUB_WORKSPACE env fallback', () => {
     it('falls back to cwd when GITHUB_WORKSPACE is not set', async () => {
       delete process.env.GITHUB_WORKSPACE;
-      const sbxConfig = {
-        ...MAIN_ACTION_STUB_CONFIG,
-        containerRuntime: 'sbx',
+      const sbxConfig = makeSbxConfig({
         containerWorkDir: '/workspace',
-      } as unknown as import('../types').WrapperConfig;
+      });
       mockedValidateOptions.validateOptions.mockReturnValue(sbxConfig);
       mockedSbxManager.execInSandbox.mockResolvedValue({ exitCode: 0 });
       mockedCliWorkflow.runMainWorkflow.mockImplementation(async (_config, deps) => {
@@ -294,11 +278,9 @@ describe('createMainAction coverage gaps', () => {
 
     it('uses GITHUB_WORKSPACE when set', async () => {
       process.env.GITHUB_WORKSPACE = '/github/workspace';
-      const sbxConfig = {
-        ...MAIN_ACTION_STUB_CONFIG,
-        containerRuntime: 'sbx',
+      const sbxConfig = makeSbxConfig({
         containerWorkDir: '/workspace',
-      } as unknown as import('../types').WrapperConfig;
+      });
       mockedValidateOptions.validateOptions.mockReturnValue(sbxConfig);
       mockedSbxManager.execInSandbox.mockResolvedValue({ exitCode: 0 });
       mockedCliWorkflow.runMainWorkflow.mockImplementation(async (_config, deps) => {

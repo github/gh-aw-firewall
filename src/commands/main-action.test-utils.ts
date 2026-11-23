@@ -1,4 +1,9 @@
-import type { WrapperConfig } from '../types';
+import {
+  ENCLAVE_SCRIPT_EXECUTOR_DEFAULTS,
+  ENCLAVE_AGENT_EXECUTOR_DEFAULTS,
+  type EnclavesConfig,
+  type WrapperConfig,
+} from '../types';
 import * as preflight from './preflight';
 import * as validateOptions from './validate-options';
 import * as dockerManager from '../docker-manager';
@@ -10,6 +15,11 @@ import * as dindBootstrap from '../dind-bootstrap';
 import * as signalHandler from './signal-handler';
 import * as cliWorkflow from '../cli-workflow';
 import * as sbxManager from '../sbx-manager';
+import * as enclaveGateway from '../enclave/gateway';
+import * as enclaveGithubGateway from '../enclave/github-gateway';
+import * as enclaveHostLifecycle from '../enclave/cloud-hypervisor-lifecycle';
+import * as enclaveManager from '../enclave/manager';
+import * as externalRuntimeResolver from '../external-runtime-backend-resolver';
 import { logger } from '../logger';
 
 export const MAIN_ACTION_STUB_CONFIG = {
@@ -28,6 +38,30 @@ export const MAIN_ACTION_STUB_CONFIG = {
   auditDir: undefined,
   sessionStateDir: undefined,
 } as unknown as WrapperConfig;
+
+export function makeSbxConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
+  return {
+    ...MAIN_ACTION_STUB_CONFIG,
+    containerRuntime: 'sbx',
+    ...overrides,
+  };
+}
+
+export function makeEnclaveConfig(executors: {
+  [K in keyof EnclavesConfig['executors']]?: Partial<EnclavesConfig['executors'][K]>;
+}): WrapperConfig {
+  return {
+    ...MAIN_ACTION_STUB_CONFIG,
+    enclaves: {
+      enabled: true,
+      privateRepos: [],
+      executors: {
+        script: { ...ENCLAVE_SCRIPT_EXECUTOR_DEFAULTS, ...executors.script },
+        agent: { ...ENCLAVE_AGENT_EXECUTOR_DEFAULTS, repos: [], ...executors.agent },
+      },
+    },
+  };
+}
 
 interface MainActionHarnessDeps {
   mockedPreflight: Pick<jest.Mocked<typeof preflight>, 'applyConfigFilePrecedence'>;
@@ -81,6 +115,45 @@ export function getMainActionMocks(): MainActionMocks {
     mockedSbxManager: sbxManager as jest.Mocked<typeof sbxManager>,
     mockedLogger: jest.mocked(logger, { shallow: true }),
   };
+}
+
+interface MainActionSuiteContext extends MainActionMocks {
+  mockedEnclaveGateway: jest.Mocked<typeof enclaveGateway>;
+  mockedEnclaveGithubGateway: jest.Mocked<typeof enclaveGithubGateway>;
+  mockedEnclaveHostLifecycle: jest.Mocked<typeof enclaveHostLifecycle>;
+  mockedEnclaveManager: jest.Mocked<typeof enclaveManager>;
+  mockedExternalRuntimeResolver: jest.Mocked<typeof externalRuntimeResolver>;
+  platformHarness: MainActionTestHarness;
+}
+
+// Import main-action-enclave-mocks.test-utils before using this suite setup.
+export function describeMainAction(tests: (context: MainActionSuiteContext) => void): void {
+  describe('createMainAction', () => {
+    const mocks = getMainActionMocks();
+    const mockedEnclaveManager = jest.mocked(enclaveManager, { shallow: true });
+    const platformHarness = setupMainActionPlatformHarness();
+
+    beforeEach(() => {
+      mockedEnclaveManager.prepareEnclaves.mockResolvedValue(undefined);
+      mocks.mockedDockerManager.runAgentCommand.mockResolvedValue({ exitCode: 0, blockedDomains: [] });
+      mocks.mockedRedactSecrets.deriveSensitiveEndpointForms.mockImplementation((domains?: string[]) =>
+        domains ?? []
+      );
+      mocks.mockedRedactSecrets.redactSensitiveValues.mockImplementation((value: string, values: string[]) =>
+        values.reduce((redacted, sensitive) => redacted.split(sensitive).join('[REDACTED]'), value)
+      );
+    });
+
+    tests({
+      ...mocks,
+      mockedEnclaveGateway: jest.mocked(enclaveGateway, { shallow: true }),
+      mockedEnclaveGithubGateway: jest.mocked(enclaveGithubGateway, { shallow: true }),
+      mockedEnclaveHostLifecycle: jest.mocked(enclaveHostLifecycle, { shallow: true }),
+      mockedEnclaveManager,
+      mockedExternalRuntimeResolver: jest.mocked(externalRuntimeResolver, { shallow: true }),
+      platformHarness,
+    });
+  });
 }
 
 export function setupMainActionTestHarness(
