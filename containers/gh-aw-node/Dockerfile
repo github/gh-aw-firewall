@@ -20,7 +20,7 @@
 #   curl >= 8.23.0-r0: Alpine 3.24's stable repository still ships curl
 #     8.22.0-r0, affected by CVE-2026-92392, so the fixed package is installed
 #     from edge.
-FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a
+FROM node:26.13.1-alpine3.24@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5
 
 ARG NPM_CONFIG_REGISTRY=https://packagefeedproxy.microsoft.io/npm/
 
