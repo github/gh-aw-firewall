@@ -1,16 +1,15 @@
 'use strict';
 
-const { canonicalEndpoint } = require('./upstream-request-utils');
+const { buildFallbackOrigin } = require('./fallback-origin');
+const { selectFallbackCandidate, buildFallbackCandidates } = require('./fallback-candidate-selection');
 const { createFallbackAssessment, createFallbackDecisionObserver } = require('./upstream-fallback');
 const { isModelEligible } = require('./model-eligibility');
 const {
-  attemptKey, getRequestModel, selectNextFallbackCandidate, toAttempt,
+  attemptKey, getRequestModel, toAttempt,
 } = require('./model-fallback-chain');
-const { getCrossProviderRejection, protocolForPath } = require('./cross-provider-fallback');
 const { sanitizeForLog } = require('./logging');
 const {
-  MAX_AUTOMATIC_RECOVERIES, isAutomaticRecoveryEnabled, recoveryRecords,
-  getAutomaticRecoveryCandidates, protocolForUrl,
+  isAutomaticRecoveryEnabled, recoveryRecords, protocolForUrl,
 } = require('./model-recovery');
 const { createProtocolTranslation, assessCrossProviderFailure } = require('./upstream-protocol-translation');
 
@@ -28,27 +27,11 @@ function createAttemptRecovery({
     (!isFallbackModelPermitted || isFallbackModelPermitted(model, route, req));
   const isRoutingClassifier = req.awfRequestContext?.purpose === 'routing_classification';
 
-  // Capture the agent-facing request before any budget rewrite. Later attempts
-  // on another provider are rebuilt from this protocol, not a translated body.
-  const origin = fallbackOrigin || {
-    provider,
-    protocol: protocolForPath(req?.url || upstreamPath),
-    sourceBody: req.awfFallbackSourceBody || wireApiSourceBody || body,
-    model: (req.awfResolverFallback?.provider === provider ? req.awfResolverFallback.fromModel : null) ||
-      req.awfRecoveryAttempts?.[0]?.model || getRequestModel(body, upstreamPath)?.model || null,
-    endpoint: canonicalEndpoint(req?.url || upstreamPath),
-    body,
-    upstreamPath,
-    requestHeaders,
-    targetHost,
-    requestSigner,
-    targetScheme,
-    codexCompatibility,
-    wireApiCompatibility,
-    wireApiSourceBody,
-    wireApiEndpointRetryAttempted,
-    failures: req.awfModelFallback?.failures || [],
-  };
+  const origin = buildFallbackOrigin({
+    body, targetHost, upstreamPath, req, provider, requestSigner, targetScheme,
+    codexCompatibility, wireApiCompatibility, wireApiSourceBody,
+    wireApiEndpointRetryAttempted, requestHeaders, fallbackOrigin,
+  });
   const assessCandidate = createFallbackAssessment({ origin, req, targetHost, targetScheme });
   const observeDecision = createFallbackDecisionObserver({ req, origin });
 
@@ -65,18 +48,6 @@ function createAttemptRecovery({
       const attempted = Array.isArray(attemptedModels) && attemptedModels.length > 0
         ? attemptedModels.map(a => toAttempt(a, provider))
         : req.awfRecoveryAttempts || [{ provider, model: current.model }];
-      const getRouteRejection = (candidate) => {
-        if (candidate.provider === provider || candidate.provider === origin.provider) return null;
-        return getCrossProviderRejection({
-          protocol: origin.protocol,
-          targetProvider: candidate.provider,
-          adapter: typeof getProviderAdapter === 'function' ? getProviderAdapter(candidate.provider) : null,
-        });
-      };
-      const select = (candidates, exclude, onSkip) => selectNextFallbackCandidate(candidates, attempted, origin.provider, {
-        isPermitted, getRouteRejection, exclude, onSkip,
-      });
-
       let fallbackTriggered = false;
       onModelFallback = ({ statusCode = null, reason = 'upstream_error', abandon = null } = {}) => {
         if (cancellation.cancelled || fallbackTriggered || res.headersSent) return false;
@@ -88,15 +59,9 @@ function createAttemptRecovery({
           ...(statusCode !== null ? { status: statusCode } : {}),
         };
         const failures = [...origin.failures, failure];
-        const automaticModels = automaticRecovery &&
-          ['model_not_supported', 'model_endpoint_incompatible'].includes(reason) &&
-          (req.awfAutomaticRecoveryCount || (req.awfRecoveryAttempts ? 1 : 0)) < MAX_AUTOMATIC_RECOVERIES
-          ? getAutomaticRecoveryCandidates({
-            model: attempted[0].model, provider,
-            body: origin.sourceBody, url: req.url, req, isPermitted,
-          }).map(model => `${provider}/${model}`)
-          : [];
-        const candidates = [...chain, ...automaticModels];
+        const candidates = buildFallbackCandidates({
+          chain, automaticRecovery, reason, req, attempted, provider, origin, isPermitted,
+        });
         const exclude = new Set();
         let lastDecision = null;
         let exhausted = false;
@@ -218,7 +183,9 @@ function createAttemptRecovery({
         const tryCandidates = () => {
           for (;;) {
             if (cancellation.cancelled) return false;
-            const candidate = select(candidates, exclude, logSkip);
+            const candidate = selectFallbackCandidate(candidates, {
+              origin, provider, attempted, isPermitted, getProviderAdapter, exclude, onSkip: logSkip,
+            });
             if (!candidate) return false;
             const key = attemptKey(candidate.provider, candidate.model);
             if (candidate.provider === provider || candidate.provider === origin.provider) {
