@@ -1,15 +1,15 @@
 import type { SquidConfig } from '../types';
-import { isIP } from 'net';
-import { assertSafeForSquidConfig, parseDomainConfig } from './domain-acl';
+import { parseDomainConfig } from './domain-acl';
 import { generateUpstreamProxySection } from './upstream-proxy';
 import { generateAclSections } from './acl-generator';
 import { generateAccessRules } from './access-rules';
 import { buildConfigSections } from './config-sections';
 import { validateApiProxyIp, validateCliProxyIp } from './validation';
-import { generateApiProxyUpstreamSection, generateApiProxyBrokerSpliceSection, generateApiProxyBrokerLogSection } from './api-proxy-upstreams';
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { version: AWF_VERSION } = require('../../package.json') as { version: string };
+import { generateApiProxyUpstreamSection, generateApiProxyBrokerSpliceSection } from './api-proxy-upstreams';
+import { buildLoggingSection } from './log-sections';
+import { buildOtlpAclSections } from './otlp-acl';
+import { buildCliProxyAclSections } from './cli-proxy-acl';
+import { RUNTIME_TIMEOUTS } from './runtime-timeouts';
 
 /**
  * Generates Squid proxy configuration with domain whitelisting and optional blocklisting
@@ -34,16 +34,13 @@ const { version: AWF_VERSION } = require('../../package.json') as { version: str
  * // Blocked: internal.example.com -> acl blocked_domains dstdomain .internal.example.com
  */
 export function generateSquidConfig(config: SquidConfig): string {
-  const { domains, sensitiveDomains, blockedDomains, port, sslBump, caFiles, sslDbPath, urlPatterns, enableHostAccess, allowHostPorts, enableDlp, dnsServers, upstreamProxy, apiProxyIp, apiProxyPorts, topologyPeers, otlpEndpoints, cliProxyIp } = config;
+  const { domains, blockedDomains, sslBump, upstreamProxy, apiProxyIp, otlpEndpoints, cliProxyIp } = config;
 
   validateApiProxyIp(apiProxyIp);
   validateCliProxyIp(cliProxyIp);
 
   const { domainsByProto, patternsByProto } = parseDomainConfig(domains);
-  const { domainsByProto: sensitiveDomainsByProto } = parseDomainConfig(
-    (sensitiveDomains ?? []).filter(domain => !isIP(domain.replace(/^\[|\]$/g, ''))),
-  );
-  const brokerLogSection = generateApiProxyBrokerLogSection(config);
+  const loggingSection = buildLoggingSection(config);
   const { aclLines, blockedDomainConfig } = generateAclSections(domainsByProto, patternsByProto, blockedDomains);
   const { accessRulesSection, denyRule } = generateAccessRules(
     domainsByProto,
@@ -56,23 +53,10 @@ export function generateSquidConfig(config: SquidConfig): string {
     allAclLines.push('');
   }
   allAclLines.push(...aclLines);
-  const otlpAclLines = (otlpEndpoints ?? []).flatMap((endpoint, index) => [
-    `acl otlp_endpoint_${index}_host dstdomain ${assertSafeForSquidConfig(endpoint.hostname)}`,
-    `acl otlp_endpoint_${index}_port port ${endpoint.port}`,
-  ]);
-  if (otlpAclLines.length > 0) {
-    allAclLines.push('', '# Exact host and port ACLs for configured OTLP collectors', ...otlpAclLines);
-  }
+  const { aclLines: otlpAclLines, accessRules: otlpAccessRules } = buildOtlpAclSections(otlpEndpoints);
+  allAclLines.push(...otlpAclLines);
 
   const aclSection = allAclLines.length > 0 ? allAclLines.join('\n') : '# No domains configured';
-  const sensitiveLogAcl = [
-    ...sensitiveDomainsByProto.http,
-    ...sensitiveDomainsByProto.https,
-    ...sensitiveDomainsByProto.both,
-  ].map((domain) => `.${domain.replace(/^\./, '')}`);
-  const sensitiveLogAclSection = sensitiveLogAcl.length > 0
-    ? `acl sensitive_log_domains dstdomain ${sensitiveLogAcl.join(' ')}`
-    : '';
   const {
     dlpAclSection,
     dlpAccessSection,
@@ -85,40 +69,13 @@ export function generateSquidConfig(config: SquidConfig): string {
     dnsSection,
     topologyPeersSection,
   } = buildConfigSections({
-    enableDlp,
-    port,
-    sslBump,
-    caFiles,
-    sslDbPath,
-    urlPatterns,
-    domains,
-    blockedDomains,
+    ...config,
     domainsByProto,
     patternsByProto,
-    enableHostAccess,
-    allowHostPorts,
-    apiProxyPorts,
-    apiProxyIp,
-    dnsServers,
-    topologyPeers,
-    otlpEndpoints,
-    cliProxyIp,
     brokerTlsSection: generateApiProxyBrokerSpliceSection(config),
   });
-  const otlpAccessRules = (otlpEndpoints ?? []).map((endpoint, index) =>
-    `http_access allow ${endpoint.protocol === 'http' ? '!CONNECT ' : 'CONNECT '}otlp_endpoint_${index}_host otlp_endpoint_${index}_port`
-  ).join('\n');
   const effectiveAccessRules = [accessRulesSection.trimEnd(), otlpAccessRules].filter(Boolean).join('\n') + '\n';
-  const cliProxyAclSection = cliProxyIp
-    ? `acl from_cli_proxy src ${cliProxyIp}/32
-acl cli_proxy_artifact_storage dstdomain .blob.core.windows.net`
-    : '';
-  const cliProxyAccessSection = cliProxyIp
-    ? `# Allow the CLI proxy to follow GitHub artifact redirects without widening
-# the agent's domain allowlist.
-http_access allow from_cli_proxy cli_proxy_artifact_storage
-`
-    : '';
+  const { aclSection: cliProxyAclSection, accessSection: cliProxyAccessSection } = buildCliProxyAclSections(cliProxyIp);
 
   const apiProxyUpstreamSection = generateApiProxyUpstreamSection(config, blockedDomainConfig.accessRules);
 
@@ -132,27 +89,7 @@ pinger_enable off
 # PID file location - use proxy-owned directory since container runs as non-root
 pid_filename /var/run/squid/squid.pid
 
-# Custom log format with detailed connection information
-# Format: timestamp client_ip:port dest_domain dest_ip:port protocol method status decision url user_agent
-# Note: For CONNECT requests (HTTPS), the domain is in the URL field
-logformat firewall_detailed %ts.%03tu %>a:%>p %{Host}>h %<a:%<p %rv %rm %>Hs %Ss:%Sh %ru "%{User-Agent}>h"
-
-# Structured JSONL audit log for machine-readable analysis
-# Note: Squid logformat does not JSON-escape strings, so fields like User-Agent
-# could break JSON parsing. We omit User-Agent to reduce breakage risk.
-logformat audit_jsonl {"_schema":"audit/v${AWF_VERSION}","timestamp":"%{%Y-%m-%dT%H:%M:%S}tg.%03tuZ","event":"http_access","client":"%>a","host":"%{Host}>h","dest":"%<a:%<p","method":"%rm","status":%>Hs,"decision":"%Ss","url":"%ru"}
-
-# Access log and cache configuration
-# Keep logs readable by the host runner for post-run redaction.
-umask 022
-# Don't log healthcheck probes from localhost (using ACL filter on access_log)
-acl healthcheck_localhost src 127.0.0.1 ::1
-${sensitiveLogAclSection}
-${brokerLogSection.acls}
-access_log /var/log/squid/access.log firewall_detailed !healthcheck_localhost ${sensitiveLogAcl.length > 0 ? '!sensitive_log_domains' : ''} ${brokerLogSection.exclusions}
-access_log /var/log/squid/audit.jsonl audit_jsonl !healthcheck_localhost ${sensitiveLogAcl.length > 0 ? '!sensitive_log_domains' : ''} ${brokerLogSection.exclusions}
-cache_log /var/log/squid/cache.log
-cache deny all
+${loggingSection}
 
 ${aclSection}
 ${cliProxyAclSection}
@@ -206,37 +143,5 @@ error_directory /usr/share/squid/errors/en
 cache_mem 64 MB
 maximum_object_size 0 KB
 
-# Timeout settings for streaming/long-lived connections (AI inference APIs)
-# read_timeout: Time to wait for data from server before giving up
-# Increased to accommodate long AI inference calls and SSE streaming
-read_timeout 30 minutes
-
-# connect_timeout: Time to wait for TCP connection to origin server
-connect_timeout 30 seconds
-
-# request_timeout: Time to wait for client to send first request after connection
-request_timeout 2 minutes
-
-# persistent_request_timeout: Time to wait for next request on persistent connection
-persistent_request_timeout 2 minutes
-
-# pconn_timeout: How long to keep idle persistent connections to servers
-pconn_timeout 2 minutes
-
-# client_lifetime: Maximum time a client connection can be open
-# Set high to accommodate long streaming sessions
-client_lifetime 8 hours
-
-# Close clients that send EOF before the TLS ClientHello to avoid Squid's
-# empty-buffer assertion during ssl_bump peek. CONNECT tunnels handle half-close
-# themselves, and SSE does not require a TCP half-close.
-half_closed_clients off
-
-# shutdown_lifetime: Time to wait for active connections during shutdown
-# Set to 0 because this is an ephemeral proxy — no connection draining needed
-shutdown_lifetime 0 seconds
-
-# Debugging (can be enabled for troubleshooting)
-# debug_options ALL,1 33,2
-`;
+${RUNTIME_TIMEOUTS}`;
 }
