@@ -12,33 +12,24 @@ const { buildCopilotAuthErrorMessage } = require('./upstream-log');
 const { handle400WithRetry, handleFallbackEligibleResponse } = require('./upstream-retry');
 const { setupTokenTracking } = require('./upstream-token');
 const { buildCopilotWireAuthDiagnostic } = require('./copilot-auth-diagnostics');
+const { needsResponseTranslation } = require('./cross-provider-fallback');
 const {
-  transformCodexCompatibleResponseBody,
-  createCodexCompatibleSseTransform,
-} = require('./codex-compat');
-const {
-  transformWireApiResponseBody,
-  createWireApiSseTransform,
-} = require('./wire-api-compat');
-const {
-  needsResponseTranslation,
-  transformProtocolResponseBody,
-  createProtocolSseTransforms,
-} = require('./cross-provider-fallback');
-
-/** Maximum number of times to retry a Copilot 400 "model not supported" response. */
-const MAX_MODEL_NOT_SUPPORTED_RETRIES = 2;
-const MAX_FALLBACK_INSPECTION_BYTES = 64 * 1024;
+  MAX_MODEL_NOT_SUPPORTED_RETRIES,
+  shouldBuffer400,
+  shouldBufferForFallback,
+  shouldCaptureUpstreamError,
+  createResponseCapture,
+  shouldCaptureErrorBodyChunk,
+  captureErrorBodyChunk,
+  bufferUpstreamResponse,
+} = require('./upstream-response-buffering');
+const { selectCompatibilityTransforms } = require('./upstream-response-transforms');
 
 function withoutContentLength(headers) {
   const next = { ...headers };
   delete next['content-length'];
   delete next['Content-Length'];
   return next;
-}
-
-function shouldCaptureErrorBodyChunk(currentBytes, chunkLength, maxCaptureBytes) {
-  return currentBytes < maxCaptureBytes && chunkLength > 0;
 }
 
 /**
@@ -95,13 +86,7 @@ function createUpstreamResponseHandlers({
     protocolTranslation = null,
   }) {
     req.awfRouting?.onUpstreamResponseHeaders?.(proxyRes.headers, proxyRes);
-    let responseBytes = 0;
-    let capturedErrorBytes = 0;
-    let errorBodyTruncated = false;
-    const capturedErrorChunks = [];
-    const maxErrorCaptureBytes = Number.parseInt(process.env.AWF_MAX_ERROR_RESPONSE_CAPTURE_BYTES, 10) > 0
-      ? Number.parseInt(process.env.AWF_MAX_ERROR_RESPONSE_CAPTURE_BYTES, 10)
-      : 64 * 1024;
+    const capture = createResponseCapture();
     const billingInfo = extractBillingHeaders(proxyRes.headers);
     const initiatorSent = requestHeaders['x-initiator'] || null;
     const requestModel = extractRequestModel(body);
@@ -110,28 +95,14 @@ function createUpstreamResponseHandlers({
       req.awfEnclaveModelBudgetAttempt?.settleMissing();
     }
 
-    // Buffer the 400 response body when we may need to inspect it for either:
-    //   (a) a deprecated Anthropic/Copilot beta-header value (first attempt only),
-    //   (b) a transient Copilot "model not supported" catalogue error (up to MAX retries), or
-    //   (c) a permanent Copilot "model not accessible via endpoint" error (fallback to next candidate), or
-    //   (d) a model-specific error eligible for the ordered fallback chain (any provider).
     const isRoutingClassifier = req.awfRequestContext?.purpose === 'routing_classification';
     const canFallback = !isRoutingClassifier && typeof onModelFallback === 'function';
-    const shouldBuffer400 =
-      !isRoutingClassifier &&
-      proxyRes.statusCode === 400 &&
-      (
-        ((provider === 'anthropic' || provider === 'copilot') && !hasRetried) ||
-        (provider === 'copilot' && modelNotSupportedRetryCount < MAX_MODEL_NOT_SUPPORTED_RETRIES) ||
-        (provider === 'copilot' && !!onModelEndpointBlockedRetry) ||
-        canFallback
-      );
-    // 5xx and 404 responses are buffered only when a fallback model is
-    // available, so the original error can be swallowed if we switch models.
-    const shouldBufferForFallback = canFallback &&
-      (proxyRes.statusCode === 404 || (proxyRes.statusCode >= 500 && proxyRes.statusCode <= 599));
-    const shouldCaptureUpstreamError = !isRoutingClassifier &&
-      (proxyRes.statusCode < 200 || proxyRes.statusCode >= 300);
+    const bufferingPolicy = {
+      statusCode: proxyRes.statusCode, provider, isRoutingClassifier, canFallback,
+      hasRetried, modelNotSupportedRetryCount, onModelEndpointBlockedRetry,
+    };
+    const buffer400 = shouldBuffer400(bufferingPolicy);
+    const captureUpstreamError = shouldCaptureUpstreamError(bufferingPolicy);
 
     const authErrCtx = {
       requestId, provider, targetHost, req,
@@ -143,110 +114,55 @@ function createUpstreamResponseHandlers({
       copilotAuthDiagnostic: authErrCtx.copilotAuthDiagnostic,
     };
 
-    function forwardOversizedBufferedResponse(bufferedChunks, currentChunk) {
-      const responseBody = Buffer.concat(bufferedChunks);
-      const resHeaders = { ...proxyRes.headers, 'x-request-id': requestId };
-      res.awfUpstreamResponse = true;
-      res.writeHead(proxyRes.statusCode, resHeaders);
-      const canWritePrefix = res.write(responseBody);
-      const canWriteChunk = res.write(currentChunk);
-      const canContinue = canWritePrefix && canWriteChunk;
-      if (canContinue) {
-        proxyRes.pipe(res);
-      } else {
-        proxyRes.pause();
-        res.once('drain', () => proxyRes.pipe(res));
-      }
-
-      proxyRes.once('end', () => {
-        logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo, completionCtx);
-        logUpstreamAuthError(proxyRes.statusCode, {
-          ...authErrCtx, responseBody, responseBodyTruncated: true,
-        });
-        logUpstreamErrorResponse(proxyRes.statusCode, {
-          ...authErrCtx,
-          requestModel,
-          requestTools,
-          transformed: false,
-          responseHeaders: proxyRes.headers,
-          responseBody,
-          responseBodyBytes: responseBytes,
-          responseBodyTruncated: true,
-        });
-        otel.endSpan(span, proxyRes.statusCode);
-      });
-    }
-
     proxyRes.on('error', (err) => handleResponseStreamError(err, {
       res, requestId, provider, req, targetHost, startTime, span,
     }));
 
-    if (shouldBuffer400) {
-      const bufferedChunks = [];
-      let bufferedBytes = 0;
-      let fallbackBufferExceeded = false;
-      proxyRes.on('data', (chunk) => {
-        responseBytes += chunk.length;
-        if (fallbackBufferExceeded) return;
-        if (bufferedBytes + chunk.length > MAX_FALLBACK_INSPECTION_BYTES) {
-          fallbackBufferExceeded = true;
-          forwardOversizedBufferedResponse(bufferedChunks, chunk);
-          return;
-        }
-        bufferedChunks.push(chunk);
-        bufferedBytes += chunk.length;
-      });
-      proxyRes.on('end', () => {
-        if (fallbackBufferExceeded) return;
-        const responseBody = Buffer.concat(bufferedChunks);
-        const didRetry = handle400WithRetry(proxyRes, requestHeaders, responseBody, {
-          provider, requestId, hasRetried, onRetry,
-          modelNotSupportedRetryCount, maxModelNotSupportedRetries: MAX_MODEL_NOT_SUPPORTED_RETRIES, onModelNotSupportedRetry,
-          onModelEndpointBlockedRetry,
-          onWireApiEndpointRetry,
-          onModelFallback: canFallback ? onModelFallback : null,
-          completionCtx, authErrCtx, initiatorSent, billingInfo, res, span,
-          parseDeprecatedHeaderFromBody,
-          learnAndStripDeprecatedHeaderValue,
-          parseModelNotSupportedFromBody,
-          parseModelEndpointBlockedFromBody,
-          logRequest,
-          sanitizeForLog,
-          logRequestCompletion,
-          logUpstreamAuthError,
-          logUpstreamErrorResponse,
-          otel,
-          requestModel,
-          requestTools,
-        });
-        if (didRetry) return;
-      });
-      return;
-    }
-
-    if (shouldBufferForFallback) {
-      const bufferedChunks = [];
-      let bufferedBytes = 0;
-      let fallbackBufferExceeded = false;
-      proxyRes.on('data', (chunk) => {
-        responseBytes += chunk.length;
-        if (fallbackBufferExceeded) return;
-        if (bufferedBytes + chunk.length > MAX_FALLBACK_INSPECTION_BYTES) {
-          fallbackBufferExceeded = true;
-          forwardOversizedBufferedResponse(bufferedChunks, chunk);
-          return;
-        }
-        bufferedChunks.push(chunk);
-        bufferedBytes += chunk.length;
-      });
-      proxyRes.on('end', () => {
-        if (fallbackBufferExceeded) return;
-        handleFallbackEligibleResponse(proxyRes, Buffer.concat(bufferedChunks), {
-          onModelFallback,
-          completionCtx, authErrCtx, initiatorSent, billingInfo, res, span, requestId,
-          logRequestCompletion, logUpstreamAuthError, logUpstreamErrorResponse, otel,
-          requestModel, requestTools,
-        });
+    if (buffer400 || shouldBufferForFallback(bufferingPolicy)) {
+      bufferUpstreamResponse(proxyRes, {
+        res, requestId, capture,
+        onBuffered: (responseBody) => {
+          const responseCtx = {
+            completionCtx, authErrCtx, initiatorSent, billingInfo, res, span, requestId,
+            logRequestCompletion, logUpstreamAuthError, logUpstreamErrorResponse, otel,
+            requestModel, requestTools,
+          };
+          if (!buffer400) {
+            handleFallbackEligibleResponse(proxyRes, responseBody, { ...responseCtx, onModelFallback });
+            return;
+          }
+          handle400WithRetry(proxyRes, requestHeaders, responseBody, {
+            ...responseCtx,
+            provider, hasRetried, onRetry,
+            modelNotSupportedRetryCount, maxModelNotSupportedRetries: MAX_MODEL_NOT_SUPPORTED_RETRIES, onModelNotSupportedRetry,
+            onModelEndpointBlockedRetry,
+            onWireApiEndpointRetry,
+            onModelFallback: canFallback ? onModelFallback : null,
+            parseDeprecatedHeaderFromBody,
+            learnAndStripDeprecatedHeaderValue,
+            parseModelNotSupportedFromBody,
+            parseModelEndpointBlockedFromBody,
+            logRequest,
+            sanitizeForLog,
+          });
+        },
+        onOversized: (responseBody) => {
+          logRequestCompletion(proxyRes.statusCode, capture.responseBytes, initiatorSent, billingInfo, completionCtx);
+          logUpstreamAuthError(proxyRes.statusCode, {
+            ...authErrCtx, responseBody, responseBodyTruncated: true,
+          });
+          logUpstreamErrorResponse(proxyRes.statusCode, {
+            ...authErrCtx,
+            requestModel,
+            requestTools,
+            transformed: false,
+            responseHeaders: proxyRes.headers,
+            responseBody,
+            responseBodyBytes: capture.responseBytes,
+            responseBodyTruncated: true,
+          });
+          otel.endSpan(span, proxyRes.statusCode);
+        },
       });
       return;
     }
@@ -268,61 +184,49 @@ function createUpstreamResponseHandlers({
     const resHeaders = { ...proxyRes.headers, 'x-request-id': requestId };
     logUpstreamAuthError(proxyRes.statusCode, authErrCtx);
 
-    const responseTransforms = [];
-    if (canTransformCompatibilityResponse && isStreaming) {
-      responseTransforms.push(...createProtocolSseTransforms(protocolTranslation));
-      const wireSseTransform = createWireApiSseTransform(wireApiCompatibility);
-      const codexSseTransform = createCodexCompatibleSseTransform(codexCompatibility, compatibilityProvider);
-      if (wireSseTransform) responseTransforms.push(wireSseTransform);
-      if (codexSseTransform) responseTransforms.push(codexSseTransform);
-    }
+    const responseTransforms = canTransformCompatibilityResponse
+      ? selectCompatibilityTransforms({
+        compatibilityProvider, protocolTranslation, codexCompatibility, wireApiCompatibility, isStreaming, isJson,
+      }) : [];
 
     if (canTransformCompatibilityResponse && isJson) {
       const bufferedChunks = [];
       proxyRes.on('data', (chunk) => {
-        responseBytes += chunk.length;
+        capture.responseBytes += chunk.length;
         bufferedChunks.push(chunk);
       });
       proxyRes.on('end', () => {
-        logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo, completionCtx);
+        logRequestCompletion(proxyRes.statusCode, capture.responseBytes, initiatorSent, billingInfo, completionCtx);
         let outgoingBody = Buffer.concat(bufferedChunks);
-        const protocolTransformed = transformProtocolResponseBody(outgoingBody, protocolTranslation);
-        if (protocolTransformed) outgoingBody = protocolTransformed;
-        const wireTransformed = transformWireApiResponseBody(outgoingBody, wireApiCompatibility);
-        if (wireTransformed) outgoingBody = wireTransformed;
-        const codexTransformed = transformCodexCompatibleResponseBody(outgoingBody, codexCompatibility, compatibilityProvider);
-        if (codexTransformed) outgoingBody = codexTransformed;
-        const transformed = !!protocolTransformed || !!wireTransformed || !!codexTransformed;
+        let transformed = false;
+        for (const transform of responseTransforms) {
+          const next = transform(outgoingBody);
+          if (next) {
+            outgoingBody = next;
+            transformed = true;
+          }
+        }
         res.awfUpstreamResponse = true;
         res.writeHead(proxyRes.statusCode, transformed ? withoutContentLength(resHeaders) : resHeaders);
         res.end(outgoingBody);
       });
     } else {
       proxyRes.on('data', (chunk) => {
-        responseBytes += chunk.length;
-        if (!shouldCaptureUpstreamError) return;
-        if (!shouldCaptureErrorBodyChunk(capturedErrorBytes, chunk.length, maxErrorCaptureBytes)) {
-          errorBodyTruncated = true;
-          return;
-        }
-        const remaining = maxErrorCaptureBytes - capturedErrorBytes;
-        const toCapture = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
-        capturedErrorChunks.push(toCapture);
-        capturedErrorBytes += toCapture.length;
-        if (chunk.length > remaining) errorBodyTruncated = true;
+        capture.responseBytes += chunk.length;
+        if (captureUpstreamError) captureErrorBodyChunk(capture, chunk);
       });
       proxyRes.on('end', () => {
-        logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo, completionCtx);
-        if (shouldCaptureUpstreamError) {
+        logRequestCompletion(proxyRes.statusCode, capture.responseBytes, initiatorSent, billingInfo, completionCtx);
+        if (captureUpstreamError) {
           logUpstreamErrorResponse(proxyRes.statusCode, {
             ...authErrCtx,
             requestModel,
             requestTools,
             transformed: responseTransforms.length > 0,
             responseHeaders: proxyRes.headers,
-            responseBody: Buffer.concat(capturedErrorChunks, capturedErrorBytes),
-            responseBodyBytes: responseBytes,
-            responseBodyTruncated: errorBodyTruncated,
+            responseBody: Buffer.concat(capture.capturedErrorChunks, capture.capturedErrorBytes),
+            responseBodyBytes: capture.responseBytes,
+            responseBodyTruncated: capture.errorBodyTruncated,
           });
         }
       });

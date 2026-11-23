@@ -79,6 +79,7 @@ COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
      anthropic-chat-compat.js cross-provider-fallback.js \
      websocket-guards.js websocket-tunnel.js \
      deprecated-header-tracker.js billing-headers.js upstream-response.js \
+     upstream-response-buffering.js upstream-response-transforms.js \
      upstream-error-classification.js upstream-error-logging.js \
      upstream-log.js upstream-retry.js upstream-token.js copilot-auth-diagnostics.js credential-protection.js credential-websocket.js \
      anthropic-cache.js otel.js otel-exporters.js otel-serialization.js otel-workload-identity.js \
