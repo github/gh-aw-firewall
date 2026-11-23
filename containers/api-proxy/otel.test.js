@@ -106,6 +106,43 @@ describe('otel — _parseOtlpHeaders', () => {
 });
 
 describe('otel — startRequestSpan', () => {
+  test('returns W3C headers identifying the request span in the workflow trace', async () => {
+    const traceId = 'aabbccddeeff00112233445566778899';
+    const parentSpanId = 'aabbccddeeff0011';
+    const { otel, memExporter } = loadOtelWithMemoryExporter({
+      GITHUB_AW_OTEL_TRACE_ID: traceId,
+      GITHUB_AW_OTEL_PARENT_SPAN_ID: parentSpanId,
+    });
+    const span = otel.startRequestSpan({
+      provider: 'copilot', method: 'POST', path: '/responses', requestId: 'trace-request',
+    });
+    const headers = otel.getRequestTraceHeaders(span);
+    span.end();
+    await otel._provider.forceFlush();
+    const [exportedSpan] = memExporter.getFinishedSpans();
+    expect(exportedSpan.name).toBe('api_proxy.copilot.request');
+    expect(exportedSpan.parentSpanContext.spanId).toBe(parentSpanId);
+    expect(headers).toEqual({
+      traceparent: `00-${traceId}-${exportedSpan.spanContext().spanId}-01`,
+    });
+  });
+
+  test('includes span tracestate but never baggage, and ignores missing or invalid spans', () => {
+    const { otel } = loadOtelWithMemoryExporter();
+    const span = trace.wrapSpanContext({
+      traceId: 'aabbccddeeff00112233445566778899',
+      spanId: '1122334455667788',
+      traceFlags: 1,
+      traceState: createTraceState('vendor=value'),
+    });
+    expect(otel.getRequestTraceHeaders(span)).toEqual({
+      traceparent: '00-aabbccddeeff00112233445566778899-1122334455667788-01',
+      tracestate: 'vendor=value',
+    });
+    expect(otel.getRequestTraceHeaders(null)).toEqual({});
+    expect(otel.getRequestTraceHeaders(trace.wrapSpanContext(INVALID_SPAN_CONTEXT))).toEqual({});
+  });
+
   test('creates a span with expected attributes', async () => {
     const { otel, memExporter } = loadOtelWithMemoryExporter();
 

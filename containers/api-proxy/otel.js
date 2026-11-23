@@ -235,6 +235,17 @@ function startRequestSpan({ provider, method, path, requestId }) {
 }
 
 /**
+ * Return only the W3C trace headers for a request span, never baggage.
+ * Missing and no-op spans have no headers.
+ * @param {import('@opentelemetry/api').Span|null} span
+ * @returns {Record<string, string>}
+ */
+function getRequestTraceHeaders(span) {
+  if (!_enabled || !span?.spanContext) return {};
+  return _traceHeaders(span.spanContext());
+}
+
+/**
  * Attach token-usage attributes and emit the `gen_ai.usage` span event.
  *
  * Called from the proxy-request.js `onUsage` callback so that token data
@@ -475,6 +486,7 @@ function isEnabled() { return _enabled; }
 
 module.exports = {
   startRequestSpan,
+  getRequestTraceHeaders,
   setTokenAttributes,
   setBudgetAttributes,
   endSpan,

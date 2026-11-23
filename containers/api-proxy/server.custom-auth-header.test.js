@@ -8,6 +8,17 @@
 const { createAnthropicAdapter } = require('./providers/anthropic');
 const { createOpenAIAdapter } = require('./providers/openai');
 
+describe('reserved trace authentication headers', () => {
+  it.each([
+    ['openai', createOpenAIAdapter, 'AWF_OPENAI_AUTH_HEADER'],
+    ['anthropic', createAnthropicAdapter, 'AWF_ANTHROPIC_AUTH_HEADER'],
+  ])('rejects %s custom auth header conflicts at startup', (provider, create, envVar) => {
+    for (const header of ['traceparent', 'TraceState', ' BAGGAGE ']) {
+      expect(() => create({ [envVar]: header })).toThrow(`Invalid ${envVar} value: trace context headers are reserved`);
+    }
+  });
+});
+
 // ─── Anthropic ───
 
 describe('createAnthropicAdapter — custom auth header', () => {

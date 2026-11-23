@@ -7,6 +7,10 @@ const { maybeStripLearnedHeaderValues } = require('./deprecated-header-tracker')
 const { recordCopilotInjectedHeaders } = require('./copilot-auth-diagnostics');
 const { TRUSTED_SERVICE, TRUSTED_SERVICE_HEADERS } = require('./trusted-service');
 const { rememberInjectedCredentials } = require('./credential-protection');
+const { validateHeaderValue } = require('http');
+const providerEnv = require('./provider-env-constants');
+
+const TRACE_HEADERS = new Set(['traceparent', 'tracestate', 'baggage']);
 
 /** Integration ID used when the caller did not configure one. */
 const DEFAULT_COPILOT_INTEGRATION_ID = 'agentic-workflows';
@@ -135,6 +139,50 @@ function applyCopilotHostHeaders(headers, targetHost) {
 }
 
 /**
+ * Replace caller/retry trace context only for an explicitly configured provider
+ * origin. Reapply before signing each attempt so fallback hosts cannot inherit it.
+ */
+function applyRequestTraceHeaders(headers, { traceHeaders, provider, targetHost, targetScheme = 'https' }, env = process.env) {
+  for (const name of Object.keys(headers)) {
+    if (TRACE_HEADERS.has(name.toLowerCase())) delete headers[name];
+  }
+  const hostname = (getTargetHostname(targetHost) || '').replace(/\.$/, '');
+  if (typeof traceHeaders?.traceparent !== 'string' || !traceHeaders.traceparent
+    || isCopilotIntegrationHost(hostname)) return;
+
+  const envVars = providerEnv[`${provider.toUpperCase()}_ENV`];
+  if (!envVars) return;
+  const configuredTargets = [env[envVars.TARGET || envVars.API_TARGET]];
+  if (provider === 'copilot' || provider === 'openai') {
+    configuredTargets.push(env[providerEnv.COPILOT_ENV.PROVIDER_BASE_URL]);
+  }
+  // Keep header-only utilities independent of the OIDC transport dependencies.
+  const { matchesTargetOrigin } = require('./providers/cloud-oidc-init');
+  if (!configuredTargets.some(target => {
+    if (typeof target !== 'string' || !target.trim()) return false;
+    const value = target.trim();
+    try {
+      const url = new URL(/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(value) ? value : `https://${value}`);
+      if (!['http:', 'https:'].includes(url.protocol)) return false;
+      return matchesTargetOrigin(`${targetScheme}://${targetHost}`, url.origin);
+    } catch {
+      return false;
+    }
+  })) return;
+
+  try {
+    const propagated = {};
+    for (const name of ['traceparent', 'tracestate']) {
+      const value = traceHeaders[name];
+      if (typeof value !== 'string' || !value) continue;
+      validateHeaderValue(name, value);
+      propagated[name] = value;
+    }
+    Object.assign(headers, propagated);
+  } catch { /* Optional tracing must not prevent the upstream request. */ }
+}
+
+/**
  * Build the headers object for the upstream request.
  * Strips headers matched by `shouldStripHeader()`, merges injected auth
  * headers, sets the request-id, and adjusts content-length when the body was
@@ -143,10 +191,10 @@ function applyCopilotHostHeaders(headers, targetHost) {
  * @param {Buffer} body - Final (possibly transformed) request body
  * @param {number} inboundBytes - Original body size before transforms
  * @param {import('http').IncomingMessage} req
- * @param {{ injectHeaders: object, provider: string, targetHost: string, requestId: string, codexCompatibility?: object|null, wireApiCompatibility?: object|null }} opts
+ * @param {{ injectHeaders: object, provider: string, targetHost: string, requestId: string, targetScheme?: string, traceHeaders?: object|null, codexCompatibility?: object|null, wireApiCompatibility?: object|null }} opts
  * @returns {object} Headers object for the upstream request
  */
-function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider, targetHost, requestId, codexCompatibility = null, wireApiCompatibility = null }) {
+function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider, targetHost, requestId, targetScheme = 'https', traceHeaders = null, codexCompatibility = null, wireApiCompatibility = null }) {
   rememberInjectedCredentials(req, injectHeaders);
   const headers = {};
   for (const [name, value] of Object.entries(req.headers)) {
@@ -154,6 +202,7 @@ function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider,
   }
   headers['x-request-id'] = requestId;
   mergeInjectedHeaders(headers, injectHeaders, targetHost);
+  applyRequestTraceHeaders(headers, { traceHeaders, provider, targetHost, targetScheme });
 
   if (provider === 'anthropic' || provider === 'copilot') {
     maybeStripLearnedHeaderValues(headers, requestId, provider);
@@ -203,6 +252,7 @@ module.exports = {
   buildRequestHeaders,
   mergeInjectedHeaders,
   applyCopilotHostHeaders,
+  applyRequestTraceHeaders,
   resolveCopilotInteractionId,
   resetCopilotInteractionIdForTests,
   DEFAULT_COPILOT_INTEGRATION_ID,
