@@ -73,24 +73,18 @@ steps:
   - name: Run api-proxy OTEL tests
     run: |
       cd containers/api-proxy
-      npx jest --verbose --ci --testPathPattern='otel' 2>&1 || true
+      npx jest --verbose --ci --testPathPatterns='otel' 2>&1
       echo "OTEL test execution complete"
   - name: Validate OTEL module loads
     run: |
       cd containers/api-proxy
       node -e "
-        try {
-          const otel = require('./otel');
-          console.log('OTEL module loaded successfully');
-          console.log('isEnabled:', otel.isEnabled());
-          console.log('exports:', Object.keys(otel).join(', '));
-        } catch (err) {
-          if (err.code === 'MODULE_NOT_FOUND') {
-            console.log('OTEL module not yet implemented (expected during development)');
-            process.exit(0);
-          }
-          throw err;
-        }
+        const assert = require('node:assert/strict');
+        const otel = require('./otel');
+        assert.equal(otel.isEnabled(), true);
+        console.log('OTEL module loaded successfully');
+        console.log('isEnabled:', otel.isEnabled());
+        console.log('exports:', Object.keys(otel).join(', '));
       "
   - name: Validate OTEL env var forwarding
     run: |
@@ -131,18 +125,19 @@ post-steps:
     if: always()
     run: |
       echo "=== OTEL Diagnostics ==="
-      if [ -f /tmp/gh-aw/sandbox/firewall/logs/api-proxy/otel.jsonl ]; then
-        echo "OTEL spans exported:"
-        wc -l /tmp/gh-aw/sandbox/firewall/logs/api-proxy/otel.jsonl
+      echo "OTLP collector mode configured; collector delivery requires backend span evidence."
+      if [ -f /tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs/otel.jsonl ]; then
+        echo "Local fallback OTEL span records (not collector delivery evidence):"
+        wc -l /tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs/otel.jsonl
         echo "Sample spans:"
-        head -5 /tmp/gh-aw/sandbox/firewall/logs/api-proxy/otel.jsonl
+        head -5 /tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs/otel.jsonl
       else
-        echo "No OTEL span file found (api-proxy OTEL not yet active)"
+        echo "No local fallback span file; expected in OTLP collector mode, not proof of export."
       fi
-      if [ -f /tmp/gh-aw/sandbox/firewall/logs/api-proxy/token-usage.jsonl ]; then
+      if [ -f /tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs/token-usage.jsonl ]; then
         echo ""
         echo "Token usage records (existing tracking):"
-        wc -l /tmp/gh-aw/sandbox/firewall/logs/api-proxy/token-usage.jsonl
+        wc -l /tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs/token-usage.jsonl
       fi
   - name: Validate safe outputs were invoked
     env:
@@ -178,7 +173,7 @@ OTEL tracing integration works correctly:
 3. **Token usage attributes** — GenAI semantic conventions (`gen_ai.usage.*`) on spans
 4. **Parent context propagation** — Spans link to workflow trace via env vars
 5. **OTLP export** — Spans are exported through Squid proxy to the configured endpoint
-6. **Graceful degradation** — No errors when OTEL is not configured
+6. **File fallback** — Without OTLP endpoints, tracing stays enabled with `FileSpanExporter`
 
 ## Test Scenarios
 
@@ -192,7 +187,7 @@ successfully and what functions it exports.
 ### Scenario 2: Test Suite
 
 Check the output from "Run api-proxy OTEL tests" step. Report test pass/fail counts.
-If no OTEL tests exist yet, note that as expected during development.
+Missing tests or a failed test command are failures, not expected-pending results.
 
 ### Scenario 3: Env Var Forwarding
 
@@ -208,8 +203,19 @@ Check the output from "Validate token-tracker OTEL integration" step. Confirm th
 
 ### Scenario 5: OTEL Diagnostics
 
-Check the output from "Collect OTEL diagnostics" post-step. Report whether any spans
-were exported during the run.
+The "Collect OTEL diagnostics" post-step runs after the agent and is not available yet.
+It checks `api-proxy-logs/` for local fallback records, not collector delivery.
+This workflow configures OTLP endpoints, so a missing `otel.jsonl` is expected.
+Only report collector delivery as confirmed with backend span evidence for this run;
+otherwise report it as unverified, not failed. Unit tests and local files alone do not
+prove collector delivery.
+
+### Scenario 6: File Fallback
+
+Check that `uses FileSpanExporter when no OTLP config at all` in `otel-fanout.test.js`
+passed. It clears OTLP configuration and asserts that tracing stays enabled with
+`FileSpanExporter` targeting `/var/log/api-proxy/otel.jsonl`, rather than assuming
+tracing is disabled when no endpoint is configured.
 
 ## Reporting
 
@@ -217,5 +223,6 @@ Report a brief summary of all scenario results:
 - **If triggered by pull request**: add a comment with ✅/❌ per scenario
 - **If not triggered by pull request**: use noop to report results
 
-If all scenarios pass (or are expected-pending during development), report success.
+If all local validation scenarios pass, report local success and state separately
+whether collector delivery is confirmed or unverified.
 If any scenario shows an unexpected failure, file an issue with details.
