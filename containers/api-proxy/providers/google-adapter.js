@@ -11,6 +11,7 @@ const { createStandardProviderAdapter } = require('../adapter-factory');
 const { bearerAuthHeaders, providerKeyHeaders } = require('./auth-headers');
 const { GOOGLE_PROVIDER_SPECS } = require('./google-provider-specs');
 const { buildOidcUnavailableScaffold } = require('../oidc-adapter-utils');
+const { hasSelectedCloudOidcTarget } = require('./cloud-oidc-init');
 
 function isGcpOidcRequested(env) {
   return (env.AWF_AUTH_TYPE || '').trim().toLowerCase() === 'github-oidc'
@@ -68,7 +69,7 @@ function createGoogleAuthAdapter(env, deps = {}, opts) {
     name,
     port,
     defaultTarget,
-    createOidcAuthOptions: () => ({ skipWhen: !gcpOidcRequested }),
+    createOidcAuthOptions: () => ({ skipWhen: !gcpOidcRequested, allowCloudOidc: gcpOidcRequested }),
     createHeaderBuilders: ({ apiKey }) => ({
       buildOidcHeaders: bearerAuthHeaders,
       buildStaticHeaders: () => providerKeyHeaders('x-goog-api-key', apiKey),
@@ -161,7 +162,8 @@ function createGoogleProviderAdapter(providerKey, env, deps = {}) {
     ...(transformRequestUrl !== undefined ? { transformRequestUrl } : {}),
   });
 
-  if (vertexOidc && !(env[spec.envConstants.TARGET] || '').trim()) {
+  if (vertexOidc && !(env[spec.envConstants.TARGET] || '').trim()
+      && !(adapter.getOidcProvider() && hasSelectedCloudOidcTarget(env))) {
     const getConfiguredTargetHost = adapter.getTargetHost;
     adapter.getTargetHost = (req) => {
       const match = req?.url?.match(/^\/v1(?:beta1)?\/projects\/[^/]+\/locations\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\/|$)/);

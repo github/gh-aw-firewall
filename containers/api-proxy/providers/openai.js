@@ -24,6 +24,7 @@ const {
 const { createStandardProviderAdapter } = require('../adapter-factory');
 const { OPENAI_ENV, COPILOT_ENV } = require('../provider-env-constants');
 const { bearerAuthHeaders } = require('./auth-headers');
+const { matchesTargetOrigin } = require('./cloud-oidc-init');
 
 /**
  * Create the OpenAI provider adapter.
@@ -67,10 +68,11 @@ function createOpenAIAdapter(env, deps = {}) {
     defaultTarget: 'api.openai.com',
     isManagementPort: true,
     prepareConfig: ({ apiKey: openaiApiKey, rawTarget: openaiTarget, basePath: openaiBasePath, bodyTransform }) => {
-      const apiKey = openaiApiKey || (copilotAzureByokEnabled ? copilotByokApiKey : undefined);
       const explicitOpenAITarget = env[OPENAI_ENV.TARGET] ? openaiTarget : undefined;
       const rawTarget = explicitOpenAITarget || (copilotAzureByokEnabled ? copilotByokTarget : undefined) || 'api.openai.com';
-      const explicitBasePath = openaiBasePath || (copilotAzureByokEnabled ? copilotByokBasePath : '');
+      const useCopilotByok = copilotAzureByokEnabled && matchesTargetOrigin(rawTarget, copilotByokTarget);
+      const apiKey = openaiApiKey || (useCopilotByok ? copilotByokApiKey : undefined);
+      const explicitBasePath = openaiBasePath || (useCopilotByok ? copilotByokBasePath : '');
       const basePath = explicitBasePath || (rawTarget === 'api.openai.com' ? '/v1' : '');
       return {
         apiKey,
@@ -86,7 +88,12 @@ function createOpenAIAdapter(env, deps = {}) {
       buildOidcHeaders: openAiWifRequested ? bearerAuthHeaders : buildTokenAuthHeaders,
       buildStaticHeaders: () => buildTokenAuthHeaders(apiKey),
     }),
-    createOidcAuthOptions: () => ({ allowOpenAiWif: openAiWifRequested }),
+    createOidcAuthOptions: () => ({
+      allowOpenAiWif: openAiWifRequested,
+      // Cloud OIDC tokens are only bound to an explicitly configured upstream
+      // (OPENAI_API_TARGET or the Azure BYOK provider URL), never the default.
+      allowCloudOidc: !!(env[OPENAI_ENV.TARGET] || (copilotAzureByokEnabled && copilotByokTarget)),
+    }),
     createAdapterMethodsOptions: ({
       authProvider,
       oidcConfigured,

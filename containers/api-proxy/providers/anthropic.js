@@ -15,6 +15,7 @@
 
 const {
   composeBodyTransforms,
+  normalizeApiTarget,
 } = require('../proxy-utils');
 const {
   validateAuthHeaderEnv,
@@ -127,6 +128,8 @@ function createAnthropicAdapter(env, deps = {}) {
       ),
     }),
     createOidcAuthOptions: () => ({
+      // Cloud OIDC tokens are only bound to an explicitly configured upstream.
+      allowCloudOidc: !!normalizeApiTarget(env[ANTHROPIC_ENV.TARGET]),
       oidcProviderFactory: oidcRequested ? (env) => {
         const requestUrl = env.ACTIONS_ID_TOKEN_REQUEST_URL;
         const requestToken = env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;

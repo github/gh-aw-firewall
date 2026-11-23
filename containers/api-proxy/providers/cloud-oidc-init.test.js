@@ -1,11 +1,14 @@
 'use strict';
 
 const {
+  isCloudOidcTargetAllowed,
   resolveCloudOidcProviders,
   createProviderOidcAuth,
   createProviderOidcHeaderResolver,
   createProviderOidcHeaderStrategy,
 } = require('./cloud-oidc-init');
+
+const AZURE_TARGET = { allowCloudOidc: true, targetHost: 'my-resource.openai.azure.com' };
 
 describe('resolveCloudOidcProviders', () => {
   it('returns no providers when github-oidc is not configured', () => {
@@ -37,7 +40,7 @@ describe('resolveCloudOidcProviders', () => {
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
       AWF_AUTH_AZURE_TENANT_ID: 'tenant-uuid',
       AWF_AUTH_AZURE_CLIENT_ID: 'client-uuid',
-    });
+    }, AZURE_TARGET);
 
     expect(result.authProvider).toBe('azure');
     expect(result.oidcProvider).toBeTruthy();
@@ -55,7 +58,7 @@ describe('resolveCloudOidcProviders', () => {
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
       AWF_AUTH_AWS_ROLE_ARN: 'arn:aws:iam::123456789012:role/my-role',
       AWF_AUTH_AWS_REGION: 'us-east-1',
-    });
+    }, { allowCloudOidc: true, targetHost: 'bedrock-runtime.us-east-1.amazonaws.com' });
 
     expect(result.authProvider).toBe('aws');
     expect(result.oidcProvider).toBeNull();
@@ -72,7 +75,7 @@ describe('resolveCloudOidcProviders', () => {
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
       AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER: 'projects/123/locations/global/workloadIdentityPools/pool/providers/provider',
-    });
+    }, { allowCloudOidc: true, targetHost: 'us-central1-aiplatform.googleapis.com' });
 
     expect(result.authProvider).toBe('gcp');
     expect(result.oidcProvider).toBeTruthy();
@@ -80,6 +83,41 @@ describe('resolveCloudOidcProviders', () => {
     expect(result.oidcConfigured).toBe(true);
 
     result.oidcProvider.shutdown();
+  });
+
+  describe('cloud OIDC target binding', () => {
+    const AZURE_ENV = {
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'azure',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
+      AWF_AUTH_AZURE_TENANT_ID: 'tenant-uuid',
+      AWF_AUTH_AZURE_CLIENT_ID: 'client-uuid',
+    };
+
+    it('does not create a cloud provider unless the adapter opts in', () => {
+      const result = resolveCloudOidcProviders(AZURE_ENV, { targetHost: 'my-resource.openai.azure.com' });
+      expect(result.oidcProvider).toBeNull();
+      expect(result.oidcConfigured).toBe(false);
+    });
+
+    it.each(['api.openai.com', 'api.anthropic.com', 'api.githubcopilot.com', 'copilot-api.acme.ghe.com', ''])(
+      'refuses to bind a cloud provider to %p',
+      (targetHost) => {
+        const result = resolveCloudOidcProviders(AZURE_ENV, { allowCloudOidc: true, targetHost });
+        expect(result.oidcProvider).toBeNull();
+        expect(result.oidcConfigured).toBe(false);
+      },
+    );
+
+    it('only creates the Azure provider when AWF_AUTH_PROVIDER is azure', () => {
+      const result = resolveCloudOidcProviders(
+        { ...AZURE_ENV, AWF_AUTH_PROVIDER: 'anthropic' },
+        AZURE_TARGET,
+      );
+      expect(result.oidcProvider).toBeNull();
+      expect(result.oidcConfigured).toBe(false);
+    });
   });
 
   it('does not initialize native OpenAI WIF unless explicitly enabled', () => {
@@ -194,7 +232,7 @@ describe('createProviderOidcAuth', () => {
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
       AWF_AUTH_AZURE_TENANT_ID: 'tenant-uuid',
       AWF_AUTH_AZURE_CLIENT_ID: 'client-uuid',
-    });
+    }, AZURE_TARGET);
 
     expect(auth.authProvider).toBe('azure');
     expect(auth.oidcProvider).toBeTruthy();
@@ -289,7 +327,7 @@ describe('createProviderOidcAuth', () => {
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
       AWF_AUTH_AZURE_TENANT_ID: 'tenant-uuid',
       AWF_AUTH_AZURE_CLIENT_ID: 'client-uuid',
-    }, { oidcProviderFactory: {} });
+    }, { ...AZURE_TARGET, oidcProviderFactory: {} });
 
     expect(auth.authProvider).toBe('azure');
     expect(auth.oidcProvider).toBeTruthy();
@@ -376,5 +414,22 @@ describe('createProviderOidcHeaderStrategy', () => {
       Authorization: 'Bearer oidc-token',
       'x-custom': 'extra',
     });
+  });
+});
+
+describe('isCloudOidcTargetAllowed', () => {
+  it.each([
+    ['my-resource.openai.azure.com', true],
+    ['http://my-gateway.internal:8080', true],
+    ['bedrock-runtime.us-east-1.amazonaws.com', true],
+    ['api.openai.com', false],
+    ['API.OpenAI.com.', false],
+    ['api.anthropic.com', false],
+    ['api.githubcopilot.com', false],
+    ['api.enterprise.githubcopilot.com', false],
+    ['copilot-api.acme.ghe.com', false],
+    [undefined, false],
+  ])('%p -> %p', (targetHost, expected) => {
+    expect(isCloudOidcTargetAllowed(targetHost)).toBe(expected);
   });
 });

@@ -18,6 +18,7 @@
  */
 
 const {
+  normalizeApiTarget,
   normalizeBasePath,
   composeBodyTransforms,
   getTargetScheme,
@@ -205,7 +206,15 @@ function createCopilotAdapter(env, deps = {}) {
   // the common reflection method shape from createAdapterMethods.
   return createOidcAwareProviderAdapter({
     env,
-    oidcAuthOptions: { staticAuthToken: authToken, skipWhen: !!staticAuthToken },
+    oidcAuthOptions: {
+      staticAuthToken: authToken,
+      skipWhen: !!staticAuthToken,
+      // Cloud OIDC tokens are only bound to an explicit COPILOT_API_TARGET
+      // (set from the BYOK provider URL), never a derived GitHub Copilot host.
+      allowCloudOidc: !!normalizeApiTarget(env.COPILOT_API_TARGET),
+      targetHost: rawTarget,
+      adapterName: 'copilot',
+    },
     buildOidcHeaders: (token) => withCopilotIntegration(bearerAuthHeaders(token), integrationId),
     buildStaticHeaders: () => withCopilotIntegration(
       buildAuthHeaderFn({ prefix: authPrefix })(authToken, apiKey ? byokExtraHeaders : undefined),
