@@ -1,0 +1,62 @@
+{
+  "$schema": "../../schema.json",
+  "id": "AUTH-007",
+  "boundary": "auth",
+  "title": "Config-file apiProxy.auth.provider rejects openai although the runtime supports OpenAI native WIF",
+  "symptoms": [
+    "awf config validation reports that config.apiProxy.auth.provider must be one of azure, aws, gcp, anthropic",
+    "OpenAI native WIF works when AWF_AUTH_PROVIDER=openai is set in the environment but fails when the same value is set through the AWF config file"
+  ],
+  "conditions": [
+    "apiProxy.auth.type is github-oidc in the AWF config file",
+    "apiProxy.auth.provider is set to openai",
+    "The failure is schema validation of the config file; the environment-variable path is not affected by this schema enum"
+  ],
+  "affects": {
+    "runner": "any",
+    "runtime": "any",
+    "provider": "openai",
+    "authMode": "github-oidc"
+  },
+  "versions": {
+    "introduced": "unknown",
+    "fixed": "unknown"
+  },
+  "status": "unresolved",
+  "rootCause": "The published config schema (src/awf-config-schema.json, mirrored at docs/awf-config.schema.json) enumerates apiProxy.auth.provider as azure, aws, gcp, and anthropic only. validateAwfFileConfig() runs validateWithSchema() before any mapping, so a config file selecting openai is rejected even though the sidecar's cloud-oidc-init provider and the openai-credential-env agent routing accept AWF_AUTH_PROVIDER=openai.",
+  "probe": {
+    "command": "node -p 'JSON.stringify(require(\"./src/awf-config-schema.json\").properties.apiProxy.properties.auth.properties.provider.enum)'",
+    "expect": "Prints [\"azure\",\"aws\",\"gcp\",\"anthropic\"] on a checkout that lacks openai in the schema enum. This reads only the bundled schema and never prints environment values, tokens, or Authorization headers.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use the environment-variable form (AWF_AUTH_TYPE=github-oidc, AWF_AUTH_PROVIDER=openai, with AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID and AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID) until the schema enum is extended. The fix belongs in src/awf-config-schema.json and docs/awf-config.schema.json together, with schema tests; it is not verified here. Do not put the OpenAI IDs into the agent environment or work around the schema by editing generated artifacts.",
+  "references": [
+    {
+      "kind": "pull-request",
+      "ref": "https://github.com/github/gh-aw-firewall/pull/11364",
+      "title": "Add OpenAI workload identity federation to the API proxy"
+    },
+    {
+      "kind": "code",
+      "ref": "src/awf-config-schema.json"
+    },
+    {
+      "kind": "code",
+      "ref": "src/config-file.ts"
+    },
+    {
+      "kind": "code",
+      "ref": "containers/api-proxy/providers/cloud-oidc-init.js"
+    },
+    {
+      "kind": "doc",
+      "ref": "docs/auth-matrix.md#openai-native-workload-identity-federation"
+    }
+  ],
+  "related": [
+    "AUTH-002"
+  ],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-01-31"
+}

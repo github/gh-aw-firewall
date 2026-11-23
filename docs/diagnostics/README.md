@@ -273,6 +273,7 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | AUTH-004 | auth | Primary API-proxy OIDC initialization races Squid readiness | fixed | [`findings/auth/AUTH-004.json`](./findings/auth/AUTH-004.json) |
 | AUTH-005 | auth | API-proxy refuses an upstream response it cannot safely inspect for credential echoes | workaround | [`findings/auth/AUTH-005.json`](./findings/auth/AUTH-005.json) |
 | AUTH-006 | auth | Copilot /v1/decisions rejects a personal access token with a plain-text HTTP 400 | workaround | [`findings/auth/AUTH-006.json`](./findings/auth/AUTH-006.json) |
+| AUTH-007 | auth | Config-file apiProxy.auth.provider rejects openai although the runtime supports OpenAI native WIF | unresolved | [`findings/auth/AUTH-007.json`](./findings/auth/AUTH-007.json) |
 | CI-001 | ci | gh-aw safe-output step fails because the emitted payload violates the declared contract | workaround | [`findings/ci/CI-001.json`](./findings/ci/CI-001.json) |
 | CI-002 | ci | Compiler-owned enclave gateway is unavailable or violates the handoff contract | workaround | [`findings/ci/CI-002.json`](./findings/ci/CI-002.json) |
 | CI-003 | ci | Cloud Hypervisor regression admission rejects a regional Actions OIDC endpoint | fixed | [`findings/ci/CI-003.json`](./findings/ci/CI-003.json) |
@@ -358,6 +359,8 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | Copilot Decisions (evals) request using the reported fine-grained PAT returns HTTP 400 with a plain-text body containing "Personal Access Tokens are not supported for this endpoint" | AUTH-006 | auth | workaround |
 | A standalone gh-aw evals judge fails as an opaque "Decisions request failed (HTTP 400)" and the run stays green | AUTH-006 | auth | workaround |
 | The same 400 occurs for every model name, including invalid ones, because the token is rejected before model validation | AUTH-006 | auth | workaround |
+| awf config validation reports that config.apiProxy.auth.provider must be one of azure, aws, gcp, anthropic | AUTH-007 | auth | unresolved |
+| OpenAI native WIF works when AWF_AUTH_PROVIDER=openai is set in the environment but fails when the same value is set through the AWF config file | AUTH-007 | auth | unresolved |
 | safe output validation failed in the workflow run | CI-001 | ci | workaround |
 | The agent job succeeds but the safe-output collection step exits non-zero | CI-001 | ci | workaround |
 | create-pull-request rejected: file not in allowed-files | CI-001 | ci | workaround |

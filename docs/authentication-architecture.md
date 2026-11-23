@@ -647,7 +647,7 @@ AWF keeps the Actions OIDC request capability, minted GitHub JWT, and exchanged 
 │   capability                │     │ ✓ ACTIONS_ID_TOKEN_REQUEST_TOKEN      │
 │ ✗ No cloud credentials      │     │ ✓ Provider-specific configuration     │
 │ ✗ No API keys               │     │ ✓ AWF_AUTH_TYPE=github-oidc           │
-│ ✓ OPENAI_BASE_URL=          │     │ ✓ AWF_AUTH_PROVIDER=azure|aws|gcp|anthropic │
+│ ✓ OPENAI_BASE_URL=          │     │ ✓ AWF_AUTH_PROVIDER=azure|aws|gcp|anthropic|openai │
 │   http://172.30.0.30:10000  │     │ ✓ Provider-specific config            │
 │                             │     │                                       │
 │ Agent sends request:        │     │ On startup:                           │
@@ -700,8 +700,9 @@ The sidecar's token provider (`github-oidc.js`) calls `ACTIONS_ID_TOKEN_REQUEST_
 |----------|-----------------|---------------------|
 | Azure | `api://AzureADTokenExchange` | `github-oidc.js` |
 | AWS | `sts.amazonaws.com` | `github-oidc.js` |
-| GCP | Workload Identity Provider resource name | `github-oidc.js` |
+| GCP | `https://iam.googleapis.com/` followed by the Workload Identity Provider resource name | `github-oidc.js` |
 | Anthropic | `https://api.anthropic.com` | `github-oidc.js` |
+| OpenAI | `https://api.openai.com/v1` | `github-oidc.js` |
 
 This step is identical across all providers — only the audience differs.
 
