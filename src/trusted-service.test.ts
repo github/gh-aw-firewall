@@ -95,6 +95,7 @@ describe('trusted service configuration and credential isolation', () => {
   it.each(['Authorization', 'X-Api-Key', 'api-key', 'Host', 'Connection', 'Proxy-Authorization',
     'X-Forwarded-Host', 'Content-Length', 'Transfer-Encoding', 'Content-Type',
     'Anthropic-Version', 'x-awf-caller', 'Forwarded', 'Cookie', 'x-request-id', 'Bad Header',
+    'traceparent', 'TraceState', 'BAGGAGE',
   ])('rejects reserved secret header %s', header => {
     expect(() => validateTrustedService({ ...service, secretHeaders: { [header]: 'CORPORATE_SECRET' } })).toThrow(/header/);
   });

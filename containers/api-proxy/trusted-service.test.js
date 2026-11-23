@@ -60,6 +60,19 @@ describe('trusted service adapters', () => {
     })).toThrow(/trustedService/);
   });
 
+  it.each([['anthropic', createAnthropicAdapter], ['openai', createOpenAIAdapter]])(
+    'rejects trace headers as %s trusted-service secrets at startup', (provider, create) => {
+      for (const header of ['traceparent', 'TraceState', 'BAGGAGE']) {
+        expect(() => create({
+          ...credentials,
+          [`AWF_${provider.toUpperCase()}_TRUSTED_SERVICE`]: JSON.stringify({
+            ...config, secretHeaders: { [header]: 'CORPORATE_SECRET' },
+          }),
+        })).toThrow(/trustedService/);
+      }
+    },
+  );
+
   it('rejects custom auth header collisions and header-value injection without reflecting secrets', () => {
     expect(() => createAnthropicAdapter({
       ...credentials, AWF_ANTHROPIC_AUTH_HEADER: 'X-Corporate-Secret',

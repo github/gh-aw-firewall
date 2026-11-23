@@ -146,8 +146,9 @@ function applyRequestTraceHeaders(headers, { traceHeaders, provider, targetHost,
   for (const name of Object.keys(headers)) {
     if (TRACE_HEADERS.has(name.toLowerCase())) delete headers[name];
   }
+  const hostname = (getTargetHostname(targetHost) || '').replace(/\.$/, '');
   if (typeof traceHeaders?.traceparent !== 'string' || !traceHeaders.traceparent
-    || isCopilotIntegrationHost(targetHost)) return;
+    || isCopilotIntegrationHost(hostname)) return;
 
   const envVars = providerEnv[`${provider.toUpperCase()}_ENV`];
   if (!envVars) return;
@@ -157,7 +158,17 @@ function applyRequestTraceHeaders(headers, { traceHeaders, provider, targetHost,
   }
   // Keep header-only utilities independent of the OIDC transport dependencies.
   const { matchesTargetOrigin } = require('./providers/cloud-oidc-init');
-  if (!configuredTargets.some(target => matchesTargetOrigin(`${targetScheme}://${targetHost}`, target))) return;
+  if (!configuredTargets.some(target => {
+    if (typeof target !== 'string' || !target.trim()) return false;
+    const value = target.trim();
+    try {
+      const url = new URL(/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(value) ? value : `https://${value}`);
+      if (!['http:', 'https:'].includes(url.protocol)) return false;
+      return matchesTargetOrigin(`${targetScheme}://${targetHost}`, url.origin);
+    } catch {
+      return false;
+    }
+  })) return;
 
   try {
     const propagated = {};

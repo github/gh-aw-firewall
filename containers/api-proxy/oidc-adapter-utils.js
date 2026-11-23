@@ -36,6 +36,9 @@ function validateAuthHeaderEnv(envVarName, rawValue, defaultHeader) {
   if (!isValidHeaderName(header)) {
     throw new Error(`Invalid ${envVarName} value: expected a valid HTTP header name`);
   }
+  if (['traceparent', 'tracestate', 'baggage'].includes(header.toLowerCase())) {
+    throw new Error(`Invalid ${envVarName} value: trace context headers are reserved`);
+  }
   return header;
 }
 

@@ -61,6 +61,9 @@ describe('configured endpoint trace headers', () => {
     ['https://gateway.example.com:8443/openai/v1', 'gateway.example.com:8443', 'https'],
     ['http://localhost:8080/openai/v1', 'localhost:8080', 'http'],
     ['http://[::1]:8080/openai/v1', '[::1]:8080', 'http'],
+    [`https://${'user'}:${'pass'}@Gateway.Example.com:8443/openai/v1`, 'gateway.example.com:8443', 'https'],
+    ['http://user@localhost:8080/openai/v1', 'localhost:8080', 'http'],
+    ['user:password@gateway.example.com/v1', 'gateway.example.com', 'https'],
   ])('propagates to the configured origin %s', (configured, targetHost, targetScheme) => {
     process.env.COPILOT_PROVIDER_BASE_URL = configured;
     expect(build(targetHost, { targetScheme }).traceparent).toBe(traceparent);
@@ -72,6 +75,9 @@ describe('configured endpoint trace headers', () => {
     ['https://gateway.example.com/openai/v1', 'gateway.example.com.evil.test', 'https'],
     ['https://gateway.example.com:8443/openai/v1', 'gateway.example.com', 'https'],
     ['https://gateway.example.com/openai/v1', 'gateway.example.com', 'http'],
+    [`https://${'user'}:${'pass'}@gateway.example.com:8443/v1`, 'gateway.example.com', 'https'],
+    [`https://${'user'}:${'pass'}@gateway.example.com/v1`, 'other.example.com', 'https'],
+    [`https://${'user'}:${'pass'}@gateway.example.com/v1`, 'gateway.example.com', 'http'],
     ['ftp://gateway.example.com', 'gateway.example.com', 'https'],
     ['not a URL', 'gateway.example.com', 'https'],
     ['', 'api.githubcopilot.com', 'https'],
@@ -90,7 +96,8 @@ describe('configured endpoint trace headers', () => {
     expect(headers).not.toHaveProperty('tracestate');
   });
 
-  test.each(['api.githubcopilot.com', 'copilot-api.tenant.ghe.com'])(
+  test.each(['api.githubcopilot.com', 'copilot-api.tenant.ghe.com',
+    'api.githubcopilot.com.', 'GITHUBCOPILOT.COM.:443', 'copilot-api.tenant.ghe.com.:8443'])(
     'does not propagate to the first-party Copilot target %s even when supplied by broker setup',
     targetHost => {
       process.env.COPILOT_API_TARGET = targetHost;

@@ -36,6 +36,8 @@ configuration; default endpoints, first-party Copilot endpoints (including token
 defaults) and other hosts receive no trace context. Caller trace headers are replaced,
 and `baggage` is never forwarded, including on untraced WebSocket upgrades. This lets a
 BYOK gateway join the workflow trace as a child of `api_proxy.<provider>.request`.
+`traceparent`, `tracestate`, and `baggage` are reserved and cannot be configured
+as custom authentication headers or trusted-service secret headers.
 
 ## Attribute Locations in Sentry UI
 

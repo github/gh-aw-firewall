@@ -1200,7 +1200,8 @@ For Anthropic and OpenAI, configure `apiProxy.targets.<provider>.trustedService`
 `secretHeaders` maps supplemental header names to **runner environment variable
 names**, never literal secret values. AWF MUST reject invalid names and values,
 case-insensitive duplicates, and reserved authentication, routing, framing, and
-hop-by-hop headers, including the configured provider authentication header.
+hop-by-hop headers, including the configured provider authentication header and
+the reserved trace headers `traceparent`, `tracestate`, and `baggage`.
 Agent-supplied values MUST NOT override these headers. Secret source variables
 MUST be excluded from the agent even with explicit environment overrides.
 Resolved supplemental values MUST NOT be written into public configuration,
