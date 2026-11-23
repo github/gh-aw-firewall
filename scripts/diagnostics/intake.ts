@@ -107,7 +107,7 @@ export function validateReceipts(receipts: Receipt[]): void {
   for (const receipt of receipts) {
     if (!Number.isSafeInteger(receipt.number) || receipt.number < 1 ||
       !['covered', 'proposed', 'no-impact', 'needs-evidence', 'publication-pending'].includes(receipt.disposition) ||
-      typeof receipt.evidence !== 'string' || receipt.evidence.trim().length < 12) {
+      !hasStructuredEvidence(receipt.evidence)) {
       throw new Error('Every intake receipt requires a disposition and specific review evidence');
     }
     instant(receipt.updatedAt);
@@ -115,20 +115,60 @@ export function validateReceipts(receipts: Receipt[]): void {
   }
 }
 
-function isValidReceipt(value: unknown): value is Receipt {
-  if (!value || typeof value !== 'object') return false;
+function normalizeReceiptEvidence(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length > 2000) return undefined;
+  const references = new Set<string>();
+  for (const candidate of value.split(/[;\s]+/)) {
+    let start = 0;
+    let end = candidate.length;
+    const punctuation = '.,;:()[]{}<>"\'`';
+    while (start < end && punctuation.includes(candidate.charAt(start))) start++;
+    while (end > start && punctuation.includes(candidate.charAt(end - 1))) end--;
+    const reference = candidate.slice(start, end);
+    if (/^[A-Z]{1,6}-\d{1,4}$/.test(reference) || /^[A-Z]\d{1,4}$/.test(reference) ||
+      /^https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+\/(?:pull|issues)\/[1-9]\d*$/.test(reference)) {
+      references.add(reference);
+      continue;
+    }
+    const separator = reference.lastIndexOf(':');
+    if (separator <= 0) continue;
+    const parts = reference.slice(0, separator).split('/');
+    if (parts.length < 2 || parts.some((part) => !/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(part))) continue;
+    const lines = reference.slice(separator + 1).split('-').map(Number);
+    if (lines.length > 2 || lines.some((line) => !Number.isSafeInteger(line) || line < 1 || line > 9999999) ||
+      (lines.length === 2 && lines[1] < lines[0])) continue;
+    references.add(reference);
+  }
+  if (references.size === 0 || references.size > 20) return undefined;
+  return [...references].join('; ');
+}
+
+function hasStructuredEvidence(value: unknown): value is string {
+  return typeof value === 'string' && normalizeReceiptEvidence(value) === value;
+}
+
+function normalizeReceipt(value: unknown): Receipt | undefined {
+  if (!value || typeof value !== 'object') return undefined;
   const receipt = value as Partial<Receipt>;
   if (!Number.isSafeInteger(receipt.number) || (receipt.number ?? 0) < 1 ||
     !['covered', 'proposed', 'no-impact', 'needs-evidence', 'publication-pending'].includes(receipt.disposition ?? '') ||
-    typeof receipt.evidence !== 'string' || receipt.evidence.trim().length < 12 ||
+    !normalizeReceiptEvidence(receipt.evidence) ||
     typeof receipt.updatedAt !== 'string' ||
-    (receipt.deferredAttemptedAt !== undefined && typeof receipt.deferredAttemptedAt !== 'string')) return false;
+    (receipt.deferredAttemptedAt !== undefined && typeof receipt.deferredAttemptedAt !== 'string')) return undefined;
   try {
     instant(receipt.updatedAt);
     if (receipt.deferredAttemptedAt !== undefined) instant(receipt.deferredAttemptedAt);
-    return true;
+    return {
+      number: receipt.number!,
+      updatedAt: receipt.updatedAt,
+      disposition: receipt.disposition!,
+      evidence: normalizeReceiptEvidence(receipt.evidence)!,
+      ...(receipt.deferredAttemptedAt !== undefined
+        ? { deferredAttemptedAt: receipt.deferredAttemptedAt }
+        : {}),
+    };
   } catch {
-    return false;
+    return undefined;
   }
 }
 
@@ -139,18 +179,53 @@ export function readReceipts(file: string): Receipt[] {
   } catch (error) {
     if (!(error instanceof MalformedIntakeJsonError)) throw error;
     console.warn('Malformed intake receipts were ignored; affected candidates will be reviewed again.');
+    replaceReceiptFile(file, []);
     return [];
   }
   if (!Array.isArray(value)) {
     console.warn('Invalid intake receipt data was ignored; affected candidates will be reviewed again.');
+    replaceReceiptFile(file, []);
     return [];
   }
-  const receipts = value.filter(isValidReceipt);
+  const receipts = value
+    .map(normalizeReceipt)
+    .filter((receipt): receipt is Receipt => receipt !== undefined);
   const invalidCount = value.length - receipts.length;
+  const normalized = JSON.stringify(receipts) !== JSON.stringify(value);
   if (invalidCount > 0) {
     console.warn(`Ignored ${invalidCount} invalid intake receipt(s); affected candidates remain pending.`);
   }
+  if (normalized) {
+    if (invalidCount === 0) {
+      console.warn('Sanitized receipt evidence to structured citations; prose was removed.');
+    }
+    replaceReceiptFile(file, receipts);
+  }
   return receipts;
+}
+
+function replaceReceiptFile(file: string, receipts: Receipt[]): void {
+  const temporary = `${file}.${process.pid}.tmp`;
+  const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW;
+  const descriptor = fs.openSync(temporary, flags, 0o600);
+  let descriptorOpen = true;
+  try {
+    fs.writeFileSync(descriptor, `${JSON.stringify(receipts, null, 2)}\n`);
+    fs.fsyncSync(descriptor);
+    fs.closeSync(descriptor);
+    descriptorOpen = false;
+    fs.renameSync(temporary, file);
+  } catch (error) {
+    if (descriptorOpen) {
+      try {
+        fs.closeSync(descriptor);
+      } catch {
+        // Preserve the original write or rename error.
+      }
+    }
+    fs.rmSync(temporary, { force: true });
+    throw error;
+  }
 }
 
 /** Fetch complete windows before advancing cursors; retrieval is not diagnosis completion. */
@@ -337,7 +412,16 @@ async function fetchPrWindow(
 }
 
 async function main(): Promise<void> {
-  const [stateDir, outputDir] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  if (args[0] === '--sanitize-receipts' && args.length === 2) {
+    const stateDir = args[1];
+    const stat = fs.lstatSync(stateDir);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('Intake directory must not be a symlink');
+    const receiptsPath = path.join(stateDir, 'receipts.json');
+    if (fs.existsSync(receiptsPath)) readReceipts(receiptsPath);
+    return;
+  }
+  const [stateDir, outputDir] = args;
   if (!stateDir || !outputDir || process.argv.length !== 4) {
     throw new Error('Usage: intake.ts <cache-directory> <output-directory>');
   }

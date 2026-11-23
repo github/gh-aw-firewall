@@ -68,7 +68,12 @@ describes current code.
 
 Persist receipts in `/tmp/gh-aw/cache-memory/diagnosis/receipts.json`, a JSON array
 of `{number, updatedAt, disposition, evidence}`. Copy the candidate's exact
-`updated_at` to `updatedAt`. Disposition is `covered` (finding ID and confirming
+`updated_at` to `updatedAt`. `evidence` contains only semicolon-separated finding
+IDs, repository-relative `path:line[-line]` references, or GitHub issue/PR URLs;
+never include prose. A deterministic cache step strips prose and unknown fields
+before persistence; the intake step applies the same normalization before agent
+context and drops receipts with no valid citation, leaving those candidates
+pending for review. Disposition is `covered` (finding ID and confirming
 code/test), `no-impact` (specific reason, including the owning boundary for
 out-of-scope work), `proposed` (an **already published**, still relevant issue/PR
 URL), `needs-evidence` (missing discriminating evidence), or
