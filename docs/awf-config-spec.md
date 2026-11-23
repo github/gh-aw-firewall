@@ -2843,17 +2843,20 @@ option, routing, logs and router calls are unchanged.
 AWF reads the file once during the routing bootstrap, before the agent starts,
 and stages a private copy that only the proxy can read. The path MUST NOT be
 inside an agent-visible path (the work directory, the workspace, `/tmp`, the
+home tool directories AWF mounts such as `~/.cache`, `${RUNNER_TEMP}/gh-aw`, the
 session state directory or any agent volume); AWF refuses to start otherwise.
-`${RUNNER_TEMP}` qualifies. The proxy accepts the summary only if it has version
+`${RUNNER_TEMP}` outside its `gh-aw` tree qualifies. The proxy accepts the summary only if it has version
 `2`, at most 32 pairs and at most 16 KiB of `JSON.stringify` output, and names
 the job AWF runs in: the workflow ID (the `GITHUB_WORKFLOW_REF` file name
 without `.lock.yml`), `GITHUB_RUN_ID` and `GITHUB_RUN_ATTEMPT`. A missing file
-routes ordinarily with reason `summary_missing`, and an invalid one with
-`invalid_evidence`; neither fails the run.
+routes ordinarily with reason `summary_missing`, and an invalid one, including a
+file that holds JSON `null`, with `invalid_evidence`; neither fails the run.
 
 Pairs are named `<provider>/<wire model>@<effort>`, with the Copilot provider
 written `github-copilot` and `none` for a route without an effort. The selector
-works on the full validated rank after the multiplier cap:
+works on the full validated rank after the multiplier cap, where a pair the
+router ranks twice counts once, at its first position (only `topK` requires the
+router's pairs to be unique):
 
 - **Incumbent.** It keeps the summary's incumbent while it is eligible and its
   base model is not suspended. Otherwise it chooses the eligible pair with the
@@ -2863,6 +2866,7 @@ works on the full validated rank after the multiplier cap:
 - **Switch.** A rival with its own record takes over when its expected success
   rate exceeds its need, the rate at which it would cost no more per success
   than the incumbent's optimistic rate. Switching needs no permission to explore.
+  A rival that won on an estimate and cannot price itself keeps that estimate.
 - **Probe.** A suspended pair whose probe is due runs once, before any test, the
   highest-ranked first. A suspension covers every effort of its base.
 - **Test.** The shortlist is the first effort of up to three distinct base models
@@ -2887,7 +2891,8 @@ at the pair's own tariff and scales only the incumbent model's share of the cost
 `credits(incumbent) + model_credits(incumbent) × (price(pair) / price(incumbent) − 1)`.
 Prices use the meter's semantics at the default tier and list price. A
 dynamic-selector, configured-default, median or built-in fallback price gives no
-estimate, and a pair without a cost is never chosen on cost.
+estimate, including one that fills a component the estimate uses when the
+model's own tariff is partial, and a pair without a cost is never chosen on cost.
 
 After the selection passes its final guard and before the primary starts, the
 proxy appends one **selection receipt** to `adaptive-selection.jsonl` in
@@ -2895,7 +2900,10 @@ proxy appends one **selection receipt** to `adaptive-selection.jsonl` in
 `model-routing.jsonl`, plus `timestamp`. The write is best effort and nothing
 waits for an acknowledgment: gh-aw counts a run only when it finds a receipt
 bound to it. The selection record in `model-routing.jsonl` names the pair the
-receipt selected.
+receipt selected. Receipts share that directory with AWF's token-usage and
+routing records, so they are as trustworthy as it is: keep the proxy logs out of
+agent-writable paths, as gh-aw's firewall log directory, which AWF masks from the
+agent, already is.
 
 | Field | Meaning |
 |---|---|

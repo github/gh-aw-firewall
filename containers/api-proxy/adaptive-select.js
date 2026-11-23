@@ -293,7 +293,8 @@ function selectAdaptive({ summary, rank, ordinary = rank[0], job, price }) {
       if (keyOf(best, tried.get(best)[0], false)[0] < keyOf(incumbent, incumbentCost[0], true)[0]) {
         incumbent = best;
         switched = true;
-        incumbentCost = costWith(incumbent, incumbent);
+        // A pair that won on an estimate but cannot price itself keeps the estimate it won with.
+        incumbentCost = costWith(incumbent, incumbent) ?? tried.get(best);
         costs.set(incumbent, incumbentCost);
       }
     }

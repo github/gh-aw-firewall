@@ -98,7 +98,10 @@ function loadAdaptiveInput(filePath, env = process.env) {
     return Object.freeze({ job, summary: 'invalid' });
   }
   if (staged?.status === 'missing') return Object.freeze({ job, summary: null });
-  if (staged?.status === 'present' && staged.summary !== undefined) return Object.freeze({ job, summary: staged.summary });
+  // A present file that holds JSON null is invalid evidence; null alone means no file.
+  if (staged?.status === 'present' && staged.summary !== undefined && staged.summary !== null) {
+    return Object.freeze({ job, summary: staged.summary });
+  }
   return Object.freeze({ job, summary: 'invalid' });
 }
 
@@ -119,6 +122,8 @@ function createAdaptivePrice(resolve = resolveModelPricing) {
     if (!resolution || resolution.estimate || resolution.usedFallbackPricing === true ||
         NOT_A_TARIFF.has(resolution.source)) return null;
     const { pricing } = resolution;
+    // A partial tariff keeps its own source but can fill components from fallbacks.
+    const ownTariff = field => !NOT_A_TARIFF.has(resolution.componentSources?.[field]?.source);
     const perToken = field => {
       if (pricing[field] === undefined || pricing[field] === null) return null;
       const value = exact.rate(pricing, field);
@@ -126,9 +131,11 @@ function createAdaptivePrice(resolve = resolveModelPricing) {
     };
     const input = perToken('input');
     const output = perToken('output');
-    if (input === null || output === null) return null;
+    if (input === null || output === null || !ownTariff('input') || !ownTariff('output')) return null;
     const reasoningRate = pricing.reasoning === undefined ? output : (perToken('reasoning') ?? 0);
     const reasoning = tokens.reasoning === null ? 0 : Math.min(tokens.reasoning, tokens.output);
+    if ((tokens.cache_read > 0 && !ownTariff('cachedInput')) || (tokens.cache_write > 0 && !ownTariff('cacheWrite')) ||
+        (reasoning > 0 && pricing.reasoning !== undefined && !ownTariff('reasoning'))) return null;
     return tokens.input * input + tokens.cache_read * (perToken('cachedInput') ?? 0) +
       tokens.cache_write * (perToken('cacheWrite') ?? 0) + (tokens.output - reasoning) * output +
       reasoning * reasoningRate;

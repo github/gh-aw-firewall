@@ -349,6 +349,19 @@ describe('routing controller', () => {
       await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'routing_contract_error' } });
       expect(calls.checkBeforePrimary).toHaveLength(0);
     });
+
+    it('routes an adaptive run as ordinary routing would, with its receipt, rather than rejecting the pair', async () => {
+      const writeAdaptiveReceipt = jest.fn();
+      const job = { workflow: 'pr-sous-chef', run_id: '45000000812', attempt: 1 };
+      const { controller } = createHarness({
+        models, routeResponse,
+        dependencies: { adaptive: { job, summary: null }, priceRoute: () => null, writeAdaptiveReceipt },
+      });
+      const result = await controller.run();
+      expect(result.ok).toBe(true);
+      expect(result.selection.choice).toMatchObject({ id: 'choice-0002' });
+      expect(writeAdaptiveReceipt.mock.calls[0][0]).toMatchObject({ role: 'ordinary', reason: 'summary_missing' });
+    });
   });
 
   it('a final guard veto is terminal even when alternatives are reported', async () => {

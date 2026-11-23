@@ -9,6 +9,7 @@ import { resolveRuntimeImageFor } from '../image-resolver';
 import { runtimeUsesComposeAgent } from '../container-runtime';
 import { findDockerSocketExposingMount } from '../enclave/mount-policy';
 import { applyHostPathPrefixToVolumes } from '../services/host-path-prefix';
+import { HOME_TOOL_SUBDIRS } from '../config/mount-policy';
 
 // Import the proxy-owned validator through its declaration file so the host and
 // proxy keep one contract for the staged planning conversation.
@@ -86,11 +87,15 @@ function overlapsAgentVisiblePath(config: WrapperConfig, root: string): boolean 
     config.dockerHostPathPrefix,
   )[0];
   const daemonRoot = normalizeForOverlap(parseMountSource(translatedRootMount) ?? root);
+  const home = resolveAgentHome(config);
   const visibleSources = [
     config.workDir,
     `${config.workDir}-chroot-home`,
     process.env.GITHUB_WORKSPACE || process.cwd(),
     '/tmp',
+    // Mounted into every agent: the home tool directories and gh-aw's runner temp tree.
+    ...HOME_TOOL_SUBDIRS.map((subdir) => path.join(home, subdir)),
+    ...(process.env.RUNNER_TEMP ? [path.join(process.env.RUNNER_TEMP, 'gh-aw')] : []),
     ...(config.sessionStateDir ? [config.sessionStateDir] : []),
     ...(config.volumeMounts ?? []).map((volume) => parseMountSource(volume)).filter((value): value is string => !!value),
   ];

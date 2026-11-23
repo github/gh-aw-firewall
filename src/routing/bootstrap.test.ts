@@ -166,6 +166,29 @@ describe('routing bootstrap', () => {
         .toThrow('apiProxy.routing.adaptiveSummaryFile must not be in an agent-visible path');
       expect(config.modelRoutingBootstrap).toBeUndefined();
     });
+
+    it.each([
+      ['a home tool directory', (home: string) => path.join(home, '.cache', 'gh-aw', 'summary.json')],
+      ["gh-aw's runner temp tree", (_home: string, runnerTemp: string) => path.join(runnerTemp, 'gh-aw', 'summary.json')],
+    ])('refuses a summary in %s, which every agent mounts', (_name, place) => {
+      const home = fs.mkdtempSync('/var/tmp/awf-routing-home-');
+      const runnerTemp = fs.mkdtempSync('/var/tmp/awf-runner-temp-');
+      const previous = process.env.RUNNER_TEMP;
+      process.env.RUNNER_TEMP = runnerTemp;
+      try {
+        const conversationFile = path.join(tempDir, 'conversation.json');
+        writeConversation(conversationFile);
+        const config = { ...makeConfig(workDirFor(tempDir), conversationFile), homeDir: home };
+        config.modelRouting = { ...config.modelRouting!, adaptiveSummaryFile: place(home, runnerTemp) };
+        expect(() => stageRoutingConversation(config))
+          .toThrow('apiProxy.routing.adaptiveSummaryFile must not be in an agent-visible path');
+      } finally {
+        if (previous === undefined) delete process.env.RUNNER_TEMP;
+        else process.env.RUNNER_TEMP = previous;
+        fs.rmSync(home, { recursive: true, force: true });
+        fs.rmSync(runnerTemp, { recursive: true, force: true });
+      }
+    });
   });
 
   it('stages routing under the selected local home rather than the runner home', () => {

@@ -79,6 +79,8 @@ describe('adaptive input', () => {
     [{ status: 'missing' }, null],
     [{ status: 'invalid' }, 'invalid'],
     [{ status: 'present' }, 'invalid'],
+    // A file holding JSON null exists, so it is invalid evidence rather than a missing summary.
+    [{ status: 'present', summary: null }, 'invalid'],
     [['not', 'an', 'envelope'], 'invalid'],
   ])('reads the staged envelope %j', (envelope, summary) => {
     const file = path.join(makeOutputDir(), 'adaptive-summary.json');
@@ -121,6 +123,18 @@ describe('createAdaptivePrice', () => {
     ['a resolver failure', () => { throw new Error('pricing_resolution_error'); }],
   ])('gives no estimate from %s', (_name, resolve) => {
     expect(createAdaptivePrice(resolve)(mapping, tokens)).toBeNull();
+  });
+
+  test('refuses a component a partial tariff filled from a fallback, unless the run used none of it', () => {
+    const sources = { input: 'provider', cachedInput: 'configured_default', cacheWrite: 'provider', output: 'provider' };
+    const resolve = () => ({
+      source: 'provider',
+      pricing: tariff,
+      componentSources: Object.fromEntries(Object.entries(sources).map(([field, source]) => [field, { source }])),
+    });
+    expect(createAdaptivePrice(resolve)(mapping, tokens)).toBeNull();
+    // $2 + $0.25 + $3.20 = $5.45 = 545 credits with no cache reads to price.
+    expect(createAdaptivePrice(resolve)(mapping, { ...tokens, cache_read: 0 })).toBeCloseTo(545, 9);
   });
 });
 

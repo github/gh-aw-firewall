@@ -124,19 +124,26 @@ function createRoutingController(dependencies) {
       const route = validateRouteResponse(rawRoute, pool.choices);
       // Ordinary routing uses choice IDs; only the opt-in options contract requires unique pairs.
       const ordinaryPick = route.ranked_choices[0];
+      // The cap matches native wire IDs, not router IDs. It must not steer the primary past a guard veto.
+      const withinModelCap = ({ id }) => {
+        const { wireModel, provider } = pool.byId[id];
+        return !getModelMultiplierCapBlockState(wireModel, provider);
+      };
       let withinCap;
-      if (config.topK !== undefined || adaptive) {
-        // The cap matches native wire IDs, not router IDs. It must not steer the primary past a guard veto.
-        withinCap = resolvePrimaryRank(route.ranked_choices, pool).filter(({ id }) => {
-          const { wireModel, provider } = pool.byId[id];
-          return !getModelMultiplierCapBlockState(wireModel, provider);
-        });
+      if (config.topK !== undefined) {
+        withinCap = resolvePrimaryRank(route.ranked_choices, pool).filter(withinModelCap);
       }
       let selectedChoice = ordinaryPick;
       let adaptiveReceipt;
       if (adaptive) {
         // The workflow's evidence chooses among the eligible pairs; the ordinary pick stays the router's.
-        const byPair = new Map(withinCap.map(choice => [routingPairName(pool.byId[choice.id]), choice]));
+        // A pair the router ranks twice is one candidate, which its first choice stands for.
+        const byPair = new Map();
+        for (const { id } of route.ranked_choices) {
+          const choice = pool.byId[id].choice;
+          const pair = routingPairName(pool.byId[id]);
+          if (!byPair.has(pair) && withinModelCap(choice)) byPair.set(pair, choice);
+        }
         adaptiveReceipt = selectAdaptive({
           summary: adaptive.summary,
           rank: [...byPair.keys()],
