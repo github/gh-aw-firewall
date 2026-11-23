@@ -571,9 +571,17 @@ describe('offline scheduled source maintenance', () => {
     const report = buildReport(cwd, evidence);
     expect(report.status).toBe('proposed-awaiting-human-review');
     expect(report.changes.map((item: { file: string }) => item.file)).toEqual([rawFile, metadataFile].sort());
-    expect(report.runtimeConsumerEffects).toEqual([
+    expect(report.runtimeConsumerEffects).toEqual([]);
+    expect(report.backendScopedFallbackEffects).toEqual([
       expect.objectContaining({ file: rawFile, changes: expect.any(Array) }),
     ]);
+    expect(report.historicalLookupEffects).toEqual([
+      expect.objectContaining({ file: rawFile, changes: expect.any(Array) }),
+    ]);
+    expect(report.impactInterpretation).toMatchObject({
+      backendScopedFallbackEffects: expect.stringContaining('only when this fallback is selected'),
+      historicalLookupEffects: expect.stringContaining('not budget-active tariff changes'),
+    });
     expect(report.changes.find((item: { file: string }) => item.file === rawFile)).toMatchObject({
       addedModels: ['openai/new-fixture'], removedModels: ['openai/fixture'],
       reviewRequired: expect.arrayContaining(['source-or-record-disappearance-not-proof-of-retirement']),
@@ -633,7 +641,7 @@ describe('offline scheduled source maintenance', () => {
     expect(changes.some((change: { pointer: string }) => change.pointer.startsWith('/data'))).toBe(true);
     expect(report.changes.find((item: { file: string }) => item.file === rawFile).reviewRequired)
       .toContain('pricing-including-decreases-and-expiry');
-    expect(report.runtimeConsumerEffects[0].changes).toEqual(expect.arrayContaining([
+    expect(report.historicalLookupEffects[0].changes).toEqual(expect.arrayContaining([
       expect.objectContaining({ pointer: expect.stringContaining('/@lookup=gemma-4-31b-it/pricing') }),
     ]));
   });
@@ -646,12 +654,16 @@ describe('offline scheduled source maintenance', () => {
         overrides: [{ utc_start: 0, utc_end: 1600, prompt: '0.000000132' }],
       },
     }, {
+      ...priced('openai/gpt-oss-20b', '0.000000075'),
+    }, {
       ...priced('deepseek/deepseek-chat-v3-0324', '0.00000029'),
       pricing: { prompt: '0.00000029', completion: '0.00000114', input_cache_read: '0.00000011' },
     }]);
     const after = catalog([{
       ...priced('tencent/hy3', '0.00000014'),
       pricing: { prompt: '0.00000014', completion: '0.00000058', input_cache_read: '0.000000035' },
+    }, {
+      ...priced('openai/gpt-oss-20b', '0.00000003'),
     }, {
       ...priced('deepseek/deepseek-chat-v3-0324', '0.00000025'),
       pricing: { prompt: '0.00000025', completion: '0.000001' },
@@ -700,6 +712,11 @@ describe('offline scheduled source maintenance', () => {
         pointer: '/backendScopedFallback/openrouter~1deepseek~1deepseek-chat-v3-0324/pricing/output',
         before: '1.14',
         after: '1',
+      },
+      {
+        pointer: '/backendScopedFallback/openrouter~1openai~1gpt-oss-20b/pricing/input',
+        before: '0.075',
+        after: '0.03',
       },
     ]));
   });

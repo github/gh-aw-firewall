@@ -120,6 +120,25 @@
         "status": "active"
       },
       "modelType": "completion",
+      "availability": [
+        {
+          "scope": {
+            "provider": "copilot",
+            "channel": "copilot-cli"
+          },
+          "fact": {
+            "state": "conditional",
+            "condition": "Listed for Copilot CLI, subject to Copilot plan and model policies. Enterprise zero-data-retention use through the end of 2026 requires separate approval and administrator enablement; approval alone does not enable the model. This does not establish zero-data-retention access after the time-bound exemption or a Copilot CLI harness floor.",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+              "revision": "70d6e5f48944ef6eb1c9dd0c264c8783a67c1cb7b5e3747aec67af045083c01f",
+              "at": "2026-11-23T00:48:31.097Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "tariffs": [
         {
           "scope": {

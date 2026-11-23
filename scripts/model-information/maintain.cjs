@@ -504,28 +504,9 @@ function backendScopedFallbackFacts(bytes) {
 }
 
 function backendScopedFallbackEffects(beforeBytes, afterBytes) {
-  const affected = new Set();
-  const rows = [beforeBytes, afterBytes].map(bytes => new Map(
-    JSON.parse(bytes).data.filter(entry => typeof entry?.id === 'string')
-      .map(entry => [`openrouter/${entry.id}`, entry]),
-  ));
-  for (const id of new Set(rows.flatMap(row => [...row.keys()]))) {
-    const [before, after] = rows.map(row => row.get(id));
-    const hadOverrides = [before, after].some(entry =>
-      Array.isArray(entry?.pricing?.overrides) && entry.pricing.overrides.length);
-    const cacheComponentChanged = Object.hasOwn(before?.pricing || {}, 'input_cache_read') !==
-      Object.hasOwn(after?.pricing || {}, 'input_cache_read');
-    if (hadOverrides || cacheComponentChanged) {
-      affected.add(id);
-    }
-  }
-  const project = bytes => {
-    const facts = backendScopedFallbackFacts(bytes);
-    return Object.fromEntries([...affected].map(id => [id, facts[id] || null]));
-  };
   return differences(
-    { backendScopedFallback: project(beforeBytes) },
-    { backendScopedFallback: project(afterBytes) },
+    { backendScopedFallback: backendScopedFallbackFacts(beforeBytes) },
+    { backendScopedFallback: backendScopedFallbackFacts(afterBytes) },
   );
 }
 
@@ -556,22 +537,34 @@ function modelIds(value) {
 
 function runtimeConsumerEffects(cwd, base) {
   const effects = [];
-  for (const file of [rawImport, 'containers/api-proxy/model-information.retired.generated.json']) {
-    if (!hasGitObject(cwd, `${base}:${file}`) || !fs.existsSync(path.join(cwd, file))) continue;
+  const file = 'containers/api-proxy/model-information.retired.generated.json';
+  if (hasGitObject(cwd, `${base}:${file}`) && fs.existsSync(path.join(cwd, file))) {
     const beforeBytes = Buffer.from(git(cwd, 'show', `${base}:${file}`));
     const afterBytes = fs.readFileSync(path.join(cwd, file));
-    const changes = file === rawImport
-      ? [
-        ...differences(
-          { runtimeResolution: runtimeResolutionFacts(beforeBytes) },
-          { runtimeResolution: runtimeResolutionFacts(afterBytes) },
-        ),
-        ...backendScopedFallbackEffects(beforeBytes, afterBytes),
-      ]
-      : differences(JSON.parse(beforeBytes), JSON.parse(afterBytes));
+    const changes = differences(JSON.parse(beforeBytes), JSON.parse(afterBytes));
     if (changes.length) effects.push({ file, changes });
   }
   return effects;
+}
+
+function importImpactEffects(cwd, base, project) {
+  const file = rawImport;
+  if (!hasGitObject(cwd, `${base}:${file}`) || !fs.existsSync(path.join(cwd, file))) return [];
+  const beforeBytes = Buffer.from(git(cwd, 'show', `${base}:${file}`));
+  const afterBytes = fs.readFileSync(path.join(cwd, file));
+  const changes = project(beforeBytes, afterBytes);
+  return changes.length ? [{ file, changes }] : [];
+}
+
+function historicalLookupEffects(cwd, base) {
+  return importImpactEffects(cwd, base, (beforeBytes, afterBytes) => differences(
+    { runtimeResolution: runtimeResolutionFacts(beforeBytes) },
+    { runtimeResolution: runtimeResolutionFacts(afterBytes) },
+  ));
+}
+
+function backendScopedFallbackConsumerEffects(cwd, base) {
+  return importImpactEffects(cwd, base, backendScopedFallbackEffects);
 }
 
 function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {}) {
@@ -716,6 +709,12 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
     ...(pendingSourceChanges ? { pendingSourceChangesBaseRevision: mergeBase } : {}),
     ...(pendingSourceChanges ? { pendingSourceChanges } : {}),
     runtimeConsumerEffects: runtimeConsumerEffects(cwd, base),
+    backendScopedFallbackEffects: backendScopedFallbackConsumerEffects(cwd, base),
+    historicalLookupEffects: historicalLookupEffects(cwd, base),
+    impactInterpretation: {
+      backendScopedFallbackEffects: 'Imported OpenRouter rates affect budgets only when this fallback is selected, below valid provider, central-feed and operator pricing.',
+      historicalLookupEffects: 'Order-sensitive bare-slug lookup observations are reported separately and are not budget-active tariff changes.',
+    },
     pathFormat: 'JSON Pointer fields; data/models arrays use @id=<escaped exact ID> selectors, not positional indices. Raw import diffs cover governed observations only; exact bytes are pinned separately.',
     roundingTolerance: 'Zero unless a separately reviewed provider-specific tolerance is documented; no guessed tolerance.',
     sources: captures, changes,

@@ -404,10 +404,11 @@ Before invoking any PR safe output run, in order:
 Generation owns **every** projection including both API mapping copies and the
 governed normalized import. Never author projections independently or omit an
 affected generated file. `maintenance-report.json` contains exact before/after
-field changes, source evidence, runtime lookup resolution changes and explicit
-human-review gates. The bundled OpenRouter catalogue and retired-model
-projection are runtime inputs: their reported lookup/retirement changes can
-affect fallback pricing or request rejection after merge. The generated
+field changes, source evidence and explicit human-review gates. Backend-scoped
+fallback tariff changes are reported separately from historical lookup
+resolution observations; fallback rates affect budgets only when selected, while
+historical bare-slug lookups are not budget-active tariff changes. The bundled
+OpenRouter catalogue and retired-model projection are runtime inputs. The generated
 maintained pricing projection supplies a lower-priority runtime fallback and must
 not override valid provider, central-feed or operator prices. All changes require review, especially runtime price/lookup
 changes, compatibility contraction, retirement, confidence downgrade and
