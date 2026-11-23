@@ -270,8 +270,10 @@ describe('otel fan-out initialization', () => {
   });
 
   test('uses FileSpanExporter when no OTLP config at all', () => {
-    const otel = loadOtelFresh({});
+    let exporter;
+    const otel = loadOtelModule({}, { onExporter: value => { exporter = value; } });
     expect(otel.isEnabled()).toBe(true);
-    // Still enabled, just writes to file
+    expect(exporter).toBeInstanceOf(otel._FileSpanExporter);
+    expect(exporter._filePath).toBe('/var/log/api-proxy/otel.jsonl');
   });
 });
