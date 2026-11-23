@@ -3,9 +3,10 @@
 const { rebuildBodyFramingHeaders, getRequestCancellation } = require('./upstream-request-utils');
 const { createFallbackRetryHandlers } = require('./upstream-fallback');
 const { createAttemptRecovery } = require('./upstream-attempt-recovery');
-const { validateReasoningEffort } = require('./reasoning-effort-validation');
-const { sanitizeForLog, logRequestShape } = require('./logging');
-const { rememberInjectedCredentials, protectUpstreamResponse, redactCredentialError } = require('./credential-protection');
+const { rejectInvalidReasoningEffort, rejectEnclaveBudgetAttempt } = require('./upstream-dispatch-guards');
+const { signOutboundRequest, buildUpstreamRequestOptions } = require('./upstream-dispatch-transport');
+const { logRequestShape } = require('./logging');
+const { protectUpstreamResponse, redactCredentialError } = require('./credential-protection');
 const { createInvocationModelBudget } = require('./enclave-model-budget');
 
 const invocationModelBudget = createInvocationModelBudget(
@@ -54,39 +55,9 @@ function createDispatchUpstreamRequest({
     if (cancellation.cancelled) cancellation.onCancel();
     if (cancellation.cancelled) return;
 
-    try {
-      validateReasoningEffort(body, provider, upstreamPath, req.awfRuntimePricing, req, { targetHost, targetScheme });
-    } catch (err) {
-      if (err.code !== 'unsupported_reasoning_effort') throw err;
-      if (res.headersSent) return;
-
-      const statusCode = err.statusCode || 400;
-      const duration = Date.now() - startTime;
-      metrics.gaugeDec('active_requests', { provider });
-      metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
-      logRequest?.('warn', 'request_validation_failed', {
-        request_id: requestId,
-        provider,
-        method: req.method,
-        path: sanitizeForLog(req.url),
-        status: statusCode,
-        duration_ms: duration,
-        error_code: err.code,
-      });
-      otel.endSpan(span, statusCode);
-      if (req.awfRouting) {
-        req.awfRouting.localError = { code: err.code, type: err.type || 'invalid_request_error' };
-      }
-      res.writeHead(statusCode, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
-      res.end(JSON.stringify({
-        error: {
-          message: err.message,
-          type: err.type || 'invalid_request_error',
-          code: err.code,
-        },
-      }));
-      return;
-    }
+    if (rejectInvalidReasoningEffort({
+      body, provider, upstreamPath, req, res, targetHost, targetScheme, requestId, startTime, span,
+    }, { metrics, otel, logRequest })) return;
 
     const { origin, assessCandidate, observeDecision, isPermitted, onModelFallback } = createAttemptRecovery({
       body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestSigner,
@@ -104,64 +75,9 @@ function createDispatchUpstreamRequest({
       path: upstreamPath,
       body,
     });
-    if (!budgetAttempt.allowed) {
-      const statusCode = budgetAttempt.reason === 'invalid_capability' ? 403 : 429;
-      metrics.gaugeDec('active_requests', { provider });
-      metrics.increment('requests_total', {
-        provider,
-        method: req.method,
-        status_class: '4xx',
-      });
-      logRequest?.('warn', 'enclave_model_budget_rejected', {
-        request_id: requestId,
-        provider,
-        reason: budgetAttempt.reason,
-      });
-      const capabilityEvent = {
-        missing: 'enclave_model_capability_missing',
-        scheme: 'enclave_model_capability_scheme',
-        format: 'enclave_model_capability_format',
-        signature: 'enclave_model_capability_signature',
-        claims: 'enclave_model_capability_claims',
-        claims_changed: 'enclave_model_capability_claims_changed',
-      }[budgetAttempt.capabilityFailure];
-      if (budgetAttempt.reason === 'invalid_capability' && capabilityEvent) {
-        logRequest?.('warn', capabilityEvent, { status: statusCode });
-      }
-      if (budgetAttempt.reason === 'token_limit') {
-        logRequest?.('warn', 'enclave_model_token_limit', { status: statusCode });
-        const tokenEvent = {
-          body_missing: 'enclave_model_token_body_missing',
-          input_reservation: 'enclave_model_token_input_reservation',
-          request_json: 'enclave_model_token_request_json',
-          request_shape: 'enclave_model_token_request_shape',
-          output_conflict: 'enclave_model_token_output_conflict',
-          output_shape: 'enclave_model_token_output_shape',
-          stream_options: 'enclave_model_token_stream_options',
-          budget_exhausted: 'enclave_model_token_budget_exhausted',
-        }[budgetAttempt.tokenFailure];
-        if (typeof tokenEvent === 'string') {
-          logRequest?.('warn', tokenEvent, { status: statusCode });
-        }
-      }
-      otel.endSpan(span, statusCode);
-      if (res.headersSent) {
-        res.destroy?.();
-        return;
-      }
-      res.writeHead(statusCode, {
-        'Content-Type': 'application/json',
-        'X-Request-ID': requestId,
-      });
-      res.end(JSON.stringify({
-        error: {
-          message: 'Enclave model budget exhausted or invalid',
-          type: 'awf_enclave_model_budget_error',
-          code: `awf_enclave_model_budget_${budgetAttempt.reason}`,
-        },
-      }));
-      return;
-    }
+    if (rejectEnclaveBudgetAttempt(budgetAttempt, {
+      req, res, provider, requestId, span,
+    }, { metrics, otel, logRequest })) return;
     cancellation.activeAttempt = budgetAttempt;
     if (cancellation.cancelled) {
       budgetAttempt.settleMissing();
@@ -174,47 +90,15 @@ function createDispatchUpstreamRequest({
     }
     req.awfEnclaveModelBudgetAttempt = budgetAttempt;
 
-    let outboundHeaders = requestHeaders;
-    if (requestSigner) {
-      try {
-        outboundHeaders = requestSigner({
-          method: req.method,
-          path: upstreamPath,
-          headers: requestHeaders,
-          body,
-          targetHost,
-        });
-        rememberInjectedCredentials(req, Object.fromEntries(Object.entries(outboundHeaders)
-          .filter(([name]) => ['authorization', 'x-amz-security-token'].includes(name.toLowerCase()))));
-      } catch (err) {
-        budgetAttempt.settleMissing();
-        otel.endSpanError(span, err, 503);
-        handleRequestError(err, {
-          res, requestId, provider, req, targetHost, startTime,
-          statusCode: 503,
-          clientMessage: 'AWS request signing unavailable',
-          extraMetrics: () => {
-            metrics.increment('requests_total', { provider, method: req.method, status_class: '5xx' });
-          },
-        });
-        return;
-      }
-    }
+    const outboundHeaders = signOutboundRequest({
+      requestSigner, requestHeaders, body, req, upstreamPath, targetHost, budgetAttempt,
+      span, res, requestId, provider, startTime,
+    }, { otel, handleRequestError, metrics });
+    if (outboundHeaders === null) return;
 
-    // Keep the authority intact for Host headers/signing, but dial hostname and
-    // port separately (including for IPv6 literals).
-    const isHttp = targetScheme === 'http';
-    const mod = isHttp ? http : https;
-    const targetUrl = new URL(`${targetScheme}://${targetHost}`);
-    const options = {
-      hostname: targetUrl.hostname.replace(/^\[|\]$/g, ''),
-      port: targetUrl.port ? Number(targetUrl.port) : (isHttp ? 80 : 443),
-      path: upstreamPath,
-      method: req.method, headers: outboundHeaders,
-      agent: proxyAgent,
-      signal: cancellation.controller.signal,
-      ...(req.awfTrustedService ? { rejectUnauthorized: true } : {}),
-    };
+    const { mod, options } = buildUpstreamRequestOptions({
+      targetScheme, targetHost, upstreamPath, req, outboundHeaders, cancellation,
+    }, { http, https, proxyAgent });
 
     let responded = false;
     logRequestShape(body, provider, requestId, 'upstream');
