@@ -59,6 +59,7 @@ function validateCodingTiers(document) {
       !Array.isArray(document.entries)) {
     return ['expected schemaVersion 1, reviewed provenance with a valid at timestamp, and entries'];
   }
+  if (Date.parse(provenance.at) > Date.now()) return [`review date ${provenance.at} is in the future`];
   const reviewed = new Date(provenance.at).toISOString().slice(0, 10);
   const errors = [];
   let previous = '';

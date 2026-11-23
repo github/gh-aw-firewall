@@ -274,8 +274,12 @@
           "quote": "GPT-5.3-Codex launched on February 5, 2026 and will remain available through February 4, 2027 for Copilot Business and Copilot Enterprise users."
         },
         {
-          "url": "https://docs.github.com/en/copilot/reference/ai-models/model-comparison",
-          "quote": "These models are a good default when you don't have specific requirements."
+          "url": "https://github.blog/changelog/2026-05-17-gpt-5-3-codex-is-now-the-base-model-for-copilot-business-and-enterprise/",
+          "quote": "GPT-5.3-Codex is now the base model for all Copilot Business and Copilot Enterprise organizations, replacing GPT-4.1."
+        },
+        {
+          "url": "https://github.blog/changelog/2026-02-09-gpt-5-3-codex-is-now-generally-available-for-github-copilot/",
+          "quote": "GPT-5.3-Codex, OpenAI’s latest agentic coding model, is now rolling out in GitHub Copilot."
         }
       ]
     },
@@ -486,11 +490,14 @@
     {
       "lookupId": "kimi-k3",
       "codingTier": "standard",
-      "releaseDate": "2026-07-16",
       "evidence": [
         {
-          "url": "https://www.kimi.ai/blog/kimi-k3",
-          "quote": "While its overall performance still trails the most powerful proprietary models, Claude Fable 5 and GPT 5.6 Sol, Kimi K3 demonstrated frontier-level performance across our evaluation suite"
+          "url": "https://docs.github.com/en/copilot/reference/ai-models/model-comparison",
+          "quote": "Kimi K3 is designed for long-context, multi-step coding and agentic workflows."
+        },
+        {
+          "url": "https://github.blog/changelog/2026-08-06-kimi-k3-is-now-available-in-github-copilot/",
+          "quote": "Kimi K3, an open-weight model, is now generally available in GitHub Copilot."
         }
       ]
     },

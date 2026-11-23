@@ -250,7 +250,8 @@ Each entry has:
 - `lookupId`;
 - `codingTier`: `standard`, `premium`, `lightweight` or `none`;
 - `releaseDate`: the day of the model's first official announcement, as
-  `YYYY-MM-DD`, no later than the file's review date; and
+  `YYYY-MM-DD`, no later than the file's review date, which itself can't be in
+  the future; and
 - `evidence`: one or more `url` and `quote` pairs from official vendor or GitHub
   sources that support the tier and the date.
 
@@ -259,7 +260,7 @@ good or cheap the model looks today, so tiers stay stable as models improve.
 
 | Tier | Meaning | Recognize it by |
 | --- | --- | --- |
-| `standard` | A capable everyday coding model: the middle of the pack and the safe first choice when nothing is known about the task. Any coding line that is not clearly premium or lightweight, and any vendor's only coding line. | "Balanced", "everyday" or "general purpose" wording, or the vendor's main unsuffixed line: Claude Sonnet; GPT Sol, Terra and Codex; Gemini 4 Neon; MAI Code; Grok; Kimi. |
+| `standard` | A capable everyday coding model: the middle of the pack and the safe first choice when nothing is known about the task. Any coding line that is not clearly premium or lightweight, and any vendor's only coding line. | "Balanced", "everyday" or "general purpose" wording, the vendor's main unsuffixed line, or a line specialized for coding: Claude Sonnet; GPT Sol, Terra and Codex; Gemini 4 Neon; MAI Code; Grok; Kimi. |
 | `premium` | The vendor's frontier line, placed above its everyday models for the hardest problems. | "Frontier", "most capable" or "flagship" wording for a line above an everyday line, or a Pro tier: Claude Opus, Fable and Mythos; GPT Astra; Gemini 4 Argon and Carbon. |
 | `lightweight` | The vendor's fast, low-cost line for quick or simple work. It can still run an agent, so it comes last among coding models rather than being excluded. | "Fastest", "most cost-efficient", "small", "lightweight" or "Flash" wording, a mini or nano, or GitHub's "Fast help with simple or repetitive tasks" group: Claude Haiku; GPT Luna and nano; Gemini Flash and Hydrogen; MAI Code Flash. |
 | `none` | Built for a job other than agentic coding, such as search, deep research, images, audio or realtime voice. | The vendor presents the line for that job. |
@@ -274,7 +275,8 @@ For cases the table does not settle:
 - When a vendor repositions a line, re-grade every model in it. OpenAI's Sol line
   was the GPT-5.6 flagship but has been positioned as balanced since GPT-6 Astra,
   so every Sol model is `standard`.
-- When the sources disagree or say nothing, omit the tier.
+- When the sources disagree or say nothing, omit that fact. An entry needs only
+  one of the two, and performance comparisons never count as evidence.
 - Models that can never enter an automatic pool, such as Decisions-only,
   embedding or picker-hidden models, need no entry.
 

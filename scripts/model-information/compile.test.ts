@@ -516,23 +516,29 @@ describe('maintained model compilation', () => {
   });
 
   type TierEntry = { lookupId: string; [field: string]: unknown };
-  const codex = (entries: TierEntry[]) => entries.find(entry => entry.lookupId === 'gpt-5-3-codex') as TierEntry;
+  type TierSource = { provenance: Record<string, unknown>; entries: TierEntry[] };
+  const codex = (source: TierSource) =>
+    source.entries.find(entry => entry.lookupId === 'gpt-5-3-codex') as TierEntry;
   it.each([
-    { name: 'an unknown tier', mutate: (entries: TierEntry[]) => { codex(entries).codingTier = 'Standard'; },
+    { name: 'an unknown tier', mutate: (source: TierSource) => { codex(source).codingTier = 'Standard'; },
       diagnostic: /gpt-5-3-codex coding tier must be one of standard, premium, lightweight, none/ },
-    { name: 'an impossible date', mutate: (entries: TierEntry[]) => { codex(entries).releaseDate = '2026-02-30'; },
+    { name: 'an impossible date', mutate: (source: TierSource) => { codex(source).releaseDate = '2026-02-30'; },
       diagnostic: /gpt-5-3-codex release date must be a calendar date/ },
-    { name: 'a date after the review', mutate: (entries: TierEntry[]) => { codex(entries).releaseDate = '2027-01-01'; },
+    { name: 'a date after the review', mutate: (source: TierSource) => { codex(source).releaseDate = '2027-01-01'; },
       diagnostic: /gpt-5-3-codex release date is after the review date 2026-11-23/ },
-    { name: 'a provider spelling', mutate: (entries: TierEntry[]) => { codex(entries).lookupId = 'gpt-5.3-codex'; },
+    { name: 'a future review', mutate: (source: TierSource) => {
+      source.provenance.at = '2099-01-02T00:00:00Z';
+      codex(source).releaseDate = '2099-01-01';
+    }, diagnostic: /review date 2099-01-02T00:00:00Z is in the future/ },
+    { name: 'a provider spelling', mutate: (source: TierSource) => { codex(source).lookupId = 'gpt-5.3-codex'; },
       diagnostic: /lookupId must be a normalized lookup ID/ },
     { name: 'a duplicate model',
-      mutate: (entries: TierEntry[]) => { entries.push(structuredClone(entries[entries.length - 1])); },
+      mutate: (source: TierSource) => { source.entries.push(structuredClone(source.entries[source.entries.length - 1])); },
       diagnostic: /is duplicated or out of order/ },
-    { name: 'an unquoted fact', mutate: (entries: TierEntry[]) => {
-      codex(entries).evidence = [{ url: 'https://github.blog/changelog/', quote: 'too short' }];
+    { name: 'an unquoted fact', mutate: (source: TierSource) => {
+      codex(source).evidence = [{ url: 'https://github.blog/changelog/', quote: 'too short' }];
     }, diagnostic: /gpt-5-3-codex needs evidence with an https url/ },
-    { name: 'a free-text field', mutate: (entries: TierEntry[]) => { codex(entries).productLine = 'Codex'; },
+    { name: 'a free-text field', mutate: (source: TierSource) => { codex(source).productLine = 'Codex'; },
       diagnostic: /expected only lookupId, codingTier, releaseDate and evidence/ },
   ])('rejects coding tiers with $name', ({ mutate, diagnostic }) => {
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-coding-tiers-'));
@@ -540,7 +546,7 @@ describe('maintained model compilation', () => {
       fs.cpSync(path.join(root, 'shared/model-information/sources'), temp, { recursive: true });
       const file = path.join(temp, 'coding-tiers.json');
       const source = JSON.parse(fs.readFileSync(file, 'utf8'));
-      mutate(source.entries);
+      mutate(source);
       fs.writeFileSync(file, JSON.stringify(source));
       expect(() => run('--check', `--source-dir=${temp}`)).toThrow(diagnostic);
     } finally {
