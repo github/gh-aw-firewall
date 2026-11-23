@@ -43,10 +43,9 @@ test('contracts and declarations load with translators from the actual Docker CO
     for (const name of [
       'upstream-dispatch', 'upstream-dispatch-guards', 'upstream-dispatch-transport',
       'upstream-attempt-recovery', 'upstream-protocol-translation',
+      'fallback-origin', 'fallback-candidate-selection',
+      'upstream-response-buffering', 'upstream-response-transforms',
     ]) {
-      expect(fs.existsSync(path.join(root, `${name}.js`))).toBe(true);
-    }
-    for (const name of ['upstream-response-buffering', 'upstream-response-transforms']) {
       expect(fs.existsSync(path.join(root, `${name}.js`))).toBe(true);
     }
     const result = spawnSync(process.execPath, ['-e', `
