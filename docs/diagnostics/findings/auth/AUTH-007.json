@@ -23,14 +23,14 @@
     "fixed": "unknown"
   },
   "status": "unresolved",
-  "rootCause": "The published config schema (src/awf-config-schema.json, mirrored at docs/awf-config.schema.json) enumerates apiProxy.auth.provider as azure, aws, gcp, and anthropic only. validateAwfFileConfig() runs validateWithSchema() before any mapping, so a config file selecting openai is rejected even though the sidecar's cloud-oidc-init provider and the openai-credential-env agent routing accept AWF_AUTH_PROVIDER=openai.",
+  "rootCause": "The canonical config schema (docs/awf-config.schema.json) enumerates apiProxy.auth.provider as azure, aws, gcp, and anthropic only; src/awf-config-schema.json is the generated runtime-validation copy. validateAwfFileConfig() runs validateWithSchema() before any mapping, so a config file selecting openai is rejected even though the sidecar's cloud-oidc-init provider and the openai-credential-env agent routing accept AWF_AUTH_PROVIDER=openai.",
   "probe": {
     "command": "node -p 'JSON.stringify(require(\"./src/awf-config-schema.json\").properties.apiProxy.properties.auth.properties.provider.enum)'",
     "expect": "Prints [\"azure\",\"aws\",\"gcp\",\"anthropic\"] on a checkout that lacks openai in the schema enum. This reads only the bundled schema and never prints environment values, tokens, or Authorization headers.",
     "readOnly": true,
     "secretSafe": true
   },
-  "action": "Use the environment-variable form (AWF_AUTH_TYPE=github-oidc, AWF_AUTH_PROVIDER=openai, with AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID and AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID) until the schema enum is extended. The fix belongs in src/awf-config-schema.json and docs/awf-config.schema.json together, with schema tests; it is not verified here. Do not put the OpenAI IDs into the agent environment or work around the schema by editing generated artifacts.",
+  "action": "Use the environment-variable form (AWF_AUTH_TYPE=github-oidc, AWF_AUTH_PROVIDER=openai, with AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID and AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID) until the schema enum is extended. The fix belongs in the canonical docs/awf-config.schema.json; run npm run generate:schema to update src/awf-config-schema.json, and add schema tests. This fix is not verified here. Do not put the OpenAI IDs into the agent environment or edit the generated runtime schema directly.",
   "references": [
     {
       "kind": "pull-request",

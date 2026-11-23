@@ -647,7 +647,7 @@ AWF keeps the Actions OIDC request capability, minted GitHub JWT, and exchanged 
 │   capability                │     │ ✓ ACTIONS_ID_TOKEN_REQUEST_TOKEN      │
 │ ✗ No cloud credentials      │     │ ✓ Provider-specific configuration     │
 │ ✗ No API keys               │     │ ✓ AWF_AUTH_TYPE=github-oidc           │
-│ ✓ OPENAI_BASE_URL=          │     │ ✓ AWF_AUTH_PROVIDER=azure|aws|gcp|anthropic|openai │
+│ ✓ OPENAI_BASE_URL=          │     │ ✓ AWF_AUTH_PROVIDER (see table)       │
 │   http://172.30.0.30:10000  │     │ ✓ Provider-specific config            │
 │                             │     │                                       │
 │ Agent sends request:        │     │ On startup:                           │
