@@ -1,4 +1,4 @@
-import { CredentialRedactingStream, redactCredentials } from './credential-redactor';
+import { CredentialRedactingStream } from './credential-redactor';
 
 function runStream(chunks: string[]): Promise<{ output: string; detections: number }> {
   return new Promise((resolve, reject) => {
@@ -18,12 +18,16 @@ function runStream(chunks: string[]): Promise<{ output: string; detections: numb
 }
 
 describe('credential redaction', () => {
-  it('redacts GitHub tokens and runner JWTs', () => {
+  it('does not export the internal string redaction helper', async () => {
+    expect(await import('./credential-redactor')).not.toHaveProperty('redactCredentials');
+  });
+
+  it('redacts GitHub tokens and runner JWTs', async () => {
     const githubToken = `ghs_${'a'.repeat(36)}`;
     const jwt = `eyJ${'a'.repeat(20)}.${'b'.repeat(30)}.${'c'.repeat(30)}`;
-    const result = redactCredentials(`tokens: ${githubToken} ${jwt}`);
+    const result = await runStream([`tokens: ${githubToken} ${jwt}`]);
 
-    expect(result.detected).toBe(true);
+    expect(result.detections).toBe(1);
     expect(result.output).not.toContain(githubToken);
     expect(result.output).not.toContain(jwt);
     expect(result.output.length).toBe(`tokens: ${githubToken} ${jwt}`.length);
@@ -103,14 +107,14 @@ describe('credential redaction', () => {
     expect(output.toString('latin1')).not.toContain(token);
   });
 
-  it('does not flag credential placeholders or assignment examples', () => {
-    const result = redactCredentials(
+  it('does not flag credential placeholders or assignment examples', async () => {
+    const result = await runStream([
       'GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}\nexport GITHUB_TOKEN=<your-token>',
-    );
+    ]);
 
     expect(result).toEqual({
       output: 'GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}\nexport GITHUB_TOKEN=<your-token>',
-      detected: false,
+      detections: 0,
     });
   });
 });
