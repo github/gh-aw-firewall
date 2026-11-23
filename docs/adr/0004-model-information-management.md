@@ -910,10 +910,12 @@ with a count mismatch or an unfetched next page fails as incomplete coverage.
 The bundled catalogue is already consumed by runtime fallback accounting;
 the generated retirement projection is also an active guard input. Merging a
 reviewed refresh can therefore change fallback prices, model lookup winners or
-retirement handling. Reports include before/after runtime consumer effects,
-including order-sensitive alias winners, and the gate runs the affected proxy
-consumer regressions. This does not activate the staged maintained pricing
-projection or a new pricing/resolver architecture.
+retirement handling. Reports separate backend-scoped fallback tariff changes
+from historical bare-slug lookup observations; fallback rates affect budgets only
+when that fallback is selected, while lookup observations are not budget-active
+tariff changes. The gate runs the affected proxy consumer regressions. This does
+not activate the staged maintained pricing projection or a new pricing/resolver
+architecture.
 
 The updater runs canonical generation, focused offline regressions and
 `models:check`, and commits `shared/model-information/maintenance-report.json`

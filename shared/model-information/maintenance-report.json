@@ -3,7 +3,104 @@
   "status": "proposed-awaiting-human-review",
   "baseRevision": "664fea39f6b322c92213eb62ec3e2800fd148f90",
   "reviewBaseRevision": "664fea39f6b322c92213eb62ec3e2800fd148f90",
-  "runtimeConsumerEffects": [
+  "runtimeConsumerEffects": [],
+  "backendScopedFallbackEffects": [
+    {
+      "file": "containers/api-proxy/models.dev.catalog.json",
+      "changes": [
+        {
+          "pointer": "/backendScopedFallback/openrouter~1google~1gemma-3-27b-it/pricing/output",
+          "before": "0.45",
+          "after": "0.16"
+        },
+        {
+          "pointer": "/backendScopedFallback/openrouter~1google~1gemma-3-27b-it/pricing/cachedInput",
+          "before": "0.04",
+          "after": "0.008"
+        },
+        {
+          "pointer": "/backendScopedFallback/openrouter~1google~1gemma-3-27b-it/estimatedComponents",
+          "before": null,
+          "after": [
+            "cachedInput"
+          ]
+        },
+        {
+          "pointer": "/backendScopedFallback/openrouter~1openai~1gpt-oss-120b/pricing/input",
+          "before": "0.09",
+          "after": "0.05"
+        },
+        {
+          "pointer": "/backendScopedFallback/openrouter~1openai~1gpt-oss-120b/pricing/output",
+          "before": "0.36",
+          "after": "0.25"
+        },
+        {
+          "pointer": "/backendScopedFallback/openrouter~1openai~1gpt-oss-120b/pricing/cachedInput",
+          "before": "0.009",
+          "after": "0.05"
+        },
+        {
+          "pointer": "/backendScopedFallback/openrouter~1openai~1gpt-oss-120b/estimatedComponents",
+          "before": [
+            "cachedInput"
+          ],
+          "after": null
+        },
+        {
+          "pointer": "/backendScopedFallback/openrouter~1openai~1gpt-oss-20b/pricing/input",
+          "before": "0.075",
+          "after": "0.03"
+        },
+        {
+          "pointer": "/backendScopedFallback/openrouter~1openai~1gpt-oss-20b/pricing/output",
+          "before": "0.3",
+          "after": "0.13"
+        },
+        {
+          "pointer": "/backendScopedFallback/openrouter~1openai~1gpt-oss-20b/pricing/cachedInput",
+          "before": "0.0375",
+          "after": "0.03"
+        },
+        {
+          "pointer": "/backendScopedFallback/openrouter~1qwen~1qwen3.6-35b-a3b/pricing/input",
+          "before": "0.1",
+          "after": "0.05"
+        },
+        {
+          "pointer": "/backendScopedFallback/openrouter~1qwen~1qwen3.6-35b-a3b/pricing/output",
+          "before": "0.9",
+          "after": "0.7"
+        },
+        {
+          "pointer": "/backendScopedFallback/openrouter~1z-ai~1glm-5.1/pricing/input",
+          "before": "1.4",
+          "after": "1.19"
+        },
+        {
+          "pointer": "/backendScopedFallback/openrouter~1z-ai~1glm-5.1/pricing/output",
+          "before": "4.4",
+          "after": "3.74"
+        },
+        {
+          "pointer": "/backendScopedFallback/openrouter~1z-ai~1glm-5.1/pricing/cachedInput",
+          "before": "0.26",
+          "after": "0.6"
+        },
+        {
+          "pointer": "/backendScopedFallback/openrouter~1z-ai~1glm-5.3-flash/pricing/input",
+          "before": "0.15",
+          "after": "0.0399"
+        },
+        {
+          "pointer": "/backendScopedFallback/openrouter~1z-ai~1glm-5.3-flash/pricing/output",
+          "before": "0.5",
+          "after": "0.0784"
+        }
+      ]
+    }
+  ],
+  "historicalLookupEffects": [
     {
       "file": "containers/api-proxy/models.dev.catalog.json",
       "changes": [
@@ -121,49 +218,14 @@
           "pointer": "/runtimeResolution/@lookup=qwen3-6-35b-a3b/pricing/output",
           "before": 0.8999999999999999,
           "after": 0.7
-        },
-        {
-          "pointer": "/backendScopedFallback/openrouter~1google~1gemma-3-27b-it/estimatedComponents",
-          "before": null,
-          "after": [
-            "cachedInput"
-          ]
-        },
-        {
-          "pointer": "/backendScopedFallback/openrouter~1google~1gemma-3-27b-it/pricing/cachedInput",
-          "before": "0.04",
-          "after": "0.008"
-        },
-        {
-          "pointer": "/backendScopedFallback/openrouter~1google~1gemma-3-27b-it/pricing/output",
-          "before": "0.45",
-          "after": "0.16"
-        },
-        {
-          "pointer": "/backendScopedFallback/openrouter~1openai~1gpt-oss-120b/estimatedComponents",
-          "before": [
-            "cachedInput"
-          ],
-          "after": null
-        },
-        {
-          "pointer": "/backendScopedFallback/openrouter~1openai~1gpt-oss-120b/pricing/cachedInput",
-          "before": "0.009",
-          "after": "0.05"
-        },
-        {
-          "pointer": "/backendScopedFallback/openrouter~1openai~1gpt-oss-120b/pricing/input",
-          "before": "0.09",
-          "after": "0.05"
-        },
-        {
-          "pointer": "/backendScopedFallback/openrouter~1openai~1gpt-oss-120b/pricing/output",
-          "before": "0.36",
-          "after": "0.25"
         }
       ]
     }
   ],
+  "impactInterpretation": {
+    "backendScopedFallbackEffects": "Imported OpenRouter rates affect budgets only when this fallback is selected, below valid provider, central-feed and operator pricing.",
+    "historicalLookupEffects": "Order-sensitive bare-slug lookup observations are reported separately and are not budget-active tariff changes."
+  },
   "pathFormat": "JSON Pointer fields; data/models arrays use @id=<escaped exact ID> selectors, not positional indices. Raw import diffs cover governed observations only; exact bytes are pinned separately.",
   "roundingTolerance": "Zero unless a separately reviewed provider-specific tolerance is documented; no guessed tolerance.",
   "sources": [
