@@ -93,8 +93,11 @@ command names, and accepted argument vectors are forwarded unchanged. Invalid
 syntax remains subject to `gh`'s own parser; classification does not make an
 unsupported flag valid.
 
-The shallow discovery rules and alias table in `containers/cli-proxy/security.js`
-must stay aligned with the `gh` version pinned in the sidecar Dockerfile.
+The shallow discovery rules and alias table in
+`containers/cli-proxy/security/command-policy.js` must stay aligned with the `gh`
+version pinned in the sidecar Dockerfile. `security.js` remains the validation
+facade, with environment, enclave, and file-input policy in focused `security/`
+modules. `security.test.js` pins their allow/deny results and public exports.
 `server.test.js` covers policy decisions, HTTP rejection before an inert child
 can run, unchanged forwarding of allowed argv, and isolated, help-only checks
 against the installed `gh` parser. Enclave mode continues to use its separate

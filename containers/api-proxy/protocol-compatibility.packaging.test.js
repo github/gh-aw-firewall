@@ -41,13 +41,17 @@ test('contracts and declarations load with translators from the actual Docker CO
       expect(fs.existsSync(path.join(root, 'wire-api', `${name}.js`))).toBe(true);
     }
     for (const name of [
-      'upstream-dispatch', 'upstream-attempt-recovery', 'upstream-protocol-translation',
+      'upstream-dispatch', 'upstream-dispatch-guards', 'upstream-dispatch-transport',
+      'upstream-attempt-recovery', 'upstream-protocol-translation',
       'fallback-origin', 'fallback-candidate-selection',
+      'upstream-response-buffering', 'upstream-response-transforms',
     ]) {
       expect(fs.existsSync(path.join(root, `${name}.js`))).toBe(true);
     }
     const result = spawnSync(process.execPath, ['-e', `
       const assert = require('assert/strict');
+      assert.equal(typeof require('./upstream-response-buffering').bufferUpstreamResponse, 'function');
+      assert.equal(typeof require('./upstream-response-transforms').selectCompatibilityTransforms, 'function');
       const { CONTRACTS, assessFeature } = require('./protocol-compatibility');
       const wire = require('./wire-api-compat');
       const messages = require('./anthropic-chat-compat');

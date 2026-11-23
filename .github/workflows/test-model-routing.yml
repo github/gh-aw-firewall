@@ -19,6 +19,8 @@ on:
       - 'containers/api-proxy/request-headers.js'
       - 'containers/api-proxy/upstream-http.js'
       - 'containers/api-proxy/upstream-dispatch.js'
+      - 'containers/api-proxy/upstream-dispatch-guards.js'
+      - 'containers/api-proxy/upstream-dispatch-transport.js'
       - 'containers/api-proxy/upstream-attempt-recovery.js'
       - 'containers/api-proxy/fallback-origin.js'
       - 'containers/api-proxy/fallback-candidate-selection.js'

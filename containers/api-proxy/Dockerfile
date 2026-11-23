@@ -67,7 +67,7 @@ COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
      model-resolver.js model-identity.js model-fallback.js model-fallback-chain.js model-utils.js model-body-rewriter.js proxy-utils.js oidc-adapter-utils.js adapter-factory.js anthropic-transforms.js claude-hosted-web.js codex-hosted-web.js hosted-web-policy.js \
      model-config.js model-recovery.js model-selector.js model-eligibility.js automatic-model-eligibility.js model-reasoning.js harness-observation.js scoped-auto-model.js key-validation.js server-factory.js startup.js \
      model-config.js model-recovery.js model-selector.js model-eligibility.js automatic-model-eligibility.js automatic-selection.js model-reasoning.js harness-observation.js scoped-auto-model.js key-validation.js server-factory.js startup.js \
-     proxy-request.js request-headers.js trusted-service.js upstream-http.js upstream-dispatch.js upstream-attempt-recovery.js upstream-protocol-translation.js upstream-auth.js upstream-fallback.js upstream-request-utils.js proxy-guards.js proxy-error-handler.js http-client.js body-handler.js reasoning-effort-validation.js model-discovery.js management.js model-decision-diagnostics.js model-decision-diagnostics.schema.json model-decision-observation.js oidc-token-provider.js \
+     proxy-request.js request-headers.js trusted-service.js upstream-http.js upstream-dispatch.js upstream-dispatch-guards.js upstream-dispatch-transport.js upstream-attempt-recovery.js upstream-protocol-translation.js upstream-auth.js upstream-fallback.js upstream-request-utils.js proxy-guards.js proxy-error-handler.js http-client.js body-handler.js reasoning-effort-validation.js model-discovery.js management.js model-decision-diagnostics.js model-decision-diagnostics.schema.json model-decision-observation.js oidc-token-provider.js \
      fallback-origin.js fallback-candidate-selection.js \
      body-collection.js request-body-pipeline.js steering-injection.js \
      oidc-token-provider-base.js \
@@ -80,6 +80,7 @@ COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
      anthropic-chat-compat.js cross-provider-fallback.js \
      websocket-guards.js websocket-tunnel.js \
      deprecated-header-tracker.js billing-headers.js upstream-response.js \
+     upstream-response-buffering.js upstream-response-transforms.js \
      upstream-error-classification.js upstream-error-logging.js \
      upstream-log.js upstream-retry.js upstream-token.js copilot-auth-diagnostics.js credential-protection.js credential-websocket.js \
      anthropic-cache.js otel.js otel-exporters.js otel-serialization.js otel-workload-identity.js \

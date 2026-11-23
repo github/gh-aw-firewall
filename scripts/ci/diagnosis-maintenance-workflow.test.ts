@@ -64,6 +64,7 @@ describe('shared diagnosis-maintenance contract', () => {
     expect(shared).toContain('scripts/diagnostics/intake.ts');
     expect(shared).toContain('cache-memory: true');
     expect(shared).toContain('name: diagnosis-intake');
+    expect(shared).toContain('deterministic cache step strips prose and unknown fields');
     expect(shared).toContain('receipts.json');
     expect(shared).toContain('needs-evidence');
     expect(shared).toContain('publication-pending');
@@ -284,6 +285,41 @@ describe('shared diagnosis-maintenance contract', () => {
     expect(lock).toContain("GH_AW_GITHUB_MIN_INTEGRITY: 'unapproved'");
   });
 
+  it('keeps baseline-none PR evidence behind the unapproved integrity floor', () => {
+    const source = read('.github/workflows/ci-integration-doctor-updater.md');
+    expect(source).toContain('Keep the GitHub MCP integrity floor at `unapproved`');
+    expect(source).toContain('do not lower it to read\nbaseline-`none` PR file lists or diffs');
+    expect(source).toContain('GitHub MCP remains read-only');
+    expect(source).toContain('Receipt `evidence` must contain only semicolon-separated structured citations');
+    expect(source).not.toContain('min-integrity: none');
+
+    const lock = read('.github/workflows/ci-integration-doctor-updater.lock.yml');
+    const policy = {
+      'allow-only': {
+        'min-integrity': 'unapproved',
+        repos: ['github/gh-aw-firewall', 'github/gh-aw', 'github/gh-aw-mcpg'],
+      },
+    };
+    expect(lock).toContain(`DIFC_PROXY_POLICY: '${JSON.stringify(policy)}'`);
+    expect(lock).toContain("GH_AW_GITHUB_MIN_INTEGRITY: 'unapproved'");
+    expect(lock).toContain('memory-unapproved-6b090c15-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-');
+    const compiled = yaml.load(lock) as {
+      jobs: { agent: { steps: Array<{ name: string; run?: string }> } };
+    };
+    const gateway = compiled.jobs.agent.steps.find(step => step.name === 'Start MCP Gateway')!;
+    const githubConfig = gateway.run!.match(/"github": (\{[\s\S]*?\n\s*\}),\n\s*"safeoutputs":/)![1];
+    const github = JSON.parse(githubConfig.replace(/\$\{GH_AW_GUARD_[A-Z_]+\}/g, '[]')) as {
+      env: Record<string, string>;
+      'guard-policies': unknown;
+    };
+    expect(github['guard-policies']).toMatchObject(policy);
+    expect(github.env.GITHUB_READ_ONLY).toBe('1');
+    expect(gateway.run).toContain('"blocked-users": ${GH_AW_GUARD_BLOCKED_USERS}');
+    expect(gateway.run).toContain('"write-sink": {');
+    const manifest = JSON.parse(lock.split('\n')[1].slice('# gh-aw-manifest: '.length));
+    expect(manifest.threat_detection.mode).toBe('enabled');
+  });
+
   it('checkpoints CI reviews and reserves time to validate and publish rather than only triage', () => {
     const source = read('.github/workflows/ci-integration-doctor-updater.md');
     for (const fragment of [
@@ -465,6 +501,17 @@ describe('shared diagnosis-maintenance contract', () => {
       expect(lock).toContain('Strip execute bits from cache-memory files');
       expect(lock).toContain('Scan cache-memory for instruction-injection content');
       expect(lock).toContain('Content preview suppressed for security: $f');
+      expect(lock.indexOf('name: Sanitize diagnosis receipts before cache persistence'))
+        .toBeLessThan(lock.indexOf('name: Scan cache-memory for instruction-injection content'));
+      expect(lock).toContain(
+        "if: always() && steps.sanitize-diagnosis-receipts.outcome == 'success'"
+      );
+      const cacheArtifactUpload = lock.indexOf('name: Upload cache-memory data as artifact');
+      if (cacheArtifactUpload >= 0) {
+        expect(lock.slice(cacheArtifactUpload, cacheArtifactUpload + 1000)).toContain(
+          "steps.sanitize-diagnosis-receipts.outcome == 'success'"
+        );
+      }
       expect(lock).not.toContain('head -5 "$f"');
     }
   });
