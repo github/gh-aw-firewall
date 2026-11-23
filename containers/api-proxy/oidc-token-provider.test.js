@@ -328,6 +328,7 @@ describe('OpenAI adapter with OIDC', () => {
   it('should not default to api-key header in OIDC mode when COPILOT_PROVIDER_TYPE=azure', () => {
     const adapter = createOpenAIAdapter({
       COPILOT_PROVIDER_TYPE: 'azure',
+      OPENAI_API_TARGET: 'my-resource.openai.azure.com',
       AWF_AUTH_TYPE: 'github-oidc',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
@@ -348,6 +349,7 @@ describe('OpenAI adapter with OIDC', () => {
 
   it('should not create OIDC provider when required vars are missing', () => {
     const adapter = createOpenAIAdapter({
+      OPENAI_API_TARGET: 'my-resource.openai.azure.com',
       AWF_AUTH_TYPE: 'github-oidc',
       // Missing ACTIONS_ID_TOKEN_REQUEST_URL, etc.
     });
@@ -358,6 +360,7 @@ describe('OpenAI adapter with OIDC', () => {
 
   it('should return empty auth headers when OIDC token is not yet acquired', () => {
     const adapter = createOpenAIAdapter({
+      OPENAI_API_TARGET: 'my-resource.openai.azure.com',
       AWF_AUTH_TYPE: 'github-oidc',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
@@ -374,6 +377,7 @@ describe('OpenAI adapter with OIDC', () => {
 
   it('should inject only Authorization header in OIDC mode', () => {
     const adapter = createOpenAIAdapter({
+      OPENAI_API_TARGET: 'my-resource.openai.azure.com',
       AWF_AUTH_TYPE: 'github-oidc',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',

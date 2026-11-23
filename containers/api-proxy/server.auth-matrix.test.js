@@ -118,6 +118,7 @@ describe('Auth Matrix — OpenAI', () => {
     beforeEach(() => {
       adapter = createOpenAIAdapter({
         OPENAI_API_KEY: 'sk-placeholder',
+        OPENAI_API_TARGET: 'my-resource.openai.azure.com',
         AWF_AUTH_TYPE: 'github-oidc',
         AWF_AUTH_PROVIDER: 'azure',
         ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -138,6 +139,7 @@ describe('Auth Matrix — OpenAI', () => {
 
     it('returns empty headers when OIDC token not yet available', () => {
       const fresh = createOpenAIAdapter({
+        OPENAI_API_TARGET: 'my-resource.openai.azure.com',
         AWF_AUTH_TYPE: 'github-oidc',
         AWF_AUTH_PROVIDER: 'azure',
         ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -187,6 +189,7 @@ describe('Auth Matrix — OpenAI', () => {
       const adapter = createOpenAIAdapter({
         OPENAI_API_KEY: 'sk-test',
         AWF_OPENAI_AUTH_HEADER: 'x-custom-auth',
+        OPENAI_API_TARGET: 'my-resource.openai.azure.com',
         AWF_AUTH_TYPE: 'github-oidc',
         AWF_AUTH_PROVIDER: 'azure',
         ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -413,6 +416,7 @@ describe('Auth Matrix — Copilot', () => {
 
     beforeEach(() => {
       adapter = createCopilotAdapter({
+        COPILOT_API_TARGET: 'aoai.example.com',
         AWF_AUTH_TYPE: 'github-oidc',
         AWF_AUTH_PROVIDER: 'azure',
         ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -442,6 +446,7 @@ describe('Auth Matrix — Copilot', () => {
   describe('GCP OIDC via Copilot', () => {
     it('creates GCP OIDC provider when AWF_AUTH_PROVIDER=gcp', () => {
       const adapter = createCopilotAdapter({
+        COPILOT_API_TARGET: 'us-central1-aiplatform.googleapis.com',
         AWF_AUTH_TYPE: 'github-oidc',
         AWF_AUTH_PROVIDER: 'gcp',
         ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -456,6 +461,7 @@ describe('Auth Matrix — Copilot', () => {
 
     it('injects Bearer token from GCP OIDC provider', () => {
       const adapter = createCopilotAdapter({
+        COPILOT_API_TARGET: 'us-central1-aiplatform.googleapis.com',
         AWF_AUTH_TYPE: 'github-oidc',
         AWF_AUTH_PROVIDER: 'gcp',
         ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -510,6 +516,7 @@ describe('Auth Matrix — Copilot', () => {
   describe('static BYOK key takes precedence over OIDC', () => {
     it('ignores OIDC when COPILOT_PROVIDER_API_KEY is set', () => {
       const adapter = createCopilotAdapter({
+        COPILOT_API_TARGET: 'aoai.example.com',
         AWF_AUTH_TYPE: 'github-oidc',
         AWF_AUTH_PROVIDER: 'azure',
         ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -647,6 +654,7 @@ describe('Auth Matrix — Credential Isolation', () => {
 describe('Auth Matrix — isEnabled with OIDC', () => {
   it('OpenAI isEnabled=false before OIDC token acquired', () => {
     const adapter = createOpenAIAdapter({
+      OPENAI_API_TARGET: 'my-resource.openai.azure.com',
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'azure',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -672,6 +680,7 @@ describe('Auth Matrix — isEnabled with OIDC', () => {
 
   it('OpenAI isEnabled=true after OIDC token acquired', () => {
     const adapter = createOpenAIAdapter({
+      OPENAI_API_TARGET: 'my-resource.openai.azure.com',
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'azure',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -700,6 +709,7 @@ describe('Auth Matrix — isEnabled with OIDC', () => {
 
   it('Copilot isEnabled=false before Azure OIDC token acquired', () => {
     const adapter = createCopilotAdapter({
+      COPILOT_API_TARGET: 'aoai.example.com',
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'azure',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -714,6 +724,7 @@ describe('Auth Matrix — isEnabled with OIDC', () => {
 
   it('Copilot isEnabled=true after Azure OIDC token acquired', () => {
     const adapter = createCopilotAdapter({
+      COPILOT_API_TARGET: 'aoai.example.com',
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'azure',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -724,6 +735,67 @@ describe('Auth Matrix — isEnabled with OIDC', () => {
     });
     const provider = injectOidcToken(adapter, 'entra-token');
     expect(adapter.isEnabled()).toBe(true);
+    provider.shutdown();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cloud OIDC credentials are bound to the explicitly configured upstream
+// ---------------------------------------------------------------------------
+
+describe('Auth Matrix — cloud OIDC target binding', () => {
+  const CLOUD_OIDC_ENVS = {
+    azure: {
+      AWF_AUTH_PROVIDER: 'azure',
+      AWF_AUTH_AZURE_TENANT_ID: 'tenant',
+      AWF_AUTH_AZURE_CLIENT_ID: 'client',
+    },
+    aws: {
+      AWF_AUTH_PROVIDER: 'aws',
+      AWF_AUTH_AWS_ROLE_ARN: 'arn:aws:iam::123456:role/test',
+      AWF_AUTH_AWS_REGION: 'us-east-1',
+    },
+    gcp: {
+      AWF_AUTH_PROVIDER: 'gcp',
+      AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER: 'projects/1/locations/global/workloadIdentityPools/p/providers/gh',
+    },
+  };
+  const baseEnv = (provider, extra = {}) => ({
+    AWF_AUTH_TYPE: 'github-oidc',
+    ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test',
+    // Copilot BYOK gateway configured; OpenAI/Anthropic targets left at defaults.
+    COPILOT_PROVIDER_BASE_URL: 'https://gateway.example.com/openai',
+    ...CLOUD_OIDC_ENVS[provider],
+    ...extra,
+  });
+
+  describe.each(Object.keys(CLOUD_OIDC_ENVS))('%s OIDC', (provider) => {
+    it.each([
+      ['openai', () => createOpenAIAdapter(baseEnv(provider))],
+      ['anthropic', () => createAnthropicAdapter(baseEnv(provider))],
+      ['copilot (derived target)', () => createCopilotAdapter(baseEnv(provider))],
+    ])('%s adapter does not use the cloud OIDC credential', (_name, create) => {
+      const adapter = create();
+      expect(adapter.getOidcProvider()).toBeNull();
+      expect(adapter.isEnabled()).toBe(false);
+    });
+
+    it.each([
+      ['openai', { OPENAI_API_TARGET: 'api.openai.com' }, createOpenAIAdapter],
+      ['anthropic', { ANTHROPIC_API_TARGET: 'api.anthropic.com' }, createAnthropicAdapter],
+      ['copilot', { COPILOT_API_TARGET: 'api.githubcopilot.com' }, createCopilotAdapter],
+    ])('%s adapter refuses an explicit first-party target', (_name, extra, create) => {
+      const adapter = create(baseEnv(provider, extra));
+      expect(adapter.getOidcProvider()).toBeNull();
+      expect(adapter.isEnabled()).toBe(false);
+    });
+  });
+
+  it('copilot adapter uses the credential for its explicitly configured gateway', () => {
+    const adapter = createCopilotAdapter(baseEnv('azure', { COPILOT_API_TARGET: 'gateway.example.com' }));
+    const provider = injectOidcToken(adapter, 'entra-token');
+    expect(adapter.getAuthHeaders(fakeReq()).Authorization).toBe('Bearer entra-token');
     provider.shutdown();
   });
 });

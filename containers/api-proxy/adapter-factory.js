@@ -286,6 +286,8 @@ function createStandardProviderAdapter(env, deps = {}, {
   }
   const oidcAuthOptions = {
     staticAuthToken: config.apiKey,
+    targetHost: config.rawTarget,
+    adapterName: name,
     ...(createOidcAuthOptions ? createOidcAuthOptions(config) : {}),
   };
   const resolveOptions = (options, context) => (

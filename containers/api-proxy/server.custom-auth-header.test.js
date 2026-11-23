@@ -137,6 +137,7 @@ describe('createOpenAIAdapter — custom auth header', () => {
     const adapter = createOpenAIAdapter({
       OPENAI_API_KEY: 'sk-openai-test',
       AWF_OPENAI_AUTH_HEADER: 'api-key',
+      OPENAI_API_TARGET: 'my-resource.openai.azure.com',
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'azure',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -224,6 +225,7 @@ describe('createOpenAIAdapter — custom auth header', () => {
   it('OIDC mode (Azure) without custom header uses Authorization Bearer', () => {
     const adapter = createOpenAIAdapter({
       OPENAI_API_KEY: 'sk-openai-test',
+      OPENAI_API_TARGET: 'my-resource.openai.azure.com',
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'azure',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',

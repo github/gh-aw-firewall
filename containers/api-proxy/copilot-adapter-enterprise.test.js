@@ -305,6 +305,7 @@ describe('createCopilotAdapter — Azure OIDC (Entra) getAuthHeaders', () => {
 
   it('exposes an Azure OIDC provider when AWF_AUTH_TYPE=github-oidc + AWF_AUTH_PROVIDER=azure', () => {
     const adapter = createCopilotAdapter({
+      COPILOT_API_TARGET: 'aoai.example.com',
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'azure',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -322,6 +323,7 @@ describe('createCopilotAdapter — Azure OIDC (Entra) getAuthHeaders', () => {
 
   it('injects Bearer-prefixed OIDC token in getAuthHeaders when OIDC token is available', () => {
     const adapter = createCopilotAdapter({
+      COPILOT_API_TARGET: 'aoai.example.com',
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'azure',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -344,6 +346,7 @@ describe('createCopilotAdapter — Azure OIDC (Entra) getAuthHeaders', () => {
 
   it('returns empty headers when Azure OIDC token has not yet been acquired', () => {
     const adapter = createCopilotAdapter({
+      COPILOT_API_TARGET: 'aoai.example.com',
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'azure',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -359,6 +362,7 @@ describe('createCopilotAdapter — Azure OIDC (Entra) getAuthHeaders', () => {
 
   it('isEnabled returns false until OIDC provider is ready', () => {
     const adapter = createCopilotAdapter({
+      COPILOT_API_TARGET: 'aoai.example.com',
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'azure',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -379,6 +383,7 @@ describe('createCopilotAdapter — Azure OIDC (Entra) getAuthHeaders', () => {
 
   it('unconfigured-response surfaces the OIDC-specific error message before token is ready', () => {
     const adapter = createCopilotAdapter({
+      COPILOT_API_TARGET: 'aoai.example.com',
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'azure',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -407,6 +412,7 @@ describe('createCopilotAdapter — Azure OIDC (Entra) getAuthHeaders', () => {
 
   it('static COPILOT_PROVIDER_API_KEY takes precedence over OIDC', () => {
     const adapter = createCopilotAdapter({
+      COPILOT_API_TARGET: 'aoai.example.com',
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'azure',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',

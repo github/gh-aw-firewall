@@ -68,7 +68,7 @@ function createGoogleAuthAdapter(env, deps = {}, opts) {
     name,
     port,
     defaultTarget,
-    createOidcAuthOptions: () => ({ skipWhen: !gcpOidcRequested }),
+    createOidcAuthOptions: () => ({ skipWhen: !gcpOidcRequested, allowCloudOidc: gcpOidcRequested }),
     createHeaderBuilders: ({ apiKey }) => ({
       buildOidcHeaders: bearerAuthHeaders,
       buildStaticHeaders: () => providerKeyHeaders('x-goog-api-key', apiKey),

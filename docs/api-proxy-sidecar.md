@@ -1954,6 +1954,10 @@ AWF forwards `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN`
 GitHub Agentic Workflows handles HTTP MCP `auth.type: github-oidc` separately: the compiler-generated, runner-owned **Start MCP Gateway** step passes the Actions variables directly to the MCP gateway, which mints an audience-bound JWT for the remote server. AWF neither launches nor configures that gateway, and the variables do not need to pass through the agent. [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) is resolved by [github/gh-aw#50054](https://github.com/github/gh-aw/pull/50054); recompile older workflow lock files that predate this direct runner-to-gateway path.
 :::
 
+### Cloud OIDC target binding
+
+Azure, AWS and GCP credentials (`AWF_AUTH_PROVIDER=azure|aws|gcp`) are attached only by adapters whose upstream is explicitly configured: `COPILOT_API_TARGET` (set by the CLI from `COPILOT_PROVIDER_BASE_URL`), `OPENAI_API_TARGET` or the Azure BYOK provider URL (`COPILOT_PROVIDER_TYPE=azure`), `ANTHROPIC_API_TARGET`, or the Gemini/Vertex adapters when `AWF_AUTH_PROVIDER=gcp`. Adapters left at their default upstream do not initialize a cloud OIDC provider. The sidecar also refuses to bind these credentials to `api.openai.com`, `api.anthropic.com`, `*.githubcopilot.com` and `copilot-api.*.ghe.com`, logging `cloud_oidc_target_refused`. Native OpenAI (`openai`) and Anthropic (`anthropic`) workload identity are unaffected.
+
 When `AWF_AUTH_TYPE=github-oidc` is set but `ACTIONS_ID_TOKEN_REQUEST_URL`/`ACTIONS_ID_TOKEN_REQUEST_TOKEN` are not available in the sidecar, Anthropic OIDC requests fail closed with:
 
 - `503 Anthropic OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (permissions: id-token: write).`

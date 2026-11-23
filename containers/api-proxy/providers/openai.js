@@ -86,7 +86,12 @@ function createOpenAIAdapter(env, deps = {}) {
       buildOidcHeaders: openAiWifRequested ? bearerAuthHeaders : buildTokenAuthHeaders,
       buildStaticHeaders: () => buildTokenAuthHeaders(apiKey),
     }),
-    createOidcAuthOptions: () => ({ allowOpenAiWif: openAiWifRequested }),
+    createOidcAuthOptions: () => ({
+      allowOpenAiWif: openAiWifRequested,
+      // Cloud OIDC tokens are only bound to an explicitly configured upstream
+      // (OPENAI_API_TARGET or the Azure BYOK provider URL), never the default.
+      allowCloudOidc: !!(env[OPENAI_ENV.TARGET] || (copilotAzureByokEnabled && copilotByokTarget)),
+    }),
     createAdapterMethodsOptions: ({
       authProvider,
       oidcConfigured,
