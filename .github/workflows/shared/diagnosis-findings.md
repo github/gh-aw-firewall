@@ -76,6 +76,8 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 | Copilot Decisions (evals) request using the reported fine-grained PAT returns HTTP 400 with a plain-text body containing "Personal Access Tokens are not supported for this endpoint" | AUTH-006 | auth | workaround |
 | A standalone gh-aw evals judge fails as an opaque "Decisions request failed (HTTP 400)" and the run stays green | AUTH-006 | auth | workaround |
 | The same 400 occurs for every model name, including invalid ones, because the token is rejected before model validation | AUTH-006 | auth | workaround |
+| awf config validation reports that config.apiProxy.auth.provider must be one of azure, aws, gcp, anthropic | AUTH-007 | auth | unresolved |
+| OpenAI native WIF works when AWF_AUTH_PROVIDER=openai is set in the environment but fails when the same value is set through the AWF config file | AUTH-007 | auth | unresolved |
 | safe output validation failed in the workflow run | CI-001 | ci | workaround |
 | The agent job succeeds but the safe-output collection step exits non-zero | CI-001 | ci | workaround |
 | create-pull-request rejected: file not in allowed-files | CI-001 | ci | workaround |
@@ -467,6 +469,20 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 - **Related:** AUTH-001
 - **Provenance:** pull-request: Clarify Copilot Decisions PAT support and rejection diagnostics (https://github.com/github/gh-aw-firewall/pull/11289) · pull-request: docs: clarify Copilot Decisions authentication and egress scope (https://github.com/github/gh-aw-firewall/pull/11310) · issue: evals: /v1/decisions rejects fine-grained PATs, and the opaque HTTP 400 hides why (https://github.com/github/gh-aw/issues/75637) · code: pat_unsupported reason classification (containers/api-proxy/upstream-log.js) · test: containers/api-proxy/server.decisions.test.js · test: containers/api-proxy/upstream-log.test.js · doc: /v1/decisions (evals) (docs/auth-matrix.md)
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
+
+### AUTH-007 — Config-file apiProxy.auth.provider rejects openai although the runtime supports OpenAI native WIF
+
+- **Boundary:** auth · **Status:** unresolved
+- **Affects:** runner=any, runtime=any, provider=openai, auth=github-oidc
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** awf config validation reports that config.apiProxy.auth.provider must be one of azure, aws, gcp, anthropic · OpenAI native WIF works when AWF_AUTH_PROVIDER=openai is set in the environment but fails when the same value is set through the AWF config file
+- **Discriminating conditions:** apiProxy.auth.type is github-oidc in the AWF config file · apiProxy.auth.provider is set to openai · The failure is schema validation of the config file; the environment-variable path is not affected by this schema enum
+- **Root cause:** The canonical config schema (docs/awf-config.schema.json) enumerates apiProxy.auth.provider as azure, aws, gcp, and anthropic only; src/awf-config-schema.json is the generated runtime-validation copy. validateAwfFileConfig() runs validateWithSchema() before any mapping, so a config file selecting openai is rejected even though the sidecar's cloud-oidc-init provider and the openai-credential-env agent routing accept AWF_AUTH_PROVIDER=openai.
+- **Safe probe:** `node -p 'JSON.stringify(require("./src/awf-config-schema.json").properties.apiProxy.properties.auth.properties.provider.enum)'` → Prints ["azure","aws","gcp","anthropic"] on a checkout that lacks openai in the schema enum. This reads only the bundled schema and never prints environment values, tokens, or Authorization headers.
+- **Action:** Use the environment-variable form (AWF_AUTH_TYPE=github-oidc, AWF_AUTH_PROVIDER=openai, with AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID and AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID) until the schema enum is extended. The fix belongs in the canonical docs/awf-config.schema.json; run npm run generate:schema to update src/awf-config-schema.json, and add schema tests. This fix is not verified here. Do not put the OpenAI IDs into the agent environment or edit the generated runtime schema directly.
+- **Related:** AUTH-002
+- **Provenance:** pull-request: Add OpenAI workload identity federation to the API proxy (https://github.com/github/gh-aw-firewall/pull/11364) · code: src/awf-config-schema.json · code: src/config-file.ts · code: containers/api-proxy/providers/cloud-oidc-init.js · doc: docs/auth-matrix.md#openai-native-workload-identity-federation
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-01-31
 
 ## Boundary: ci
 
