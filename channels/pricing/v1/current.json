@@ -1,7 +1,7 @@
 {
-  "revision": "758badb28ae0eebc2c7470e54b3cdd723806edda2eda18ccdfa3b8caba1f2f4a",
+  "revision": "b27ab2062c8f1024b28c453e58e46be1289298b4328ee24ee20fc1217dcc1735",
   "schemaVersion": 1,
-  "sha256": "3f5c54689340a15071e53a5a525849c6bf1000fc65dfcbf44d37ec4135b6c8df",
-  "snapshot": "snapshots/pricing/v1/758badb28ae0eebc2c7470e54b3cdd723806edda2eda18ccdfa3b8caba1f2f4a.json",
-  "sourceCommit": "d1c61c25af46ac94b0d5cd946df38287e3ee1bca"
+  "sha256": "dcb21c4d7d037da7980284019efdc64a98fb7ca2532e5ef27cb242fe2fbd8d61",
+  "snapshot": "snapshots/pricing/v1/b27ab2062c8f1024b28c453e58e46be1289298b4328ee24ee20fc1217dcc1735.json",
+  "sourceCommit": "5dde34aff7c49a46e869a5f1f83bb9ac5cf6a2f7"
 }
