@@ -126,12 +126,14 @@ describe('routing bootstrap', () => {
       prepare(summaryFile);
       config.modelRouting = { ...config.modelRouting!, adaptiveSummaryFile: summaryFile };
       const state = stageRoutingConversation(config)!;
+      const descriptor = fs.openSync(state.adaptiveInputFile!, 'r');
       try {
         expect(state.containerAdaptiveInputFile).toBe('/run/awf-routing/input/adaptive-summary.json');
         expect(state.adaptiveInputFile).toBe(path.join(state.inputDir, 'adaptive-summary.json'));
-        expect(fs.statSync(state.adaptiveInputFile!).mode & 0o777).toBe(0o600);
-        return JSON.parse(fs.readFileSync(state.adaptiveInputFile!, 'utf8'));
+        expect(fs.fstatSync(descriptor).mode & 0o777).toBe(0o600);
+        return JSON.parse(fs.readFileSync(descriptor, 'utf8'));
       } finally {
+        fs.closeSync(descriptor);
         cleanupRoutingState(config);
       }
     }
