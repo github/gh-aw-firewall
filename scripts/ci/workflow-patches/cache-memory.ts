@@ -33,6 +33,62 @@ const diagnosisMaintenanceCacheWorkflowLockFiles = new Set([
   'runtime-enclave-doctor-updater.lock.yml',
   'self-hosted-runner-doctor-updater.lock.yml',
 ]);
+const diagnosisReceiptSanitizerStepName = 'Sanitize diagnosis receipts before cache persistence';
+
+function buildDiagnosisReceiptSanitizerStep(indent: string): string {
+  return `${indent}- name: ${diagnosisReceiptSanitizerStepName}\n` +
+    `${indent}  id: sanitize-diagnosis-receipts\n` +
+    `${indent}  if: always()\n` +
+    `${indent}  run: npx tsx scripts/diagnostics/intake.ts --sanitize-receipts /tmp/gh-aw/cache-memory/diagnosis\n`;
+}
+
+function guardStepOnReceiptSanitization(content: string, stepName: string, required: boolean): string {
+  const guard = "steps.sanitize-diagnosis-receipts.outcome == 'success'";
+  const output: string[] = [];
+  let stepLines: string[] | undefined;
+  let stepIndent: string | undefined;
+  let stepFound = false;
+  const flushStep = (): void => {
+    if (!stepLines) return;
+    let conditionFound = false;
+    const updatedStep = stepLines.map((line) => {
+      if (!conditionFound && line.trimStart().startsWith('if: ')) {
+        conditionFound = true;
+        return line.includes(guard) ? line : `${line} && ${guard}`;
+      }
+      return line;
+    });
+    if (conditionFound) {
+      output.push(...updatedStep);
+    } else {
+      const [header, ...rest] = updatedStep;
+      const indent = header.slice(0, header.indexOf('-'));
+      output.push(header, `${indent}  if: always() && ${guard}`, ...rest);
+    }
+    stepLines = undefined;
+    stepIndent = undefined;
+  };
+
+  for (const line of content.split('\n')) {
+    if (stepLines && stepIndent !== undefined && line.startsWith(`${stepIndent}- `)) {
+      flushStep();
+    }
+    if (!stepLines && line.trim() === `- name: ${stepName}`) {
+      stepLines = [line];
+      stepIndent = line.slice(0, line.indexOf('-'));
+      stepFound = true;
+    } else if (stepLines) {
+      stepLines.push(line);
+    } else {
+      output.push(line);
+    }
+  }
+  flushStep();
+  if (!stepFound && required) {
+    throw new Error(`Could not find ${stepName} step to guard after receipt sanitization`);
+  }
+  return stepFound ? output.join('\n') : content;
+}
 
 export function restrictDiagnosisCacheContext(content: string, { workflowFile }: PatchContext): TransformResult {
   const messages: string[] = [];
@@ -93,6 +149,35 @@ export function hardenCacheMemory(content: string, { workflowFile }: PatchContex
     }
   } else {
     messages.push(`  'Scan cache-memory for instruction-injection' step already present (new version)`);
+  }
+
+  if (workflowFile !== undefined && diagnosisMaintenanceCacheWorkflowLockFiles.has(workflowFile)) {
+    if (!content.includes(diagnosisReceiptSanitizerStepName)) {
+      const scanStep = content.match(/^([ \t]+)- name: Scan cache-memory for instruction-injection content\n/m);
+      const commitStep = content.match(cacheMemoryCommitStepRegex);
+      const anchor = scanStep ?? commitStep;
+      if (!anchor && content.includes('Commit cache-memory changes')) {
+        throw new Error('Could not find cache persistence anchor for diagnosis receipt sanitizer');
+      }
+      if (anchor) {
+        content = content.replace(anchor[0], buildDiagnosisReceiptSanitizerStep(anchor[1]) + anchor[0]);
+        messages.push(`  Injected diagnosis receipt sanitizer before cache persistence`);
+      }
+    }
+
+    if (content.includes(diagnosisReceiptSanitizerStepName)) {
+      const beforeCommitGuard = content;
+      content = guardStepOnReceiptSanitization(content, 'Commit cache-memory changes', true);
+      if (content !== beforeCommitGuard) {
+        messages.push(`  Guarded diagnosis cache persistence on receipt sanitization`);
+      }
+
+      const beforeArtifactGuard = content;
+      content = guardStepOnReceiptSanitization(content, 'Upload cache-memory data as artifact', false);
+      if (content !== beforeArtifactGuard) {
+        messages.push(`  Guarded diagnosis cache artifact on receipt sanitization`);
+      }
+    }
   }
 
   if (workflowFile !== undefined && diagnosisMaintenanceCacheWorkflowLockFiles.has(workflowFile)) {

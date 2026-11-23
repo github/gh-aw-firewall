@@ -207,6 +207,29 @@ describe('standalone workflow patch domains', () => {
     ).content).toMatch(/^copilot\s+--model test$/);
   });
 
+  it('sanitizes diagnosis receipts before cache commit and fails closed on sanitizer errors', () => {
+    const workflow = context('/repo/ci-integration-doctor-updater.lock.yml');
+    const upload = '      - name: Upload cache-memory data as artifact\n' +
+      '        if: always() && steps.redact_secrets.outcome == \'success\'\n' +
+      '        uses: actions/upload-artifact@v7\n';
+    const first = hardenCacheMemory(cacheSteps + upload, workflow);
+    const sanitizer = first.content.indexOf('- name: Sanitize diagnosis receipts before cache persistence');
+    const scan = first.content.indexOf('- name: Scan cache-memory for instruction-injection content');
+    const commit = first.content.indexOf('- name: Commit cache-memory changes');
+    expect(sanitizer).toBeGreaterThanOrEqual(0);
+    expect(sanitizer).toBeLessThan(scan);
+    expect(scan).toBeLessThan(commit);
+    expect(first.content).toContain(
+      "if: always() && steps.sanitize-diagnosis-receipts.outcome == 'success'"
+    );
+    expect(first.content).toContain(
+      "if: always() && steps.redact_secrets.outcome == 'success' && steps.sanitize-diagnosis-receipts.outcome == 'success'"
+    );
+    expect(hardenCacheMemory(first.content, workflow).content).toBe(first.content);
+    expect(hardenCacheMemory(cacheSteps, context('/repo/example.lock.yml')).content)
+      .not.toContain('Sanitize diagnosis receipts');
+  });
+
   it('keeps concurrency substring matching, per-issue scoping, and diagnostic warnings', () => {
     const workflow = context('/repo/issue-duplication-detector.lock.yml.backup');
     const input = '      group: "gh-aw-conclusion-issue-duplication-detector"\n' +
