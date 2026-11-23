@@ -1,4 +1,5 @@
 const { EventEmitter } = require('events');
+const { PassThrough } = require('stream');
 const zlib = require('zlib');
 const { createUpstreamResponseHandlers } = require('./upstream-response');
 const { createRoutingObservation } = require('./routing-observation');
@@ -221,6 +222,98 @@ describe('upstream-response', () => {
       }],
       usage: { input_tokens: 2, output_tokens: 1, total_tokens: 3 },
     });
+  });
+
+  test('pipes streaming compatibility transforms and removes the original content length', async () => {
+    const deps = createDependencies();
+    const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);
+    const proxyRes = new PassThrough();
+    proxyRes.statusCode = 200;
+    proxyRes.headers = { 'content-type': 'text/event-stream', 'content-length': '123' };
+    const res = new PassThrough();
+    res.writeHead = jest.fn();
+    const chunks = [];
+    res.on('data', chunk => chunks.push(chunk));
+    const completed = new Promise((resolve, reject) => {
+      res.on('end', resolve);
+      res.on('error', reject);
+    });
+
+    handleUpstreamResponse(proxyRes, {}, {
+      body: Buffer.from('{"model":"test","stream":true}'), res, provider: 'copilot',
+      requestId: 'stream-compat', req: { method: 'POST', url: '/responses' },
+      targetHost: 'api.githubcopilot.com', startTime: Date.now(), span: {}, requestBytes: 30,
+      wireApiCompatibility: {
+        requestedEndpoint: '/responses', upstreamEndpoint: '/chat/completions', direction: 'responses_to_chat',
+      },
+    });
+    proxyRes.end('data: {"id":"chatcmpl_1","choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":null}]}\n\n' +
+      'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n' +
+      'data: [DONE]\n\n');
+    await completed;
+
+    expect(res.writeHead).toHaveBeenCalledWith(200, {
+      'content-type': 'text/event-stream', 'x-request-id': 'stream-compat',
+    });
+    expect(Buffer.concat(chunks).toString()).toContain('response.completed');
+    expect(Buffer.concat(chunks).toString()).toContain('hello');
+    expect(deps.trackTokenUsage).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    [200, 'copilot', null, '{"unchanged":true}'],
+    [200, 'copilot', 'gzip', 'encoded-body'],
+    [200, 'openai', null, '{"unchanged":true}'],
+    [429, 'copilot', null, '{"error":"rate limited"}'],
+  ])('retains the body and content length for unchanged %i %s responses (encoding: %s)', (
+    statusCode, provider, encoding, upstreamBody,
+  ) => {
+    const deps = createDependencies();
+    const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);
+    const responseBody = Buffer.from(upstreamBody);
+    const headers = {
+      'content-type': 'application/json', 'content-length': String(responseBody.length),
+      ...(encoding ? { 'content-encoding': encoding } : {}),
+    };
+    const proxyRes = createProxyRes({ statusCode, headers });
+    const res = { writeHead: jest.fn(), end: jest.fn() };
+    handleUpstreamResponse(proxyRes, {}, {
+      body: Buffer.from('{}'), res, provider, requestId: 'unchanged',
+      req: { method: 'POST', url: '/responses' }, targetHost: 'unused',
+      startTime: Date.now(), span: {}, requestBytes: 2,
+      codexCompatibility: {},
+    });
+    proxyRes.emit('data', responseBody);
+    proxyRes.emit('end');
+
+    expect(res.writeHead).toHaveBeenCalledWith(statusCode, { ...headers, 'x-request-id': 'unchanged' });
+    expect(res.end).toHaveBeenCalledWith(responseBody);
+  });
+
+  test.each([400, 404, 503])('forwards routing classifier %i errors without retries or body capture', statusCode => {
+    const deps = createDependencies();
+    const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);
+    const proxyRes = createProxyRes({ statusCode, headers: { 'content-type': 'application/json' } });
+    const res = { writeHead: jest.fn(), end: jest.fn() };
+    const onModelFallback = jest.fn(() => true);
+    const onRetry = jest.fn();
+    const onModelNotSupportedRetry = jest.fn();
+    handleUpstreamResponse(proxyRes, {}, {
+      body: Buffer.from('{}'), res, provider: 'copilot', requestId: 'classifier',
+      req: { method: 'POST', url: '/chat/completions', awfRequestContext: { purpose: 'routing_classification' } },
+      targetHost: 'api.githubcopilot.com', startTime: Date.now(), span: {}, requestBytes: 2,
+      onModelFallback, onRetry, onModelNotSupportedRetry,
+    });
+    expect(proxyRes.pipe).toHaveBeenCalledWith(res);
+    const responseBody = Buffer.from('{"error":{"message":"model not supported"}}');
+    proxyRes.emit('data', responseBody);
+    proxyRes.emit('end');
+
+    expect(res.end).toHaveBeenCalledWith(responseBody);
+    expect(onModelFallback).not.toHaveBeenCalled();
+    expect(onRetry).not.toHaveBeenCalled();
+    expect(onModelNotSupportedRetry).not.toHaveBeenCalled();
+    expect(deps.logRequest.mock.calls.some(([, event]) => event === 'upstream_error_response')).toBe(false);
   });
 
   test('captures non-2xx upstream body/headers without altering plain-text response', () => {
