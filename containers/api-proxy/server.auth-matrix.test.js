@@ -778,6 +778,7 @@ describe('Auth Matrix — cloud OIDC target binding', () => {
     ])('%s adapter does not use the cloud OIDC credential', (_name, create) => {
       const adapter = create();
       expect(adapter.getOidcProvider()).toBeNull();
+      expect(adapter.getAwsOidcProvider()).toBeNull();
       expect(adapter.isEnabled()).toBe(false);
     });
 
@@ -788,7 +789,29 @@ describe('Auth Matrix — cloud OIDC target binding', () => {
     ])('%s adapter refuses an explicit first-party target', (_name, extra, create) => {
       const adapter = create(baseEnv(provider, extra));
       expect(adapter.getOidcProvider()).toBeNull();
+      expect(adapter.getAwsOidcProvider()).toBeNull();
       expect(adapter.isEnabled()).toBe(false);
+    });
+
+    it('does not send the BYOK credential to unrelated explicit targets', () => {
+      const env = baseEnv(provider, {
+        COPILOT_API_TARGET: 'gateway.example.com',
+        OPENAI_API_TARGET: 'other-openai.example.com',
+        OPENAI_API_KEY: 'openai-static',
+        ANTHROPIC_API_TARGET: 'other-anthropic.example.com',
+        ANTHROPIC_API_KEY: 'anthropic-static',
+        GEMINI_API_KEY: 'gemini-static',
+      });
+      const openai = createOpenAIAdapter(env);
+      const anthropic = createAnthropicAdapter(env);
+      const gemini = createGeminiAdapter(env);
+      for (const adapter of [openai, anthropic, gemini]) {
+        expect(adapter.getOidcProvider()).toBeNull();
+        expect(adapter.getAwsOidcProvider()).toBeNull();
+      }
+      expect(openai.getAuthHeaders(fakeReq()).Authorization).toBe('Bearer ' + 'openai-static');
+      expect(anthropic.getAuthHeaders(fakeReq())['x-api-key']).toBe('anthropic-static');
+      expect(gemini.getAuthHeaders(fakeReq())['x-goog-api-key']).toBe('gemini-static');
     });
   });
 
@@ -797,5 +820,95 @@ describe('Auth Matrix — cloud OIDC target binding', () => {
     const provider = injectOidcToken(adapter, 'entra-token');
     expect(adapter.getAuthHeaders(fakeReq()).Authorization).toBe('Bearer entra-token');
     provider.shutdown();
+  });
+
+  it('anthropic adapter uses the credential for its configured gateway', () => {
+    const adapter = createAnthropicAdapter(baseEnv('azure', { ANTHROPIC_API_TARGET: 'gateway.example.com' }));
+    const provider = injectOidcToken(adapter, 'entra-token');
+    expect(provider).toBeTruthy();
+    expect(adapter.getAuthHeaders(fakeReq()).Authorization).toBe('Bearer ' + 'entra-token');
+    provider.shutdown();
+  });
+
+  it('fails closed when explicit targets select different origins without a BYOK URL', () => {
+    const env = baseEnv('azure', {
+      COPILOT_PROVIDER_BASE_URL: '',
+      OPENAI_API_TARGET: 'gateway.example.com',
+      ANTHROPIC_API_TARGET: 'other.example.com',
+    });
+    expect(createOpenAIAdapter(env).getOidcProvider()).toBeNull();
+    expect(createAnthropicAdapter(env).getOidcProvider()).toBeNull();
+  });
+
+  it('allows explicit targets sharing an origin without a BYOK URL', () => {
+    const env = baseEnv('azure', {
+      COPILOT_PROVIDER_BASE_URL: '',
+      OPENAI_API_TARGET: 'https://GATEWAY.example.com:443',
+      ANTHROPIC_API_TARGET: 'gateway.example.com',
+    });
+    const openai = createOpenAIAdapter(env).getOidcProvider();
+    const anthropic = createAnthropicAdapter(env).getOidcProvider();
+    expect(openai).toBeTruthy();
+    expect(anthropic).toBeTruthy();
+    openai.shutdown();
+    anthropic.shutdown();
+  });
+
+  it.each(['http://gateway.example.com', 'https://gateway.example.com:8443', 'https://other.example.com'])(
+    'does not bind a credential to an origin different from the BYOK URL: %s',
+    target => {
+      const adapter = createCopilotAdapter(baseEnv('azure', { COPILOT_API_TARGET: target }));
+      expect(adapter.getOidcProvider()).toBeNull();
+    },
+  );
+
+  it('fails closed on an invalid explicit target without a BYOK URL', () => {
+    const adapter = createOpenAIAdapter(baseEnv('azure', {
+      COPILOT_PROVIDER_BASE_URL: '',
+      OPENAI_API_TARGET: 'gateway.example.com',
+      ANTHROPIC_API_TARGET: 'http://[',
+    }));
+    expect(adapter.getOidcProvider()).toBeNull();
+  });
+
+  it('does not redirect a bound Vertex credential to a request-selected region', () => {
+    const adapter = createVertexAdapter(baseEnv('gcp', {
+      COPILOT_PROVIDER_BASE_URL: 'https://aiplatform.googleapis.com',
+    }));
+    const provider = adapter.getOidcProvider();
+    expect(provider).toBeTruthy();
+    expect(adapter.getTargetHost({
+      url: '/v1/projects/project/locations/us-central1/publishers/google/models/model:generateContent',
+    })).toBe('aiplatform.googleapis.com');
+    provider.shutdown();
+  });
+
+  it.each([
+    'https://other.example.com',
+    'http://gateway.example.com',
+    'https://gateway.example.com:8443',
+    'api.openai.com',
+  ])('does not reuse the Azure BYOK key for %s', (target) => {
+    const adapter = createOpenAIAdapter({
+      COPILOT_PROVIDER_TYPE: 'azure',
+      COPILOT_PROVIDER_BASE_URL: 'https://gateway.example.com/openai',
+      COPILOT_PROVIDER_API_KEY: 'byok-key',
+      OPENAI_API_TARGET: target,
+    });
+    expect(adapter.isEnabled()).toBe(false);
+    expect(adapter.getModelsFetchConfig()).toBeNull();
+    expect(adapter.getAuthHeaders(fakeReq()).Authorization).toBeUndefined();
+    expect(adapter.getAuthHeaders(fakeReq())['api-key']).toBeUndefined();
+  });
+
+  it('reuses the Azure BYOK key only for the same origin', () => {
+    const adapter = createOpenAIAdapter({
+      COPILOT_PROVIDER_TYPE: 'azure',
+      COPILOT_PROVIDER_BASE_URL: 'https://gateway.example.com/openai',
+      COPILOT_PROVIDER_API_KEY: 'byok-key',
+      OPENAI_API_TARGET: 'https://GATEWAY.example.com:443',
+    });
+    expect(adapter.getAuthHeaders(fakeReq())['api-key']).toBe('byok-key');
+    expect(adapter.getBasePath()).toBe('/openai');
   });
 });

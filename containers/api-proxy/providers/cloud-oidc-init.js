@@ -10,6 +10,48 @@ const { logRequest } = require('../logging');
 
 const CLOUD_OIDC_PROVIDERS = new Set(['azure', 'aws', 'gcp']);
 
+function targetOrigin(target) {
+  if (typeof target !== 'string' || !target.trim()) return null;
+  const value = target.trim();
+  try {
+    const url = new URL(/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(value) ? value : `https://${value}`);
+    if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+function matchesTargetOrigin(target, configuredTarget) {
+  const origin = targetOrigin(target);
+  return !!origin && origin === targetOrigin(configuredTarget);
+}
+
+function explicitCloudOidcTargets(env) {
+  return [
+    env.OPENAI_API_TARGET,
+    env.ANTHROPIC_API_TARGET,
+    env.COPILOT_API_TARGET,
+    env.GEMINI_API_TARGET,
+    env.VERTEX_API_TARGET,
+  ].filter(value => typeof value === 'string' && value.trim());
+}
+
+function hasSelectedCloudOidcTarget(env) {
+  return !!(env.COPILOT_PROVIDER_BASE_URL || '').trim() || explicitCloudOidcTargets(env).length > 0;
+}
+
+function isSelectedCloudOidcTarget(env, targetHost) {
+  const byokTarget = (env.COPILOT_PROVIDER_BASE_URL || '').trim();
+  if (byokTarget) return matchesTargetOrigin(targetHost, byokTarget);
+
+  const targets = explicitCloudOidcTargets(env);
+  if (!targets.length) return true;
+  const origins = targets.map(targetOrigin);
+  return origins.every(origin => origin && origin === origins[0])
+    && matchesTargetOrigin(targetHost, targets[0]);
+}
+
 /**
  * Hosts operated by first-party model providers that never accept
  * cloud-issued (Azure/AWS/GCP) workload identity tokens.
@@ -48,9 +90,8 @@ function isCloudOidcTargetAllowed(targetHost) {
  *
  * Cloud providers (Azure/AWS/GCP) are opt-in per adapter: they are only
  * resolved when the caller sets `allowCloudOidc` (the adapter's upstream is the
- * explicitly configured cloud target) and `targetHost` passes
- * `isCloudOidcTargetAllowed`. This keeps a token minted for one upstream from
- * being attached by adapters that forward to other hosts.
+ * explicitly configured cloud target), `targetHost` passes
+ * `isCloudOidcTargetAllowed`, and it matches the selected upstream origin.
  *
  * @param {Record<string, string|undefined>} env
  * @param {{ skipWhen?: boolean, allowOpenAiWif?: boolean, allowCloudOidc?: boolean, targetHost?: string, adapterName?: string }} [options]
@@ -82,6 +123,13 @@ function resolveCloudOidcProviders(env, options = {}) {
       cloudOidcPermitted = false;
       logRequest('warn', 'cloud_oidc_target_refused', {
         message: `Refusing to attach ${authProvider} OIDC token to a non-${authProvider} upstream`,
+        adapter: adapterName,
+        target: targetHost,
+      });
+    } else if (!isSelectedCloudOidcTarget(env, targetHost)) {
+      cloudOidcPermitted = false;
+      logRequest('info', 'cloud_oidc_not_bound', {
+        message: `${authProvider} OIDC is not bound to this adapter; upstream is not the configured cloud target`,
         adapter: adapterName,
         target: targetHost,
       });
@@ -337,6 +385,8 @@ function createProviderOidcHeaderStrategy(env, oidcAuthOptions = {}, {
 
 module.exports = {
   isCloudOidcTargetAllowed,
+  matchesTargetOrigin,
+  hasSelectedCloudOidcTarget,
   resolveCloudOidcProviders,
   createProviderOidcAuth,
   createProviderOidcHeaderResolver,
