@@ -515,6 +515,39 @@ describe('maintained model compilation', () => {
     }
   });
 
+  type TierEntry = { lookupId: string; [field: string]: unknown };
+  const codex = (entries: TierEntry[]) => entries.find(entry => entry.lookupId === 'gpt-5-3-codex') as TierEntry;
+  it.each([
+    { name: 'an unknown tier', mutate: (entries: TierEntry[]) => { codex(entries).codingTier = 'Standard'; },
+      diagnostic: /gpt-5-3-codex coding tier must be one of standard, premium, lightweight, none/ },
+    { name: 'an impossible date', mutate: (entries: TierEntry[]) => { codex(entries).releaseDate = '2026-02-30'; },
+      diagnostic: /gpt-5-3-codex release date must be a calendar date/ },
+    { name: 'a date after the review', mutate: (entries: TierEntry[]) => { codex(entries).releaseDate = '2027-01-01'; },
+      diagnostic: /gpt-5-3-codex release date is after the review date 2026-11-23/ },
+    { name: 'a provider spelling', mutate: (entries: TierEntry[]) => { codex(entries).lookupId = 'gpt-5.3-codex'; },
+      diagnostic: /lookupId must be a normalized lookup ID/ },
+    { name: 'a duplicate model',
+      mutate: (entries: TierEntry[]) => { entries.push(structuredClone(entries[entries.length - 1])); },
+      diagnostic: /is duplicated or out of order/ },
+    { name: 'an unquoted fact', mutate: (entries: TierEntry[]) => {
+      codex(entries).evidence = [{ url: 'https://github.blog/changelog/', quote: 'too short' }];
+    }, diagnostic: /gpt-5-3-codex needs evidence with an https url/ },
+    { name: 'a free-text field', mutate: (entries: TierEntry[]) => { codex(entries).productLine = 'Codex'; },
+      diagnostic: /expected only lookupId, codingTier, releaseDate and evidence/ },
+  ])('rejects coding tiers with $name', ({ mutate, diagnostic }) => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-coding-tiers-'));
+    try {
+      fs.cpSync(path.join(root, 'shared/model-information/sources'), temp, { recursive: true });
+      const file = path.join(temp, 'coding-tiers.json');
+      const source = JSON.parse(fs.readFileSync(file, 'utf8'));
+      mutate(source.entries);
+      fs.writeFileSync(file, JSON.stringify(source));
+      expect(() => run('--check', `--source-dir=${temp}`)).toThrow(diagnostic);
+    } finally {
+      fs.rmSync(temp, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     { reasoningMode: 'invented' },
     { defaultEffort: 'max' },

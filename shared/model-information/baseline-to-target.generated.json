@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogRevision": "a5b6440a49608abb31bf01477a501aa1eb628fec95364b94300cd8ed7b7f15d5",
+  "catalogRevision": "0891f1dba016094abadbc9dd637fa0ab12d04e4a2e4250c1cb7e60b5027515f2",
   "activation": "staged: phases 4, 5 and 6",
   "differences": [
     {

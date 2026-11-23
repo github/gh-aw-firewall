@@ -1,0 +1,531 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "authority": "maintained",
+    "source": "reviewed vendor and GitHub model announcements, cited per entry",
+    "at": "2026-11-23T00:00:00Z",
+    "confidence": "verified"
+  },
+  "entries": [
+    {
+      "lookupId": "claude-fable-5",
+      "codingTier": "premium",
+      "releaseDate": "2026-06-09",
+      "evidence": [
+        {
+          "url": "https://www.anthropic.com/news/claude-fable-5-mythos-5",
+          "quote": "Fable 5’s capabilities exceed those of any model we’ve ever made generally available."
+        },
+        {
+          "url": "https://github.blog/changelog/2026-06-09-claude-fable-5-is-generally-available-for-github-copilot/",
+          "quote": "Claude Fable 5 from Anthropic is now available in GitHub Copilot, the first model in Anthropic’s Mythos class"
+        }
+      ]
+    },
+    {
+      "lookupId": "claude-fable-5-1",
+      "codingTier": "premium",
+      "releaseDate": "2026-09-01",
+      "evidence": [
+        {
+          "url": "https://www.anthropic.com/claude-fable-and-mythos-5-1",
+          "quote": "They’re the world’s most advanced models for coding and knowledge work"
+        },
+        {
+          "url": "https://github.blog/changelog/2026-09-01-claude-fable-5-1-generally-available-in-github-copilot/",
+          "quote": "The latest model in Anthropic’s Mythos class, Claude Fable 5.1 is designed for long-horizon, autonomous coding and knowledge-work tasks."
+        }
+      ]
+    },
+    {
+      "lookupId": "claude-fable-5-2",
+      "codingTier": "premium",
+      "releaseDate": "2026-11-09",
+      "evidence": [
+        {
+          "url": "https://www.anthropic.com/claude-fable-and-mythos-5-2",
+          "quote": "Developers can get started with claude-fable-5-2 on the Claude Platform."
+        },
+        {
+          "url": "https://github.blog/changelog/2026-11-09-claude-fable-5-2-in-github-copilot/",
+          "quote": "You can use it for complex, multistep coding tasks across large codebases."
+        }
+      ]
+    },
+    {
+      "lookupId": "claude-haiku-4-5",
+      "codingTier": "lightweight",
+      "releaseDate": "2025-10-15",
+      "evidence": [
+        {
+          "url": "https://github.blog/changelog/2025-10-15-anthropics-claude-haiku-4-5-is-in-public-preview-for-github-copilot/",
+          "quote": "Claude Haiku 4.5, Anthropic’s newest model aimed at delivering high performance with faster speeds, is now rolling out in GitHub Copilot."
+        },
+        {
+          "url": "https://docs.github.com/en/copilot/reference/ai-models/model-comparison",
+          "quote": "Balances fast responses with quality output. Ideal for small tasks and lightweight code explanations."
+        }
+      ]
+    },
+    {
+      "lookupId": "claude-haiku-5-5",
+      "codingTier": "lightweight",
+      "releaseDate": "2026-10-07",
+      "evidence": [
+        {
+          "url": "https://github.blog/changelog/2026-10-07-claude-haiku-5-5-in-github-copilot/",
+          "quote": "Claude Haiku 5.5, Anthropic’s newest lightweight model, is now generally available in GitHub Copilot."
+        }
+      ]
+    },
+    {
+      "lookupId": "claude-mythos-5",
+      "codingTier": "premium",
+      "releaseDate": "2026-06-09",
+      "evidence": [
+        {
+          "url": "https://www.anthropic.com/news/claude-fable-5-mythos-5",
+          "quote": "Claude Mythos 5—the same model as Claude Fable 5 but with cyber safeguards lifted."
+        }
+      ]
+    },
+    {
+      "lookupId": "claude-mythos-5-1",
+      "codingTier": "premium",
+      "releaseDate": "2026-09-01",
+      "evidence": [
+        {
+          "url": "https://www.anthropic.com/claude-fable-and-mythos-5-1",
+          "quote": "Claude Fable 5.1 and Claude Mythos 5.1 are the same model, but with different levels of safeguards."
+        },
+        {
+          "url": "https://github.blog/changelog/2026-09-01-claude-fable-5-1-generally-available-in-github-copilot/",
+          "quote": "Claude Fable 5.1 from Anthropic is now available in GitHub Copilot."
+        }
+      ]
+    },
+    {
+      "lookupId": "claude-mythos-preview",
+      "codingTier": "premium",
+      "releaseDate": "2026-04-07",
+      "evidence": [
+        {
+          "url": "https://www.anthropic.com/glasswing",
+          "quote": "Today we’re announcing Project Glasswing"
+        },
+        {
+          "url": "https://www.anthropic.com/project/glasswing",
+          "quote": "giving their defenders a head start with our newest frontier model, Claude Mythos Preview."
+        }
+      ]
+    },
+    {
+      "lookupId": "claude-opus-4-8",
+      "codingTier": "premium",
+      "releaseDate": "2026-05-28",
+      "evidence": [
+        {
+          "url": "https://github.blog/changelog/2026-05-28-claude-opus-4-8-is-generally-available-for-github-copilot/",
+          "quote": "Claude Opus 4.8, Anthropic’s latest Opus model, is now available in GitHub Copilot."
+        },
+        {
+          "url": "https://github.blog/changelog/2026-07-24-claude-opus-5-is-now-available-in-github-copilot/",
+          "quote": "It is designed for complex, long-running coding tasks that require careful reasoning, effective tool use, and reliable execution across multiple steps."
+        }
+      ]
+    },
+    {
+      "lookupId": "claude-opus-5",
+      "codingTier": "premium",
+      "releaseDate": "2026-07-24",
+      "evidence": [
+        {
+          "url": "https://github.blog/changelog/2026-07-24-claude-opus-5-is-now-available-in-github-copilot/",
+          "quote": "It is designed for complex, long-running coding tasks that require careful reasoning, effective tool use, and reliable execution across multiple steps."
+        }
+      ]
+    },
+    {
+      "lookupId": "claude-opus-5-5",
+      "codingTier": "premium",
+      "releaseDate": "2026-09-22",
+      "evidence": [
+        {
+          "url": "https://github.blog/changelog/2026-09-22-claude-opus-5-5-is-now-available-in-github-copilot/",
+          "quote": "Claude Opus 5.5, Anthropic’s newest Opus model, is now available in GitHub Copilot. You can use it for agentic coding, long-running agentic tasks, and knowledge work."
+        }
+      ]
+    },
+    {
+      "lookupId": "claude-sonnet-4-6",
+      "codingTier": "standard",
+      "releaseDate": "2026-02-17",
+      "evidence": [
+        {
+          "url": "https://github.blog/changelog/2026-02-17-claude-sonnet-4-6-is-now-generally-available-in-github-copilot/",
+          "quote": "Claude Sonnet 4.6, Anthropic’s latest agentic coding model, is now rolling out in GitHub Copilot."
+        },
+        {
+          "url": "https://github.blog/changelog/2026-09-28-claude-sonnet-5-5-in-github-copilot/",
+          "quote": "It is designed for well-scoped everyday work like building features and fixing bugs."
+        }
+      ]
+    },
+    {
+      "lookupId": "claude-sonnet-5",
+      "codingTier": "standard",
+      "releaseDate": "2026-06-30",
+      "evidence": [
+        {
+          "url": "https://github.blog/changelog/2026-06-30-claude-sonnet-5-is-generally-available-for-github-copilot/",
+          "quote": "It brings strong coding performance to everyday development and agentic workflows, giving developers a new Sonnet-class option for tasks across the IDE and CLI."
+        }
+      ]
+    },
+    {
+      "lookupId": "claude-sonnet-5-5",
+      "codingTier": "standard",
+      "releaseDate": "2026-09-28",
+      "evidence": [
+        {
+          "url": "https://github.blog/changelog/2026-09-28-claude-sonnet-5-5-in-github-copilot/",
+          "quote": "It is designed for well-scoped everyday work like building features and fixing bugs."
+        }
+      ]
+    },
+    {
+      "lookupId": "gemini-3-8-flash",
+      "codingTier": "lightweight",
+      "releaseDate": "2026-09-02",
+      "evidence": [
+        {
+          "url": "https://blog.google/innovation-and-ai/models-and-research/gemini-models/3-8-flash-and-3-8-flash-cyber/",
+          "quote": "today we’re introducing Gemini 3.8, our best reasoning and coding model yet, at the same speed and low cost of 3.7."
+        },
+        {
+          "url": "https://docs.github.com/en/copilot/reference/ai-models/model-comparison",
+          "quote": "Fast, reliable answers to lightweight coding questions"
+        }
+      ]
+    },
+    {
+      "lookupId": "gemini-4-argon",
+      "codingTier": "premium",
+      "releaseDate": "2026-10-01",
+      "evidence": [
+        {
+          "url": "https://blog.google/intl/en-mena/company-news/technology/gemini-4-argon-our-next-era-of-frontier-intelligence/",
+          "quote": "Today, we’re announcing our new frontier model, Gemini 4 Argon, which is rolling out to a set of trusted cyber defenders through our Fairwind Program."
+        },
+        {
+          "url": "https://github.blog/changelog/2026-10-13-gemini-4-argon-in-github-copilot/",
+          "quote": "Gemini 4 Argon, Google’s newest frontier model, is now generally available in GitHub Copilot."
+        }
+      ]
+    },
+    {
+      "lookupId": "gemini-4-carbon",
+      "codingTier": "premium",
+      "releaseDate": "2026-10-28",
+      "evidence": [
+        {
+          "url": "https://blog.google/innovation-and-ai/models-and-research/gemini-models/introducing-gemini-4-carbon/",
+          "quote": "Today, we’re announcing the next frontier model: Gemini 4 Carbon, our strongest model with state-of-the-art cybersecurity and long horizon capabilities."
+        }
+      ]
+    },
+    {
+      "lookupId": "gemini-4-hydrogen",
+      "codingTier": "lightweight",
+      "releaseDate": "2026-11-12",
+      "evidence": [
+        {
+          "url": "https://blog.google/innovation-and-ai/models-and-research/gemini-models/introducing-gemini-4-hydrogen/",
+          "quote": "Google introduces Gemini 4 Hydrogen, a fast, cost-efficient model built for reliable agentic workflows and everyday tasks."
+        },
+        {
+          "url": "https://github.blog/changelog/2026-11-13-gemini-4-hydrogen-in-github-copilot/",
+          "quote": "Gemini 4 Hydrogen, Google’s latest Flash model, is now generally available in GitHub Copilot."
+        }
+      ]
+    },
+    {
+      "lookupId": "gemini-4-neon",
+      "codingTier": "standard",
+      "releaseDate": "2026-11-18",
+      "evidence": [
+        {
+          "url": "https://blog.google/innovation-and-ai/models-and-research/gemini-models/introducing-gemini-4-neon/",
+          "quote": "Google introduces Gemini 4 Neon, delivering frontier-level intelligence for complex coding and analysis at a lower cost."
+        },
+        {
+          "url": "https://github.blog/changelog/2026-11-18-gemini-4-neon-in-github-copilot/",
+          "quote": "According to Google, Gemini 4 Neon delivers quality close to Gemini 4 Carbon at a lower token cost per task."
+        }
+      ]
+    },
+    {
+      "lookupId": "gpt-5-3-codex",
+      "codingTier": "standard",
+      "releaseDate": "2026-02-05",
+      "evidence": [
+        {
+          "url": "https://github.blog/changelog/2026-05-17-gpt-5-3-codex-is-now-the-base-model-for-copilot-business-and-enterprise/",
+          "quote": "GPT-5.3-Codex launched on February 5, 2026 and will remain available through February 4, 2027 for Copilot Business and Copilot Enterprise users."
+        },
+        {
+          "url": "https://docs.github.com/en/copilot/reference/ai-models/model-comparison",
+          "quote": "These models are a good default when you don't have specific requirements."
+        }
+      ]
+    },
+    {
+      "lookupId": "gpt-5-4-nano",
+      "codingTier": "lightweight",
+      "releaseDate": "2026-03-17",
+      "evidence": [
+        {
+          "url": "https://openai.com/index/introducing-gpt-5-4-mini-and-nano/",
+          "quote": "GPT‑5.4 nano is the smallest, cheapest version of GPT‑5.4 for tasks where speed and cost matter most."
+        }
+      ]
+    },
+    {
+      "lookupId": "gpt-5-5",
+      "codingTier": "standard",
+      "releaseDate": "2026-04-23",
+      "evidence": [
+        {
+          "url": "https://openai.com/index/introducing-gpt-5-5/",
+          "quote": "GPT‑5.5 Pro is rolling out to Pro, Business, and Enterprise users in ChatGPT."
+        },
+        {
+          "url": "https://developers.openai.com/api/docs/models/gpt-5.6-sol.md",
+          "quote": "corresponds to the unsuffixed model tier used in earlier GPT-5 families"
+        }
+      ]
+    },
+    {
+      "lookupId": "gpt-5-6",
+      "codingTier": "standard",
+      "releaseDate": "2026-06-26",
+      "evidence": [
+        {
+          "url": "https://developers.openai.com/api/docs/models/gpt-5.6-sol.md",
+          "quote": "The `gpt-5.6` alias routes requests to GPT-5.6 Sol."
+        },
+        {
+          "url": "https://community.openai.com/t/introducing-gpt-5-6-series-sol-terra-and-luna-coming-july-9-10am-pt/1384931",
+          "quote": "Today OpenAI is previewing GPT-5.6 Sol, its newest flagship model for developers and enterprises, alongside Terra and Luna."
+        }
+      ]
+    },
+    {
+      "lookupId": "gpt-5-6-luna",
+      "codingTier": "lightweight",
+      "releaseDate": "2026-06-26",
+      "evidence": [
+        {
+          "url": "https://community.openai.com/t/introducing-gpt-5-6-series-sol-terra-and-luna-coming-july-9-10am-pt/1384931",
+          "quote": "Luna is the fastest, most affordable member of the family."
+        }
+      ]
+    },
+    {
+      "lookupId": "gpt-5-6-sol",
+      "codingTier": "standard",
+      "releaseDate": "2026-06-26",
+      "evidence": [
+        {
+          "url": "https://community.openai.com/t/introducing-gpt-5-6-series-sol-terra-and-luna-coming-july-9-10am-pt/1384931",
+          "quote": "Today OpenAI is previewing GPT-5.6 Sol, its newest flagship model for developers and enterprises, alongside Terra and Luna."
+        },
+        {
+          "url": "https://developers.openai.com/api/docs/models/gpt-5.6-sol.md",
+          "quote": "corresponds to the unsuffixed model tier used in earlier GPT-5 families"
+        },
+        {
+          "url": "https://github.blog/changelog/2026-09-22-openais-gpt-6-sol-and-gpt-6-luna-now-available/",
+          "quote": "A balanced model for interactive and agentic coding."
+        }
+      ]
+    },
+    {
+      "lookupId": "gpt-5-6-terra",
+      "codingTier": "standard",
+      "releaseDate": "2026-06-26",
+      "evidence": [
+        {
+          "url": "https://community.openai.com/t/introducing-gpt-5-6-series-sol-terra-and-luna-coming-july-9-10am-pt/1384931",
+          "quote": "Terra is a balanced everyday model with GPT-5.5-competitive performance at 2x lower cost"
+        }
+      ]
+    },
+    {
+      "lookupId": "gpt-6-1-sol",
+      "codingTier": "standard",
+      "releaseDate": "2026-09-29",
+      "evidence": [
+        {
+          "url": "https://openai.com/research/index/release/",
+          "quote": "Meet GPT-6.1 Sol: near-Astra intelligence for coding, computer use, and professional work at one-fifth of Astra’s standard API input and output token prices."
+        }
+      ]
+    },
+    {
+      "lookupId": "gpt-6-1-terra",
+      "codingTier": "standard",
+      "releaseDate": "2026-10-26",
+      "evidence": [
+        {
+          "url": "https://github.blog/changelog/2026-10-26-gpt-6-1-terra-in-github-copilot/",
+          "quote": "It is designed for everyday agentic coding and terminal work at a lower cost than GPT-6.1 Sol."
+        }
+      ]
+    },
+    {
+      "lookupId": "gpt-6-2-astra",
+      "codingTier": "premium",
+      "releaseDate": "2026-11-17",
+      "evidence": [
+        {
+          "url": "https://community.openai.com/t/gpt-6-2-astra-and-sol-are-now-available/1417531",
+          "quote": "A frontier model built for your hardest projects."
+        },
+        {
+          "url": "https://openai.com/research/index/release/",
+          "quote": "Introducing GPT‑6.2 Astra and Sol, with better professional outputs, coding, computer use, and efficiency at lower cost across ChatGPT Work, Codex, and the API."
+        }
+      ]
+    },
+    {
+      "lookupId": "gpt-6-2-sol",
+      "codingTier": "standard",
+      "releaseDate": "2026-11-17",
+      "evidence": [
+        {
+          "url": "https://github.blog/changelog/2026-11-17-openais-gpt-6-2-astra-and-gpt-6-2-sol-now-available/",
+          "quote": "OpenAI’s GPT-6.2 Astra and GPT-6.2 Sol are now generally available in GitHub Copilot."
+        },
+        {
+          "url": "https://github.blog/changelog/2026-09-22-openais-gpt-6-sol-and-gpt-6-luna-now-available/",
+          "quote": "A balanced model for interactive and agentic coding."
+        }
+      ]
+    },
+    {
+      "lookupId": "gpt-6-astra",
+      "codingTier": "premium",
+      "releaseDate": "2026-09-03",
+      "evidence": [
+        {
+          "url": "https://openai.com/index/gpt-6-astra/",
+          "quote": "We’re introducing GPT‑6 Astra, the world’s most intelligent and aligned model."
+        },
+        {
+          "url": "https://community.openai.com/t/introducing-gpt-6-astra-the-most-intelligent-and-aligned-model-in-the-world/1394703",
+          "quote": "GPT‑6 Astra is rolling out today for enterprises in our Trusted Access Program"
+        }
+      ]
+    },
+    {
+      "lookupId": "gpt-6-luna",
+      "codingTier": "lightweight",
+      "releaseDate": "2026-09-22",
+      "evidence": [
+        {
+          "url": "https://github.blog/changelog/2026-09-22-openais-gpt-6-sol-and-gpt-6-luna-now-available/",
+          "quote": "A lightweight, cost-efficient model for smaller, faster tasks and the lowest-cost option in the GPT-6 family."
+        }
+      ]
+    },
+    {
+      "lookupId": "gpt-6-sol",
+      "codingTier": "standard",
+      "releaseDate": "2026-09-22",
+      "evidence": [
+        {
+          "url": "https://github.blog/changelog/2026-09-22-openais-gpt-6-sol-and-gpt-6-luna-now-available/",
+          "quote": "A balanced model for interactive and agentic coding."
+        }
+      ]
+    },
+    {
+      "lookupId": "grok-4-5",
+      "codingTier": "standard",
+      "releaseDate": "2026-07-16",
+      "evidence": [
+        {
+          "url": "https://x.ai/news/grok-4-5",
+          "quote": "Grok 4.5 is SpaceXSI's smartest model built for coding, agentic tasks, and knowledge work."
+        }
+      ]
+    },
+    {
+      "lookupId": "grok-4-6",
+      "codingTier": "standard",
+      "releaseDate": "2026-08-12",
+      "evidence": [
+        {
+          "url": "https://x.ai/news/grok-4-6",
+          "quote": "Grok 4.6 builds on Grok 4.5 with a particular focus on long-running agents and more ambitious interactive and visual work."
+        }
+      ]
+    },
+    {
+      "lookupId": "grok-4-7",
+      "codingTier": "standard",
+      "releaseDate": "2026-09-21",
+      "evidence": [
+        {
+          "url": "https://github.blog/changelog/2026-09-21-grok-4-7-is-now-available-in-github-copilot/",
+          "quote": "Building on Grok 4.6, it is designed for agentic coding and complex, multistep workflows."
+        }
+      ]
+    },
+    {
+      "lookupId": "kimi-k3",
+      "codingTier": "standard",
+      "releaseDate": "2026-07-16",
+      "evidence": [
+        {
+          "url": "https://www.kimi.ai/blog/kimi-k3",
+          "quote": "While its overall performance still trails the most powerful proprietary models, Claude Fable 5 and GPT 5.6 Sol, Kimi K3 demonstrated frontier-level performance across our evaluation suite"
+        }
+      ]
+    },
+    {
+      "lookupId": "mai-code-1-1-flash",
+      "codingTier": "lightweight",
+      "releaseDate": "2026-08-11",
+      "evidence": [
+        {
+          "url": "https://github.blog/changelog/2026-08-11-mai-code-1-1-flash-available-in-github-copilot/",
+          "quote": "MAI-Code-1.1-Flash, Microsoft’s latest small-tier coding model, is now rolling out in GitHub Copilot."
+        }
+      ]
+    },
+    {
+      "lookupId": "mai-code-2",
+      "codingTier": "standard",
+      "releaseDate": "2026-11-17",
+      "evidence": [
+        {
+          "url": "https://github.blog/changelog/2026-11-17-mai-code-2-and-mai-code-2-flash-in-github-copilot/",
+          "quote": "A powerful, general purpose coding model built to help developers get from request to result with focused responses, practical code changes, and less unnecessary back and forth."
+        }
+      ]
+    },
+    {
+      "lookupId": "mai-code-2-flash",
+      "codingTier": "lightweight",
+      "releaseDate": "2026-11-17",
+      "evidence": [
+        {
+          "url": "https://github.blog/changelog/2026-11-17-mai-code-2-and-mai-code-2-flash-in-github-copilot/",
+          "quote": "A lightweight, cost-efficient coding model optimized for everyday development workflows."
+        }
+      ]
+    }
+  ]
+}
