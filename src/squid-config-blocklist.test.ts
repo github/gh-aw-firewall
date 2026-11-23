@@ -54,6 +54,25 @@ describe('generateSquidConfig', () => {
       expect(blockRuleIndex).toBeLessThan(allowRuleIndex);
     });
 
+    it('should place wildcard blocked deny before protocol-specific allow rules', () => {
+      // Squid applies the first matching http_access line. A wildcard blocklist
+      // entry under an allowed parent must be denied before the protocol allow
+      // rule that would otherwise match the subdomain.
+      const config: SquidConfig = {
+        domains: ['https://example.com'],
+        blockedDomains: ['*.secret.example.com'],
+        port: defaultPort,
+      };
+      const lines = generateSquidConfig(config).split('\n');
+      const lineIndex = (text: string) => lines.indexOf(text);
+
+      const wildcardDenyIndex = lineIndex('http_access deny blocked_domains_regex');
+      const httpsAllowIndex = lineIndex('http_access allow CONNECT allowed_https_only');
+      expect(wildcardDenyIndex).toBeGreaterThan(-1);
+      expect(httpsAllowIndex).toBeGreaterThan(-1);
+      expect(wildcardDenyIndex).toBeLessThan(httpsAllowIndex);
+    });
+
     it('should include blocklist comment section', () => {
       const config: SquidConfig = {
         domains: ['github.com'],
