@@ -300,7 +300,10 @@ testDefaultCaInspection('Node defaults no longer contain emergency-distrusted ro
 test('all gh builds use the fixed Go toolchain and assert compiled metadata', () => {
   for (const component of ['agent', 'cli-proxy', 'build-tools']) {
     const dockerfile = fs.readFileSync(path.join(root, 'containers', component, 'Dockerfile'), 'utf8');
-    expect(dockerfile).toContain('golang:1.27.3-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd');
+    const goImage = component === 'build-tools'
+      ? 'golang:1.27.4-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280'
+      : 'golang:1.27.3-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd';
+    expect(dockerfile).toContain(goImage);
     expect(dockerfile).toContain("go version -m bin/gh | head -n 1 | grep -Eq ': go1\\.27\\.3$'");
   }
 });

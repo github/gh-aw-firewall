@@ -54,7 +54,7 @@ describe('CI registry retrieval', () => {
     const ghStage = (dockerfile: string) => dockerfile.slice(
       dockerfile.indexOf('FROM golang:'),
       dockerfile.indexOf('\nFROM ubuntu:'),
-    ).trim();
+    ).trim().replace(/^FROM golang:\S+/, 'FROM golang:<image>');
     expect(ghStage(buildTools)).toBe(ghStage(agent));
     expect(buildTools).toContain('COPY --from=gh-build /tmp/cli-*/bin/gh /usr/bin/gh');
     expect(buildTools).not.toContain('gnupg gh');

@@ -79,11 +79,14 @@ function validPair(entry) {
  * Whether a summary is usable for this job: the known version and bounds, and the workflow, run
  * ID and attempt of the job AWF itself runs in.
  */
-function validSummary(summary, job) {
+function validSummary(summary, job, resolvedLevel) {
   if (!isRecord(summary) || summary.v !== 2) return false;
   if (summary.workflow !== job.workflow || !isRecord(summary.run) ||
       summary.run.id !== job.run_id || summary.run.attempt !== job.attempt) return false;
-  if (!['live', 'observe'].includes(summary.mode) || !Object.hasOwn(PRICE, summary.level)) return false;
+  if (resolvedLevel !== undefined && (!Object.hasOwn(summary, 'level') || summary.level !== 'auto')) return false;
+  const level = resolvedLevel === undefined ? summary.level : resolvedLevel;
+  if (!['live', 'observe'].includes(summary.mode) ||
+      typeof level !== 'string' || !Object.hasOwn(PRICE, level)) return false;
   if (typeof summary.generation !== 'string' || typeof summary.scope !== 'string') return false;
   if (summary.incumbent !== null && (typeof summary.incumbent !== 'string' || !PAIR_PATTERN.test(summary.incumbent))) {
     return false;
@@ -162,16 +165,18 @@ function stringOrNull(value) {
  * @param {{ workflow: string, run_id: string, attempt: number }} input.job AWF's own job.
  * @param {(pair: string, tokens: object) => number|null} input.price Credits for the given average
  *   tokens at the pair's own tariff, or null when the pair has no tariff of its own.
+ * @param {string} [input.level] Concrete failure-price level resolved by the caller when
+ *   `summary.level` is `"auto"`.
  * @returns {object} The selection receipt.
  */
-function selectAdaptive({ summary, rank, ordinary = rank[0], job, price }) {
+function selectAdaptive({ summary, rank, ordinary = rank[0], job, price, level }) {
   const receipt = {
     event: 'adaptive_selection',
     v: 2,
     workflow: job.workflow,
     run: { id: job.run_id, attempt: job.attempt },
   };
-  if (summary === null || summary === undefined || !validSummary(summary, job)) {
+  if (summary === null || summary === undefined || !validSummary(summary, job, level)) {
     const echo = isRecord(summary) ? summary : {};
     return Object.assign(receipt, {
       generation: stringOrNull(echo.generation),
@@ -190,7 +195,7 @@ function selectAdaptive({ summary, rank, ordinary = rank[0], job, price }) {
   }
 
   const { mode, explore } = summary;
-  const failurePrice = PRICE[summary.level];
+  const failurePrice = PRICE[level === undefined ? summary.level : level];
   const records = new Map(summary.pairs.map(entry => [entry.pair, entry]));
   const order = new Map(rank.map((pair, index) => [pair, index]));
   const blocked = new Set(summary.pairs.filter(entry => entry.suspended !== null).map(entry => baseOf(entry.pair)));
@@ -260,11 +265,14 @@ function selectAdaptive({ summary, rank, ordinary = rank[0], job, price }) {
     if (!incumbentRecord || incumbentRecord.tokens === null) return null;
     const pairPrice = price(pair, incumbentRecord.tokens);
     const incumbentPrice = price(incumbent, incumbentRecord.tokens);
-    if (pairPrice === null || incumbentPrice === null || incumbentPrice === 0) return null;
+    if (!isAmount(pairPrice) || !isAmount(incumbentPrice) || incumbentPrice === 0) return null;
     const incumbentCost = measured(incumbent);
     if (!incumbentCost) return [pairPrice, 'estimated'];
     const modelCredits = incumbentRecord.model_credits ?? incumbentCost[0];
-    return [incumbentCost[0] + modelCredits * (pairPrice / incumbentPrice - 1), 'estimated'];
+    if (modelCredits > incumbentCost[0]) return null;
+    const estimate = incumbentCost[0] + modelCredits * (pairPrice / incumbentPrice - 1);
+    if (!Number.isFinite(estimate) || estimate < 0) return null;
+    return [estimate, 'estimated'];
   };
 
   let incumbent = usable.includes(incumbentBefore) ? incumbentBefore : null;
