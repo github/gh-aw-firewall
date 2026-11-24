@@ -562,6 +562,17 @@ describe('offline scheduled source maintenance', () => {
       [
         'gemini-4-argon',
         realPricing.toString().replace(
+          'Gemini 4 Argon is available at the promotional pricing of',
+          'Gemini 4 Argon is available at the Enterprise-only promotional pricing of',
+        ).replace(
+          'until December 1, 2026.',
+          'until December 1, 2026. Starting December 1, 2026, pricing is $4.00 per 1M input tokens, $0.20 per 1M cached input tokens, and $20.00 per 1M output tokens.',
+        ),
+        'promotion/successor footnote',
+      ],
+      [
+        'gemini-4-argon',
+        realPricing.toString().replace(
           'until December 1, 2026.',
           'until December 1, 2026. Starting December 1, 2026, pricing is $4.00 per 1M input tokens, $0.20 per 1M cached input tokens, and $20.00 per 1M output tokens. Subject to change.',
         ),
@@ -588,6 +599,64 @@ describe('offline scheduled source maintenance', () => {
           status: 'retained-prior-facts', message: expect.stringContaining(expectedMessage) }),
       ]));
     }
+  });
+
+  it('rejects a new successor when an existing default tariff has a distinct reasoning rate', async () => {
+    const withArgonSuccessor = realPricing.toString().replace(
+      'until December 1, 2026.',
+      'until December 1, 2026. Starting December 1, 2026, pricing is $4.00 per 1M input tokens, $0.20 per 1M cached input tokens, and $20.00 per 1M output tokens.',
+    );
+    seedCopilot((file, document) => {
+      if (file !== copilotFiles[2]) return;
+      const argon = JSON.parse(fs.readFileSync(path.join(root, file), 'utf8')).models
+        .find((model: any) => model.identity.rawId === 'gemini-4-argon');
+      const seeded = structuredClone(argon);
+      seeded.tariffs[0].components.reasoning = { price: '9', provenance: seeded.tariffs[0].provenance };
+      document.models.push(seeded);
+    });
+    const beforeDistinct = structuredClone(copilotModel('gemini-4-argon'));
+    await captureSources(evidence, fakeFetch(catalog(), Buffer.from(withArgonSuccessor)));
+    const distinctResult = proposeCopilotPricing(cwd, evidence);
+    expect(distinctResult.changedModels).not.toContain('gemini-4-argon');
+    expect(distinctResult.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ model: 'gemini-4-argon', status: 'retained-prior-facts',
+        message: expect.stringContaining('reasoning-rate relationship is unverified') }),
+    ]));
+    expect(copilotModel('gemini-4-argon')).toEqual(beforeDistinct);
+  });
+
+  it('preserves matching reasoning rates across successor transitions and unchanged reruns', async () => {
+    const withArgonSuccessor = realPricing.toString().replace(
+      'until December 1, 2026.',
+      'until December 1, 2026. Starting December 1, 2026, pricing is $4.00 per 1M input tokens, $0.20 per 1M cached input tokens, and $20.00 per 1M output tokens.',
+    );
+    seedCopilot((file, document) => {
+      if (file !== copilotFiles[2]) return;
+      const argon = JSON.parse(fs.readFileSync(path.join(root, file), 'utf8')).models
+        .find((model: any) => model.identity.rawId === 'gemini-4-argon');
+      const seeded = structuredClone(argon);
+      seeded.tariffs[0].components.reasoning = { price: '10', provenance: seeded.tariffs[0].provenance };
+      document.models.push(seeded);
+    });
+    await captureSources(evidence, fakeFetch(catalog(), Buffer.from(withArgonSuccessor)));
+    const matchedResult = proposeCopilotPricing(cwd, evidence);
+    expect(matchedResult.changedModels).toContain('gemini-4-argon');
+    const updated = copilotModel('gemini-4-argon');
+    expect(updated.tariffs[0].components.reasoning.price).toBe('10');
+    expect(updated.tariffs[1].components.reasoning.price).toBe('20');
+    expect(updated.tariffs[1].components.reasoning.provenance).toEqual(updated.tariffs[1].components.output.provenance);
+    expect(buildReport(cwd, evidence)).not.toBeNull();
+
+    git(cwd, 'add', '.');
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'recorded reasoning successor');
+    for (const name of ['base-revision', 'review-base-revision']) {
+      fs.writeFileSync(path.join(evidence, name), git(cwd, 'rev-parse', 'HEAD'));
+    }
+    const beforeRerun = fs.readFileSync(path.join(cwd, copilotFiles[2]));
+    const rerunResult = proposeCopilotPricing(cwd, evidence);
+    expect(rerunResult.changedModels).toEqual([]);
+    expect(fs.readFileSync(path.join(cwd, copilotFiles[2]))).toEqual(beforeRerun);
+    expect(buildReport(cwd, evidence)).toBeNull();
   });
 
   it('captures URL, scope, exact bytes/hash, time and governed import counts', () => {

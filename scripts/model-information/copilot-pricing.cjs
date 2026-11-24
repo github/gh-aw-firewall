@@ -93,9 +93,10 @@ function promotion(row, notes, prices, tier) {
   if (attached.length !== 1) throw new Error('Ambiguous multiple pricing footnotes');
   const note = attached[0];
   const priceTriple = '\\$(\\d+(?:\\.\\d+)?) per 1M input tokens, \\$(\\d+(?:\\.\\d+)?) per 1M cached input tokens, and \\$(\\d+(?:\\.\\d+)?) per 1M output tokens';
+  const prefix = `${row.cells[0]} is available at the `;
   const pattern = new RegExp(`promotional pricing of ${priceTriple} (through|until) ([A-Za-z]+ \\d{1,2}, \\d{4})\\.`);
   const match = pattern.exec(note);
-  if (!match || match.index === 0 || !note.startsWith(`${row.cells[0]} is available at the `)) {
+  if (!match || !note.startsWith(prefix) || match.index !== prefix.length) {
     throw new Error('Ambiguous promotion/successor footnote; prior facts retained');
   }
   const trailing = note.slice(match.index + match[0].length);
@@ -316,13 +317,22 @@ function planCopilotPricing(documents, pricingCapture, modelsCapture, pricingByt
     const hasDatedOrSuccessor = oldCopilot.some(tariff =>
       !['default', 'long_context'].includes(tariff.tier) || tariff.effectiveFrom || tariff.successor);
     const tariffKey = tariff => JSON.stringify(semanticTariff(tariff));
+    const comparableTariff = candidate => {
+      const old = oldCopilot.filter(tariff => tariff.tier === candidate.tier);
+      if (old.length === 1 && old[0].components.reasoning &&
+          semanticTariff(old[0]).components.output === semanticTariff(candidate).components.output) {
+        return { ...candidate, components: { ...candidate.components, reasoning: old[0].components.reasoning } };
+      }
+      return candidate;
+    };
     const unchangedDatedSet = hasDatedOrSuccessor && oldCopilot.length === candidates.length &&
       JSON.stringify(oldCopilot.map(tariffKey).sort()) ===
-        JSON.stringify(candidates.map(item => tariffKey(item.tariff)).sort());
+        JSON.stringify(candidates.map(item => tariffKey(comparableTariff(item.tariff))).sort());
     if (hasDatedOrSuccessor && !unchangedDatedSet) {
       fail('Existing dated/successor tariff needs explicit reconciliation'); continue;
     }
     if (!unchangedDatedSet) {
+      const oldDefaults = oldCopilot.filter(tariff => tariff.tier === 'default');
       for (const item of candidates) {
         const candidate = item.tariff;
         const old = oldCopilot.filter(tariff => tariff.tier === candidate.tier);
@@ -332,6 +342,14 @@ function planCopilotPricing(documents, pricingCapture, modelsCapture, pricingByt
         if (old.some(tariff => tariff.effectiveUntil) && !candidate.effectiveUntil) {
           fail('Previously documented promotion interval absent; explicit reconciliation required');
           changed = false; observed = null; break;
+        }
+        if (candidate.tier === 'post_promotion' && !old.length && oldDefaults.length === 1 &&
+            oldDefaults[0].components.reasoning) {
+          if (semanticTariff(oldDefaults[0]).components.reasoning !== semanticTariff(oldDefaults[0]).components.output) {
+            fail('Output changed while the reasoning-rate relationship is unverified; prior tariff retained');
+            changed = false; observed = null; break;
+          }
+          candidate.components.reasoning = candidate.components.output;
         }
         if (old.length && old[0].components.reasoning &&
             semanticTariff(old[0]).components.output !== semanticTariff(candidate).components.output) {
