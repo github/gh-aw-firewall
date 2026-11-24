@@ -266,6 +266,12 @@
       }
     ]
   },
+  "gemini-4-hydrogen": {
+    "input": "1.5",
+    "cachedInput": "0.075",
+    "cacheWrite": null,
+    "output": "7.5"
+  },
   "gpt-5-codex-mini": {
     "input": "0.25",
     "cachedInput": "0.025",
@@ -423,6 +429,19 @@
       "cachedInput": "0.1",
       "cacheWrite": "2.5",
       "output": "7.5",
+      "threshold": 272000
+    }
+  },
+  "gpt-6.2-sol": {
+    "input": "2",
+    "cachedInput": "0.1",
+    "cacheWrite": "2.5",
+    "output": "10",
+    "longContext": {
+      "input": "4",
+      "cachedInput": "0.2",
+      "cacheWrite": "5",
+      "output": "15",
       "threshold": 272000
     }
   },

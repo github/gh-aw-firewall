@@ -147,6 +147,8 @@ Reuse these instead of duplicating their commands:
 | The same 400 occurs for every model name, including invalid ones, because the token is rejected before model validation | AUTH-006 | auth | workaround |
 | awf config validation reports that config.apiProxy.auth.provider must be one of azure, aws, gcp, anthropic | AUTH-007 | auth | unresolved |
 | OpenAI native WIF works when AWF_AUTH_PROVIDER=openai is set in the environment but fails when the same value is set through the AWF config file | AUTH-007 | auth | unresolved |
+| Provider requests fail with 404 "OpenAI proxy not configured" (or the equivalent not-configured response) although AWF_AUTH_TYPE=github-oidc and AWF_AUTH_PROVIDER=azure, aws or gcp are set | AUTH-008 | auth | workaround |
+| The api-proxy logs a cloud_oidc_not_bound event (info) or a cloud_oidc_target_refused event (warn) when the adapter is created | AUTH-008 | auth | workaround |
 | safe output validation failed in the workflow run | CI-001 | ci | workaround |
 | The agent job succeeds but the safe-output collection step exits non-zero | CI-001 | ci | workaround |
 | create-pull-request rejected: file not in allowed-files | CI-001 | ci | workaround |
@@ -552,6 +554,20 @@ Reuse these instead of duplicating their commands:
 - **Related:** AUTH-002
 - **Provenance:** pull-request: Add OpenAI workload identity federation to the API proxy (https://github.com/github/gh-aw-firewall/pull/11364) · code: src/awf-config-schema.json · code: src/config-file.ts · code: containers/api-proxy/providers/cloud-oidc-init.js · doc: docs/auth-matrix.md#openai-native-workload-identity-federation
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-01-31
+
+### AUTH-008 — Azure, AWS or GCP OIDC is configured but the API-proxy adapter does not bind it to its upstream
+
+- **Boundary:** auth · **Status:** workaround
+- **Affects:** runner=any, runtime=any, provider=any, auth=github-oidc
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Provider requests fail with 404 "OpenAI proxy not configured" (or the equivalent not-configured response) although AWF_AUTH_TYPE=github-oidc and AWF_AUTH_PROVIDER=azure, aws or gcp are set · The api-proxy logs a cloud_oidc_not_bound event (info) or a cloud_oidc_target_refused event (warn) when the adapter is created
+- **Discriminating conditions:** AWF_AUTH_PROVIDER is azure, aws or gcp (native openai and anthropic workload identity are not affected) · The adapter's upstream is its default, or is a first-party host (api.openai.com, api.anthropic.com, *.githubcopilot.com, copilot-api.*.ghe.com), or its origin differs from COPILOT_PROVIDER_BASE_URL or from the other explicitly configured *_API_TARGET origins · This is a configuration-shape problem, not a token-exchange or Actions permission failure; do not change id-token permissions or rotate credentials for it
+- **Root cause:** The sidecar attaches cloud-issued OIDC credentials only to an adapter whose upstream is the explicitly configured cloud target, so a cloud token is never sent to a first-party provider host. resolveCloudOidcProviders() skips initialization when the adapter does not opt in (allowCloudOidc), when the target is a refused first-party host, or when the target origin does not match the selected origin (COPILOT_PROVIDER_BASE_URL first, otherwise all explicit *_API_TARGET values must share one origin). GCP is the exception: with no explicit target it remains available to the default Gemini and Vertex endpoints.
+- **Safe probe:** `docker logs awf-api-proxy 2>&1 | grep -E 'cloud_oidc_not_bound|cloud_oidc_target_refused'` → Run while the containers are kept (--keep-containers). A match names the adapter and target host and confirms the binding rule, not an authentication failure. Do not print request headers, docker inspect output or the container environment.
+- **Action:** Set the upstream for the adapter that should use the cloud credential (for example COPILOT_PROVIDER_BASE_URL for Azure BYOK, or OPENAI_API_TARGET / ANTHROPIC_API_TARGET / the Gemini or Vertex target) to the same cloud origin, and do not point cloud OIDC at a first-party provider host. Native OpenAI and Anthropic workload identity use AWF_AUTH_PROVIDER=openai or anthropic instead. Never work around this by exposing the Actions OIDC variables or exchanged credentials to the agent. A shipped release containing this behavior is not verified here.
+- **Related:** AUTH-002
+- **Provenance:** pull-request: api-proxy: bind cloud OIDC credentials to the configured upstream (https://github.com/github/gh-aw-firewall/pull/12000) · code: containers/api-proxy/providers/cloud-oidc-init.js · test: containers/api-proxy/providers/cloud-oidc-init.test.js · doc: docs/api-proxy-sidecar.md#cloud-oidc-target-binding · doc: docs/auth-matrix.md#cloud-oidc-target-binding
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
 
 ## Boundary: ci
 
