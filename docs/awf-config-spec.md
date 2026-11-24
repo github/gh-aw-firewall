@@ -104,8 +104,9 @@ mounts read-only.
 
 AWF-owned agent log and session-state mounts and required virtual devices remain
 writable so the sandbox can operate. `filesystem.allowWrite` is supported by the
-Docker and gVisor compose runtimes and by the Cloud Hypervisor microVM runtime,
-where it is enforced by the host mount tree that backs each virtio-fs export
+Docker and gVisor compose runtimes, by the Cloud Hypervisor microVM runtime,
+and by the NVX microVM runtime (see [docs/nvx-security-design.md](./nvx-security-design.md#runtime-registration-opt-in-preview)).
+For Cloud Hypervisor it is enforced by the host mount tree that backs each virtio-fs export
 (see [docs/cloud-hypervisor-foundation.md](./cloud-hypervisor-foundation.md#runtime-integration)).
 Cloud Hypervisor has no always-writable internal mounts, so every export it
 publishes is subject to the policy, including `/tmp/gh-aw` and the guest home
