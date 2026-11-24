@@ -1,0 +1,61 @@
+{
+  "$schema": "../../schema.json",
+  "id": "NET-010",
+  "boundary": "network",
+  "title": "Domain allowlist entry rejected before startup",
+  "symptoms": [
+    "ports are not supported in domain entries",
+    "URL paths and queries are not supported in domain entries",
+    "unsupported scheme",
+    "user information is not supported"
+  ],
+  "conditions": [
+    "AWF rejects a --allow-domains or network.allowDomains entry during validation, before Squid starts",
+    "Entries containing a port, URL path or query, user information, or a non-HTTP(S) scheme are rejected on current main; before #11952 some could instead produce a non-matching ACL and a 403 (affected release range unknown)",
+    "HTTP and HTTPS prefixes are recognized case-insensitively and a single trailing slash is accepted"
+  ],
+  "affects": {
+    "runner": "any",
+    "runtime": "any",
+    "provider": "any",
+    "authMode": "any"
+  },
+  "versions": {
+    "introduced": "unknown",
+    "fixed": "unknown"
+  },
+  "status": "workaround",
+  "rootCause": "The supplied domain entry contains a scheme or URL component that cannot be represented as a Squid domain ACL. AWF rejects it during validation rather than starting with a non-matching rule.",
+  "probe": {
+    "command": "awf --help | grep -E -- '--allow-domains|--allow-urls|--ssl-bump|--enable-host-access|--allow-host-ports'",
+    "expect": "Compare the rejected entry in the startup error with the allowlist configuration and available options; redact sensitive details before sharing. Squid logs are not expected for this pre-start failure.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use a specific bare domain or valid wildcard (optionally prefixed by http:// or https://), without a port, path, query or user information. For URL path filtering use --allow-urls with --ssl-bump. For a trusted HTTP/HTTPS host service on a non-standard port, allowlist its host and use --enable-host-access with --allow-host-ports; host access exposes services on permitted ports, so enable it only when appropriate. Keep egress filtering enabled.",
+  "references": [
+    {
+      "kind": "pull-request",
+      "ref": "https://github.com/github/gh-aw-firewall/pull/11952",
+      "title": "Reject invalid domain allowlist forms and normalize scheme casing"
+    },
+    {
+      "kind": "code",
+      "ref": "src/domain-validation.ts",
+      "title": "checkDomainSyntax() rejects schemes, paths, user information and ports"
+    },
+    {
+      "kind": "test",
+      "ref": "src/domain-patterns.test.ts",
+      "title": "Rejected domain forms and case-insensitive protocol prefixes"
+    },
+    {
+      "kind": "doc",
+      "ref": "docs/usage.md",
+      "title": "Domain syntax and host-access options"
+    }
+  ],
+  "related": ["NET-001"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-03-31"
+}

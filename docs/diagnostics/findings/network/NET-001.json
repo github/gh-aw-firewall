@@ -6,14 +6,11 @@
   "symptoms": [
     "TCP_DENIED",
     "403 Forbidden returned by the proxy for an outbound request",
-    "curl: (56) Received HTTP code 403 from proxy after CONNECT",
-    "Invalid domain \"<entry>\": ports are not supported / URL paths and queries are not supported / unsupported scheme (AWF rejects the allowlist entry before startup)"
+    "curl: (56) Received HTTP code 403 from proxy after CONNECT"
   ],
   "conditions": [
     "The destination host resolves but Squid logs TCP_DENIED:HIER_NONE for it",
-    "The domain (or its parent domain) is absent from --allow-domains / network.allowDomains",
-    "An allowlist entry written as host:port, a URL path, user@host, or a non-HTTP(S) scheme is rejected with an actionable error on current main; AWF builds before #11952 could instead normalize such entries into a non-matching Squid ACL and surface only as a 403 (affected release range unknown)",
-    "http:// and https:// prefixes are recognized case-insensitively on current main and keep their protocol-specific ACL; a single trailing slash is accepted"
+    "The domain (or its parent domain) is absent from --allow-domains / network.allowDomains"
   ],
   "affects": {
     "runner": "any",
@@ -33,7 +30,7 @@
     "readOnly": true,
     "secretSafe": true
   },
-  "action": "Add the specific required domain (not a broad wildcard) to the allowlist after confirming it is expected traffic. Keep egress filtering on; if the denial looks like exfiltration, route to SEC-001. If AWF rejects an entry, use a bare domain or wildcard (optionally http:// or https://) without a port; use --allow-urls with --ssl-bump for URL path filtering and --allow-host-ports for host services rather than loosening the entry.",
+  "action": "Add the specific required domain (not a broad wildcard) to the allowlist after confirming it is expected traffic. Keep egress filtering on; if the denial looks like exfiltration, route to SEC-001.",
   "references": [
     {
       "kind": "doc",
@@ -53,26 +50,6 @@
     {
       "kind": "test",
       "ref": "src/squid-config-domains.test.ts"
-    },
-    {
-      "kind": "pull-request",
-      "ref": "https://github.com/github/gh-aw-firewall/pull/11952",
-      "title": "Reject invalid domain allowlist forms and normalize scheme casing"
-    },
-    {
-      "kind": "code",
-      "ref": "src/domain-validation.ts",
-      "title": "checkDomainSyntax() rejects schemes, paths, user information and ports"
-    },
-    {
-      "kind": "test",
-      "ref": "src/domain-patterns.test.ts",
-      "title": "Rejected domain forms and case-insensitive protocol prefixes"
-    },
-    {
-      "kind": "doc",
-      "ref": "docs/usage.md",
-      "title": "Accepted --allow-domains syntax"
     }
   ],
   "related": [
