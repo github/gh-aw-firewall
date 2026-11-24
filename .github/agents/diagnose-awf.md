@@ -129,6 +129,10 @@ Reuse these instead of duplicating their commands:
 | Every CONNECT to an allowlisted API host fails with 503 TCP_TUNNEL:HIER_NONE and an empty server field (-:-) in network-isolation (topology) mode | NET-009 | network | workaround |
 | The same workflow succeeds in host-access mode, or in isolation mode when no Tailscale step runs | NET-009 | network | workaround |
 | Agent retries report 503 Service Unavailable from the model endpoint while the allowlist already contains the host | NET-009 | network | workaround |
+| ports are not supported in domain entries | NET-010 | network | workaround |
+| URL paths and queries are not supported in domain entries | NET-010 | network | workaround |
+| unsupported scheme | NET-010 | network | workaround |
+| user information is not supported | NET-010 | network | workaround |
 | 400 Bad Request: Authorization header is badly formatted | AUTH-001 | auth | fixed |
 | Copilot requests fail immediately against api.enterprise.githubcopilot.com or api.business.githubcopilot.com | AUTH-001 | auth | fixed |
 | api-proxy reports that no OIDC token could be minted | AUTH-002 | auth | workaround |
@@ -452,6 +456,20 @@ Reuse these instead of duplicating their commands:
 - **Related:** NET-002, NET-006, NET-001
 - **Provenance:** issue: Isolation/topology mode with Tailscale returns Squid 503 HIER_NONE (closed as not planned) (https://github.com/github/gh-aw-firewall/issues/6704) · pull-request: Non-portable DNS filtering for Tailscale (necessary-but-insufficient, later reverted) (https://github.com/github/gh-aw-firewall/pull/6705) · pull-request: Preserve detected DNS resolvers in network isolation (https://github.com/github/gh-aw-firewall/pull/7499) · code: buildComposeNetworks() isolation topology with dual-homed Squid on awf-ext (src/compose-network.ts) · code: filterForNetworkIsolation() preserves detected resolvers (src/dns-resolver.ts) · test: Tailscale Magic DNS preserved in network-isolation mode (src/dns-resolver.test.ts) · doc: Network-isolation topology (docs/network-isolation-design.md)
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-05-19
+
+### NET-010 — Domain allowlist entry rejected before startup
+
+- **Boundary:** network · **Status:** workaround
+- **Affects:** runner=any, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** ports are not supported in domain entries · URL paths and queries are not supported in domain entries · unsupported scheme · user information is not supported
+- **Discriminating conditions:** AWF rejects a --allow-domains or network.allowDomains entry during validation, before Squid starts · Entries containing a port, URL path or query, user information, or a non-HTTP(S) scheme are rejected on current main; before #11952 some could instead produce a non-matching ACL and a 403 (affected release range unknown) · HTTP and HTTPS prefixes are recognized case-insensitively and a single trailing slash is accepted
+- **Root cause:** The supplied domain entry contains a scheme or URL component that cannot be represented as a Squid domain ACL. AWF rejects it during validation rather than starting with a non-matching rule.
+- **Safe probe:** `awf --help | grep -E -- '--allow-domains|--allow-urls|--ssl-bump|--enable-host-access|--allow-host-ports'` → Compare the rejected entry in the startup error with the allowlist configuration and available options; redact sensitive details before sharing. Squid logs are not expected for this pre-start failure.
+- **Action:** Use a specific bare domain or valid wildcard (optionally prefixed by http:// or https://), without a port, path, query or user information. For URL path filtering use --allow-urls with --ssl-bump. For a trusted HTTP/HTTPS host service on a non-standard port, allowlist its host and use --enable-host-access with --allow-host-ports; host access exposes services on permitted ports, so enable it only when appropriate. Keep egress filtering enabled.
+- **Related:** NET-001
+- **Provenance:** pull-request: Reject invalid domain allowlist forms and normalize scheme casing (https://github.com/github/gh-aw-firewall/pull/11952) · code: checkDomainSyntax() rejects schemes, paths, user information and ports (src/domain-validation.ts) · test: Rejected domain forms and case-insensitive protocol prefixes (src/domain-patterns.test.ts) · doc: Domain syntax and host-access options (docs/usage.md)
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
 
 ## Boundary: auth
 
