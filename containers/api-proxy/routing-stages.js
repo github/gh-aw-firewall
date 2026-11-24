@@ -95,7 +95,11 @@ function createRoutingStages({ signal, deadline, clock, random }) {
           signal: phaseSignal, provider: config.provider || 'copilot', scope: eligibilityRequest.awfEligibilityScope,
         }));
       return buildRoutingCandidates({
-        catalogue: snapshot, policy, candidateModels: config.candidateModels, eligibilityRequest,
+        catalogue: snapshot,
+        policy,
+        candidateModels: config.candidateModels,
+        endpoints: config.endpoints,
+        eligibilityRequest,
       });
     },
     async getConversation(loadConversation, conversationFile) {

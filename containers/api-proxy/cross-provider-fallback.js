@@ -31,6 +31,7 @@ const {
   createWireApiSseTransform,
   endpointForPath,
 } = require('./wire-api-compat');
+const { advertisedEndpoint } = require('./wire-api/shared');
 const { findRuntimeModel } = require('./runtime-model-catalog');
 const {
   chatRequestToAnthropic,
@@ -83,12 +84,7 @@ function getFallbackUpstreamEndpoint(provider, model, endpoint, preserveEndpoint
     ? records.find(record => typeof record.id === 'string' && record.id.toLowerCase() === model.toLowerCase())
     : findRuntimeModel('copilot', model);
   if (!Array.isArray(record?.supportedEndpoints)) return endpoint;
-  const endpoints = new Set(record.supportedEndpoints.map(value => {
-    if (typeof value !== 'string') return null;
-    if (value.endsWith('/responses')) return '/responses';
-    if (value.endsWith('/chat/completions')) return '/chat/completions';
-    return null;
-  }));
+  const endpoints = new Set(record.supportedEndpoints.map(advertisedEndpoint).filter(Boolean));
   const opposite = requestedEndpoint === '/responses' ? '/chat/completions' : '/responses';
   return endpoints.has(requestedEndpoint) || !endpoints.has(opposite) ? endpoint : opposite;
 }

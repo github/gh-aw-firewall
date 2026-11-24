@@ -251,6 +251,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `experimental.modelRouting` → *(config-only; experimental opt-in required for `apiProxy.routing`; defaults to off)*
 - `apiProxy.routing` → *(config-only; requires `experimental.modelRouting: true`; task-level routing objective and task conversation input)*
 - `apiProxy.routing.candidateModels` → *(optional glob patterns that limit router/classifier choices; intersected with the model policy; defaults to `apiProxy.allowedModels`)*
+- `apiProxy.routing.endpoints` → *(optional unordered list of inference endpoints supported by the engine: `/responses`, `/chat/completions`, `/v1/messages`; restricts router and fallback candidates and protocol selection to those endpoints)*
 - `apiProxy.routing.topK` → *(optional integer from 1 to 32; request this many distinct primary models in the private result, or fewer if the rank runs out)*
 - `apiProxy.routing.adaptiveSummaryFile` → *(optional host path to gh-aw's evidence summary; enables adaptive selection and the selection receipt, see §13a.2)*
 - `apiProxy.modelRouter.providerType` → *(config-only; maps to `COPILOT_PROVIDER_TYPE`)*
@@ -2715,6 +2716,7 @@ apiProxy:
 |-------|----------------|-------------|
 | `provider` | `copilot` (default), `openai`, `anthropic` | Restricts routing to one configured native API-proxy provider; AWF does not switch credentials or translate across providers. |
 | `candidateModels` | non-empty array of model glob patterns | Limits router/classifier choices without widening the request policy; defaults to `apiProxy.allowedModels`. |
+| `endpoints` | non-empty array of unique endpoint paths (`/responses`, `/chat/completions`, `/v1/messages`) | Unordered allowlist of inference endpoints the engine speaks. Keeps only choices served on one of those endpoints in the candidate pool and chooses each candidate's protocol from that list. Omit to keep the default provider protocol behavior. |
 | `topK` | integer from 1 to 32 | Reports up to K distinct eligible models in the private result. The pilot requests `3`. Omit for no list. |
 | `adaptiveSummaryFile` | non-empty string | Host path to gh-aw's evidence summary. Enables adaptive selection (§13a.2); must not be in an agent-visible path. |
 | `objective.goal` | `cost` | Optimization goal used by the router; `cost-speed` is unsupported and MUST NOT be aliased to `cost` |
@@ -2742,8 +2744,8 @@ routing profile) selects the one model and effort the agent is seeded with for
 the whole run. The router is not invoked again per request or per sub-agent.
 
 The routing object is closed: `objective` and `task` are required; `provider`,
-`candidateModels`, `topK` and `adaptiveSummaryFile` are optional. Unknown
-properties are rejected.
+`candidateModels`, `endpoints`, `topK` and `adaptiveSummaryFile` are optional.
+Unknown properties are rejected.
 Omitting `provider` preserves Copilot routing. OpenAI and Anthropic routing
 require the matching provider to be configured for the agent and currently
 require the native `api.openai.com` or `api.anthropic.com` target; AWF does not
@@ -2778,6 +2780,22 @@ allows one effortless choice. OpenAI uses its mapped Responses or Chat
 Completions protocol; Anthropic uses Messages. Unsupported effort values are
 discarded, and a model with no remaining advertised effort is excluded rather
 than converted into an effortless choice.
+
+When `apiProxy.routing.endpoints` is provided (for example `["/responses"]` for
+Codex, `["/v1/messages"]` for Claude, `["/responses", "/chat/completions"]` for
+Copilot CLI, or all three for Pi), AWF treats it as an unordered allowlist and
+intersects each model's advertised endpoints with that list before offering
+candidates to the classifier, the router, or the routing fallback. A model that
+does not support any listed endpoint is excluded from the pool (failing with
+`no_route` if no choice remains), and each surviving candidate's protocol is
+chosen from the intersection using AWF's deterministic effort-aware preference
+order (Chat Completions, Responses, then Messages for effortless choices;
+Responses, Chat Completions, then Messages for reasoning choices; Anthropic
+always requires `/v1/messages`). Omitting `endpoints` preserves the existing
+default protocol behavior for backwards compatibility. This field restricts
+AWF's candidate pool and selected endpoint only; engines that maintain their
+own per-model API catalog checks (such as Pi) still apply those checks when
+launching.
 
 Request guards and alias resolution use the provider-aware
 `allowedModels` / `disallowedModels` policy. Candidate filtering additionally

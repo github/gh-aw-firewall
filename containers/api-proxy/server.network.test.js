@@ -574,6 +574,88 @@ describe('reflectEndpoints', () => {
     ]));
   });
 
+  it('scopes routing.endpoints reflection metadata in server.js to the configured provider and tolerates malformed routing config', () => {
+    const inspectReflect = rawRoutingConfig => {
+      const saved = process.env.AWF_ROUTING_CONFIG;
+      if (rawRoutingConfig === undefined) {
+        delete process.env.AWF_ROUTING_CONFIG;
+      } else {
+        process.env.AWF_ROUTING_CONFIG = rawRoutingConfig;
+      }
+      try {
+        let reflected;
+        jest.isolateModules(() => {
+          const isolatedServer = require('./server');
+          const { replaceRuntimeModels, clearRuntimeModels } = require('./runtime-model-catalog');
+          try {
+            isolatedServer.cachedModels.copilot = ['effortless-v1', 'effortless-bare'];
+            isolatedServer.cachedModels.openai = ['effortless-openai'];
+            replaceRuntimeModels('copilot', [
+              { id: 'effortless-v1', supportedReasoningEfforts: [], supportedEndpoints: ['/v1/responses'] },
+              { id: 'effortless-bare', supportedReasoningEfforts: [], supportedEndpoints: ['responses'] },
+            ]);
+            replaceRuntimeModels('openai', [
+              { id: 'effortless-openai', supportedReasoningEfforts: [], supportedEndpoints: ['/responses'] },
+            ]);
+            reflected = isolatedServer.reflectEndpoints();
+          } finally {
+            clearRuntimeModels();
+            isolatedServer.resetModelCacheState();
+          }
+        });
+        return reflected;
+      } finally {
+        if (saved === undefined) delete process.env.AWF_ROUTING_CONFIG;
+        else process.env.AWF_ROUTING_CONFIG = saved;
+      }
+    };
+
+    const withCopilotEndpoints = inspectReflect(JSON.stringify({
+      provider: 'copilot',
+      endpoints: ['/responses'],
+      objective: { goal: 'cost', mode: 'balanced' },
+      task: { conversationFile: '/run/awf-routing/input/conversation.json' },
+    }));
+    const copilotEntry = withCopilotEndpoints.endpoints.find(e => e.provider === 'copilot');
+    const openaiEntry = withCopilotEndpoints.endpoints.find(e => e.provider === 'openai');
+    expect(copilotEntry.routing_models).toEqual([
+      expect.objectContaining({
+        model_id: 'effortless-v1',
+        candidate_metadata_complete: true,
+        supported_endpoints: ['/responses'],
+      }),
+      expect.objectContaining({
+        model_id: 'effortless-bare',
+        candidate_metadata_complete: true,
+        supported_endpoints: ['/responses'],
+      }),
+    ]);
+    // Non-matching provider stays unscoped.
+    expect(openaiEntry.routing_models[0]).toMatchObject({
+      model_id: 'effortless-openai',
+      candidate_metadata_complete: false,
+    });
+
+    // Omitting endpoints preserves legacy reflection behavior.
+    const withoutEndpoints = inspectReflect(JSON.stringify({
+      provider: 'copilot',
+      objective: { goal: 'cost', mode: 'balanced' },
+      task: { conversationFile: '/run/awf-routing/input/conversation.json' },
+    }));
+    expect(withoutEndpoints.endpoints.find(e => e.provider === 'copilot').routing_models[0]).toMatchObject({
+      model_id: 'effortless-v1',
+      candidate_metadata_complete: false,
+      supported_endpoints: ['/v1/responses'],
+    });
+
+    // Malformed routing config leaves /reflect callable without throwing.
+    const malformed = inspectReflect('{not-json');
+    expect(malformed.endpoints.find(e => e.provider === 'copilot').routing_models[0]).toMatchObject({
+      model_id: 'effortless-v1',
+      candidate_metadata_complete: false,
+    });
+  });
+
   it('should expose safe Copilot diagnostics in the reflect response', () => {
     const copilot = reflectEndpoints().endpoints.find((endpoint) => endpoint.provider === 'copilot');
     expect(copilot).toEqual(expect.objectContaining({

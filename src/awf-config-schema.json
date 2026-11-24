@@ -628,6 +628,20 @@
               },
               "description": "Optional model-pattern allowlist for router/classifier candidates. Candidates are still intersected with apiProxy.allowedModels and apiProxy.disallowedModels for policy enforcement. When omitted, apiProxy.allowedModels continues to supply the routing candidates."
             },
+            "endpoints": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "/responses",
+                  "/chat/completions",
+                  "/v1/messages"
+                ]
+              },
+              "description": "Optional unordered list of inference endpoints the workflow's engine speaks. When set, AWF keeps only choices served on one of these endpoints in the candidate pool and chooses each candidate's protocol from this list. Omit to keep the default provider protocol behavior."
+            },
             "topK": {
               "type": "integer",
               "minimum": 1,

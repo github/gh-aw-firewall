@@ -316,6 +316,18 @@ function createProductionRoutingSession({
   fatalExit = code => process.exit(code),
 } = {}) {
   if (rawConfig === undefined) return null;
+  let configuredEndpointScope = null;
+  try {
+    const parsedConfig = parseRoutingConfig(rawConfig);
+    if (parsedConfig?.endpoints) {
+      configuredEndpointScope = Object.freeze({
+        provider: parsedConfig.provider,
+        endpoints: parsedConfig.endpoints,
+      });
+    }
+  } catch {
+    // Malformed routing config is reported by execute(); /reflect remains callable.
+  }
   const abortController = new AbortController();
   const deadline = Date.now() + 90_000;
   let runPromise;
@@ -427,6 +439,7 @@ function createProductionRoutingSession({
     getSelection,
     getFailure,
     getReflectState,
+    getConfiguredEndpointScope: () => configuredEndpointScope,
     ...observation,
   });
 }

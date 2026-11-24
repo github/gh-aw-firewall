@@ -783,6 +783,31 @@ it('buildModelPolicyEnv no longer sets AWF_ROUTING_CONFIG when modelRouting is c
       expect(env.AWF_ROUTING_CONFIG).toBe(
         '{"candidateModels":["gpt-5.6-luna"],"topK":2,"objective":{"goal":"cost","mode":"balanced"},"task":{"conversationFile":"/run/awf-routing/input/conversation.json"}}'
       );
+      expect(JSON.parse(env.AWF_ROUTING_CONFIG)).not.toHaveProperty('endpoints');
+
+      const withEndpoints = buildModelRoutingEnv({
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        experimentalModelRouting: true,
+        modelRouting: {
+          endpoints: ['/responses', '/chat/completions'],
+          objective: { goal: 'cost', mode: 'balanced' },
+          task: { conversationFile: '/host/conversation.json' },
+        },
+        modelRoutingBootstrap: {
+          root: '/tmp/awf-test-routing',
+          inputDir: '/tmp/awf-test-routing/input',
+          outputDir: '/tmp/awf-test-routing/output',
+          inputFile: '/tmp/awf-test-routing/input/conversation.json',
+          containerInputFile: '/run/awf-routing/input/conversation.json',
+          containerOutputDir: '/run/awf-routing/output',
+        },
+      });
+      expect(JSON.parse(withEndpoints.AWF_ROUTING_CONFIG)).toEqual({
+        endpoints: ['/responses', '/chat/completions'],
+        objective: { goal: 'cost', mode: 'balanced' },
+        task: { conversationFile: '/run/awf-routing/input/conversation.json' },
+      });
     });
 
     it('gives the proxy the staged adaptive summary, never the host path', () => {

@@ -22,9 +22,9 @@ function endpointForPath(path) {
 }
 
 function advertisedEndpoint(endpoint) {
-  if (typeof endpoint !== 'string') return null;
-  if (endpoint.endsWith(RESPONSES_ENDPOINT)) return RESPONSES_ENDPOINT;
-  if (endpoint.endsWith(CHAT_ENDPOINT)) return CHAT_ENDPOINT;
+  if (typeof endpoint !== 'string' || endpoint.includes(':')) return null;
+  if (endpoint === 'responses' || endpoint.endsWith(RESPONSES_ENDPOINT)) return RESPONSES_ENDPOINT;
+  if (endpoint === 'chat_completions' || endpoint.endsWith(CHAT_ENDPOINT)) return CHAT_ENDPOINT;
   return null;
 }
 

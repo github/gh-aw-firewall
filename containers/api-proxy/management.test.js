@@ -369,4 +369,76 @@ describe('routing metadata in /reflect', () => {
       choices.map(choice => choice.model.replace('github-copilot/', '')),
     ));
   });
+
+  it('marks newly admitted single-endpoint effortless models complete and normalizes raw endpoint aliases when scoped endpoints are active', () => {
+    const copilotRecords = [
+      { id: 'effortless-v1-responses', supportedReasoningEfforts: [], supportedEndpoints: ['/v1/responses'] },
+      { id: 'effortless-bare-responses', supportedReasoningEfforts: [], supportedEndpoints: ['responses'] },
+      { id: 'effortless-messages-only', supportedReasoningEfforts: [], supportedEndpoints: ['/v1/messages'] },
+      { id: 'effortless-chat-only', supportedReasoningEfforts: [], supportedEndpoints: ['/chat/completions'] },
+      { id: 'ws-plus-alias', supportedReasoningEfforts: ['medium'], supportedEndpoints: ['/v1/responses', 'ws:/responses'] },
+    ];
+    const ids = copilotRecords.map(record => record.id);
+
+    // Without scoped endpoints, legacy metadata completeness and raw spellings remain unchanged.
+    const unscoped = buildRoutingModelMetadata('copilot', ids, copilotRecords);
+    expect(unscoped.find(m => m.model_id === 'effortless-v1-responses')).toMatchObject({
+      candidate_metadata_complete: false,
+      supported_endpoints: ['/v1/responses'],
+    });
+    expect(unscoped.find(m => m.model_id === 'effortless-bare-responses')).toMatchObject({
+      candidate_metadata_complete: false,
+      supported_endpoints: ['responses'],
+    });
+
+    // With Copilot Responses endpoint active, newly admitted effortless Responses models report
+    // complete metadata and canonical /responses matching selection.endpoint, while unrelated
+    // Chat-only models remain complete.
+    const scopedResponses = buildRoutingModelMetadata('copilot', ids, copilotRecords, undefined, ['/responses']);
+    expect(scopedResponses.find(m => m.model_id === 'effortless-v1-responses')).toMatchObject({
+      candidate_metadata_complete: true,
+      supported_endpoints: ['/responses'],
+    });
+    expect(scopedResponses.find(m => m.model_id === 'effortless-bare-responses')).toMatchObject({
+      candidate_metadata_complete: true,
+      supported_endpoints: ['/responses'],
+    });
+    expect(scopedResponses.find(m => m.model_id === 'effortless-chat-only')).toMatchObject({
+      candidate_metadata_complete: true,
+      supported_endpoints: ['/chat/completions'],
+    });
+    expect(scopedResponses.find(m => m.model_id === 'ws-plus-alias')).toMatchObject({
+      candidate_metadata_complete: true,
+      supported_endpoints: ['/responses', 'ws:/responses'],
+    });
+
+    // With Messages endpoint active on Copilot, effortless Messages-only becomes complete.
+    const scopedMessages = buildRoutingModelMetadata('copilot', ids, copilotRecords, undefined, ['/v1/messages']);
+    expect(scopedMessages.find(m => m.model_id === 'effortless-messages-only')).toMatchObject({
+      candidate_metadata_complete: true,
+      supported_endpoints: ['/v1/messages'],
+    });
+
+    // Native OpenAI single-endpoint effortless Responses model reports complete under ['/responses'].
+    const openaiRecords = [
+      { id: 'effortless-openai-responses', supportedReasoningEfforts: [], supportedEndpoints: ['/responses'] },
+    ];
+    expect(buildRoutingModelMetadata('openai', ['effortless-openai-responses'], openaiRecords)[0].candidate_metadata_complete)
+      .toBe(false);
+    expect(buildRoutingModelMetadata('openai', ['effortless-openai-responses'], openaiRecords, undefined, ['/responses'])[0])
+      .toMatchObject({
+        candidate_metadata_complete: true,
+        supported_endpoints: ['/responses'],
+      });
+
+    // Maintained-only OpenAI metadata (without runtime supportedEndpoints) also canonicalizes under scoped endpoints,
+    // while unscoped reflection keeps the legacy maintained spellings.
+    expect(buildRoutingModelMetadata('openai', ['gpt-5.4'], [])[0].supported_endpoints)
+      .toEqual(['chat_completions', 'responses']);
+    expect(buildRoutingModelMetadata('openai', ['gpt-5.4'], [], undefined, ['/responses'])[0])
+      .toMatchObject({
+        candidate_metadata_complete: true,
+        supported_endpoints: ['/chat/completions', '/responses'],
+      });
+  });
 });
