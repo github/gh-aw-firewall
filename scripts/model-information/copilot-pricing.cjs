@@ -12,9 +12,14 @@ const copilotTariff = tariff => tariff.scope.provider === 'copilot' &&
 // Reviewed display-name mappings for new records; these convey no CLI eligibility.
 const newIdentities = {
   'GPT-6.1 Terra': ['gpt-6.1-terra', sourceFiles[0]],
+  'GPT-6.2 Sol': ['gpt-6.2-sol', sourceFiles[0]],
   'Gemini 3.8 Flash': ['gemini-3.8-flash', sourceFiles[2]],
   'Gemini 4 Argon': ['gemini-4-argon', sourceFiles[2]],
+  'Gemini 4 Carbon': ['gemini-4-carbon', sourceFiles[2]],
+  'Gemini 4 Hydrogen': ['gemini-4-hydrogen', sourceFiles[2]],
   'MAI-Code-1.1-Flash': ['mai-code-1.1-flash', sourceFiles[3]],
+  'MAI Code 2': ['mai-code-2', sourceFiles[3]],
+  'MAI Code 2 Flash': ['mai-code-2-flash', sourceFiles[3]],
 };
 const normalizeName = value => value.toLowerCase().replace(/[ ._-]+/g, '-');
 const decimal = value => {
