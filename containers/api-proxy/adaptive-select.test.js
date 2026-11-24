@@ -160,8 +160,9 @@ describe('cost estimate guards', () => {
   it.each([
     ['an overflowing tariff ratio', { credits: 10, model_credits: 10 }, Number.MAX_VALUE, 1e-10],
     ['a negative rival tariff price', { credits: 10, model_credits: 10 }, -1, 10],
+    ['a negative incumbent tariff price', { credits: 10, model_credits: 10 }, 1, -10],
     ['a NaN rival tariff price', { credits: 10, model_credits: 10 }, Number.NaN, 10],
-    ['a negative unmeasured incumbent tariff price', { credits: null, model_credits: null, bills: 0 }, -5, 10],
+    ['a negative rival tariff price with an unmeasured incumbent', { credits: null, model_credits: null, bills: 0 }, -5, 10],
   ])('refuses %s instead of recording a negative or non-finite estimate', (_label, incOverrides, rivalPrice, incPrice) => {
     const summary = makeSummary([
       makePair('github-copilot/model-b@high', incOverrides),
