@@ -191,16 +191,20 @@ run_copy_system_ca_bundle_fixture() {
   tmp_dir="$(mktemp -d)"
   local host_root="${tmp_dir}/host-root"
   local fixture_entrypoint="${tmp_dir}/entrypoint-fixture.sh"
-  local java_store="${host_root}/etc/ssl/certs/java/cacerts"
-  local java_link="${host_root}/usr/lib/jvm/fixture/lib/security/cacerts"
-  mkdir -p "${host_root}/etc/pki/tls/certs" "${host_root}/etc/ssl/certs/java" \
-    "${host_root}/etc/pki/ca-trust/extracted/pem" "$(dirname "${java_link}")"
+  local vendor java_store java_link
+  mkdir -p "${host_root}/etc/pki/tls/certs" "${host_root}/etc/ssl/certs" \
+    "${host_root}/etc/pki/ca-trust/extracted/pem"
   openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=private-fixture \
     -keyout "${tmp_dir}/fixture.key" -out "${host_root}/etc/pki/tls/certs/ca-bundle.crt" >/dev/null 2>&1
   cp "${host_root}/etc/pki/tls/certs/ca-bundle.crt" "${tmp_dir}/original.crt"
   ln -s ../../pki/tls/certs/ca-bundle.crt "${host_root}/etc/ssl/certs/ca-certificates.crt"
-  printf 'fixture-java-keystore' > "${java_store}"
-  ln -s /etc/ssl/certs/java/cacerts "${java_link}"
+  for vendor in "$@"; do
+    java_store="${host_root}/etc/ssl/certs/${vendor}/cacerts"
+    java_link="${host_root}/usr/lib/jvm/${vendor}/lib/security/cacerts"
+    mkdir -p "$(dirname "${java_store}")" "$(dirname "${java_link}")"
+    printf 'fixture-%s-keystore' "${vendor}" > "${java_store}"
+    ln -s "/etc/ssl/certs/${vendor}/cacerts" "${java_link}"
+  done
   cp "${host_root}/etc/pki/tls/certs/ca-bundle.crt" \
     "${host_root}/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"
   printf 'email-only-anchor\n' > "${host_root}/etc/pki/ca-trust/extracted/pem/email-ca-bundle.pem"
@@ -227,8 +231,13 @@ run_copy_system_ca_bundle_fixture() {
     [ "${SSL_CERT_FILE}" = "/run/awf-lib/trust/ca-certificates.crt" ] || exit 1
     [ -r "${AWF_TEST_HOST_ROOT}${SSL_CERT_FILE}" ] || exit 1
     [ "${NODE_EXTRA_CA_CERTS}" = "${SSL_CERT_FILE}" ] || exit 1
-    [ "$(readlink "${java_link}")" = "/etc/ssl/certs/java/cacerts" ] || exit 1
-    cmp "${java_store}" "${host_root}/run/awf-lib/trust/certs/java/cacerts" || exit 1
+    for vendor in "$@"; do
+      java_store="${host_root}/etc/ssl/certs/${vendor}/cacerts"
+      java_link="${host_root}/usr/lib/jvm/${vendor}/lib/security/cacerts"
+      [ "$(readlink "${java_link}")" = "/etc/ssl/certs/${vendor}/cacerts" ] || exit 1
+      cmp "${java_store}" "${host_root}/run/awf-lib/trust/certs/${vendor}/cacerts" || exit 1
+      [ "$(cat "${java_store}")" = "fixture-${vendor}-keystore" ] || exit 1
+    done
     ! grep -q 'email-only-anchor\|code-signing-only-anchor' \
       "${host_root}/run/awf-lib/trust/ca-certificates.crt" || exit 1
 
@@ -250,6 +259,15 @@ if run_copy_system_ca_bundle_fixture; then
 else
   fail "copy_system_ca_bundle() does not safely stage RHEL bundle fixtures"
 fi
+
+for vendors in java adoptium "java adoptium"; do
+  read -r -a java_vendors <<< "${vendors}"
+  if run_copy_system_ca_bundle_fixture "${java_vendors[@]}"; then
+    pass "copy_system_ca_bundle() preserves Java stores (${vendors}) without changing host inputs"
+  else
+    fail "copy_system_ca_bundle() does not preserve Java stores (${vendors})"
+  fi
+done
 
 if grep -Eq '\[ -n "\$\{SYSTEM_CA_CHROOT\}" \]' "${ENTRYPOINT}"; then
   pass "run_chroot_command() cleans up copied system CA bundles"

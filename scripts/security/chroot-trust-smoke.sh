@@ -7,6 +7,8 @@ set -euo pipefail
   exit 1
 }
 mkdir -p /fixtures/etc/ssl/certs /host/etc/ssl /host/run/awf-lib
+mkdir -p /fixtures/etc/ssl/certs/adoptium
+printf 'fixture-adoptium-keystore' > /fixtures/etc/ssl/certs/adoptium/cacerts
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=private-awf \
   -keyout /fixtures/private.key -out /fixtures/private.pem >/dev/null 2>&1
 cat /fixtures/private.pem /work/scripts/security/fixtures/emsign-ecc-g3.pem \
@@ -14,6 +16,7 @@ cat /fixtures/private.pem /work/scripts/security/fixtures/emsign-ecc-g3.pem \
 cp /work/scripts/security/fixtures/emsign-ecc-g3.pem /fixtures/etc/ssl/certs/compromised.pem
 openssl rehash /fixtures/etc/ssl/certs 2>/dev/null
 before="$(sha256sum /fixtures/etc/ssl/certs/ca-certificates.crt)"
+java_before="$(sha256sum /fixtures/etc/ssl/certs/adoptium/cacerts)"
 mount --bind /fixtures/etc/ssl /host/etc/ssl
 mount -o remount,ro,bind /host/etc/ssl
 # shellcheck source=../../containers/agent/entrypoint.sh
@@ -21,6 +24,7 @@ source /work/containers/agent/entrypoint.sh
 AWF_CA_CHROOT=""
 unset NODE_EXTRA_CA_CERTS NODE_OPTIONS
 copy_system_ca_bundle
+cmp /fixtures/etc/ssl/certs/adoptium/cacerts /host/etc/ssl/certs/adoptium/cacerts
 openssl verify -CAfile /host/etc/ssl/certs/ca-certificates.crt \
   -CApath /host/etc/ssl/certs /fixtures/private.pem
 if openssl verify -CAfile /host/etc/ssl/certs/ca-certificates.crt \
@@ -29,6 +33,7 @@ if openssl verify -CAfile /host/etc/ssl/certs/ca-certificates.crt \
   exit 1
 fi
 [ "$(sha256sum /fixtures/etc/ssl/certs/ca-certificates.crt)" = "$before" ]
+[ "$(sha256sum /fixtures/etc/ssl/certs/adoptium/cacerts)" = "$java_before" ]
 if touch /host/etc/ssl/certs/should-not-write; then
   echo "Trust overlay is writable" >&2
   exit 1
