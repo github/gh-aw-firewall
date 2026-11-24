@@ -1,5 +1,6 @@
 import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV, VERTEX_ENV, OIDC_AUTH_ENV_MAPPING } from '../api-proxy-env-constants';
 import type { WrapperConfig } from '../types';
+import { validateApiAuthScheme } from '../api-proxy-config-validation';
 
 interface ResolveApiCredentialsInputs {
   resolvedCopilotApiTarget?: string;
@@ -28,6 +29,8 @@ type ApiCredentials = Pick<WrapperConfig,
   | 'anthropicApiBasePath'
   | 'openaiApiAuthHeader'
   | 'anthropicApiAuthHeader'
+  | 'openaiApiAuthScheme'
+  | 'anthropicApiAuthScheme'
   | 'anthropicTokenUrl'
   | OidcConfigKey
   | 'geminiApiTarget'
@@ -55,6 +58,10 @@ export function resolveApiCredentials(
   ) as Pick<ApiCredentials, OidcConfigKey>;
 
   const agentApiKey = resolveAgentApiKey(options);
+  const openaiApiAuthScheme = resolveOptionOrEnv(options, 'openaiApiAuthScheme', OPENAI_ENV.AUTH_SCHEME);
+  const anthropicApiAuthScheme = resolveOptionOrEnv(options, 'anthropicApiAuthScheme', ANTHROPIC_ENV.AUTH_SCHEME);
+  validateApiAuthScheme(openaiApiAuthScheme);
+  validateApiAuthScheme(anthropicApiAuthScheme);
 
   return {
     openaiTrustedService: options.openaiTrustedService as WrapperConfig['openaiTrustedService'],
@@ -83,11 +90,13 @@ export function resolveApiCredentials(
       ANTHROPIC_ENV.BASE_PATH
     ),
     openaiApiAuthHeader: resolveOptionOrEnv(options, 'openaiApiAuthHeader', OPENAI_ENV.AUTH_HEADER),
+    openaiApiAuthScheme,
     anthropicApiAuthHeader: resolveOptionOrEnv(
       options,
       'anthropicApiAuthHeader',
       ANTHROPIC_ENV.AUTH_HEADER
     ),
+    anthropicApiAuthScheme,
     anthropicTokenUrl: (options.anthropicTokenUrl as string | undefined) ?? process.env.AWF_AUTH_ANTHROPIC_TOKEN_URL,
     ...oidcCredentials,
     geminiApiTarget: resolveOptionOrEnv(options, 'geminiApiTarget', GEMINI_ENV.TARGET),

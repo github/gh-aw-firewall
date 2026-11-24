@@ -21,6 +21,7 @@ const https = require('https');
 const { URL } = require('url');
 const { sanitizeForLog, logRequest } = require('./logging');
 const { parseProviderModelMetadata } = require('./runtime-model-catalog');
+const { rememberInjectedCredentials, redactCredentialText, redactCredentialError } = require('./credential-protection');
 
 // ── Shared proxy agent ────────────────────────────────────────────────────────
 const { proxyAgent } = require('./http-client');
@@ -115,6 +116,8 @@ function buildRequest(url, opts, timeoutMs) {
  * @returns {Promise<object|null>}
  */
 function fetchJson(url, opts, timeoutMs) {
+  const credentialContext = {};
+  rememberInjectedCredentials(credentialContext, opts.headers || {});
   return new Promise((resolve) => {
     let mod, reqOpts;
     try {
@@ -124,7 +127,7 @@ function fetchJson(url, opts, timeoutMs) {
         resolve(null);
         return;
       }
-      throw err;
+      throw redactCredentialError(credentialContext, err);
     }
 
     let settled = false;
@@ -135,10 +138,15 @@ function fetchJson(url, opts, timeoutMs) {
       const chunks = [];
       res.on('data', (chunk) => chunks.push(chunk));
       res.on('end', () => {
-        try { resolveOnce(JSON.parse(Buffer.concat(chunks).toString())); } catch { resolveOnce(null); }
+        try {
+          resolveOnce(JSON.parse(redactCredentialText(credentialContext, Buffer.concat(chunks).toString())));
+        } catch { resolveOnce(null); }
       });
       res.on('error', (err) => {
-        logRequest('debug', 'fetch_json_error', { url: sanitizeForLog(url), error: String(err && err.message ? err.message : err) });
+        logRequest('debug', 'fetch_json_error', {
+          url: redactCredentialText(credentialContext, sanitizeForLog(url)),
+          error: redactCredentialText(credentialContext, String(err && err.message ? err.message : err)),
+        });
         resolveOnce(null);
       });
       res.on('close', () => resolveOnce(null));
@@ -150,7 +158,10 @@ function fetchJson(url, opts, timeoutMs) {
       req.destroy(err);
     });
     req.on('error', (err) => {
-      logRequest('debug', 'fetch_json_error', { url: sanitizeForLog(url), error: String(err && err.message ? err.message : err) });
+      logRequest('debug', 'fetch_json_error', {
+        url: redactCredentialText(credentialContext, sanitizeForLog(url)),
+        error: redactCredentialText(credentialContext, String(err && err.message ? err.message : err)),
+      });
       resolveOnce(null);
     });
     req.end();

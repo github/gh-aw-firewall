@@ -8,7 +8,7 @@ const {
 const { getTargetHostname } = require('../proxy-utils');
 const { logRequest } = require('../logging');
 
-const CLOUD_OIDC_PROVIDERS = new Set(['azure', 'aws', 'gcp']);
+const CLOUD_OIDC_PROVIDERS = new Set(['azure', 'aws', 'gcp', 'databricks']);
 
 function targetOrigin(target) {
   if (typeof target !== 'string' || !target.trim()) return null;
@@ -110,6 +110,20 @@ function resolveCloudOidcProviders(env, options = {}) {
   let oidcProvider = null;
   let awsOidcProvider = null;
 
+  let databricksConfig, databricksProvider;
+  if (authType === 'github-oidc' && authProvider === 'databricks' && !skipWhen) {
+    const { DatabricksOidcTokenProvider } = require('../databricks-oidc-token-provider');
+    databricksConfig = {
+      host: env.AWF_AUTH_DATABRICKS_HOST,
+      clientId: env.AWF_AUTH_DATABRICKS_CLIENT_ID,
+      oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE,
+      requestUrl: env.ACTIONS_ID_TOKEN_REQUEST_URL,
+      requestToken: env.ACTIONS_ID_TOKEN_REQUEST_TOKEN,
+    };
+    // Validate even on unbound adapters: incomplete configuration must not fall back to static auth.
+    databricksProvider = new DatabricksOidcTokenProvider(databricksConfig);
+  }
+
   let cloudOidcPermitted = true;
   if (authType === 'github-oidc' && !skipWhen && CLOUD_OIDC_PROVIDERS.has(authProvider)) {
     if (!allowCloudOidc) {
@@ -117,21 +131,35 @@ function resolveCloudOidcProviders(env, options = {}) {
       logRequest('info', 'cloud_oidc_not_bound', {
         message: `${authProvider} OIDC is not bound to this adapter; upstream is not the configured cloud target`,
         adapter: adapterName,
-        target: targetHost,
+        target: databricksConfig ? undefined : targetHost,
       });
     } else if (!isCloudOidcTargetAllowed(targetHost)) {
       cloudOidcPermitted = false;
       logRequest('warn', 'cloud_oidc_target_refused', {
         message: `Refusing to attach ${authProvider} OIDC token to a non-${authProvider} upstream`,
         adapter: adapterName,
-        target: targetHost,
+        target: databricksConfig ? undefined : targetHost,
       });
     } else if (!isSelectedCloudOidcTarget(env, targetHost)) {
       cloudOidcPermitted = false;
       logRequest('info', 'cloud_oidc_not_bound', {
         message: `${authProvider} OIDC is not bound to this adapter; upstream is not the configured cloud target`,
         adapter: adapterName,
-        target: targetHost,
+        target: databricksConfig ? undefined : targetHost,
+      });
+    }
+    const databricksTargets = databricksConfig
+      ? [...explicitCloudOidcTargets(env), env.COPILOT_PROVIDER_BASE_URL]
+        .filter(value => typeof value === 'string' && value.trim())
+      : [];
+    if (cloudOidcPermitted && databricksConfig
+      && (!databricksTargets.length
+        || !databricksTargets.every(target => matchesTargetOrigin(target, databricksConfig.host))
+        || !matchesTargetOrigin(targetHost, databricksConfig.host))) {
+      cloudOidcPermitted = false;
+      logRequest('warn', 'cloud_oidc_target_refused', {
+        message: 'Databricks OIDC requires an explicit target matching the workspace origin',
+        adapter: adapterName,
       });
     }
   }
@@ -141,7 +169,9 @@ function resolveCloudOidcProviders(env, options = {}) {
     const requestToken = env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
 
     if (requestUrl && requestToken) {
-      if (authProvider === 'aws') {
+      if (authProvider === 'databricks') {
+        oidcProvider = databricksProvider;
+      } else if (authProvider === 'aws') {
         const roleArn = env.AWF_AUTH_AWS_ROLE_ARN;
         const region = env.AWF_AUTH_AWS_REGION;
         if (roleArn && region) {
@@ -199,6 +229,7 @@ function resolveCloudOidcProviders(env, options = {}) {
     }
   }
 
+  if (databricksProvider && !oidcProvider) databricksProvider.shutdown();
   return {
     authProvider,
     oidcProvider,
@@ -270,8 +301,12 @@ function createProviderOidcAuth(env, {
       }));
   }
 
+  const databricksRequested = !skipWhen && (env.AWF_AUTH_TYPE || '').trim().toLowerCase() === 'github-oidc'
+    && authProvider === 'databricks';
+  const databricksSelected = databricksRequested && (allowCloudOidc
+    || !!(env[`${(adapterName || '').toUpperCase()}_API_TARGET`] || '').trim());
   const runtimeMethods = createOidcRuntimeAdapterMethods({
-    staticAuthToken,
+    staticAuthToken: databricksSelected ? undefined : staticAuthToken,
     oidcProvider,
     awsOidcProvider,
   });
@@ -307,6 +342,7 @@ function createProviderOidcAuth(env, {
      * @returns {Record<string, string>}
      */
     resolveAuthHeaders(buildOidcHeaders, staticHeaders) {
+      if (databricksSelected && !oidcConfigured) return {};
       return resolveAuthHeadersWithFallback({
         oidcProvider,
         awsOidcProvider,

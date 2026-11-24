@@ -1,4 +1,14 @@
 import { logger } from '../../logger';
+import type { WrapperConfig } from '../../types';
+import { OPENAI_ENV, ANTHROPIC_ENV } from '../../api-proxy-env-constants';
+import { resolveDatabricksOidcHost } from '../../api-proxy-config-validation';
+import { buildProviderTargetEnv } from '../api-proxy-env-config';
+
+export function isDatabricksAdapterConfigured(config: WrapperConfig, adapter: 'openai' | 'anthropic'): boolean {
+  if (!resolveDatabricksOidcHost(config)) return false;
+  const targets = buildProviderTargetEnv(config);
+  return !!targets[adapter === 'openai' ? OPENAI_ENV.TARGET : ANTHROPIC_ENV.TARGET];
+}
 
 export interface ProviderCredentialIsolationOptions {
   /** Human-readable provider name used in debug log messages, e.g. "OpenAI" */

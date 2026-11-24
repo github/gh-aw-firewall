@@ -41,6 +41,9 @@ const OIDC_AUTH_ENV_MAPPING = [
   { configKey: 'authGcpWorkloadIdentityProvider', envVar: 'AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER' },
   { configKey: 'authGcpServiceAccount', envVar: 'AWF_AUTH_GCP_SERVICE_ACCOUNT' },
   { configKey: 'authGcpScope', envVar: 'AWF_AUTH_GCP_SCOPE' },
+  // Databricks
+  { configKey: 'authDatabricksHost', envVar: 'AWF_AUTH_DATABRICKS_HOST' },
+  { configKey: 'authDatabricksClientId', envVar: 'AWF_AUTH_DATABRICKS_CLIENT_ID' },
   // Anthropic
   { configKey: 'authAnthropicFederationRuleId', envVar: 'AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID' },
   { configKey: 'authAnthropicOrganizationId', envVar: 'AWF_AUTH_ANTHROPIC_ORGANIZATION_ID' },

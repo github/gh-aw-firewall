@@ -14,7 +14,7 @@ const {
   parseApiTargetAndBasePath,
 } = require('../proxy-utils');
 const { validateAuthHeaderEnv, buildOidcUnavailableScaffold } = require('../oidc-adapter-utils');
-const { buildAuthHeaderFn } = require('./auth-headers');
+const { buildAuthHeaderFn, buildStaticAuthHeaderFn, validateAuthSchemeEnv } = require('./auth-headers');
 const { composeBodyTransforms } = require('../proxy-utils');
 const {
   parseCodexHostedWebPolicy,
@@ -38,10 +38,13 @@ function createOpenAIAdapter(env, deps = {}) {
   const authType = (env.AWF_AUTH_TYPE || '').trim().toLowerCase();
   const authProvider = (env.AWF_AUTH_PROVIDER || 'azure').trim().toLowerCase();
   const openAiWifRequested = authType === 'github-oidc' && authProvider === 'openai';
+  const databricksRequested = authType === 'github-oidc' && authProvider === 'databricks';
+  const databricksSelected = databricksRequested && !!(env[OPENAI_ENV.TARGET] || '').trim();
+  const staticAuthScheme = validateAuthSchemeEnv(OPENAI_ENV.AUTH_SCHEME, env[OPENAI_ENV.AUTH_SCHEME]);
   const copilotAzureByokEnabled = providerType === 'azure';
+  const explicitAuthHeader = validateAuthHeaderEnv(OPENAI_ENV.AUTH_HEADER, env[OPENAI_ENV.AUTH_HEADER]);
   const customAuthHeader = (() => {
-    const header = validateAuthHeaderEnv(OPENAI_ENV.AUTH_HEADER, env[OPENAI_ENV.AUTH_HEADER]);
-    if (header) return header;
+    if (explicitAuthHeader) return explicitAuthHeader;
     // Azure OpenAI BYOK uses `api-key` header instead of `Authorization: Bearer`
     // (but OIDC auth still requires `Authorization: Bearer` unless explicitly overridden)
     if (copilotAzureByokEnabled && (env.AWF_AUTH_TYPE || '').trim().toLowerCase() !== 'github-oidc') return 'api-key';
@@ -57,6 +60,11 @@ function createOpenAIAdapter(env, deps = {}) {
   // (but OIDC auth still requires `Authorization: Bearer` unless explicitly overridden);
   // buildAuthHeaderFn centralises that "custom header vs. Bearer" branching.
   const buildTokenAuthHeaders = buildAuthHeaderFn({ headerName: customAuthHeader || undefined });
+  const buildStaticAuthHeaders = buildStaticAuthHeaderFn({
+    headerName: explicitAuthHeader,
+    defaultHeaderName: customAuthHeader,
+    scheme: staticAuthScheme,
+  });
   return createStandardProviderAdapter(env, deps, {
     envVars: {
       keyEnvVar: OPENAI_ENV.KEY,
@@ -69,7 +77,7 @@ function createOpenAIAdapter(env, deps = {}) {
     isManagementPort: true,
     prepareConfig: ({ apiKey: openaiApiKey, rawTarget: openaiTarget, basePath: openaiBasePath, bodyTransform }) => {
       const explicitOpenAITarget = env[OPENAI_ENV.TARGET] ? openaiTarget : undefined;
-      const rawTarget = explicitOpenAITarget || (copilotAzureByokEnabled ? copilotByokTarget : undefined) || 'api.openai.com';
+      const rawTarget = explicitOpenAITarget || (copilotAzureByokEnabled && !databricksRequested ? copilotByokTarget : undefined) || 'api.openai.com';
       const useCopilotByok = copilotAzureByokEnabled && matchesTargetOrigin(rawTarget, copilotByokTarget);
       const apiKey = openaiApiKey || (useCopilotByok ? copilotByokApiKey : undefined);
       const explicitBasePath = openaiBasePath || (useCopilotByok ? copilotByokBasePath : '');
@@ -85,14 +93,14 @@ function createOpenAIAdapter(env, deps = {}) {
       };
     },
     createHeaderBuilders: ({ apiKey }) => ({
-      buildOidcHeaders: openAiWifRequested ? bearerAuthHeaders : buildTokenAuthHeaders,
-      buildStaticHeaders: () => buildTokenAuthHeaders(apiKey),
+      buildOidcHeaders: openAiWifRequested || databricksRequested ? bearerAuthHeaders : buildTokenAuthHeaders,
+      buildStaticHeaders: () => buildStaticAuthHeaders(apiKey),
     }),
     createOidcAuthOptions: () => ({
       allowOpenAiWif: openAiWifRequested,
       // Cloud OIDC tokens are only bound to an explicitly configured upstream
       // (OPENAI_API_TARGET or the Azure BYOK provider URL), never the default.
-      allowCloudOidc: !!(env[OPENAI_ENV.TARGET] || (copilotAzureByokEnabled && copilotByokTarget)),
+      allowCloudOidc: !!(env[OPENAI_ENV.TARGET] || (!databricksRequested && copilotAzureByokEnabled && copilotByokTarget)),
     }),
     createAdapterMethodsOptions: ({
       authProvider,
@@ -103,10 +111,10 @@ function createOpenAIAdapter(env, deps = {}) {
       buildStaticHeaders,
     }) => ({
       validationPath: '/v1/models',
-      validationHeaders: openAiWifRequested ? resolveHeaders : buildStaticHeaders,
+      validationHeaders: openAiWifRequested || databricksSelected ? resolveHeaders : buildStaticHeaders,
       modelsPath: '/v1/models',
-      modelsFetchHeaders: openAiWifRequested ? resolveHeaders : buildStaticHeaders,
-      skipModelsFetch: openAiWifRequested
+      modelsFetchHeaders: openAiWifRequested || databricksSelected ? resolveHeaders : buildStaticHeaders,
+      skipModelsFetch: openAiWifRequested || databricksSelected
         ? () => !oidcConfigured || !oidcProvider?.isReady()
         : skipModelsFetch,
       reflectionModelsPath: '/v1/models',
@@ -121,10 +129,12 @@ function createOpenAIAdapter(env, deps = {}) {
         message: 'OpenAI proxy not configured (no OPENAI_API_KEY/COPILOT_PROVIDER_API_KEY or OIDC auth)',
       },
       unconfiguredResponseWhen: buildOidcUnavailableScaffold({
-        requested: openAiWifRequested || oidcConfigured,
+        requested: openAiWifRequested || databricksSelected || oidcConfigured,
         configured: oidcConfigured,
-        unavailableMessage: 'OpenAI OIDC token unavailable; retry shortly',
-        unconfiguredMessage: 'OpenAI WIF requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (permissions: id-token: write), AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID, and AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID.',
+        unavailableMessage: databricksRequested ? 'Databricks OIDC token unavailable; retry shortly' : 'OpenAI OIDC token unavailable; retry shortly',
+        unconfiguredMessage: databricksRequested
+          ? 'Databricks OIDC requires an explicit target matching the HTTPS workspace origin; first-party and conflicting targets are refused.'
+          : 'OpenAI WIF requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (permissions: id-token: write), AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID, and AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID.',
       }).unconfiguredResponseWhen,
       extra: {
         /** Port 10000 always counts toward the startup validation latch. */

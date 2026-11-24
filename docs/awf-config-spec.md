@@ -274,6 +274,8 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.auth.gcpWorkloadIdentityProvider` → *(config-only; maps to `AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER`)*
 - `apiProxy.auth.gcpServiceAccount` → *(config-only; maps to `AWF_AUTH_GCP_SERVICE_ACCOUNT`)*
 - `apiProxy.auth.gcpScope` → *(config-only; maps to `AWF_AUTH_GCP_SCOPE`)*
+- `apiProxy.auth.databricksHost` → *(config-only; maps to `AWF_AUTH_DATABRICKS_HOST`)*
+- `apiProxy.auth.databricksClientId` → *(config-only; maps to `AWF_AUTH_DATABRICKS_CLIENT_ID`)*
 - `apiProxy.auth.anthropicFederationRuleId` → *(config-only; maps to `AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID`)*
 - `apiProxy.auth.anthropicOrganizationId` → *(config-only; maps to `AWF_AUTH_ANTHROPIC_ORGANIZATION_ID`)*
 - `apiProxy.auth.anthropicServiceAccountId` → *(config-only; maps to `AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID`)*
@@ -286,11 +288,13 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.targets.copilot.sessionId` → *(config-only; opt-in `x-session-id` header / `session_id` body field for Copilot BYOK requests, maps to `AWF_PROVIDER_SESSION_ID`. Never auto-derived from `GITHUB_RUN_ID`.)*
 - `apiProxy.targets.openai.basePath` → `--openai-api-base-path`
 - `apiProxy.targets.openai.authHeader` → `--openai-api-auth-header`
+- `apiProxy.targets.openai.authScheme` → `--openai-api-auth-scheme` *(also `AWF_OPENAI_AUTH_SCHEME`)*
 - `apiProxy.targets.openai.baseUrlEnv` → `--openai-base-url-env` *(names a runner environment variable holding a secret OpenAI-compatible base URL; see [§9.7 Secret-Backed OpenAI Target](#97-secret-backed-openai-target))*
 - `apiProxy.targets.openai.trustedService` → *(config-only; opt-in trusted LLM service endpoint and `secretHeaders` mapping header names to runner environment variable names, never literal values; see the trusted-service contract in this spec)*
 - `apiProxy.targets.anthropic.trustedService` → *(config-only; same contract as `apiProxy.targets.openai.trustedService`)*
 - `apiProxy.targets.anthropic.basePath` → `--anthropic-api-base-path`
 - `apiProxy.targets.anthropic.authHeader` → `--anthropic-api-auth-header`
+- `apiProxy.targets.anthropic.authScheme` → `--anthropic-api-auth-scheme` *(also `AWF_ANTHROPIC_AUTH_SCHEME`)*
 - `apiProxy.targets.gemini.basePath` → `--gemini-api-base-path`
 - `apiProxy.targets.antigravity.basePath` → `--gemini-api-base-path`
 - When both `apiProxy.targets.antigravity` and `apiProxy.targets.gemini` are set, `antigravity` takes precedence per field.
@@ -697,7 +701,7 @@ exchange protocol. A conforming implementation MUST:
    |-------------|----------------------|----------|---------|
    | `apiProxy.auth.type` | `AWF_AUTH_TYPE` | ✅ | — |
    | `apiProxy.auth.provider` | `AWF_AUTH_PROVIDER` | No | `azure` |
-   | `apiProxy.auth.oidcAudience` | `AWF_AUTH_OIDC_AUDIENCE` | No | *(provider-specific)* |
+   | `apiProxy.auth.oidcAudience` | `AWF_AUTH_OIDC_AUDIENCE` | Required for Databricks | *(provider-specific)* |
 
 2. Forward the GitHub Actions OIDC runtime tokens
    (`ACTIONS_ID_TOKEN_REQUEST_URL`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN`) to
@@ -801,6 +805,58 @@ omitted.
 `anthropicTokenUrl` is non-sensitive and SHOULD be supplied via AWF config (including stdin config via `--config -`); env var support exists for compatibility.
 
 Default OIDC audience: `https://api.anthropic.com`
+
+#### 9.5.5 Databricks Provider (`provider: databricks`)
+
+Exchanges a GitHub OIDC JWT at `<databricksHost>/oidc/v1/token` using
+RFC 8693 token exchange and `scope=all-apis`. The sidecar MUST inject the
+result as `Authorization: ****** regardless of `authHeader`.
+
+| Config path | Environment variable | Required | Default |
+|-------------|----------------------|----------|---------|
+| `apiProxy.auth.databricksHost` | `AWF_AUTH_DATABRICKS_HOST` | ✅ | — |
+| `apiProxy.auth.databricksClientId` | `AWF_AUTH_DATABRICKS_CLIENT_ID` | No | — |
+| `apiProxy.auth.oidcAudience` | `AWF_AUTH_OIDC_AUDIENCE` | ✅ | — |
+
+`databricksHost` MUST be an HTTPS workspace origin without credentials,
+path (other than `/`), query, or fragment. Supply `databricksClientId` for
+service-principal federation policies; omit it for account-wide policies.
+The audience MUST match the federation policy, typically the Databricks
+account ID; AWF cannot infer it.
+
+Tokens are bound only to explicitly configured upstream adapters, using the
+same origin-binding and first-party-host exclusions as Azure/AWS/GCP.
+The selected upstream origin MUST also match `databricksHost`.
+Databricks OIDC enables OpenAI and Anthropic agent base URLs and compatibility
+placeholders without static keys when their upstream is explicitly configured.
+The exchanged token remains in the sidecar. Since no refresh token is issued
+and the token expires with its GitHub JWT, refresh uses a fraction of the
+remaining lifetime rather than a fixed five-minute margin.
+
+```yaml
+apiProxy:
+  targets:
+    anthropic:
+      host: dbc-1234.cloud.databricks.com
+      basePath: /ai-gateway/anthropic
+  auth:
+    type: github-oidc
+    provider: databricks
+    databricksHost: https://dbc-1234.cloud.databricks.com
+    databricksClientId: <service-principal-application-id>
+    oidcAudience: <databricks-account-id>
+```
+
+#### Static-key authentication schemes
+
+For `apiProxy.targets.openai` and `apiProxy.targets.anthropic`, `authScheme`
+is an optional HTTP authentication scheme token (for example, `Bearer`).
+When present, the sidecar sends `<scheme> <key>` in `authHeader` if configured,
+otherwise in `Authorization`. Credentials already prefixed with that scheme
+(case-insensitive) MUST NOT be prefixed again. Omitting `authScheme` preserves
+existing behavior: a custom `authHeader` receives the raw key; otherwise
+OpenAI uses bearer auth and Anthropic uses `x-api-key`.
+This option affects static keys only, not OIDC token exchange or headers.
 
 ### 9.6 DIFC Proxy Credential Isolation
 

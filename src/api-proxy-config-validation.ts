@@ -1,3 +1,47 @@
+import type { WrapperConfig } from './types';
+import { readEnvFile } from './github-env';
+
+export function validateApiAuthScheme(value: string | undefined): void {
+  if (value !== undefined && !/^[!#$%&'*+.^_`|~A-Za-z0-9-]+(?![\s\S])/.test(value)) {
+    throw new Error('Invalid API auth scheme: expected an HTTP authentication scheme token');
+  }
+}
+
+export function validateDatabricksHost(value: string | undefined): URL {
+  const invalid = () => new Error('Invalid Databricks host: expected an HTTPS workspace origin without credentials, path, query or fragment');
+  if (!value || !/^https:\/\/[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*(?::[0-9]{1,5})?\/?(?![\s\S])/.test(value)) {
+    throw invalid();
+  }
+  let url: URL;
+  try { url = new URL(value); } catch { throw invalid(); }
+  if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' ||
+      url.search || url.hash || (url.port && Number(url.port) === 0)) throw invalid();
+  return url;
+}
+
+/** Resolve only Databricks OIDC; other provider enablement remains unchanged. */
+export function resolveDatabricksOidcHost(config: WrapperConfig): URL | undefined {
+  let fileEnvironment: Record<string, string> = {};
+  if (config.envFile) {
+    try { fileEnvironment = readEnvFile(config.envFile); } catch {
+      // Preflight warning checks must not fail unrelated providers on unreadable env files.
+    }
+  }
+  const resolve = (key: keyof WrapperConfig, envVar: string): string | undefined =>
+    (config[key] as string | undefined)
+    ?? config.additionalEnv?.[envVar]
+    ?? fileEnvironment[envVar]
+    ?? process.env[envVar];
+  const type = resolve('authType', 'AWF_AUTH_TYPE')?.trim().toLowerCase();
+  const provider = resolve('authProvider', 'AWF_AUTH_PROVIDER')?.trim().toLowerCase();
+  if (type !== 'github-oidc' || provider !== 'databricks') return undefined;
+  const host = validateDatabricksHost(resolve('authDatabricksHost', 'AWF_AUTH_DATABRICKS_HOST'));
+  if (!resolve('authOidcAudience', 'AWF_AUTH_OIDC_AUDIENCE')?.trim()) {
+    throw new Error('Databricks OIDC requires a nonempty oidcAudience');
+  }
+  return host;
+}
+
 /**
  * Result of validating API proxy configuration
  */
@@ -21,6 +65,7 @@ export interface ApiProxyValidationResult {
  * @param hasGeminiKey - Whether a Google Gemini API key is present
  * @param hasAnthropicWif - Whether Anthropic WIF (GitHub OIDC) auth is configured
  * @param hasGoogleApiKey - Whether a Google API key for Vertex AI is present
+ * @param hasDatabricksOidc - Whether Databricks OIDC auth is configured without requiring a static key
  * @returns ApiProxyValidationResult with warnings and debug messages
  */
 export function validateApiProxyConfig(
@@ -31,6 +76,7 @@ export function validateApiProxyConfig(
   hasGeminiKey?: boolean,
   hasAnthropicWif?: boolean,
   hasGoogleApiKey?: boolean,
+  hasDatabricksOidc?: boolean,
 ): ApiProxyValidationResult {
   if (!enableApiProxy) {
     return { enabled: false, warnings: [], debugMessages: [] };
@@ -39,7 +85,7 @@ export function validateApiProxyConfig(
   const warnings: string[] = [];
   const debugMessages: string[] = [];
 
-  if (!hasOpenaiKey && !hasAnthropicKey && !hasCopilotKey && !hasGeminiKey && !hasAnthropicWif && !hasGoogleApiKey) {
+  if (!hasOpenaiKey && !hasAnthropicKey && !hasCopilotKey && !hasGeminiKey && !hasAnthropicWif && !hasGoogleApiKey && !hasDatabricksOidc) {
     warnings.push('⚠️  API proxy enabled but no API keys found in environment');
     warnings.push('   Set OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, COPILOT_PROVIDER_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY to use the proxy');
   }
@@ -51,6 +97,9 @@ export function validateApiProxyConfig(
   }
   if (hasAnthropicWif) {
     debugMessages.push('Anthropic WIF (GitHub OIDC) auth configured - OIDC token exchange will be used in sidecar');
+  }
+  if (hasDatabricksOidc) {
+    debugMessages.push('Databricks OIDC auth configured - OIDC token exchange will be used in sidecar');
   }
   if (hasCopilotKey) {
     debugMessages.push('GitHub Copilot API key detected - will be held securely in sidecar');

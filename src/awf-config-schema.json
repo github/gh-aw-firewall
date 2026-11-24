@@ -752,7 +752,8 @@
                 "azure",
                 "aws",
                 "gcp",
-                "anthropic"
+                "anthropic",
+                "databricks"
               ],
               "description": "Cloud provider for OIDC token exchange. Determines which token exchange protocol is used. Maps to AWF_AUTH_PROVIDER.",
               "default": "azure"
@@ -809,6 +810,15 @@
               "type": "string",
               "description": "OAuth2 scope for GCP token. Maps to AWF_AUTH_GCP_SCOPE.",
               "default": "https://www.googleapis.com/auth/cloud-platform"
+            },
+            "databricksHost": {
+              "type": "string",
+              "pattern": "^https://[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*(?::(?!0{1,5}(?:/|(?![\\s\\S])))(?:[0-5]?[0-9]{1,4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?/?(?![\\s\\S])",
+              "description": "HTTPS Databricks workspace origin without credentials, path, query or fragment. Required for Databricks OIDC. Maps to AWF_AUTH_DATABRICKS_HOST."
+            },
+            "databricksClientId": {
+              "type": "string",
+              "description": "Optional Databricks service principal client ID. Maps to AWF_AUTH_DATABRICKS_CLIENT_ID."
             },
             "anthropicFederationRuleId": {
               "type": "string",
@@ -886,10 +896,34 @@
                 ]
               },
               "else": {
-                "required": [
-                  "azureTenantId",
-                  "azureClientId"
-                ]
+                "if": {
+                  "properties": {
+                    "provider": {
+                      "const": "databricks"
+                    }
+                  },
+                  "required": [
+                    "provider"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "databricksHost",
+                    "oidcAudience"
+                  ],
+                  "properties": {
+                    "oidcAudience": {
+                      "type": "string",
+                      "pattern": "\\S"
+                    }
+                  }
+                },
+                "else": {
+                  "required": [
+                    "azureTenantId",
+                    "azureClientId"
+                  ]
+                }
               }
             }
           }
@@ -2122,6 +2156,9 @@
         "authHeader": {
           "type": "string"
         },
+        "authScheme": {
+          "$ref": "#/$defs/httpAuthScheme"
+        },
         "trustedService": {
           "$ref": "#/$defs/trustedService"
         }
@@ -2202,12 +2239,20 @@
           "type": "string",
           "description": "Override the auth header name used for API requests. Replaces 'Authorization: ******' with '<authHeader>: <key>'."
         },
+        "authScheme": {
+          "$ref": "#/$defs/httpAuthScheme"
+        },
         "baseUrlEnv": {
           "type": "string",
           "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
           "description": "Name of a runner environment variable (typically bound to a secret) holding the OpenAI-compatible base URL. AWF resolves and validates it before containers start, derives the host for network policy, keeps it out of the agent environment, and redacts it from logs and artifacts. Takes precedence over host/basePath."
         }
       }
+    },
+    "httpAuthScheme": {
+      "type": "string",
+      "pattern": "^[!#$%&'*+.^_`|~A-Za-z0-9-]+(?![\\s\\S])",
+      "description": "Optional HTTP authentication scheme token, e.g. Bearer, prepended to the credential. Omission preserves the adapter's existing header behavior."
     },
     "providerHostOnlyTarget": {
       "type": "object",

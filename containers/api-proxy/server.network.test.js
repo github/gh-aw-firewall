@@ -10,6 +10,7 @@ const { EventEmitter } = require('events');
 
 const { httpProbe, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, cachedModels, resetModelCacheState } = require('./server');
 const { createCopilotAdapter } = require('./providers/copilot');
+const { bearerAuthHeaders, buildStaticAuthHeaderFn } = require('./providers/auth-headers');
 
 function createModelsAdapter(name, config) {
   return {
@@ -143,6 +144,22 @@ describe('fetchJson', () => {
       headers: {},
     }, 5000);
     expect(result).toEqual({ data: [{ id: 'gpt-4o' }] });
+  });
+
+  it.each(['databricks-bearer', 'custom-static-scheme'])('redacts %s credential echoes before model IDs or metadata reach caches', async authKind => {
+    const secret = 'synthetic-model-discovery-secret';
+    const headers = authKind === 'databricks-bearer' ? bearerAuthHeaders(secret)
+      : buildStaticAuthHeaderFn({ scheme: 'Basic', headerName: 'X-Workspace-Key' })(secret);
+    const wireAuth = Object.values(headers)[0];
+    await startServer(200, JSON.stringify({
+      data: [{ id: secret, name: wireAuth }, { id: 'safe-model', metadata: { echo: secret } }],
+    }));
+    const result = await fetchJson(`http://127.0.0.1:${serverPort}/v1/models`, {
+      method: 'GET', headers,
+    }, 5000);
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(extractModelIds(result)).toContain('safe-model');
+    expect(result.data[1].metadata.echo).not.toBe(secret);
   });
 
   it('should return null for a non-2xx response', async () => {

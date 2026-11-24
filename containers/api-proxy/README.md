@@ -43,6 +43,8 @@ Required (at least one):
 - `GOOGLE_API_KEY` - Google Vertex AI API key for authentication
 
 Optional:
+- `AWF_OPENAI_AUTH_HEADER` / `AWF_ANTHROPIC_AUTH_HEADER` - Custom static credential header name. Defaults remain the `Authorization` header with the `Bearer` scheme for OpenAI and `x-api-key: <key>` for Anthropic.
+- `AWF_OPENAI_AUTH_SCHEME` / `AWF_ANTHROPIC_AUTH_SCHEME` - Optional HTTP authentication scheme token. When nonempty, static auth sends `<scheme> <key>` to the custom header or `Authorization`; a key already prefixed with that scheme (case-insensitive) is not prefixed again. Invalid schemes and header-injection characters are rejected. These settings do not change OIDC auth.
 - `COPILOT_API_TARGET` - Target hostname for GitHub Copilot API requests (default: `api.githubcopilot.com`). Useful for GHES deployments.
 - `VERTEX_API_TARGET` - Target hostname for Vertex API requests (default: `aiplatform.googleapis.com`)
 - `VERTEX_API_BASE_PATH` - Base path prefix for Vertex API requests
@@ -61,6 +63,35 @@ Set by AWF:
 - `HTTP_PROXY` - Squid proxy URL (http://172.30.0.10:3128)
 - `HTTPS_PROXY` - Squid proxy URL (http://172.30.0.10:3128)
 
+### Databricks GitHub OIDC
+
+Set `AWF_AUTH_TYPE=github-oidc`, `AWF_AUTH_PROVIDER=databricks`,
+`AWF_AUTH_DATABRICKS_HOST=https://<workspace>`, and the required
+`AWF_AUTH_OIDC_AUDIENCE` for the workspace federation policy. The host must
+be an HTTPS origin (an optional port and trailing `/` are accepted), without
+credentials, other paths, query, fragment, or backslashes.
+`AWF_AUTH_DATABRICKS_CLIENT_ID` is optional. GitHub Actions must supply
+`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN`
+(`permissions: id-token: write`).
+
+Configure an explicit `OPENAI_API_TARGET` or `ANTHROPIC_API_TARGET` matching
+that exact workspace origin; set the corresponding `*_API_BASE_PATH`
+separately for model serving paths. Default/first-party hosts, conflicting
+selected targets, and different workspace origins do not receive tokens or
+fall back to static keys on an explicitly selected Databricks adapter.
+Unselected adapters retain their independent static credentials and defaults,
+as with the other cloud OIDC providers.
+
+The sidecar performs a URL-encoded RFC 8693 exchange at
+`<workspace>/oidc/v1/token`, with `scope=all-apis` and the GitHub JWT as the
+subject token. Tokens always use the `Authorization` header with the `Bearer` scheme regardless
+of static header/scheme settings; no Anthropic OAuth beta is added for
+Databricks. Positive numeric/string `expires_in` is required. Cached lifetimes
+are bounded by the GitHub JWT `exp` when supplied and a conservative
+300-second cap, with refresh at 75% of the remaining lifetime, including
+short-lived tokens. Invalid/expired lifetimes fail closed, and exchange
+response bodies, JWTs, and transport/JSON error details are never logged.
+
 Agent-side routing for Vertex mode:
 - `GOOGLE_VERTEX_BASE_URL=http://api-proxy:10004`
 - `GOOGLE_API_KEY=google-api-key-placeholder-for-credential-isolation` (placeholder; real key remains in sidecar)
@@ -74,6 +105,8 @@ case-sensitive literal values (and their JSON-escaped spelling) are masked befor
 forwarding, error inspection and diagnostic logging. Credentials from earlier
 attempts remain protected across retries and cross-provider fallback. This does
 not add agent-facing caller authentication.
+Successful model-discovery JSON is also redacted before its model IDs or
+metadata can reach caches, `/reflect`, or persisted model snapshots.
 
 The body filter streams with bounded lookbehind (at most a credential prefix),
 not whole-response buffering. It also covers error events inside successful SSE

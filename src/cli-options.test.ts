@@ -24,6 +24,8 @@ describe('cli-options program', () => {
     program.setOptionValueWithSource('cloudHypervisorEnclaveDebugPublic', undefined, 'default');
     program.setOptionValueWithSource('steeringBudget', undefined, 'default');
     program.setOptionValueWithSource('enableTokenSteering', undefined, 'default');
+    program.setOptionValueWithSource('openaiApiAuthScheme', undefined, 'default');
+    program.setOptionValueWithSource('anthropicApiAuthScheme', undefined, 'default');
   });
 
   it('parses budget steering flags and the --enable-token-steering alias', () => {
@@ -43,6 +45,18 @@ describe('cli-options program', () => {
   it('exposes the expected metadata', () => {
     expect(program.name()).toBe('awf');
     expect(program.description()).toContain('firewall');
+  });
+
+  it('parses static adapter auth schemes without defaults', () => {
+    program.parse(['node', 'awf', '--', 'true'], { from: 'node' });
+    expect(program.opts().openaiApiAuthScheme).toBeUndefined();
+    expect(program.opts().anthropicApiAuthScheme).toBeUndefined();
+    program.parse([
+      'node', 'awf', '--openai-api-auth-scheme', 'Bearer',
+      '--anthropic-api-auth-scheme', 'Basic', '--', 'true',
+    ], { from: 'node' });
+    expect(program.opts().openaiApiAuthScheme).toBe('Bearer');
+    expect(program.opts().anthropicApiAuthScheme).toBe('Basic');
   });
 
   it('parses a job-scoped --home', () => {

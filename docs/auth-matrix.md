@@ -18,6 +18,7 @@ The [Auth Doctor Updater workflow](../.github/workflows/auth-doctor-updater.md) 
 - [Provider: Google Gemini](#provider-google-gemini)
 - [Provider: Google Vertex AI](#provider-google-vertex-ai)
 - [Provider: Azure Foundry](#provider-azure-foundry)
+- [Provider: Databricks](#provider-databricks)
 - [OIDC Providers](#oidc-providers)
 - [GitHub Instance Types](#github-instance-types)
 - [Custom Headers & Injection](#custom-headers--injection)
@@ -33,7 +34,7 @@ Auth evaluation in the api-proxy is determined by the combination of these indep
 |---|-----------|--------------|--------|
 | 1 | Engine | Discrete ports 10000, 10001, 10002, 10003, 10004, 10005 | openai, anthropic, copilot, gemini, vertex, foundry |
 | 2 | Auth Type | `AWF_AUTH_TYPE` | `api-key` (default), `github-oidc` |
-| 3 | OIDC Provider | `AWF_AUTH_PROVIDER` | `azure`, `aws`, `gcp`, `anthropic`, `openai` |
+| 3 | OIDC Provider | `AWF_AUTH_PROVIDER` | `azure`, `aws`, `gcp`, `anthropic`, `openai`, `databricks` |
 | 4 | Instance Type | `GITHUB_SERVER_URL` | github.com, GHEC (`*.ghe.com`), GHES |
 | 5 | BYOK Mode | `COPILOT_PROVIDER_TYPE` | unset (standard), `azure` |
 | 6 | Target Override | `{PROVIDER}_API_TARGET` | Any hostname |
@@ -112,7 +113,7 @@ The API-proxy environment pipeline keeps the federation settings in the sidecar.
 
 ### Custom Auth Header
 
-`AWF_OPENAI_AUTH_HEADER` overrides the header name used for static keys and cloud OIDC tokens. OpenAI native WIF always uses `Authorization: Bearer`, as required by the OpenAI API.
+`AWF_OPENAI_AUTH_HEADER` overrides the header name used for static keys and Azure/GCP OIDC tokens. OpenAI native WIF and Databricks OIDC always use `Authorization: Bearer`. For static keys, `AWF_OPENAI_AUTH_SCHEME` adds a scheme prefix; without a custom header, it selects `Authorization`.
 
 ---
 
@@ -163,6 +164,8 @@ AWF follows Anthropic's SDK behavior: JWT-bearer `POST /v1/oauth/token` exchange
 ### Custom Auth Header
 
 `AWF_ANTHROPIC_AUTH_HEADER` overrides the header name (default: `x-api-key`). Useful for enterprise gateways that expect a different header.
+
+For static keys, `AWF_ANTHROPIC_AUTH_SCHEME=Bearer` selects `Authorization: ****** unless a custom auth header is set. The equivalent config fields are `apiProxy.targets.anthropic.authScheme` and `authHeader`. A key already prefixed with the selected scheme is not prefixed twice.
 
 ---
 
@@ -671,6 +674,30 @@ accounting](environment.md#azure-foundry-decision-and-openai-compatible-endpoint
 
 ---
 
+## Provider: Databricks
+
+Databricks model APIs, including Unity Gateway, use the OpenAI or Anthropic
+adapter with an explicit workspace target and API base path.
+
+| Auth mode | Configuration | Header sent upstream |
+|-----------|---------------|----------------------|
+| Static token | `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`, with the corresponding target's `authScheme: Bearer` | `Authorization: ****** (or the configured `authHeader`) |
+| GitHub OIDC | `AWF_AUTH_TYPE=github-oidc`, `AWF_AUTH_PROVIDER=databricks` | `Authorization: ****** |
+
+Unity Gateway's Anthropic endpoint requires bearer authorization, not
+`x-api-key`. Store the raw token as the static credential and set `authScheme`
+rather than putting `Bearer` in the secret. Already-prefixed secrets remain
+compatible. Databricks OIDC does not add Anthropic's `oauth-2025-04-20` beta.
+
+Keyless Databricks configuration enables the corresponding agent-side
+`OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` and non-secret placeholders only for
+explicitly configured, eligible upstreams. Runtime OIDC capabilities and
+exchanged tokens remain exclusively in the sidecar.
+
+**Official docs:** [Unity Gateway](https://docs.databricks.com/aws/en/unity-gateway/concepts) · [OAuth token federation](https://docs.databricks.com/aws/en/dev-tools/auth/oauth-federation-exchange)
+
+---
+
 ## OIDC Providers
 
 All OIDC flows require GitHub Actions runtime tokens:
@@ -755,6 +782,30 @@ When both project and location are set, native `v1`/`v1beta1` Vertex model paths
 **Implementation:** `containers/api-proxy/anthropic-oidc-token-provider.js`
 
 **Official references:** [Anthropic WIF documentation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation) · [Anthropic TypeScript SDK credential constants](https://raw.githubusercontent.com/anthropics/anthropic-sdk-typescript/3b45cd3b69c956ac63384fdb09ce1d8109f3fa80/src/lib/credentials/types.ts)
+
+### Databricks (OAuth token federation)
+
+| Config | Env Var | Required |
+|--------|---------|----------|
+| HTTPS workspace origin | `AWF_AUTH_DATABRICKS_HOST` | ✅ |
+| Service-principal application ID | `AWF_AUTH_DATABRICKS_CLIENT_ID` | ❌ (omit for account-wide federation policies) |
+| Federation-policy audience | `AWF_AUTH_OIDC_AUDIENCE` | ✅ (no default; typically the Databricks account ID) |
+
+**Token exchange:** `POST <workspace>/oidc/v1/token`, form-encoded RFC 8693
+token exchange with `scope=all-apis` and optional `client_id`.
+
+**Lifetime:** No refresh token is issued. AWF refreshes at 75% of the remaining
+cached lifetime, bounded by the GitHub JWT expiry and a conservative
+five-minute cap, including short-lived tokens.
+
+**Target binding:** Explicit upstreams only, with the same origin binding and
+first-party-host exclusions as Azure/AWS/GCP, additionally requiring the
+workspace origin to match. Databricks tokens always use
+`Authorization: Bearer`, even when `authHeader` is configured.
+
+**Implementation:** `containers/api-proxy/databricks-oidc-token-provider.js`
+
+**Official docs:** [OAuth token federation](https://docs.databricks.com/aws/en/dev-tools/auth/oauth-federation-exchange)
 
 ---
 
