@@ -89,7 +89,10 @@ of static header/scheme settings; no Anthropic OAuth beta is added for
 Databricks. Positive numeric/string `expires_in` is required. Cached lifetimes
 are bounded by the GitHub JWT `exp` when supplied and a conservative
 300-second cap, with refresh at 75% of the remaining lifetime, including
-short-lived tokens. Invalid/expired lifetimes fail closed, and exchange
+short-lived tokens. Failed refreshes retry within the remaining lifetime when
+possible; after expiry or an initialization failure, bounded background
+retries continue until recovery or shutdown. Expired tokens are never served.
+Invalid/expired lifetimes fail closed, and exchange
 response bodies, JWTs, and transport/JSON error details are never logged.
 
 Agent-side routing for Vertex mode:

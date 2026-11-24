@@ -92,10 +92,13 @@ function createOpenAIAdapter(env, deps = {}) {
         ),
       };
     },
-    createHeaderBuilders: ({ apiKey }) => ({
-      buildOidcHeaders: openAiWifRequested || databricksRequested ? bearerAuthHeaders : buildTokenAuthHeaders,
-      buildStaticHeaders: () => buildStaticAuthHeaders(apiKey),
-    }),
+    createHeaderBuilders: ({ apiKey }) => {
+      if (apiKey) buildStaticAuthHeaders(apiKey);
+      return {
+        buildOidcHeaders: openAiWifRequested || databricksRequested ? bearerAuthHeaders : buildTokenAuthHeaders,
+        buildStaticHeaders: () => buildStaticAuthHeaders(apiKey),
+      };
+    },
     createOidcAuthOptions: () => ({
       allowOpenAiWif: openAiWifRequested,
       // Cloud OIDC tokens are only bound to an explicitly configured upstream

@@ -1,0 +1,130 @@
+d2f1b51f5127a143aed2d8fed976b37c
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.DEFAULT_DNS_SERVERS = void 0;
+exports.filterForNetworkIsolation = filterForNetworkIsolation;
+exports.detectHostDnsServers = detectHostDnsServers;
+const fs = __importStar(require("fs"));
+const net_1 = require("net");
+const logger_1 = require("./logger");
+const network_policy_1 = require("./config/network-policy");
+Object.defineProperty(exports, "DEFAULT_DNS_SERVERS", { enumerable: true, get: function () { return network_policy_1.DEFAULT_DNS_SERVERS; } });
+/**
+ * Preserves DNS servers for use in network-isolation (topology) mode.
+ *
+ * The runner's resolver list is an operator-controlled network setting. In
+ * enterprise and cloud environments those resolvers may be private,
+ * virtual-network-specific, or otherwise intentionally not globally routable.
+ * A resolver not being publicly portable does not make it invalid for the
+ * runner's Docker topology.
+ *
+ * Do not silently replace detected resolvers with public defaults here. Fallback
+ * to DEFAULT_DNS_SERVERS only belongs in host DNS detection when no resolver can
+ * be detected at all.
+ *
+ * @param servers - The resolved DNS server list (from --dns-servers or auto-detection).
+ * @param logger  - Optional logger for diagnostic output.
+ * @returns The DNS servers AWF should pass through to Squid and containers.
+ */
+async function filterForNetworkIsolation(servers, logger) {
+    const log = logger ?? logger_1.logger;
+    log.debug(`Network-isolation: preserving DNS server(s): ${servers.join(', ')}`);
+    return [...servers];
+}
+/**
+ * Paths to try for resolv.conf, in priority order.
+ * systemd-resolved's upstream config first (has real upstream servers),
+ * then the standard resolv.conf (may contain 127.0.0.53 stub).
+ */
+const RESOLV_CONF_PATHS = ['/run/systemd/resolve/resolv.conf', '/etc/resolv.conf'];
+function isValidIp(ip) {
+    return (0, net_1.isIP)(ip) !== 0;
+}
+function isLoopback(ip) {
+    // 127.0.0.0/8 for IPv4
+    if (ip.startsWith('127.'))
+        return true;
+    // ::1 for IPv6
+    if (ip === '::1')
+        return true;
+    return false;
+}
+/**
+ * Parse nameserver entries from resolv.conf content.
+ * Pure function — no I/O.
+ */
+function parseResolvConf(content) {
+    const servers = [];
+    for (const line of content.split('\n')) {
+        const match = line.match(/^\s*nameserver\s+(\S+)/);
+        if (match) {
+            const ip = match[1];
+            if (isValidIp(ip)) {
+                servers.push(ip);
+            }
+        }
+    }
+    return servers;
+}
+/**
+ * Detect usable DNS servers from the host's resolv.conf files.
+ * Filters out loopback addresses (127.0.0.0/8, ::1) since those point to
+ * local stub resolvers that won't be reachable from inside a container.
+ * Falls back to DEFAULT_DNS_SERVERS if no usable servers are found.
+ */
+function detectHostDnsServers(logger) {
+    const log = logger ?? logger_1.logger;
+    for (const filePath of RESOLV_CONF_PATHS) {
+        let content;
+        try {
+            content = fs.readFileSync(filePath, 'utf-8');
+        }
+        catch {
+            log.debug(`DNS auto-detect: could not read ${filePath}, trying next`);
+            continue;
+        }
+        const allServers = parseResolvConf(content);
+        const usable = allServers.filter(ip => !isLoopback(ip));
+        if (usable.length > 0) {
+            log.info(`Auto-detected DNS servers from ${filePath}: ${usable.join(', ')}`);
+            return usable;
+        }
+        log.debug(`DNS auto-detect: ${filePath} had no usable servers after filtering loopback addresses`);
+    }
+    log.warn(`Could not detect host DNS servers; falling back to ${network_policy_1.DEFAULT_DNS_SERVERS.join(', ')}`);
+    return network_policy_1.DEFAULT_DNS_SERVERS;
+}
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJmaWxlIjoiL2hvbWUvcnVubmVyL3dvcmsvZ2gtYXctZmlyZXdhbGwvZ2gtYXctZmlyZXdhbGwvc3JjL2Rucy1yZXNvbHZlci50cyIsIm1hcHBpbmdzIjoiOzs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7QUErQkEsOERBT0M7QUE2Q0Qsb0RBeUJDO0FBNUdELHVDQUF5QjtBQUN6Qiw2QkFBMkI7QUFDM0IscUNBQW1EO0FBQ25ELDREQUE4RDtBQVNyRCxvR0FUQSxvQ0FBbUIsT0FTQTtBQUU1Qjs7Ozs7Ozs7Ozs7Ozs7OztHQWdCRztBQUNJLEtBQUssVUFBVSx5QkFBeUIsQ0FDN0MsT0FBaUIsRUFDakIsTUFBZTtJQUVmLE1BQU0sR0FBRyxHQUFHLE1BQU0sSUFBSSxlQUFhLENBQUM7SUFDcEMsR0FBRyxDQUFDLEtBQUssQ0FBQyxnREFBZ0QsT0FBTyxDQUFDLElBQUksQ0FBQyxJQUFJLENBQUMsRUFBRSxDQUFDLENBQUM7SUFDaEYsT0FBTyxDQUFDLEdBQUcsT0FBTyxDQUFDLENBQUM7QUFDdEIsQ0FBQztBQUVEOzs7O0dBSUc7QUFDSCxNQUFNLGlCQUFpQixHQUFHLENBQUMsa0NBQWtDLEVBQUUsa0JBQWtCLENBQUMsQ0FBQztBQUVuRixTQUFTLFNBQVMsQ0FBQyxFQUFVO0lBQzNCLE9BQU8sSUFBQSxVQUFJLEVBQUMsRUFBRSxDQUFDLEtBQUssQ0FBQyxDQUFDO0FBQ3hCLENBQUM7QUFFRCxTQUFTLFVBQVUsQ0FBQyxFQUFVO0lBQzVCLHVCQUF1QjtJQUN2QixJQUFJLEVBQUUsQ0FBQyxVQUFVLENBQUMsTUFBTSxDQUFDO1FBQUUsT0FBTyxJQUFJLENBQUM7SUFDdkMsZUFBZTtJQUNmLElBQUksRUFBRSxLQUFLLEtBQUs7UUFBRSxPQUFPLElBQUksQ0FBQztJQUM5QixPQUFPLEtBQUssQ0FBQztBQUNmLENBQUM7QUFFRDs7O0dBR0c7QUFDSCxTQUFTLGVBQWUsQ0FBQyxPQUFlO0lBQ3RDLE1BQU0sT0FBTyxHQUFhLEVBQUUsQ0FBQztJQUM3QixLQUFLLE1BQU0sSUFBSSxJQUFJLE9BQU8sQ0FBQyxLQUFLLENBQUMsSUFBSSxDQUFDLEVBQUUsQ0FBQztRQUN2QyxNQUFNLEtBQUssR0FBRyxJQUFJLENBQUMsS0FBSyxDQUFDLHdCQUF3QixDQUFDLENBQUM7UUFDbkQsSUFBSSxLQUFLLEVBQUUsQ0FBQztZQUNWLE1BQU0sRUFBRSxHQUFHLEtBQUssQ0FBQyxDQUFDLENBQUMsQ0FBQztZQUNwQixJQUFJLFNBQVMsQ0FBQyxFQUFFLENBQUMsRUFBRSxDQUFDO2dCQUNsQixPQUFPLENBQUMsSUFBSSxDQUFDLEVBQUUsQ0FBQyxDQUFDO1lBQ25CLENBQUM7UUFDSCxDQUFDO0lBQ0gsQ0FBQztJQUNELE9BQU8sT0FBTyxDQUFDO0FBQ2pCLENBQUM7QUFFRDs7Ozs7R0FLRztBQUNILFNBQWdCLG9CQUFvQixDQUFDLE1BQWU7SUFDbEQsTUFBTSxHQUFHLEdBQUcsTUFBTSxJQUFJLGVBQWEsQ0FBQztJQUVwQyxLQUFLLE1BQU0sUUFBUSxJQUFJLGlCQUFpQixFQUFFLENBQUM7UUFDekMsSUFBSSxPQUFlLENBQUM7UUFDcEIsSUFBSSxDQUFDO1lBQ0gsT0FBTyxHQUFHLEVBQUUsQ0FBQyxZQUFZLENBQUMsUUFBUSxFQUFFLE9BQU8sQ0FBQyxDQUFDO1FBQy9DLENBQUM7UUFBQyxNQUFNLENBQUM7WUFDUCxHQUFHLENBQUMsS0FBSyxDQUFDLG1DQUFtQyxRQUFRLGVBQWUsQ0FBQyxDQUFDO1lBQ3RFLFNBQVM7UUFDWCxDQUFDO1FBRUQsTUFBTSxVQUFVLEdBQUcsZUFBZSxDQUFDLE9BQU8sQ0FBQyxDQUFDO1FBQzVDLE1BQU0sTUFBTSxHQUFHLFVBQVUsQ0FBQyxNQUFNLENBQUMsRUFBRSxDQUFDLEVBQUUsQ0FBQyxDQUFDLFVBQVUsQ0FBQyxFQUFFLENBQUMsQ0FBQyxDQUFDO1FBRXhELElBQUksTUFBTSxDQUFDLE1BQU0sR0FBRyxDQUFDLEVBQUUsQ0FBQztZQUN0QixHQUFHLENBQUMsSUFBSSxDQUFDLGtDQUFrQyxRQUFRLEtBQUssTUFBTSxDQUFDLElBQUksQ0FBQyxJQUFJLENBQUMsRUFBRSxDQUFDLENBQUM7WUFDN0UsT0FBTyxNQUFNLENBQUM7UUFDaEIsQ0FBQztRQUVELEdBQUcsQ0FBQyxLQUFLLENBQUMsb0JBQW9CLFFBQVEsMkRBQTJELENBQUMsQ0FBQztJQUNyRyxDQUFDO0lBRUQsR0FBRyxDQUFDLElBQUksQ0FBQyxzREFBc0Qsb0NBQW1CLENBQUMsSUFBSSxDQUFDLElBQUksQ0FBQyxFQUFFLENBQUMsQ0FBQztJQUNqRyxPQUFPLG9DQUFtQixDQUFDO0FBQzdCLENBQUMiLCJuYW1lcyI6W10sInNvdXJjZXMiOlsiL2hvbWUvcnVubmVyL3dvcmsvZ2gtYXctZmlyZXdhbGwvZ2gtYXctZmlyZXdhbGwvc3JjL2Rucy1yZXNvbHZlci50cyJdLCJzb3VyY2VzQ29udGVudCI6WyJpbXBvcnQgKiBhcyBmcyBmcm9tICdmcyc7XG5pbXBvcnQgeyBpc0lQIH0gZnJvbSAnbmV0JztcbmltcG9ydCB7IGxvZ2dlciBhcyBkZWZhdWx0TG9nZ2VyIH0gZnJvbSAnLi9sb2dnZXInO1xuaW1wb3J0IHsgREVGQVVMVF9ETlNfU0VSVkVSUyB9IGZyb20gJy4vY29uZmlnL25ldHdvcmstcG9saWN5JztcblxudHlwZSBMb2dnZXIgPSB0eXBlb2YgZGVmYXVsdExvZ2dlcjtcblxuLyoqXG4gKiBGYWxsYmFjayB3aGVuIG5vIHVzYWJsZSByZXNvbHZlcnMgYXJlIGRldGVjdGVkIG9uIHRoZSBob3N0LlxuICogQ2VudHJhbGl6ZWQgaW4gc3JjL2NvbmZpZy9zYW5kYm94LW5ldHdvcmstcG9saWN5Lmpzb24gYW5kIHJlLWV4cG9ydGVkIGhlcmUgc29cbiAqIGV4aXN0aW5nIGltcG9ydCBzaXRlcyBrZWVwIHdvcmtpbmcgdW5jaGFuZ2VkLlxuICovXG5leHBvcnQgeyBERUZBVUxUX0ROU19TRVJWRVJTIH07XG5cbi8qKlxuICogUHJlc2VydmVzIEROUyBzZXJ2ZXJzIGZvciB1c2UgaW4gbmV0d29yay1pc29sYXRpb24gKHRvcG9sb2d5KSBtb2RlLlxuICpcbiAqIFRoZSBydW5uZXIncyByZXNvbHZlciBsaXN0IGlzIGFuIG9wZXJhdG9yLWNvbnRyb2xsZWQgbmV0d29yayBzZXR0aW5nLiBJblxuICogZW50ZXJwcmlzZSBhbmQgY2xvdWQgZW52aXJvbm1lbnRzIHRob3NlIHJlc29sdmVycyBtYXkgYmUgcHJpdmF0ZSxcbiAqIHZpcnR1YWwtbmV0d29yay1zcGVjaWZpYywgb3Igb3RoZXJ3aXNlIGludGVudGlvbmFsbHkgbm90IGdsb2JhbGx5IHJvdXRhYmxlLlxuICogQSByZXNvbHZlciBub3QgYmVpbmcgcHVibGljbHkgcG9ydGFibGUgZG9lcyBub3QgbWFrZSBpdCBpbnZhbGlkIGZvciB0aGVcbiAqIHJ1bm5lcidzIERvY2tlciB0b3BvbG9neS5cbiAqXG4gKiBEbyBub3Qgc2lsZW50bHkgcmVwbGFjZSBkZXRlY3RlZCByZXNvbHZlcnMgd2l0aCBwdWJsaWMgZGVmYXVsdHMgaGVyZS4gRmFsbGJhY2tcbiAqIHRvIERFRkFVTFRfRE5TX1NFUlZFUlMgb25seSBiZWxvbmdzIGluIGhvc3QgRE5TIGRldGVjdGlvbiB3aGVuIG5vIHJlc29sdmVyIGNhblxuICogYmUgZGV0ZWN0ZWQgYXQgYWxsLlxuICpcbiAqIEBwYXJhbSBzZXJ2ZXJzIC0gVGhlIHJlc29sdmVkIEROUyBzZXJ2ZXIgbGlzdCAoZnJvbSAtLWRucy1zZXJ2ZXJzIG9yIGF1dG8tZGV0ZWN0aW9uKS5cbiAqIEBwYXJhbSBsb2dnZXIgIC0gT3B0aW9uYWwgbG9nZ2VyIGZvciBkaWFnbm9zdGljIG91dHB1dC5cbiAqIEByZXR1cm5zIFRoZSBETlMgc2VydmVycyBBV0Ygc2hvdWxkIHBhc3MgdGhyb3VnaCB0byBTcXVpZCBhbmQgY29udGFpbmVycy5cbiAqL1xuZXhwb3J0IGFzeW5jIGZ1bmN0aW9uIGZpbHRlckZvck5ldHdvcmtJc29sYXRpb24oXG4gIHNlcnZlcnM6IHN0cmluZ1tdLFxuICBsb2dnZXI/OiBMb2dnZXJcbik6IFByb21pc2U8c3RyaW5nW10+IHtcbiAgY29uc3QgbG9nID0gbG9nZ2VyID8/IGRlZmF1bHRMb2dnZXI7XG4gIGxvZy5kZWJ1ZyhgTmV0d29yay1pc29sYXRpb246IHByZXNlcnZpbmcgRE5TIHNlcnZlcihzKTogJHtzZXJ2ZXJzLmpvaW4oJywgJyl9YCk7XG4gIHJldHVybiBbLi4uc2VydmVyc107XG59XG5cbi8qKlxuICogUGF0aHMgdG8gdHJ5IGZvciByZXNvbHYuY29uZiwgaW4gcHJpb3JpdHkgb3JkZXIuXG4gKiBzeXN0ZW1kLXJlc29sdmVkJ3MgdXBzdHJlYW0gY29uZmlnIGZpcnN0IChoYXMgcmVhbCB1cHN0cmVhbSBzZXJ2ZXJzKSxcbiAqIHRoZW4gdGhlIHN0YW5kYXJkIHJlc29sdi5jb25mIChtYXkgY29udGFpbiAxMjcuMC4wLjUzIHN0dWIpLlxuICovXG5jb25zdCBSRVNPTFZfQ09ORl9QQVRIUyA9IFsnL3J1bi9zeXN0ZW1kL3Jlc29sdmUvcmVzb2x2LmNvbmYnLCAnL2V0Yy9yZXNvbHYuY29uZiddO1xuXG5mdW5jdGlvbiBpc1ZhbGlkSXAoaXA6IHN0cmluZyk6IGJvb2xlYW4ge1xuICByZXR1cm4gaXNJUChpcCkgIT09IDA7XG59XG5cbmZ1bmN0aW9uIGlzTG9vcGJhY2soaXA6IHN0cmluZyk6IGJvb2xlYW4ge1xuICAvLyAxMjcuMC4wLjAvOCBmb3IgSVB2NFxuICBpZiAoaXAuc3RhcnRzV2l0aCgnMTI3LicpKSByZXR1cm4gdHJ1ZTtcbiAgLy8gOjoxIGZvciBJUHY2XG4gIGlmIChpcCA9PT0gJzo6MScpIHJldHVybiB0cnVlO1xuICByZXR1cm4gZmFsc2U7XG59XG5cbi8qKlxuICogUGFyc2UgbmFtZXNlcnZlciBlbnRyaWVzIGZyb20gcmVzb2x2LmNvbmYgY29udGVudC5cbiAqIFB1cmUgZnVuY3Rpb24g4oCUIG5vIEkvTy5cbiAqL1xuZnVuY3Rpb24gcGFyc2VSZXNvbHZDb25mKGNvbnRlbnQ6IHN0cmluZyk6IHN0cmluZ1tdIHtcbiAgY29uc3Qgc2VydmVyczogc3RyaW5nW10gPSBbXTtcbiAgZm9yIChjb25zdCBsaW5lIG9mIGNvbnRlbnQuc3BsaXQoJ1xcbicpKSB7XG4gICAgY29uc3QgbWF0Y2ggPSBsaW5lLm1hdGNoKC9eXFxzKm5hbWVzZXJ2ZXJcXHMrKFxcUyspLyk7XG4gICAgaWYgKG1hdGNoKSB7XG4gICAgICBjb25zdCBpcCA9IG1hdGNoWzFdO1xuICAgICAgaWYgKGlzVmFsaWRJcChpcCkpIHtcbiAgICAgICAgc2VydmVycy5wdXNoKGlwKTtcbiAgICAgIH1cbiAgICB9XG4gIH1cbiAgcmV0dXJuIHNlcnZlcnM7XG59XG5cbi8qKlxuICogRGV0ZWN0IHVzYWJsZSBETlMgc2VydmVycyBmcm9tIHRoZSBob3N0J3MgcmVzb2x2LmNvbmYgZmlsZXMuXG4gKiBGaWx0ZXJzIG91dCBsb29wYmFjayBhZGRyZXNzZXMgKDEyNy4wLjAuMC84LCA6OjEpIHNpbmNlIHRob3NlIHBvaW50IHRvXG4gKiBsb2NhbCBzdHViIHJlc29sdmVycyB0aGF0IHdvbid0IGJlIHJlYWNoYWJsZSBmcm9tIGluc2lkZSBhIGNvbnRhaW5lci5cbiAqIEZhbGxzIGJhY2sgdG8gREVGQVVMVF9ETlNfU0VSVkVSUyBpZiBubyB1c2FibGUgc2VydmVycyBhcmUgZm91bmQuXG4gKi9cbmV4cG9ydCBmdW5jdGlvbiBkZXRlY3RIb3N0RG5zU2VydmVycyhsb2dnZXI/OiBMb2dnZXIpOiBzdHJpbmdbXSB7XG4gIGNvbnN0IGxvZyA9IGxvZ2dlciA/PyBkZWZhdWx0TG9nZ2VyO1xuXG4gIGZvciAoY29uc3QgZmlsZVBhdGggb2YgUkVTT0xWX0NPTkZfUEFUSFMpIHtcbiAgICBsZXQgY29udGVudDogc3RyaW5nO1xuICAgIHRyeSB7XG4gICAgICBjb250ZW50ID0gZnMucmVhZEZpbGVTeW5jKGZpbGVQYXRoLCAndXRmLTgnKTtcbiAgICB9IGNhdGNoIHtcbiAgICAgIGxvZy5kZWJ1ZyhgRE5TIGF1dG8tZGV0ZWN0OiBjb3VsZCBub3QgcmVhZCAke2ZpbGVQYXRofSwgdHJ5aW5nIG5leHRgKTtcbiAgICAgIGNvbnRpbnVlO1xuICAgIH1cblxuICAgIGNvbnN0IGFsbFNlcnZlcnMgPSBwYXJzZVJlc29sdkNvbmYoY29udGVudCk7XG4gICAgY29uc3QgdXNhYmxlID0gYWxsU2VydmVycy5maWx0ZXIoaXAgPT4gIWlzTG9vcGJhY2soaXApKTtcblxuICAgIGlmICh1c2FibGUubGVuZ3RoID4gMCkge1xuICAgICAgbG9nLmluZm8oYEF1dG8tZGV0ZWN0ZWQgRE5TIHNlcnZlcnMgZnJvbSAke2ZpbGVQYXRofTogJHt1c2FibGUuam9pbignLCAnKX1gKTtcbiAgICAgIHJldHVybiB1c2FibGU7XG4gICAgfVxuXG4gICAgbG9nLmRlYnVnKGBETlMgYXV0by1kZXRlY3Q6ICR7ZmlsZVBhdGh9IGhhZCBubyB1c2FibGUgc2VydmVycyBhZnRlciBmaWx0ZXJpbmcgbG9vcGJhY2sgYWRkcmVzc2VzYCk7XG4gIH1cblxuICBsb2cud2FybihgQ291bGQgbm90IGRldGVjdCBob3N0IEROUyBzZXJ2ZXJzOyBmYWxsaW5nIGJhY2sgdG8gJHtERUZBVUxUX0ROU19TRVJWRVJTLmpvaW4oJywgJyl9YCk7XG4gIHJldHVybiBERUZBVUxUX0ROU19TRVJWRVJTO1xufVxuIl0sInZlcnNpb24iOjN9

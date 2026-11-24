@@ -2091,6 +2091,27 @@ requests do not receive Anthropic's `oauth-2025-04-20` beta header.
 Unselected adapters retain their independent static credentials. An explicitly
 selected Databricks adapter does not fall back to a static key when its OIDC
 binding is refused or its token is unavailable.
+Federated tokens are restricted to model inference and model discovery routes:
+OpenAI- and Anthropic-compatible routes at the root, `/serving-endpoints`, or
+`/ai-gateway/openai` and `/ai-gateway/anthropic`, plus
+`/serving-endpoints/<endpoint>/invocations`. Discovery is GET-only and inference
+is POST-only. Other workspace APIs and WebSocket upgrades are rejected.
+Static-key adapters are not subject to this restriction.
+
+For Codex, select an explicit Responses provider pointing at the sidecar;
+`OPENAI_BASE_URL` alone does not reliably route the built-in provider's
+WebSocket requests. For example, in Codex `config.toml`:
+
+```toml
+model_provider = "awf"
+
+[model_providers.awf]
+name = "AWF"
+base_url = "http://172.30.0.30:10000"
+wire_api = "responses"
+requires_openai_auth = false
+supports_websockets = false
+```
 
 For a static Databricks token instead, set the corresponding host-side API key
 and `apiProxy.targets.anthropic.authScheme: Bearer` (or

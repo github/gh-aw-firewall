@@ -1,0 +1,179 @@
+0887984ee0576f61f3de3ada1cb21d0c
+"use strict";
+/**
+ * Container runtime resolution and capability detection.
+ *
+ * Centralises three concerns:
+ *
+ * 1. **Name translation** – user-facing runtime names (e.g. `"gvisor"`) are
+ *    mapped to Docker OCI runtime identifiers (e.g. `"runsc"`).  Unknown names
+ *    are passed through unchanged so callers can also use raw Docker names.
+ *
+ * 2. **Capability flags** – each runtime can declare behavioural quirks that
+ *    AWF must compensate for.  Current flags:
+ *    - `needsStaticDns` – runtime cannot reach Docker's embedded DNS at
+ *      127.0.0.11, so AWF must inject `/etc/hosts` entries for every service.
+ *
+ * 3. **Execution model** – describes how the agent is launched:
+ *    - `compose` – agent is a Docker Compose service alongside Squid/api-proxy
+ *      (default; used by runc and gVisor).  The agent container may use a
+ *      non-default OCI runtime but is still orchestrated by `docker compose`.
+ *    - `microvm` – agent runs in a hypervisor-isolated microVM (e.g. Docker
+ *      sbx).  Infrastructure services (Squid, api-proxy) stay in Docker Compose
+ *      on the host; only the agent crosses the hypervisor boundary.  A selected
+ *      external runtime backend owns the agent lifecycle and connects it to
+ *      AWF's host-side infrastructure.
+ *
+ * ## Adding a new OCI runtime
+ *
+ * Add an entry to {@link RUNTIME_REGISTRY} with `executionModel: 'compose'`,
+ * the Docker runtime name, and capability flags.  All consumers (agent-service,
+ * cli-workflow, topology) pick up the new runtime automatically via the
+ * capability query functions.
+ *
+ * ## Adding a microVM backend (e.g. Docker sbx)
+ *
+ * Add an entry with `executionModel: 'microvm'` and register its backend in
+ * `external-runtime-backend-resolver.ts`. Callers use
+ * {@link runtimeUsesComposeAgent} to distinguish Compose-managed agents from
+ * external backends and to decide whether to include the agent service in
+ * docker-compose.yml. Infrastructure services are generated in either mode.
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.resolveDockerRuntime = resolveDockerRuntime;
+exports.runtimeNeedsStaticDns = runtimeNeedsStaticDns;
+exports.runtimeUsesIptables = runtimeUsesIptables;
+exports.runtimeUsesComposeAgent = runtimeUsesComposeAgent;
+exports.isGvisorRuntime = isGvisorRuntime;
+/**
+ * Registry of known runtimes.  Each key is the user-facing name accepted in
+ * `container.containerRuntime`.  Add new runtimes here — the rest of AWF
+ * picks up the capabilities automatically.
+ */
+const RUNTIME_REGISTRY = {
+    gvisor: {
+        executionModel: 'compose',
+        dockerRuntime: 'runsc',
+        needsStaticDns: true,
+        // gVisor's isolated netstack can't be governed by host-netns iptables rules,
+        // so skip the iptables-init container and route egress via proxy env vars.
+        usesIptables: false,
+    },
+    sbx: {
+        executionModel: 'microvm',
+        dockerRuntime: undefined,
+        needsStaticDns: false, // sbx manages its own DNS
+        usesIptables: false, // microVM manages its own network egress
+    },
+    'cloud-hypervisor': {
+        executionModel: 'microvm',
+        dockerRuntime: undefined,
+        needsStaticDns: false,
+        usesIptables: false,
+    },
+    nvx: {
+        executionModel: 'microvm',
+        dockerRuntime: undefined,
+        needsStaticDns: false, // NVX manages its own guest DNS resolver
+        usesIptables: false, // NVX manages its own network namespace/egress
+    },
+};
+/**
+ * Aliases for runtime names that should resolve to the same capabilities as a
+ * canonical registry entry.  This lets users pass either the friendly name
+ * (`gvisor`) or the raw Docker OCI runtime name (`runsc`) and get identical
+ * behavior — without an alias, `runsc` would fall through to the unknown-runtime
+ * defaults (iptables-capable), reintroducing the gVisor egress bug.
+ */
+const RUNTIME_ALIASES = {
+    runsc: 'gvisor',
+};
+/**
+ * Canonicalizes a user-facing runtime name to its registry key, following the
+ * alias table.  Unknown names are returned unchanged.
+ */
+function canonicalRuntime(runtime) {
+    return RUNTIME_ALIASES[runtime] ?? runtime;
+}
+/**
+ * Looks up the capabilities for a runtime name, following aliases.  Returns
+ * `undefined` for unknown names (raw Docker runtime identifiers / default runc).
+ */
+function lookupCapabilities(runtime) {
+    return RUNTIME_REGISTRY[canonicalRuntime(runtime)];
+}
+// ─── Public API ──────────────────────────────────────────────────────────────
+/**
+ * Translates a user-facing container runtime name (e.g. `"gvisor"`) into the
+ * Docker OCI runtime identifier (e.g. `"runsc"`).  Values that don't appear in
+ * the registry are passed through unchanged (assumed to be raw Docker runtime
+ * names).  Returns `undefined` for microVM backends that don't use Docker's
+ * runtime field.
+ */
+function resolveDockerRuntime(runtime) {
+    const entry = lookupCapabilities(runtime);
+    if (entry)
+        return entry.dockerRuntime;
+    // Unknown name — pass through as a raw Docker runtime identifier
+    return runtime;
+}
+/**
+ * Returns `true` when the configured runtime requires static DNS entries
+ * (extra_hosts + chroot hosts patching) because Docker's embedded DNS is
+ * unreachable from inside the agent environment.
+ *
+ * Returns `false` for unknown runtimes (passthrough names) — they are assumed
+ * to work with Docker's standard DNS.
+ */
+function runtimeNeedsStaticDns(runtime) {
+    if (!runtime)
+        return false;
+    return lookupCapabilities(runtime)?.needsStaticDns ?? false;
+}
+/**
+ * Returns `true` when AWF should set up egress control for the runtime via the
+ * `awf-iptables-init` container (host-netns iptables DNAT/RETURN rules).
+ *
+ * Returns `false` for runtimes whose network stack cannot be governed by those
+ * rules (e.g. gVisor's isolated netstack, or microVM backends that manage their
+ * own egress).  For these, AWF skips the iptables-init container and relies on
+ * proxy env vars + `NO_PROXY`.
+ *
+ * Defaults to `true` for unknown/undefined runtimes (raw Docker runtime names
+ * and the default runc), which share the host network namespace.
+ */
+function runtimeUsesIptables(runtime) {
+    if (!runtime)
+        return true;
+    return lookupCapabilities(runtime)?.usesIptables ?? true;
+}
+/**
+ * Returns `true` when the agent should be included as a Docker Compose service
+ * (the default for runc, gVisor, and other OCI runtimes).
+ *
+ * Returns `false` when the agent is managed by an external tool (e.g. Docker
+ * sbx microVM) and should NOT appear in docker-compose.yml.  Infrastructure
+ * services (Squid, api-proxy) are always generated regardless.
+ *
+ * When no runtime is configured (undefined), defaults to `true` (compose mode).
+ */
+function runtimeUsesComposeAgent(runtime) {
+    if (!runtime)
+        return true;
+    const entry = lookupCapabilities(runtime);
+    if (!entry)
+        return true; // unknown runtime → assume compose
+    return entry.executionModel === 'compose';
+}
+/**
+ * Returns `true` when the configured runtime is gVisor, accepting either the
+ * friendly name (`gvisor`) or the raw Docker OCI runtime name (`runsc`).  Use
+ * this instead of a direct `=== 'gvisor'` comparison so both spellings are
+ * handled consistently.
+ */
+function isGvisorRuntime(runtime) {
+    if (!runtime)
+        return false;
+    return canonicalRuntime(runtime) === 'gvisor';
+}
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJmaWxlIjoiL2hvbWUvcnVubmVyL3dvcmsvZ2gtYXctZmlyZXdhbGwvZ2gtYXctZmlyZXdhbGwvc3JjL2NvbnRhaW5lci1ydW50aW1lLnRzIiwibWFwcGluZ3MiOiI7QUFBQTs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7R0FzQ0c7O0FBNEhILG9EQUtDO0FBVUQsc0RBR0M7QUFjRCxrREFHQztBQVlELDBEQUtDO0FBUUQsMENBR0M7QUFySUQ7Ozs7R0FJRztBQUNILE1BQU0sZ0JBQWdCLEdBQWtEO0lBQ3RFLE1BQU0sRUFBRTtRQUNOLGNBQWMsRUFBRSxTQUFTO1FBQ3pCLGFBQWEsRUFBRSxPQUFPO1FBQ3RCLGNBQWMsRUFBRSxJQUFJO1FBQ3BCLDZFQUE2RTtRQUM3RSwyRUFBMkU7UUFDM0UsWUFBWSxFQUFFLEtBQUs7S0FDcEI7SUFDRCxHQUFHLEVBQUU7UUFDSCxjQUFjLEVBQUUsU0FBUztRQUN6QixhQUFhLEVBQUUsU0FBUztRQUN4QixjQUFjLEVBQUUsS0FBSyxFQUFJLDBCQUEwQjtRQUNuRCxZQUFZLEVBQUUsS0FBSyxFQUFNLHlDQUF5QztLQUNuRTtJQUNELGtCQUFrQixFQUFFO1FBQ2xCLGNBQWMsRUFBRSxTQUFTO1FBQ3pCLGFBQWEsRUFBRSxTQUFTO1FBQ3hCLGNBQWMsRUFBRSxLQUFLO1FBQ3JCLFlBQVksRUFBRSxLQUFLO0tBQ3BCO0lBQ0QsR0FBRyxFQUFFO1FBQ0gsY0FBYyxFQUFFLFNBQVM7UUFDekIsYUFBYSxFQUFFLFNBQVM7UUFDeEIsY0FBYyxFQUFFLEtBQUssRUFBRyx5Q0FBeUM7UUFDakUsWUFBWSxFQUFFLEtBQUssRUFBSywrQ0FBK0M7S0FDeEU7Q0FDRixDQUFDO0FBRUY7Ozs7OztHQU1HO0FBQ0gsTUFBTSxlQUFlLEdBQXFDO0lBQ3hELEtBQUssRUFBRSxRQUFRO0NBQ2hCLENBQUM7QUFFRjs7O0dBR0c7QUFDSCxTQUFTLGdCQUFnQixDQUFDLE9BQWU7SUFDdkMsT0FBTyxlQUFlLENBQUMsT0FBTyxDQUFDLElBQUksT0FBTyxDQUFDO0FBQzdDLENBQUM7QUFFRDs7O0dBR0c7QUFDSCxTQUFTLGtCQUFrQixDQUFDLE9BQWU7SUFDekMsT0FBTyxnQkFBZ0IsQ0FBQyxnQkFBZ0IsQ0FBQyxPQUFPLENBQUMsQ0FBQyxDQUFDO0FBQ3JELENBQUM7QUFFRCxnRkFBZ0Y7QUFFaEY7Ozs7OztHQU1HO0FBQ0gsU0FBZ0Isb0JBQW9CLENBQUMsT0FBZTtJQUNsRCxNQUFNLEtBQUssR0FBRyxrQkFBa0IsQ0FBQyxPQUFPLENBQUMsQ0FBQztJQUMxQyxJQUFJLEtBQUs7UUFBRSxPQUFPLEtBQUssQ0FBQyxhQUFhLENBQUM7SUFDdEMsaUVBQWlFO0lBQ2pFLE9BQU8sT0FBTyxDQUFDO0FBQ2pCLENBQUM7QUFFRDs7Ozs7OztHQU9HO0FBQ0gsU0FBZ0IscUJBQXFCLENBQUMsT0FBMkI7SUFDL0QsSUFBSSxDQUFDLE9BQU87UUFBRSxPQUFPLEtBQUssQ0FBQztJQUMzQixPQUFPLGtCQUFrQixDQUFDLE9BQU8sQ0FBQyxFQUFFLGNBQWMsSUFBSSxLQUFLLENBQUM7QUFDOUQsQ0FBQztBQUVEOzs7Ozs7Ozs7OztHQVdHO0FBQ0gsU0FBZ0IsbUJBQW1CLENBQUMsT0FBMkI7SUFDN0QsSUFBSSxDQUFDLE9BQU87UUFBRSxPQUFPLElBQUksQ0FBQztJQUMxQixPQUFPLGtCQUFrQixDQUFDLE9BQU8sQ0FBQyxFQUFFLFlBQVksSUFBSSxJQUFJLENBQUM7QUFDM0QsQ0FBQztBQUVEOzs7Ozs7Ozs7R0FTRztBQUNILFNBQWdCLHVCQUF1QixDQUFDLE9BQTJCO0lBQ2pFLElBQUksQ0FBQyxPQUFPO1FBQUUsT0FBTyxJQUFJLENBQUM7SUFDMUIsTUFBTSxLQUFLLEdBQUcsa0JBQWtCLENBQUMsT0FBTyxDQUFDLENBQUM7SUFDMUMsSUFBSSxDQUFDLEtBQUs7UUFBRSxPQUFPLElBQUksQ0FBQyxDQUFDLG1DQUFtQztJQUM1RCxPQUFPLEtBQUssQ0FBQyxjQUFjLEtBQUssU0FBUyxDQUFDO0FBQzVDLENBQUM7QUFFRDs7Ozs7R0FLRztBQUNILFNBQWdCLGVBQWUsQ0FBQyxPQUEyQjtJQUN6RCxJQUFJLENBQUMsT0FBTztRQUFFLE9BQU8sS0FBSyxDQUFDO0lBQzNCLE9BQU8sZ0JBQWdCLENBQUMsT0FBTyxDQUFDLEtBQUssUUFBUSxDQUFDO0FBQ2hELENBQUMiLCJuYW1lcyI6W10sInNvdXJjZXMiOlsiL2hvbWUvcnVubmVyL3dvcmsvZ2gtYXctZmlyZXdhbGwvZ2gtYXctZmlyZXdhbGwvc3JjL2NvbnRhaW5lci1ydW50aW1lLnRzIl0sInNvdXJjZXNDb250ZW50IjpbIi8qKlxuICogQ29udGFpbmVyIHJ1bnRpbWUgcmVzb2x1dGlvbiBhbmQgY2FwYWJpbGl0eSBkZXRlY3Rpb24uXG4gKlxuICogQ2VudHJhbGlzZXMgdGhyZWUgY29uY2VybnM6XG4gKlxuICogMS4gKipOYW1lIHRyYW5zbGF0aW9uKiog4oCTIHVzZXItZmFjaW5nIHJ1bnRpbWUgbmFtZXMgKGUuZy4gYFwiZ3Zpc29yXCJgKSBhcmVcbiAqICAgIG1hcHBlZCB0byBEb2NrZXIgT0NJIHJ1bnRpbWUgaWRlbnRpZmllcnMgKGUuZy4gYFwicnVuc2NcImApLiAgVW5rbm93biBuYW1lc1xuICogICAgYXJlIHBhc3NlZCB0aHJvdWdoIHVuY2hhbmdlZCBzbyBjYWxsZXJzIGNhbiBhbHNvIHVzZSByYXcgRG9ja2VyIG5hbWVzLlxuICpcbiAqIDIuICoqQ2FwYWJpbGl0eSBmbGFncyoqIOKAkyBlYWNoIHJ1bnRpbWUgY2FuIGRlY2xhcmUgYmVoYXZpb3VyYWwgcXVpcmtzIHRoYXRcbiAqICAgIEFXRiBtdXN0IGNvbXBlbnNhdGUgZm9yLiAgQ3VycmVudCBmbGFnczpcbiAqICAgIC0gYG5lZWRzU3RhdGljRG5zYCDigJMgcnVudGltZSBjYW5ub3QgcmVhY2ggRG9ja2VyJ3MgZW1iZWRkZWQgRE5TIGF0XG4gKiAgICAgIDEyNy4wLjAuMTEsIHNvIEFXRiBtdXN0IGluamVjdCBgL2V0Yy9ob3N0c2AgZW50cmllcyBmb3IgZXZlcnkgc2VydmljZS5cbiAqXG4gKiAzLiAqKkV4ZWN1dGlvbiBtb2RlbCoqIOKAkyBkZXNjcmliZXMgaG93IHRoZSBhZ2VudCBpcyBsYXVuY2hlZDpcbiAqICAgIC0gYGNvbXBvc2VgIOKAkyBhZ2VudCBpcyBhIERvY2tlciBDb21wb3NlIHNlcnZpY2UgYWxvbmdzaWRlIFNxdWlkL2FwaS1wcm94eVxuICogICAgICAoZGVmYXVsdDsgdXNlZCBieSBydW5jIGFuZCBnVmlzb3IpLiAgVGhlIGFnZW50IGNvbnRhaW5lciBtYXkgdXNlIGFcbiAqICAgICAgbm9uLWRlZmF1bHQgT0NJIHJ1bnRpbWUgYnV0IGlzIHN0aWxsIG9yY2hlc3RyYXRlZCBieSBgZG9ja2VyIGNvbXBvc2VgLlxuICogICAgLSBgbWljcm92bWAg4oCTIGFnZW50IHJ1bnMgaW4gYSBoeXBlcnZpc29yLWlzb2xhdGVkIG1pY3JvVk0gKGUuZy4gRG9ja2VyXG4gKiAgICAgIHNieCkuICBJbmZyYXN0cnVjdHVyZSBzZXJ2aWNlcyAoU3F1aWQsIGFwaS1wcm94eSkgc3RheSBpbiBEb2NrZXIgQ29tcG9zZVxuICogICAgICBvbiB0aGUgaG9zdDsgb25seSB0aGUgYWdlbnQgY3Jvc3NlcyB0aGUgaHlwZXJ2aXNvciBib3VuZGFyeS4gIEEgc2VsZWN0ZWRcbiAqICAgICAgZXh0ZXJuYWwgcnVudGltZSBiYWNrZW5kIG93bnMgdGhlIGFnZW50IGxpZmVjeWNsZSBhbmQgY29ubmVjdHMgaXQgdG9cbiAqICAgICAgQVdGJ3MgaG9zdC1zaWRlIGluZnJhc3RydWN0dXJlLlxuICpcbiAqICMjIEFkZGluZyBhIG5ldyBPQ0kgcnVudGltZVxuICpcbiAqIEFkZCBhbiBlbnRyeSB0byB7QGxpbmsgUlVOVElNRV9SRUdJU1RSWX0gd2l0aCBgZXhlY3V0aW9uTW9kZWw6ICdjb21wb3NlJ2AsXG4gKiB0aGUgRG9ja2VyIHJ1bnRpbWUgbmFtZSwgYW5kIGNhcGFiaWxpdHkgZmxhZ3MuICBBbGwgY29uc3VtZXJzIChhZ2VudC1zZXJ2aWNlLFxuICogY2xpLXdvcmtmbG93LCB0b3BvbG9neSkgcGljayB1cCB0aGUgbmV3IHJ1bnRpbWUgYXV0b21hdGljYWxseSB2aWEgdGhlXG4gKiBjYXBhYmlsaXR5IHF1ZXJ5IGZ1bmN0aW9ucy5cbiAqXG4gKiAjIyBBZGRpbmcgYSBtaWNyb1ZNIGJhY2tlbmQgKGUuZy4gRG9ja2VyIHNieClcbiAqXG4gKiBBZGQgYW4gZW50cnkgd2l0aCBgZXhlY3V0aW9uTW9kZWw6ICdtaWNyb3ZtJ2AgYW5kIHJlZ2lzdGVyIGl0cyBiYWNrZW5kIGluXG4gKiBgZXh0ZXJuYWwtcnVudGltZS1iYWNrZW5kLXJlc29sdmVyLnRzYC4gQ2FsbGVycyB1c2VcbiAqIHtAbGluayBydW50aW1lVXNlc0NvbXBvc2VBZ2VudH0gdG8gZGlzdGluZ3Vpc2ggQ29tcG9zZS1tYW5hZ2VkIGFnZW50cyBmcm9tXG4gKiBleHRlcm5hbCBiYWNrZW5kcyBhbmQgdG8gZGVjaWRlIHdoZXRoZXIgdG8gaW5jbHVkZSB0aGUgYWdlbnQgc2VydmljZSBpblxuICogZG9ja2VyLWNvbXBvc2UueW1sLiBJbmZyYXN0cnVjdHVyZSBzZXJ2aWNlcyBhcmUgZ2VuZXJhdGVkIGluIGVpdGhlciBtb2RlLlxuICovXG5cbi8vIOKUgOKUgOKUgCBSZWdpc3RyeSDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIBcblxuLyoqXG4gKiBIb3cgdGhlIGFnZW50IHByb2Nlc3MgaXMgbGF1bmNoZWQgYW5kIG1hbmFnZWQuXG4gKlxuICogLSBgY29tcG9zZWAg4oCTIGFnZW50IGlzIGEgRG9ja2VyIENvbXBvc2Ugc2VydmljZSAoZGVmYXVsdCBydW5jLCBnVmlzb3IsIGthdGEsIGV0Yy4pXG4gKiAtIGBtaWNyb3ZtYCDigJMgYWdlbnQgcnVucyBpbiBhIGh5cGVydmlzb3ItaXNvbGF0ZWQgbWljcm9WTSAoRG9ja2VyIHNieCwgZXRjLilcbiAqL1xudHlwZSBFeGVjdXRpb25Nb2RlbCA9ICdjb21wb3NlJyB8ICdtaWNyb3ZtJztcblxuLyoqIEJlaGF2aW91cmFsIGNhcGFiaWxpdGllcyAvIHF1aXJrcyBmb3IgYSBjb250YWluZXIgcnVudGltZS4gKi9cbmludGVyZmFjZSBSdW50aW1lQ2FwYWJpbGl0aWVzIHtcbiAgLyoqIEhvdyB0aGUgYWdlbnQgaXMgbGF1bmNoZWQuICBEZXRlcm1pbmVzIHdoZXRoZXIgdGhlIGFnZW50IGFwcGVhcnMgYXMgYVxuICAgKiAgRG9ja2VyIENvbXBvc2Ugc2VydmljZSBvciBpcyBtYW5hZ2VkIGJ5IGFuIGV4dGVybmFsIHRvb2wuICovXG4gIHJlYWRvbmx5IGV4ZWN1dGlvbk1vZGVsOiBFeGVjdXRpb25Nb2RlbDtcblxuICAvKipcbiAgICogRG9ja2VyIE9DSSBydW50aW1lIGlkZW50aWZpZXIgKHNldCBvbiBkb2NrZXItY29tcG9zZSBgcnVudGltZTpgIGtleSkuXG4gICAqIE9ubHkgbWVhbmluZ2Z1bCB3aGVuIGBleGVjdXRpb25Nb2RlbGAgaXMgYCdjb21wb3NlJ2AuICBVbmRlZmluZWQgZm9yXG4gICAqIG1pY3JvVk0gYmFja2VuZHMgdGhhdCBkb24ndCB1c2UgRG9ja2VyJ3MgcnVudGltZSBmaWVsZC5cbiAgICovXG4gIHJlYWRvbmx5IGRvY2tlclJ1bnRpbWU/OiBzdHJpbmc7XG5cbiAgLyoqXG4gICAqIFdoZW4gYHRydWVgLCBEb2NrZXIncyBlbWJlZGRlZCBETlMgKDEyNy4wLjAuMTEpIGlzIHVucmVhY2hhYmxlIGZyb20gaW5zaWRlXG4gICAqIHRoZSBhZ2VudCBlbnZpcm9ubWVudC4gIEFXRiBjb21wZW5zYXRlcyBieSBpbmplY3Rpbmcgc3RhdGljIGAvZXRjL2hvc3RzYFxuICAgKiBlbnRyaWVzIGZvciBhbGwgY29tcG9zZS1pbnRlcm5hbCBzZXJ2aWNlcyBhbmQgdG9wb2xvZ3kgcGVlcnMuXG4gICAqXG4gICAqIGdWaXNvciByZXF1aXJlcyB0aGlzIGJlY2F1c2UgaXRzIHVzZXJzcGFjZSBuZXRzdGFjayBoYXMgYW4gaXNvbGF0ZWQgc2FuZGJveFxuICAgKiBsb29wYmFjayB0aGF0IGlzIGRpc2Nvbm5lY3RlZCBmcm9tIHRoZSBob3N0IG5ldG5zIGlwdGFibGVzIEROQVQgcnVsZXMgdGhhdFxuICAgKiBEb2NrZXIgdXNlcyB0byBpbnRlcmNlcHQgRE5TIHRyYWZmaWMuXG4gICAqXG4gICAqIEBzZWUgaHR0cHM6Ly9naXRodWIuY29tL2dvb2dsZS9ndmlzb3IvaXNzdWVzLzc0NjlcbiAgICovXG4gIHJlYWRvbmx5IG5lZWRzU3RhdGljRG5zOiBib29sZWFuO1xuXG4gIC8qKlxuICAgKiBXaGVuIGB0cnVlYCwgQVdGIHNldHMgdXAgZWdyZXNzIGNvbnRyb2wgdmlhIHRoZSBgYXdmLWlwdGFibGVzLWluaXRgIGNvbnRhaW5lcixcbiAgICogd2hpY2ggYXBwbGllcyBob3N0LW5ldG5zIGlwdGFibGVzIEROQVQvUkVUVVJOIHJ1bGVzIGluc2lkZSB0aGUgYWdlbnQncyBuZXR3b3JrXG4gICAqIG5hbWVzcGFjZSAocmVkaXJlY3QgcG9ydCA4MC80NDMg4oaSIFNxdWlkLCBhbmQgYnlwYXNzIFNxdWlkIGZvciB0aGUgTUNQIGdhdGV3YXkpLlxuICAgKlxuICAgKiBXaGVuIGBmYWxzZWAsIHRob3NlIHJ1bGVzIGNhbm5vdCBnb3Zlcm4gdGhlIGFnZW50J3MgdHJhZmZpYyDigJQgZS5nLiBnVmlzb3Inc1xuICAgKiB1c2Vyc3BhY2UgbmV0c3RhY2sgaXMgaXNvbGF0ZWQgZnJvbSB0aGUgaG9zdCBuZXR3b3JrIG5hbWVzcGFjZSwgc28gdGhlXG4gICAqIGlwdGFibGVzLWluaXQgY29udGFpbmVyIGlzIHNraXBwZWQgZW50aXJlbHkgYW5kIGVncmVzcyByZWxpZXMgc29sZWx5IG9uIHRoZVxuICAgKiBgSFRUUF9QUk9YWWAvYEhUVFBTX1BST1hZYCBlbnYgdmFycyBwbHVzIGBOT19QUk9YWWAgKHRoZSBNQ1AgZ2F0ZXdheSBpcyByZWFjaGVkXG4gICAqIGRpcmVjdGx5IGluc3RlYWQgb2YgdmlhIGFuIGlwdGFibGVzIGJ5cGFzcykuXG4gICAqXG4gICAqIEBzZWUgaHR0cHM6Ly9naXRodWIuY29tL2dvb2dsZS9ndmlzb3IvaXNzdWVzLzc0NjlcbiAgICovXG4gIHJlYWRvbmx5IHVzZXNJcHRhYmxlczogYm9vbGVhbjtcbn1cblxuLyoqXG4gKiBSZWdpc3RyeSBvZiBrbm93biBydW50aW1lcy4gIEVhY2gga2V5IGlzIHRoZSB1c2VyLWZhY2luZyBuYW1lIGFjY2VwdGVkIGluXG4gKiBgY29udGFpbmVyLmNvbnRhaW5lclJ1bnRpbWVgLiAgQWRkIG5ldyBydW50aW1lcyBoZXJlIOKAlCB0aGUgcmVzdCBvZiBBV0ZcbiAqIHBpY2tzIHVwIHRoZSBjYXBhYmlsaXRpZXMgYXV0b21hdGljYWxseS5cbiAqL1xuY29uc3QgUlVOVElNRV9SRUdJU1RSWTogUmVhZG9ubHk8UmVjb3JkPHN0cmluZywgUnVudGltZUNhcGFiaWxpdGllcz4+ID0ge1xuICBndmlzb3I6IHtcbiAgICBleGVjdXRpb25Nb2RlbDogJ2NvbXBvc2UnLFxuICAgIGRvY2tlclJ1bnRpbWU6ICdydW5zYycsXG4gICAgbmVlZHNTdGF0aWNEbnM6IHRydWUsXG4gICAgLy8gZ1Zpc29yJ3MgaXNvbGF0ZWQgbmV0c3RhY2sgY2FuJ3QgYmUgZ292ZXJuZWQgYnkgaG9zdC1uZXRucyBpcHRhYmxlcyBydWxlcyxcbiAgICAvLyBzbyBza2lwIHRoZSBpcHRhYmxlcy1pbml0IGNvbnRhaW5lciBhbmQgcm91dGUgZWdyZXNzIHZpYSBwcm94eSBlbnYgdmFycy5cbiAgICB1c2VzSXB0YWJsZXM6IGZhbHNlLFxuICB9LFxuICBzYng6IHtcbiAgICBleGVjdXRpb25Nb2RlbDogJ21pY3Jvdm0nLFxuICAgIGRvY2tlclJ1bnRpbWU6IHVuZGVmaW5lZCxcbiAgICBuZWVkc1N0YXRpY0RuczogZmFsc2UsICAgLy8gc2J4IG1hbmFnZXMgaXRzIG93biBETlNcbiAgICB1c2VzSXB0YWJsZXM6IGZhbHNlLCAgICAgLy8gbWljcm9WTSBtYW5hZ2VzIGl0cyBvd24gbmV0d29yayBlZ3Jlc3NcbiAgfSxcbiAgJ2Nsb3VkLWh5cGVydmlzb3InOiB7XG4gICAgZXhlY3V0aW9uTW9kZWw6ICdtaWNyb3ZtJyxcbiAgICBkb2NrZXJSdW50aW1lOiB1bmRlZmluZWQsXG4gICAgbmVlZHNTdGF0aWNEbnM6IGZhbHNlLFxuICAgIHVzZXNJcHRhYmxlczogZmFsc2UsXG4gIH0sXG4gIG52eDoge1xuICAgIGV4ZWN1dGlvbk1vZGVsOiAnbWljcm92bScsXG4gICAgZG9ja2VyUnVudGltZTogdW5kZWZpbmVkLFxuICAgIG5lZWRzU3RhdGljRG5zOiBmYWxzZSwgIC8vIE5WWCBtYW5hZ2VzIGl0cyBvd24gZ3Vlc3QgRE5TIHJlc29sdmVyXG4gICAgdXNlc0lwdGFibGVzOiBmYWxzZSwgICAgLy8gTlZYIG1hbmFnZXMgaXRzIG93biBuZXR3b3JrIG5hbWVzcGFjZS9lZ3Jlc3NcbiAgfSxcbn07XG5cbi8qKlxuICogQWxpYXNlcyBmb3IgcnVudGltZSBuYW1lcyB0aGF0IHNob3VsZCByZXNvbHZlIHRvIHRoZSBzYW1lIGNhcGFiaWxpdGllcyBhcyBhXG4gKiBjYW5vbmljYWwgcmVnaXN0cnkgZW50cnkuICBUaGlzIGxldHMgdXNlcnMgcGFzcyBlaXRoZXIgdGhlIGZyaWVuZGx5IG5hbWVcbiAqIChgZ3Zpc29yYCkgb3IgdGhlIHJhdyBEb2NrZXIgT0NJIHJ1bnRpbWUgbmFtZSAoYHJ1bnNjYCkgYW5kIGdldCBpZGVudGljYWxcbiAqIGJlaGF2aW9yIOKAlCB3aXRob3V0IGFuIGFsaWFzLCBgcnVuc2NgIHdvdWxkIGZhbGwgdGhyb3VnaCB0byB0aGUgdW5rbm93bi1ydW50aW1lXG4gKiBkZWZhdWx0cyAoaXB0YWJsZXMtY2FwYWJsZSksIHJlaW50cm9kdWNpbmcgdGhlIGdWaXNvciBlZ3Jlc3MgYnVnLlxuICovXG5jb25zdCBSVU5USU1FX0FMSUFTRVM6IFJlYWRvbmx5PFJlY29yZDxzdHJpbmcsIHN0cmluZz4+ID0ge1xuICBydW5zYzogJ2d2aXNvcicsXG59O1xuXG4vKipcbiAqIENhbm9uaWNhbGl6ZXMgYSB1c2VyLWZhY2luZyBydW50aW1lIG5hbWUgdG8gaXRzIHJlZ2lzdHJ5IGtleSwgZm9sbG93aW5nIHRoZVxuICogYWxpYXMgdGFibGUuICBVbmtub3duIG5hbWVzIGFyZSByZXR1cm5lZCB1bmNoYW5nZWQuXG4gKi9cbmZ1bmN0aW9uIGNhbm9uaWNhbFJ1bnRpbWUocnVudGltZTogc3RyaW5nKTogc3RyaW5nIHtcbiAgcmV0dXJuIFJVTlRJTUVfQUxJQVNFU1tydW50aW1lXSA/PyBydW50aW1lO1xufVxuXG4vKipcbiAqIExvb2tzIHVwIHRoZSBjYXBhYmlsaXRpZXMgZm9yIGEgcnVudGltZSBuYW1lLCBmb2xsb3dpbmcgYWxpYXNlcy4gIFJldHVybnNcbiAqIGB1bmRlZmluZWRgIGZvciB1bmtub3duIG5hbWVzIChyYXcgRG9ja2VyIHJ1bnRpbWUgaWRlbnRpZmllcnMgLyBkZWZhdWx0IHJ1bmMpLlxuICovXG5mdW5jdGlvbiBsb29rdXBDYXBhYmlsaXRpZXMocnVudGltZTogc3RyaW5nKTogUnVudGltZUNhcGFiaWxpdGllcyB8IHVuZGVmaW5lZCB7XG4gIHJldHVybiBSVU5USU1FX1JFR0lTVFJZW2Nhbm9uaWNhbFJ1bnRpbWUocnVudGltZSldO1xufVxuXG4vLyDilIDilIDilIAgUHVibGljIEFQSSDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIBcblxuLyoqXG4gKiBUcmFuc2xhdGVzIGEgdXNlci1mYWNpbmcgY29udGFpbmVyIHJ1bnRpbWUgbmFtZSAoZS5nLiBgXCJndmlzb3JcImApIGludG8gdGhlXG4gKiBEb2NrZXIgT0NJIHJ1bnRpbWUgaWRlbnRpZmllciAoZS5nLiBgXCJydW5zY1wiYCkuICBWYWx1ZXMgdGhhdCBkb24ndCBhcHBlYXIgaW5cbiAqIHRoZSByZWdpc3RyeSBhcmUgcGFzc2VkIHRocm91Z2ggdW5jaGFuZ2VkIChhc3N1bWVkIHRvIGJlIHJhdyBEb2NrZXIgcnVudGltZVxuICogbmFtZXMpLiAgUmV0dXJucyBgdW5kZWZpbmVkYCBmb3IgbWljcm9WTSBiYWNrZW5kcyB0aGF0IGRvbid0IHVzZSBEb2NrZXInc1xuICogcnVudGltZSBmaWVsZC5cbiAqL1xuZXhwb3J0IGZ1bmN0aW9uIHJlc29sdmVEb2NrZXJSdW50aW1lKHJ1bnRpbWU6IHN0cmluZyk6IHN0cmluZyB8IHVuZGVmaW5lZCB7XG4gIGNvbnN0IGVudHJ5ID0gbG9va3VwQ2FwYWJpbGl0aWVzKHJ1bnRpbWUpO1xuICBpZiAoZW50cnkpIHJldHVybiBlbnRyeS5kb2NrZXJSdW50aW1lO1xuICAvLyBVbmtub3duIG5hbWUg4oCUIHBhc3MgdGhyb3VnaCBhcyBhIHJhdyBEb2NrZXIgcnVudGltZSBpZGVudGlmaWVyXG4gIHJldHVybiBydW50aW1lO1xufVxuXG4vKipcbiAqIFJldHVybnMgYHRydWVgIHdoZW4gdGhlIGNvbmZpZ3VyZWQgcnVudGltZSByZXF1aXJlcyBzdGF0aWMgRE5TIGVudHJpZXNcbiAqIChleHRyYV9ob3N0cyArIGNocm9vdCBob3N0cyBwYXRjaGluZykgYmVjYXVzZSBEb2NrZXIncyBlbWJlZGRlZCBETlMgaXNcbiAqIHVucmVhY2hhYmxlIGZyb20gaW5zaWRlIHRoZSBhZ2VudCBlbnZpcm9ubWVudC5cbiAqXG4gKiBSZXR1cm5zIGBmYWxzZWAgZm9yIHVua25vd24gcnVudGltZXMgKHBhc3N0aHJvdWdoIG5hbWVzKSDigJQgdGhleSBhcmUgYXNzdW1lZFxuICogdG8gd29yayB3aXRoIERvY2tlcidzIHN0YW5kYXJkIEROUy5cbiAqL1xuZXhwb3J0IGZ1bmN0aW9uIHJ1bnRpbWVOZWVkc1N0YXRpY0RucyhydW50aW1lOiBzdHJpbmcgfCB1bmRlZmluZWQpOiBib29sZWFuIHtcbiAgaWYgKCFydW50aW1lKSByZXR1cm4gZmFsc2U7XG4gIHJldHVybiBsb29rdXBDYXBhYmlsaXRpZXMocnVudGltZSk/Lm5lZWRzU3RhdGljRG5zID8/IGZhbHNlO1xufVxuXG4vKipcbiAqIFJldHVybnMgYHRydWVgIHdoZW4gQVdGIHNob3VsZCBzZXQgdXAgZWdyZXNzIGNvbnRyb2wgZm9yIHRoZSBydW50aW1lIHZpYSB0aGVcbiAqIGBhd2YtaXB0YWJsZXMtaW5pdGAgY29udGFpbmVyIChob3N0LW5ldG5zIGlwdGFibGVzIEROQVQvUkVUVVJOIHJ1bGVzKS5cbiAqXG4gKiBSZXR1cm5zIGBmYWxzZWAgZm9yIHJ1bnRpbWVzIHdob3NlIG5ldHdvcmsgc3RhY2sgY2Fubm90IGJlIGdvdmVybmVkIGJ5IHRob3NlXG4gKiBydWxlcyAoZS5nLiBnVmlzb3IncyBpc29sYXRlZCBuZXRzdGFjaywgb3IgbWljcm9WTSBiYWNrZW5kcyB0aGF0IG1hbmFnZSB0aGVpclxuICogb3duIGVncmVzcykuICBGb3IgdGhlc2UsIEFXRiBza2lwcyB0aGUgaXB0YWJsZXMtaW5pdCBjb250YWluZXIgYW5kIHJlbGllcyBvblxuICogcHJveHkgZW52IHZhcnMgKyBgTk9fUFJPWFlgLlxuICpcbiAqIERlZmF1bHRzIHRvIGB0cnVlYCBmb3IgdW5rbm93bi91bmRlZmluZWQgcnVudGltZXMgKHJhdyBEb2NrZXIgcnVudGltZSBuYW1lc1xuICogYW5kIHRoZSBkZWZhdWx0IHJ1bmMpLCB3aGljaCBzaGFyZSB0aGUgaG9zdCBuZXR3b3JrIG5hbWVzcGFjZS5cbiAqL1xuZXhwb3J0IGZ1bmN0aW9uIHJ1bnRpbWVVc2VzSXB0YWJsZXMocnVudGltZTogc3RyaW5nIHwgdW5kZWZpbmVkKTogYm9vbGVhbiB7XG4gIGlmICghcnVudGltZSkgcmV0dXJuIHRydWU7XG4gIHJldHVybiBsb29rdXBDYXBhYmlsaXRpZXMocnVudGltZSk/LnVzZXNJcHRhYmxlcyA/PyB0cnVlO1xufVxuXG4vKipcbiAqIFJldHVybnMgYHRydWVgIHdoZW4gdGhlIGFnZW50IHNob3VsZCBiZSBpbmNsdWRlZCBhcyBhIERvY2tlciBDb21wb3NlIHNlcnZpY2VcbiAqICh0aGUgZGVmYXVsdCBmb3IgcnVuYywgZ1Zpc29yLCBhbmQgb3RoZXIgT0NJIHJ1bnRpbWVzKS5cbiAqXG4gKiBSZXR1cm5zIGBmYWxzZWAgd2hlbiB0aGUgYWdlbnQgaXMgbWFuYWdlZCBieSBhbiBleHRlcm5hbCB0b29sIChlLmcuIERvY2tlclxuICogc2J4IG1pY3JvVk0pIGFuZCBzaG91bGQgTk9UIGFwcGVhciBpbiBkb2NrZXItY29tcG9zZS55bWwuICBJbmZyYXN0cnVjdHVyZVxuICogc2VydmljZXMgKFNxdWlkLCBhcGktcHJveHkpIGFyZSBhbHdheXMgZ2VuZXJhdGVkIHJlZ2FyZGxlc3MuXG4gKlxuICogV2hlbiBubyBydW50aW1lIGlzIGNvbmZpZ3VyZWQgKHVuZGVmaW5lZCksIGRlZmF1bHRzIHRvIGB0cnVlYCAoY29tcG9zZSBtb2RlKS5cbiAqL1xuZXhwb3J0IGZ1bmN0aW9uIHJ1bnRpbWVVc2VzQ29tcG9zZUFnZW50KHJ1bnRpbWU6IHN0cmluZyB8IHVuZGVmaW5lZCk6IGJvb2xlYW4ge1xuICBpZiAoIXJ1bnRpbWUpIHJldHVybiB0cnVlO1xuICBjb25zdCBlbnRyeSA9IGxvb2t1cENhcGFiaWxpdGllcyhydW50aW1lKTtcbiAgaWYgKCFlbnRyeSkgcmV0dXJuIHRydWU7IC8vIHVua25vd24gcnVudGltZSDihpIgYXNzdW1lIGNvbXBvc2VcbiAgcmV0dXJuIGVudHJ5LmV4ZWN1dGlvbk1vZGVsID09PSAnY29tcG9zZSc7XG59XG5cbi8qKlxuICogUmV0dXJucyBgdHJ1ZWAgd2hlbiB0aGUgY29uZmlndXJlZCBydW50aW1lIGlzIGdWaXNvciwgYWNjZXB0aW5nIGVpdGhlciB0aGVcbiAqIGZyaWVuZGx5IG5hbWUgKGBndmlzb3JgKSBvciB0aGUgcmF3IERvY2tlciBPQ0kgcnVudGltZSBuYW1lIChgcnVuc2NgKS4gIFVzZVxuICogdGhpcyBpbnN0ZWFkIG9mIGEgZGlyZWN0IGA9PT0gJ2d2aXNvcidgIGNvbXBhcmlzb24gc28gYm90aCBzcGVsbGluZ3MgYXJlXG4gKiBoYW5kbGVkIGNvbnNpc3RlbnRseS5cbiAqL1xuZXhwb3J0IGZ1bmN0aW9uIGlzR3Zpc29yUnVudGltZShydW50aW1lOiBzdHJpbmcgfCB1bmRlZmluZWQpOiBib29sZWFuIHtcbiAgaWYgKCFydW50aW1lKSByZXR1cm4gZmFsc2U7XG4gIHJldHVybiBjYW5vbmljYWxSdW50aW1lKHJ1bnRpbWUpID09PSAnZ3Zpc29yJztcbn1cbiJdLCJ2ZXJzaW9uIjozfQ==

@@ -1,0 +1,68 @@
+caba81987841ca4bce7f8e5e2c76cc16
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.buildProxyEnvironment = buildProxyEnvironment;
+const no_proxy_utils_1 = require("../no-proxy-utils");
+const container_runtime_1 = require("../../container-runtime");
+const host_env_1 = require("../../host-env");
+function buildProxyEnvironment(params) {
+    const { config, networkConfig, environment } = params;
+    const noProxyHosts = ['0.0.0.0', networkConfig.squidIp, networkConfig.agentIp];
+    // Network-isolation (topology) mode has no iptables-init container, so the
+    // only lever to keep intra-`awf-net` peer traffic out of Squid is NO_PROXY.
+    // Exempt topology-attached peers (e.g. the MCP gateway `awmg-mcpg` and the
+    // DIFC/cli-proxy `awmg-cli-proxy`) so proxy-aware clients (rmcp/undici)
+    // connect to them directly instead of being routed through Squid and denied.
+    //
+    // Only meaningful when the agent actually shares `awf-net`, i.e. a
+    // compose-managed agent (runc, gVisor). For microVM backends (Docker sbx) the
+    // agent runs off `awf-net` and cannot resolve or route to these container
+    // hostnames — adding them to NO_PROXY there would turn a Squid 403 into an
+    // unroutable direct connection, so they are deliberately skipped. sbx reaches
+    // gateway peers through its own proxy-chaining path, not NO_PROXY.
+    // Cloud Hypervisor appends only its post-attach, revalidated peer names and
+    // IPs later in buildCloudHypervisorGuestEnvironment().
+    //
+    // Hostname-only by design: peer IPs are not known at config-write time (they
+    // are discovered after the network attach in cli-workflow's onNetworkReady),
+    // and MCP URLs address peers by hostname (e.g. http://awmg-mcpg:8080), which
+    // is what undici matches NO_PROXY against.
+    if (config.networkIsolation && (0, container_runtime_1.runtimeUsesComposeAgent)(config.containerRuntime)) {
+        if (config.topologyAttach) {
+            noProxyHosts.push(...config.topologyAttach);
+        }
+        // The DIFC/cli-proxy host is addressed by proxy-aware clients directly and
+        // must bypass Squid even when it isn't listed in topologyAttach.
+        // Use parseDifcProxyHost to correctly strip scheme prefixes and handle
+        // bracketed IPv6 (e.g. https://proxy.internal:443, [::1]:18443), since
+        // undici matches NO_PROXY against the hostname only.
+        if (config.difcProxyHost) {
+            noProxyHosts.push((0, host_env_1.parseDifcProxyHost)(config.difcProxyHost).host);
+        }
+    }
+    // The MCP gateway is served on the network gateway (e.g. 172.30.0.1). In
+    // standard mode an iptables NAT RETURN rule bypasses Squid for it. Runtimes
+    // whose netstack can't use host-netns iptables (e.g. gVisor) have no such
+    // bypass, so add the gateway to NO_PROXY so proxy-aware clients (rmcp) connect
+    // to it directly instead of being routed through Squid and rejected.
+    const gatewayNeedsNoProxy = (!config.networkIsolation &&
+        config.enableHostAccess &&
+        (0, container_runtime_1.runtimeUsesComposeAgent)(config.containerRuntime)) || !(0, container_runtime_1.runtimeUsesIptables)(config.containerRuntime);
+    if (gatewayNeedsNoProxy) {
+        const subnetBase = networkConfig.subnet.split('/')[0];
+        const parts = subnetBase.split('.');
+        const networkGatewayIp = `${parts[0]}.${parts[1]}.${parts[2]}.1`;
+        noProxyHosts.push('host.docker.internal', networkGatewayIp);
+    }
+    if (config.enableApiProxy && networkConfig.proxyIp) {
+        // Include both IP and Docker service hostname — Node.js undici matches
+        // NO_PROXY against the request hostname string, not the resolved IP.
+        noProxyHosts.push(networkConfig.proxyIp, 'api-proxy');
+    }
+    if (config.difcProxyHost && networkConfig.cliProxyIp) {
+        noProxyHosts.push(networkConfig.cliProxyIp, 'cli-proxy');
+    }
+    environment.NO_PROXY = (0, no_proxy_utils_1.buildNoProxyValue)([...new Set(noProxyHosts)]);
+    environment.no_proxy = environment.NO_PROXY;
+}
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJmaWxlIjoiL2hvbWUvcnVubmVyL3dvcmsvZ2gtYXctZmlyZXdhbGwvZ2gtYXctZmlyZXdhbGwvc3JjL3NlcnZpY2VzL2FnZW50LWVudmlyb25tZW50L3Byb3h5LWVudmlyb25tZW50LnRzIiwibWFwcGluZ3MiOiI7O0FBWUEsc0RBbUVDO0FBN0VELHNEQUFzRDtBQUN0RCwrREFBdUY7QUFDdkYsNkNBQW9EO0FBUXBELFNBQWdCLHFCQUFxQixDQUFDLE1BQThCO0lBQ2xFLE1BQU0sRUFBRSxNQUFNLEVBQUUsYUFBYSxFQUFFLFdBQVcsRUFBRSxHQUFHLE1BQU0sQ0FBQztJQUV0RCxNQUFNLFlBQVksR0FBYSxDQUFDLFNBQVMsRUFBRSxhQUFhLENBQUMsT0FBTyxFQUFFLGFBQWEsQ0FBQyxPQUFPLENBQUMsQ0FBQztJQUV6RiwyRUFBMkU7SUFDM0UsNEVBQTRFO0lBQzVFLDJFQUEyRTtJQUMzRSx3RUFBd0U7SUFDeEUsNkVBQTZFO0lBQzdFLEVBQUU7SUFDRixtRUFBbUU7SUFDbkUsOEVBQThFO0lBQzlFLDBFQUEwRTtJQUMxRSwyRUFBMkU7SUFDM0UsOEVBQThFO0lBQzlFLG1FQUFtRTtJQUNuRSw0RUFBNEU7SUFDNUUsdURBQXVEO0lBQ3ZELEVBQUU7SUFDRiw2RUFBNkU7SUFDN0UsNkVBQTZFO0lBQzdFLDZFQUE2RTtJQUM3RSwyQ0FBMkM7SUFDM0MsSUFBSSxNQUFNLENBQUMsZ0JBQWdCLElBQUksSUFBQSwyQ0FBdUIsRUFBQyxNQUFNLENBQUMsZ0JBQWdCLENBQUMsRUFBRSxDQUFDO1FBQ2hGLElBQUksTUFBTSxDQUFDLGNBQWMsRUFBRSxDQUFDO1lBQzFCLFlBQVksQ0FBQyxJQUFJLENBQUMsR0FBRyxNQUFNLENBQUMsY0FBYyxDQUFDLENBQUM7UUFDOUMsQ0FBQztRQUNELDJFQUEyRTtRQUMzRSxpRUFBaUU7UUFDakUsdUVBQXVFO1FBQ3ZFLHVFQUF1RTtRQUN2RSxxREFBcUQ7UUFDckQsSUFBSSxNQUFNLENBQUMsYUFBYSxFQUFFLENBQUM7WUFDekIsWUFBWSxDQUFDLElBQUksQ0FBQyxJQUFBLDZCQUFrQixFQUFDLE1BQU0sQ0FBQyxhQUFhLENBQUMsQ0FBQyxJQUFJLENBQUMsQ0FBQztRQUNuRSxDQUFDO0lBQ0gsQ0FBQztJQUVELHlFQUF5RTtJQUN6RSw0RUFBNEU7SUFDNUUsMEVBQTBFO0lBQzFFLCtFQUErRTtJQUMvRSxxRUFBcUU7SUFDckUsTUFBTSxtQkFBbUIsR0FBRyxDQUMxQixDQUFDLE1BQU0sQ0FBQyxnQkFBZ0I7UUFDeEIsTUFBTSxDQUFDLGdCQUFnQjtRQUN2QixJQUFBLDJDQUF1QixFQUFDLE1BQU0sQ0FBQyxnQkFBZ0IsQ0FBQyxDQUNqRCxJQUFJLENBQUMsSUFBQSx1Q0FBbUIsRUFBQyxNQUFNLENBQUMsZ0JBQWdCLENBQUMsQ0FBQztJQUNuRCxJQUFJLG1CQUFtQixFQUFFLENBQUM7UUFDeEIsTUFBTSxVQUFVLEdBQUcsYUFBYSxDQUFDLE1BQU0sQ0FBQyxLQUFLLENBQUMsR0FBRyxDQUFDLENBQUMsQ0FBQyxDQUFDLENBQUM7UUFDdEQsTUFBTSxLQUFLLEdBQUcsVUFBVSxDQUFDLEtBQUssQ0FBQyxHQUFHLENBQUMsQ0FBQztRQUNwQyxNQUFNLGdCQUFnQixHQUFHLEdBQUcsS0FBSyxDQUFDLENBQUMsQ0FBQyxJQUFJLEtBQUssQ0FBQyxDQUFDLENBQUMsSUFBSSxLQUFLLENBQUMsQ0FBQyxDQUFDLElBQUksQ0FBQztRQUNqRSxZQUFZLENBQUMsSUFBSSxDQUFDLHNCQUFzQixFQUFFLGdCQUFnQixDQUFDLENBQUM7SUFDOUQsQ0FBQztJQUVELElBQUksTUFBTSxDQUFDLGNBQWMsSUFBSSxhQUFhLENBQUMsT0FBTyxFQUFFLENBQUM7UUFDbkQsdUVBQXVFO1FBQ3ZFLHFFQUFxRTtRQUNyRSxZQUFZLENBQUMsSUFBSSxDQUFDLGFBQWEsQ0FBQyxPQUFPLEVBQUUsV0FBVyxDQUFDLENBQUM7SUFDeEQsQ0FBQztJQUVELElBQUksTUFBTSxDQUFDLGFBQWEsSUFBSSxhQUFhLENBQUMsVUFBVSxFQUFFLENBQUM7UUFDckQsWUFBWSxDQUFDLElBQUksQ0FBQyxhQUFhLENBQUMsVUFBVSxFQUFFLFdBQVcsQ0FBQyxDQUFDO0lBQzNELENBQUM7SUFFRCxXQUFXLENBQUMsUUFBUSxHQUFHLElBQUEsa0NBQWlCLEVBQUMsQ0FBQyxHQUFHLElBQUksR0FBRyxDQUFDLFlBQVksQ0FBQyxDQUFDLENBQUMsQ0FBQztJQUNyRSxXQUFXLENBQUMsUUFBUSxHQUFHLFdBQVcsQ0FBQyxRQUFRLENBQUM7QUFDOUMsQ0FBQyIsIm5hbWVzIjpbXSwic291cmNlcyI6WyIvaG9tZS9ydW5uZXIvd29yay9naC1hdy1maXJld2FsbC9naC1hdy1maXJld2FsbC9zcmMvc2VydmljZXMvYWdlbnQtZW52aXJvbm1lbnQvcHJveHktZW52aXJvbm1lbnQudHMiXSwic291cmNlc0NvbnRlbnQiOlsiaW1wb3J0IHsgV3JhcHBlckNvbmZpZyB9IGZyb20gJy4uLy4uL3R5cGVzJztcbmltcG9ydCB7IE5ldHdvcmtDb25maWcgfSBmcm9tICcuLi9zcXVpZC1zZXJ2aWNlJztcbmltcG9ydCB7IGJ1aWxkTm9Qcm94eVZhbHVlIH0gZnJvbSAnLi4vbm8tcHJveHktdXRpbHMnO1xuaW1wb3J0IHsgcnVudGltZVVzZXNJcHRhYmxlcywgcnVudGltZVVzZXNDb21wb3NlQWdlbnQgfSBmcm9tICcuLi8uLi9jb250YWluZXItcnVudGltZSc7XG5pbXBvcnQgeyBwYXJzZURpZmNQcm94eUhvc3QgfSBmcm9tICcuLi8uLi9ob3N0LWVudic7XG5cbmludGVyZmFjZSBQcm94eUVudmlyb25tZW50UGFyYW1zIHtcbiAgY29uZmlnOiBXcmFwcGVyQ29uZmlnO1xuICBuZXR3b3JrQ29uZmlnOiBOZXR3b3JrQ29uZmlnO1xuICBlbnZpcm9ubWVudDogUmVjb3JkPHN0cmluZywgc3RyaW5nPjtcbn1cblxuZXhwb3J0IGZ1bmN0aW9uIGJ1aWxkUHJveHlFbnZpcm9ubWVudChwYXJhbXM6IFByb3h5RW52aXJvbm1lbnRQYXJhbXMpOiB2b2lkIHtcbiAgY29uc3QgeyBjb25maWcsIG5ldHdvcmtDb25maWcsIGVudmlyb25tZW50IH0gPSBwYXJhbXM7XG5cbiAgY29uc3Qgbm9Qcm94eUhvc3RzOiBzdHJpbmdbXSA9IFsnMC4wLjAuMCcsIG5ldHdvcmtDb25maWcuc3F1aWRJcCwgbmV0d29ya0NvbmZpZy5hZ2VudElwXTtcblxuICAvLyBOZXR3b3JrLWlzb2xhdGlvbiAodG9wb2xvZ3kpIG1vZGUgaGFzIG5vIGlwdGFibGVzLWluaXQgY29udGFpbmVyLCBzbyB0aGVcbiAgLy8gb25seSBsZXZlciB0byBrZWVwIGludHJhLWBhd2YtbmV0YCBwZWVyIHRyYWZmaWMgb3V0IG9mIFNxdWlkIGlzIE5PX1BST1hZLlxuICAvLyBFeGVtcHQgdG9wb2xvZ3ktYXR0YWNoZWQgcGVlcnMgKGUuZy4gdGhlIE1DUCBnYXRld2F5IGBhd21nLW1jcGdgIGFuZCB0aGVcbiAgLy8gRElGQy9jbGktcHJveHkgYGF3bWctY2xpLXByb3h5YCkgc28gcHJveHktYXdhcmUgY2xpZW50cyAocm1jcC91bmRpY2kpXG4gIC8vIGNvbm5lY3QgdG8gdGhlbSBkaXJlY3RseSBpbnN0ZWFkIG9mIGJlaW5nIHJvdXRlZCB0aHJvdWdoIFNxdWlkIGFuZCBkZW5pZWQuXG4gIC8vXG4gIC8vIE9ubHkgbWVhbmluZ2Z1bCB3aGVuIHRoZSBhZ2VudCBhY3R1YWxseSBzaGFyZXMgYGF3Zi1uZXRgLCBpLmUuIGFcbiAgLy8gY29tcG9zZS1tYW5hZ2VkIGFnZW50IChydW5jLCBnVmlzb3IpLiBGb3IgbWljcm9WTSBiYWNrZW5kcyAoRG9ja2VyIHNieCkgdGhlXG4gIC8vIGFnZW50IHJ1bnMgb2ZmIGBhd2YtbmV0YCBhbmQgY2Fubm90IHJlc29sdmUgb3Igcm91dGUgdG8gdGhlc2UgY29udGFpbmVyXG4gIC8vIGhvc3RuYW1lcyDigJQgYWRkaW5nIHRoZW0gdG8gTk9fUFJPWFkgdGhlcmUgd291bGQgdHVybiBhIFNxdWlkIDQwMyBpbnRvIGFuXG4gIC8vIHVucm91dGFibGUgZGlyZWN0IGNvbm5lY3Rpb24sIHNvIHRoZXkgYXJlIGRlbGliZXJhdGVseSBza2lwcGVkLiBzYnggcmVhY2hlc1xuICAvLyBnYXRld2F5IHBlZXJzIHRocm91Z2ggaXRzIG93biBwcm94eS1jaGFpbmluZyBwYXRoLCBub3QgTk9fUFJPWFkuXG4gIC8vIENsb3VkIEh5cGVydmlzb3IgYXBwZW5kcyBvbmx5IGl0cyBwb3N0LWF0dGFjaCwgcmV2YWxpZGF0ZWQgcGVlciBuYW1lcyBhbmRcbiAgLy8gSVBzIGxhdGVyIGluIGJ1aWxkQ2xvdWRIeXBlcnZpc29yR3Vlc3RFbnZpcm9ubWVudCgpLlxuICAvL1xuICAvLyBIb3N0bmFtZS1vbmx5IGJ5IGRlc2lnbjogcGVlciBJUHMgYXJlIG5vdCBrbm93biBhdCBjb25maWctd3JpdGUgdGltZSAodGhleVxuICAvLyBhcmUgZGlzY292ZXJlZCBhZnRlciB0aGUgbmV0d29yayBhdHRhY2ggaW4gY2xpLXdvcmtmbG93J3Mgb25OZXR3b3JrUmVhZHkpLFxuICAvLyBhbmQgTUNQIFVSTHMgYWRkcmVzcyBwZWVycyBieSBob3N0bmFtZSAoZS5nLiBodHRwOi8vYXdtZy1tY3BnOjgwODApLCB3aGljaFxuICAvLyBpcyB3aGF0IHVuZGljaSBtYXRjaGVzIE5PX1BST1hZIGFnYWluc3QuXG4gIGlmIChjb25maWcubmV0d29ya0lzb2xhdGlvbiAmJiBydW50aW1lVXNlc0NvbXBvc2VBZ2VudChjb25maWcuY29udGFpbmVyUnVudGltZSkpIHtcbiAgICBpZiAoY29uZmlnLnRvcG9sb2d5QXR0YWNoKSB7XG4gICAgICBub1Byb3h5SG9zdHMucHVzaCguLi5jb25maWcudG9wb2xvZ3lBdHRhY2gpO1xuICAgIH1cbiAgICAvLyBUaGUgRElGQy9jbGktcHJveHkgaG9zdCBpcyBhZGRyZXNzZWQgYnkgcHJveHktYXdhcmUgY2xpZW50cyBkaXJlY3RseSBhbmRcbiAgICAvLyBtdXN0IGJ5cGFzcyBTcXVpZCBldmVuIHdoZW4gaXQgaXNuJ3QgbGlzdGVkIGluIHRvcG9sb2d5QXR0YWNoLlxuICAgIC8vIFVzZSBwYXJzZURpZmNQcm94eUhvc3QgdG8gY29ycmVjdGx5IHN0cmlwIHNjaGVtZSBwcmVmaXhlcyBhbmQgaGFuZGxlXG4gICAgLy8gYnJhY2tldGVkIElQdjYgKGUuZy4gaHR0cHM6Ly9wcm94eS5pbnRlcm5hbDo0NDMsIFs6OjFdOjE4NDQzKSwgc2luY2VcbiAgICAvLyB1bmRpY2kgbWF0Y2hlcyBOT19QUk9YWSBhZ2FpbnN0IHRoZSBob3N0bmFtZSBvbmx5LlxuICAgIGlmIChjb25maWcuZGlmY1Byb3h5SG9zdCkge1xuICAgICAgbm9Qcm94eUhvc3RzLnB1c2gocGFyc2VEaWZjUHJveHlIb3N0KGNvbmZpZy5kaWZjUHJveHlIb3N0KS5ob3N0KTtcbiAgICB9XG4gIH1cblxuICAvLyBUaGUgTUNQIGdhdGV3YXkgaXMgc2VydmVkIG9uIHRoZSBuZXR3b3JrIGdhdGV3YXkgKGUuZy4gMTcyLjMwLjAuMSkuIEluXG4gIC8vIHN0YW5kYXJkIG1vZGUgYW4gaXB0YWJsZXMgTkFUIFJFVFVSTiBydWxlIGJ5cGFzc2VzIFNxdWlkIGZvciBpdC4gUnVudGltZXNcbiAgLy8gd2hvc2UgbmV0c3RhY2sgY2FuJ3QgdXNlIGhvc3QtbmV0bnMgaXB0YWJsZXMgKGUuZy4gZ1Zpc29yKSBoYXZlIG5vIHN1Y2hcbiAgLy8gYnlwYXNzLCBzbyBhZGQgdGhlIGdhdGV3YXkgdG8gTk9fUFJPWFkgc28gcHJveHktYXdhcmUgY2xpZW50cyAocm1jcCkgY29ubmVjdFxuICAvLyB0byBpdCBkaXJlY3RseSBpbnN0ZWFkIG9mIGJlaW5nIHJvdXRlZCB0aHJvdWdoIFNxdWlkIGFuZCByZWplY3RlZC5cbiAgY29uc3QgZ2F0ZXdheU5lZWRzTm9Qcm94eSA9IChcbiAgICAhY29uZmlnLm5ldHdvcmtJc29sYXRpb24gJiZcbiAgICBjb25maWcuZW5hYmxlSG9zdEFjY2VzcyAmJlxuICAgIHJ1bnRpbWVVc2VzQ29tcG9zZUFnZW50KGNvbmZpZy5jb250YWluZXJSdW50aW1lKVxuICApIHx8ICFydW50aW1lVXNlc0lwdGFibGVzKGNvbmZpZy5jb250YWluZXJSdW50aW1lKTtcbiAgaWYgKGdhdGV3YXlOZWVkc05vUHJveHkpIHtcbiAgICBjb25zdCBzdWJuZXRCYXNlID0gbmV0d29ya0NvbmZpZy5zdWJuZXQuc3BsaXQoJy8nKVswXTtcbiAgICBjb25zdCBwYXJ0cyA9IHN1Ym5ldEJhc2Uuc3BsaXQoJy4nKTtcbiAgICBjb25zdCBuZXR3b3JrR2F0ZXdheUlwID0gYCR7cGFydHNbMF19LiR7cGFydHNbMV19LiR7cGFydHNbMl19LjFgO1xuICAgIG5vUHJveHlIb3N0cy5wdXNoKCdob3N0LmRvY2tlci5pbnRlcm5hbCcsIG5ldHdvcmtHYXRld2F5SXApO1xuICB9XG5cbiAgaWYgKGNvbmZpZy5lbmFibGVBcGlQcm94eSAmJiBuZXR3b3JrQ29uZmlnLnByb3h5SXApIHtcbiAgICAvLyBJbmNsdWRlIGJvdGggSVAgYW5kIERvY2tlciBzZXJ2aWNlIGhvc3RuYW1lIOKAlCBOb2RlLmpzIHVuZGljaSBtYXRjaGVzXG4gICAgLy8gTk9fUFJPWFkgYWdhaW5zdCB0aGUgcmVxdWVzdCBob3N0bmFtZSBzdHJpbmcsIG5vdCB0aGUgcmVzb2x2ZWQgSVAuXG4gICAgbm9Qcm94eUhvc3RzLnB1c2gobmV0d29ya0NvbmZpZy5wcm94eUlwLCAnYXBpLXByb3h5Jyk7XG4gIH1cblxuICBpZiAoY29uZmlnLmRpZmNQcm94eUhvc3QgJiYgbmV0d29ya0NvbmZpZy5jbGlQcm94eUlwKSB7XG4gICAgbm9Qcm94eUhvc3RzLnB1c2gobmV0d29ya0NvbmZpZy5jbGlQcm94eUlwLCAnY2xpLXByb3h5Jyk7XG4gIH1cblxuICBlbnZpcm9ubWVudC5OT19QUk9YWSA9IGJ1aWxkTm9Qcm94eVZhbHVlKFsuLi5uZXcgU2V0KG5vUHJveHlIb3N0cyldKTtcbiAgZW52aXJvbm1lbnQubm9fcHJveHkgPSBlbnZpcm9ubWVudC5OT19QUk9YWTtcbn1cbiJdLCJ2ZXJzaW9uIjozfQ==

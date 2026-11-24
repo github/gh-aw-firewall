@@ -481,7 +481,12 @@ function buildOidcEnv(config: WrapperConfig): Record<string, string> {
     // OIDC auth config-file values override host env vars (config-file > env fallback precedence)
     ...Object.fromEntries(
       OIDC_AUTH_ENV_MAPPING
-        .filter(({ configKey }) => (config as unknown as Record<string, unknown>)[configKey])
+        .filter(({ configKey }) => {
+          const value = (config as unknown as Record<string, unknown>)[configKey];
+          return configKey === 'authDatabricksHost' || configKey === 'authDatabricksClientId'
+            ? value !== undefined
+            : !!value;
+        })
         .map(({ configKey, envVar }) => [envVar, (config as unknown as Record<string, unknown>)[configKey] as string])
     ),
     // NOTE: AWF_ANTHROPIC_TRANSFORM_FILE is intentionally NOT forwarded from the host.

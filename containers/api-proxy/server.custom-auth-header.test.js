@@ -74,9 +74,14 @@ describe.each([
       .toThrow(`Invalid ${schemeEnv} value: expected an HTTP authentication scheme token`);
   });
 
-  it('rejects header injection in static credentials', () => {
-    const adapter = create({ [keyEnv]: 'synthetic-key\r\nX-Injection: yes', [schemeEnv]: 'Basic' });
-    expect(() => adapter.getAuthHeaders(fakeReq)).toThrow('Invalid static authentication credential');
+  it.each([undefined, 'Basic'])('rejects invalid static credentials at construction with scheme %p', scheme => {
+    expect(() => create({ [keyEnv]: 'synthetic-key\r\nX-Injection: yes', [schemeEnv]: scheme }))
+      .toThrow('Invalid static authentication credential');
+  });
+
+  it('treats a whitespace-only custom header as unset', () => {
+    const adapter = create({ [keyEnv]: 'synthetic-key', [headerEnv]: '   ', [schemeEnv]: 'Bearer' });
+    expect(adapter.getAuthHeaders(fakeReq).Authorization).toBe(['Bearer', 'synthetic-key'].join(' '));
   });
 
   it('strips all client auth headers and replaces the configured custom credential', () => {

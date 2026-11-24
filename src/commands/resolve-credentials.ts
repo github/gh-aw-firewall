@@ -1,10 +1,13 @@
 import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV, VERTEX_ENV, OIDC_AUTH_ENV_MAPPING } from '../api-proxy-env-constants';
 import type { WrapperConfig } from '../types';
 import { validateApiAuthScheme } from '../api-proxy-config-validation';
+import { readEnvFile } from '../github-env';
 
 interface ResolveApiCredentialsInputs {
   resolvedCopilotApiTarget?: string;
   resolvedCopilotApiBasePath?: string;
+  additionalEnv?: Record<string, string>;
+  envFile?: string;
 }
 
 type OidcConfigKey = (typeof OIDC_AUTH_ENV_MAPPING)[number]['configKey'];
@@ -48,18 +51,30 @@ export function resolveApiCredentials(
   options: Record<string, unknown>,
   inputs: ResolveApiCredentialsInputs = {}
 ): ApiCredentials {
+  let fileEnvironment: Record<string, string> | undefined;
+  const resolveExplicitEnvOrHost = (configKey: string, envVar: string): string | undefined => {
+    const option = options[configKey] as string | undefined;
+    if (option !== undefined) return option;
+    if (inputs.additionalEnv?.[envVar] !== undefined) return inputs.additionalEnv[envVar];
+    if (inputs.envFile && fileEnvironment === undefined) {
+      try { fileEnvironment = readEnvFile(inputs.envFile); } catch { fileEnvironment = {}; }
+    }
+    return fileEnvironment?.[envVar] ?? process.env[envVar];
+  };
   const oidcCredentials = Object.fromEntries(
     OIDC_AUTH_ENV_MAPPING
       .map(({ configKey, envVar }) => [
         configKey,
-        resolveOptionOrEnv(options, configKey, envVar),
+        configKey === 'authDatabricksHost' || configKey === 'authDatabricksClientId'
+          ? resolveExplicitEnvOrHost(configKey, envVar)
+          : resolveOptionOrEnv(options, configKey, envVar),
       ])
       .filter(([, value]) => value !== undefined)
   ) as Pick<ApiCredentials, OidcConfigKey>;
 
   const agentApiKey = resolveAgentApiKey(options);
-  const openaiApiAuthScheme = resolveOptionOrEnv(options, 'openaiApiAuthScheme', OPENAI_ENV.AUTH_SCHEME);
-  const anthropicApiAuthScheme = resolveOptionOrEnv(options, 'anthropicApiAuthScheme', ANTHROPIC_ENV.AUTH_SCHEME);
+  const openaiApiAuthScheme = resolveExplicitEnvOrHost('openaiApiAuthScheme', OPENAI_ENV.AUTH_SCHEME);
+  const anthropicApiAuthScheme = resolveExplicitEnvOrHost('anthropicApiAuthScheme', ANTHROPIC_ENV.AUTH_SCHEME);
   validateApiAuthScheme(openaiApiAuthScheme);
   validateApiAuthScheme(anthropicApiAuthScheme);
 

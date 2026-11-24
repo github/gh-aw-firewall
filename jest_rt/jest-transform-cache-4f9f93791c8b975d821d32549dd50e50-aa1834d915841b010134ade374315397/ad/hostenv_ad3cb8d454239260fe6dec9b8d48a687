@@ -1,0 +1,112 @@
+e35a350cbcae90ef569b7d895132bba5
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.hostEnvTestHelpers = exports.getRealUserHome = exports.getSafeHostGid = exports.getSafeHostUid = exports.getLocalDockerEnv = exports.setAwfDockerHost = exports.SQUID_PORT = void 0;
+exports.normalizeApiTargetScheme = normalizeApiTargetScheme;
+exports.parseDifcProxyHost = parseDifcProxyHost;
+// Re-export production-consumed symbols, plus internal test-only helpers.
+var constants_1 = require("./constants");
+Object.defineProperty(exports, "SQUID_PORT", { enumerable: true, get: function () { return constants_1.SQUID_PORT; } });
+var docker_host_1 = require("./docker-host");
+Object.defineProperty(exports, "setAwfDockerHost", { enumerable: true, get: function () { return docker_host_1.setAwfDockerHost; } });
+Object.defineProperty(exports, "getLocalDockerEnv", { enumerable: true, get: function () { return docker_host_1.getLocalDockerEnv; } });
+var host_identity_1 = require("./host-identity");
+Object.defineProperty(exports, "getSafeHostUid", { enumerable: true, get: function () { return host_identity_1.getSafeHostUid; } });
+Object.defineProperty(exports, "getSafeHostGid", { enumerable: true, get: function () { return host_identity_1.getSafeHostGid; } });
+Object.defineProperty(exports, "getRealUserHome", { enumerable: true, get: function () { return host_identity_1.getRealUserHome; } });
+/**
+ * Checks if two subnets overlap
+ * Returns true if the new subnet conflicts with an existing subnet
+ */
+function subnetsOverlap(subnet1, subnet2) {
+    // Parse CIDR notation: "172.17.0.0/16" -> ["172.17.0.0", "16"]
+    const [ip1, cidr1] = subnet1.split('/');
+    const [ip2, cidr2] = subnet2.split('/');
+    // Convert IP to number
+    const ipToNumber = (ip) => {
+        return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
+    };
+    // Calculate network address and broadcast address for a subnet
+    const getNetworkRange = (ip, cidr) => {
+        const ipNum = ipToNumber(ip);
+        const maskBits = parseInt(cidr, 10);
+        const mask = (0xffffffff << (32 - maskBits)) >>> 0;
+        const networkAddr = (ipNum & mask) >>> 0;
+        const broadcastAddr = (networkAddr | ~mask) >>> 0;
+        return [networkAddr, broadcastAddr];
+    };
+    const [start1, end1] = getNetworkRange(ip1, cidr1);
+    const [start2, end2] = getNetworkRange(ip2, cidr2);
+    // Check if ranges overlap
+    return (start1 <= end2 && end1 >= start2);
+}
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
+exports.hostEnvTestHelpers = { subnetsOverlap };
+/**
+ * Normalizes an API target to its authority, preserving non-default ports
+ * and an explicit `http://` scheme.
+ *
+ * Bare authorities and explicit `https://` URLs normalize to an authority
+ * (HTTPS remains the implicit default). Preserving an explicit `http://`
+ * lets the api-proxy sidecar dial the target in cleartext instead of assuming
+ * HTTPS (see github/gh-aw-firewall#7862) — this
+ * mirrors the runner-side allowlist (resolveApiTargetsToAllowedDomains), which
+ * already treats `http://` targets as a supported, explicitly opted-in
+ * configuration. The mirrored normalizeApiTarget() in the api-proxy sidecar
+ * (containers/api-proxy/proxy-utils.js) re-validates and re-normalizes this
+ * value defensively.
+ */
+function normalizeApiTargetScheme(value) {
+    const trimmed = value.trim();
+    if (!trimmed)
+        return trimmed;
+    const hasScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed);
+    const candidate = hasScheme ? trimmed : `https://${trimmed}`;
+    try {
+        const parsed = new URL(candidate);
+        if (!parsed.hostname || !['http:', 'https:'].includes(parsed.protocol))
+            return trimmed;
+        return parsed.protocol === 'http:' ? `http://${parsed.host}` : parsed.host;
+    }
+    catch {
+        return trimmed;
+    }
+}
+/**
+ * Parses a host:port string into separate host and port components.
+ * Supports IPv6 bracketed notation (e.g., [::1]:18443), plain host:port,
+ * and optional scheme prefixes.
+ * Defaults to host.docker.internal:18443 for empty/missing values.
+ */
+function parseDifcProxyHost(value) {
+    const trimmed = value.trim();
+    if (!trimmed) {
+        return { host: 'host.docker.internal', port: '18443' };
+    }
+    // Use URL to parse host:port correctly (handles IPv6 brackets).
+    // Always normalise to tcp:// so the WHATWG URL parser never drops a port
+    // that happens to be the default for a scheme (e.g. 443 for https://).
+    const hostPart = trimmed.replace(/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//, '');
+    const candidate = `tcp://${hostPart}`;
+    let parsed;
+    try {
+        parsed = new URL(candidate);
+    }
+    catch {
+        throw new Error(`Invalid --difc-proxy-host value: "${value}". Expected host:port format.`);
+    }
+    // URL.hostname returns IPv6 addresses with surrounding brackets; strip them.
+    const rawHost = parsed.hostname || 'host.docker.internal';
+    const host = rawHost.replace(/^\[(.+)\]$/, '$1');
+    const port = parsed.port || '18443';
+    if (!/^\d+$/.test(port)) {
+        throw new Error(`Invalid --difc-proxy-host port: "${port}". Must be a number.`);
+    }
+    const portNum = Number(port);
+    if (portNum < 1 || portNum > 65535) {
+        throw new Error(`Invalid --difc-proxy-host port: ${portNum}. Must be between 1 and 65535.`);
+    }
+    return { host, port: String(portNum) };
+}
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJmaWxlIjoiL2hvbWUvcnVubmVyL3dvcmsvZ2gtYXctZmlyZXdhbGwvZ2gtYXctZmlyZXdhbGwvc3JjL2hvc3QtZW52LnRzIiwibWFwcGluZ3MiOiI7OztBQTJFQSw0REFjQztBQVFELGdEQTRCQztBQTNIRCwwRUFBMEU7QUFDMUUseUNBRXFCO0FBRG5CLHVHQUFBLFVBQVUsT0FBQTtBQUdaLDZDQUd1QjtBQUZyQiwrR0FBQSxnQkFBZ0IsT0FBQTtBQUNoQixnSEFBQSxpQkFBaUIsT0FBQTtBQUduQixpREFJeUI7QUFIdkIsK0dBQUEsY0FBYyxPQUFBO0FBQ2QsK0dBQUEsY0FBYyxPQUFBO0FBQ2QsZ0hBQUEsZUFBZSxPQUFBO0FBR2pCOzs7R0FHRztBQUNILFNBQVMsY0FBYyxDQUFDLE9BQWUsRUFBRSxPQUFlO0lBQ3RELCtEQUErRDtJQUMvRCxNQUFNLENBQUMsR0FBRyxFQUFFLEtBQUssQ0FBQyxHQUFHLE9BQU8sQ0FBQyxLQUFLLENBQUMsR0FBRyxDQUFDLENBQUM7SUFDeEMsTUFBTSxDQUFDLEdBQUcsRUFBRSxLQUFLLENBQUMsR0FBRyxPQUFPLENBQUMsS0FBSyxDQUFDLEdBQUcsQ0FBQyxDQUFDO0lBRXhDLHVCQUF1QjtJQUN2QixNQUFNLFVBQVUsR0FBRyxDQUFDLEVBQVUsRUFBVSxFQUFFO1FBQ3hDLE9BQU8sRUFBRSxDQUFDLEtBQUssQ0FBQyxHQUFHLENBQUMsQ0FBQyxNQUFNLENBQUMsQ0FBQyxHQUFHLEVBQUUsS0FBSyxFQUFFLEVBQUUsQ0FBQyxDQUFDLEdBQUcsSUFBSSxDQUFDLENBQUMsR0FBRyxRQUFRLENBQUMsS0FBSyxFQUFFLEVBQUUsQ0FBQyxFQUFFLENBQUMsQ0FBQyxLQUFLLENBQUMsQ0FBQztJQUN6RixDQUFDLENBQUM7SUFFRiwrREFBK0Q7SUFDL0QsTUFBTSxlQUFlLEdBQUcsQ0FBQyxFQUFVLEVBQUUsSUFBWSxFQUFvQixFQUFFO1FBQ3JFLE1BQU0sS0FBSyxHQUFHLFVBQVUsQ0FBQyxFQUFFLENBQUMsQ0FBQztRQUM3QixNQUFNLFFBQVEsR0FBRyxRQUFRLENB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QUksc0JBQXNCLENBQUM7SUFDMUQsTUFBTSxJQUFJLEdBQUcsT0FBTyxDQUFDLE9BQU8sQ0FBQyxZQUFZLEVBQUUsSUFBSSxDQUFDLENBQUM7SUFDakQsTUFBTSxJQUFJLEdBQUcsTUFBTSxDQUFDLElBQUksSUFBSSxPQUFPLENBQUM7SUFDcEMsSUFBSSxDQUFDLE9BQU8sQ0FBQyxJQUFJLENBQUMsSUFBSSxDQUFDLEVBQUUsQ0FBQztRQUN4QixNQUFNLElBQUksS0FBSyxDQUFDLG9DQUFvQyxJQUFJLHNCQUFzQixDQUFDLENBQUM7SUFDbEYsQ0FBQztJQUNELE1BQU0sT0FBTyxHQUFHLE1BQU0sQ0FBQyxJQUFJLENBQUMsQ0FBQztJQUM3QixJQUFJLE9BQU8sR0FBRyxDQUFDLElBQUksT0FBTyxHQUFHLEtBQUssRUFBRSxDQUFDO1FBQ25DLE1BQU0sSUFBSSxLQUFLLENBQUMsbUNBQW1DLE9BQU8sZ0NBQWdDLENBQUMsQ0FBQztJQUM5RixDQUFDO0lBQ0QsT0FBTyxFQUFFLElBQUksRUFBRSxJQUFJLEVBQUUsTUFBTSxDQUFDLE9BQU8sQ0FBQyxFQUFFLENBQUM7QUFDekMsQ0FBQyIsIm5hbWVzIjpbXSwic291cmNlcyI6WyIvaG9tZS9ydW5uZXIvd29yay9naC1hdy1maXJld2FsbC9naC1hdy1maXJld2FsbC9zcmMvaG9zdC1lbnYudHMiXSwic291cmNlc0NvbnRlbnQiOlsiaW1wb3J0IHR5cGUgeyBDYUZpbGVzIH0gZnJvbSAnLi9zc2wtYnVtcCc7XG5cbi8vIFJlLWV4cG9ydCBwcm9kdWN0aW9uLWNvbnN1bWVkIHN5bWJvbHMsIHBsdXMgaW50ZXJuYWwgdGVzdC1vbmx5IGhlbHBlcnMuXG5leHBvcnQge1xuICBTUVVJRF9QT1JULFxufSBmcm9tICcuL2NvbnN0YW50cyc7XG5cbmV4cG9ydCB7XG4gIHNldEF3ZkRvY2tlckhvc3QsXG4gIGdldExvY2FsRG9ja2VyRW52LFxufSBmcm9tICcuL2RvY2tlci1ob3N0JztcblxuZXhwb3J0IHtcbiAgZ2V0U2FmZUhvc3RVaWQsXG4gIGdldFNhZmVIb3N0R2lkLFxuICBnZXRSZWFsVXNlckhvbWUsXG59IGZyb20gJy4vaG9zdC1pZGVudGl0eSc7XG5cbi8qKlxuICogQ2hlY2tzIGlmIHR3byBzdWJuZXRzIG92ZXJsYXBcbiAqIFJldHVybnMgdHJ1ZSBpZiB0aGUgbmV3IHN1Ym5ldCBjb25mbGljdHMgd2l0aCBhbiBleGlzdGluZyBzdWJuZXRcbiAqL1xuZnVuY3Rpb24gc3VibmV0c092ZXJsYXAoc3VibmV0MTogc3RyaW5nLCBzdWJuZXQyOiBzdHJpbmcpOiBib29sZWFuIHtcbiAgLy8gUGFyc2UgQ0lEUiBub3RhdGlvbjogXCIxNzIuMTcuMC4wLzE2XCIgLT4gW1wiMTcyLjE3LjAuMFwiLCBcIjE2XCJdXG4gIGNvbnN0IFtpcDEsIGNpZHIxXSA9IHN1Ym5ldDEuc3BsaXQoJy8nKTtcbiAgY29uc3QgW2lwMiwgY2lkcjJdID0gc3VibmV0Mi5zcGxpdCgnLycpO1xuXG4gIC8vIENvbnZlcnQgSVAgdG8gbnVtYmVyXG4gIGNvbnN0IGlwVG9OdW1iZXIgPSAoaXA6IHN0cmluZyk6IG51bWJlciA9PiB7XG4gICAgcmV0dXJuIGlwLnNwbGl0KCcuJykucmVkdWNlKChhY2MsIG9jdGV0KSA9PiAoYWNjIDw8IDgpICsgcGFyc2VJbnQob2N0ZXQsIDEwKSwgMCkgPj4+IDA7XG4gIH07XG5cbiAgLy8gQ2FsY3VsYXRlIG5ldHdvcmsgYWRkcmVzcyBhbmQgYnJvYWRjYXN0IGFkZHJlc3MgZm9yIGEgc3VibmV0XG4gIGNvbnN0IGdldE5ldHdvcmtSYW5nZSA9IChpcDogc3RyaW5nLCBjaWRyOiBzdHJpbmcpOiBbbnVtYmVyLCBudW1iZXJdID0+IHtcbiAgICBjb25zdCBpcE51bSA9IGlwVG9OdW1iZXIoaXApO1xuICAgIGNvbnN0IG1hc2tCaXRzID0gcGFyc2VJbnQoY2lkciwgMTApO1xuICAgIGNvbnN0IG1hc2sgPSAoMHhmZmZmZmZmZiA8PCAoMzIgLSBtYXNrQml0cykpID4+PiAwO1xuICAgIGNvbnN0IG5ldHdvcmtBZGRyID0gKGlwTnVtICYgbWFzaykgPj4+IDA7XG4gICAgY29uc3QgYnJvYWRjYXN0QWRkciA9IChuZXR3b3JrQWRkciB8IH5tYXNrKSA+Pj4gMDtcbiAgICByZXR1cm4gW25ldHdvcmtBZGRyLCBicm9hZGNhc3RBZGRyXTtcbiAgfTtcblxuICBjb25zdCBbc3RhcnQxLCBlbmQxXSA9IGdldE5ldHdvcmtSYW5nZShpcDEsIGNpZHIxKTtcbiAgY29uc3QgW3N0YXJ0MiwgZW5kMl0gPSBnZXROZXR3b3JrUmFuZ2UoaXAyLCBjaWRyMik7XG5cbiAgLy8gQ2hlY2sgaWYgcmFuZ2VzIG92ZXJsYXBcbiAgcmV0dXJuIChzdGFydDEgPD0gZW5kMiAmJiBlbmQxID49IHN0YXJ0Mik7XG59XG5cbi8qKiBAaW50ZXJuYWwgRXhwb3NlZCBvbmx5IGZvciB1bml0IHRlc3RzIOKAlCBub3QgcGFydCBvZiB0aGUgcHVibGljIEFQSS4gKi9cbi8vIHRzLXBydW5lLWlnbm9yZS1uZXh0XG5leHBvcnQgY29uc3QgaG9zdEVudlRlc3RIZWxwZXJzID0geyBzdWJuZXRzT3ZlcmxhcCB9O1xuXG4vKipcbiAqIFNTTCBjb25maWd1cmF0aW9uIGZvciBEb2NrZXIgQ29tcG9zZSAod2hlbiBTU0wgQnVtcCBpcyBlbmFibGVkKVxuICovXG5leHBvcnQgaW50ZXJmYWNlIFNzbENvbmZpZyB7XG4gIGNhRmlsZXM6IENhRmlsZXM7XG4gIHNzbERiUGF0aDogc3RyaW5nO1xufVxuXG4vKipcbiAqIE5vcm1hbGl6ZXMgYW4gQVBJIHRhcmdldCB0byBpdHMgYXV0aG9yaXR5LCBwcmVzZXJ2aW5nIG5vbi1kZWZhdWx0IHBvcnRzXG4gKiBhbmQgYW4gZXhwbGljaXQgYGh0dHA6Ly9gIHNjaGVtZS5cbiAqXG4gKiBCYXJlIGF1dGhvcml0aWVzIGFuZCBleHBsaWNpdCBgaHR0cHM6Ly9gIFVSTHMgbm9ybWFsaXplIHRvIGFuIGF1dGhvcml0eVxuICogKEhUVFBTIHJlbWFpbnMgdGhlIGltcGxpY2l0IGRlZmF1bHQpLiBQcmVzZXJ2aW5nIGFuIGV4cGxpY2l0IGBodHRwOi8vYFxuICogbGV0cyB0aGUgYXBpLXByb3h5IHNpZGVjYXIgZGlhbCB0aGUgdGFyZ2V0IGluIGNsZWFydGV4dCBpbnN0ZWFkIG9mIGFzc3VtaW5nXG4gKiBIVFRQUyAoc2VlIGdpdGh1Yi9naC1hdy1maXJld2FsbCM3ODYyKSDigJQgdGhpc1xuICogbWlycm9ycyB0aGUgcnVubmVyLXNpZGUgYWxsb3dsaXN0IChyZXNvbHZlQXBpVGFyZ2V0c1RvQWxsb3dlZERvbWFpbnMpLCB3aGljaFxuICogYWxyZWFkeSB0cmVhdHMgYGh0dHA6Ly9gIHRhcmdldHMgYXMgYSBzdXBwb3J0ZWQsIGV4cGxpY2l0bHkgb3B0ZWQtaW5cbiAqIGNvbmZpZ3VyYXRpb24uIFRoZSBtaXJyb3JlZCBub3JtYWxpemVBcGlUYXJnZXQoKSBpbiB0aGUgYXBpLXByb3h5IHNpZGVjYXJcbiAqIChjb250YWluZXJzL2FwaS1wcm94eS9wcm94eS11dGlscy5qcykgcmUtdmFsaWRhdGVzIGFuZCByZS1ub3JtYWxpemVzIHRoaXNcbiAqIHZhbHVlIGRlZmVuc2l2ZWx5LlxuICovXG5leHBvcnQgZnVuY3Rpb24gbm9ybWFsaXplQXBpVGFyZ2V0U2NoZW1lKHZhbHVlOiBzdHJpbmcpOiBzdHJpbmcge1xuICBjb25zdCB0cmltbWVkID0gdmFsdWUudHJpbSgpO1xuICBpZiAoIXRyaW1tZWQpIHJldHVybiB0cmltbWVkO1xuXG4gIGNvbnN0IGhhc1NjaGVtZSA9IC9eW2EtekEtWl1bYS16QS1aXFxkK1xcLS5dKjpcXC9cXC8vLnRlc3QodHJpbW1lZCk7XG4gIGNvbnN0IGNhbmRpZGF0ZSA9IGhhc1NjaGVtZSA/IHRyaW1tZWQgOiBgaHR0cHM6Ly8ke3RyaW1tZWR9YDtcblxuICB0cnkge1xuICAgIGNvbnN0IHBhcnNlZCA9IG5ldyBVUkwoY2FuZGlkYXRlKTtcbiAgICBpZiAoIXBhcnNlZC5ob3N0bmFtZSB8fCAhWydodHRwOicsICdodHRwczonXS5pbmNsdWRlcyhwYXJzZWQucHJvdG9jb2wpKSByZXR1cm4gdHJpbW1lZDtcbiAgICByZXR1cm4gcGFyc2VkLnByb3RvY29sID09PSAnaHR0cDonID8gYGh0dHA6Ly8ke3BhcnNlZC5ob3N0fWAgOiBwYXJzZWQuaG9zdDtcbiAgfSBjYXRjaCB7XG4gICAgcmV0dXJuIHRyaW1tZWQ7XG4gIH1cbn1cblxuLyoqXG4gKiBQYXJzZXMgYSBob3N0OnBvcnQgc3RyaW5nIGludG8gc2VwYXJhdGUgaG9zdCBhbmQgcG9ydCBjb21wb25lbnRzLlxuICogU3VwcG9ydHMgSVB2NiBicmFja2V0ZWQgbm90YXRpb24gKGUuZy4sIFs6OjFdOjE4NDQzKSwgcGxhaW4gaG9zdDpwb3J0LFxuICogYW5kIG9wdGlvbmFsIHNjaGVtZSBwcmVmaXhlcy5cbiAqIERlZmF1bHRzIHRvIGhvc3QuZG9ja2VyLmludGVybmFsOjE4NDQzIGZvciBlbXB0eS9taXNzaW5nIHZhbHVlcy5cbiAqL1xuZXhwb3J0IGZ1bmN0aW9uIHBhcnNlRGlmY1Byb3h5SG9zdCh2YWx1ZTogc3RyaW5nKTogeyBob3N0OiBzdHJpbmc7IHBvcnQ6IHN0cmluZyB9IHtcbiAgY29uc3QgdHJpbW1lZCA9IHZhbHVlLnRyaW0oKTtcbiAgaWYgKCF0cmltbWVkKSB7XG4gICAgcmV0dXJuIHsgaG9zdDogJ2hvc3QuZG9ja2VyLmludGVybmFsJywgcG9ydDogJzE4NDQzJyB9O1xuICB9XG4gIC8vIFVzZSBVUkwgdG8gcGFyc2UgaG9zdDpwb3J0IGNvcnJlY3RseSAoaGFuZGxlcyBJUHY2IGJyYWNrZXRzKS5cbiAgLy8gQWx3YXlzIG5vcm1hbGlzZSB0byB0Y3A6Ly8gc28gdGhlIFdIQVRXRyBVUkwgcGFyc2VyIG5ldmVyIGRyb3BzIGEgcG9ydFxuICAvLyB0aGF0IGhhcHBlbnMgdG8gYmUgdGhlIGRlZmF1bHQgZm9yIGEgc2NoZW1lIChlLmcuIDQ0MyBmb3IgaHR0cHM6Ly8pLlxuICBjb25zdCBob3N0UGFydCA9IHRyaW1tZWQucmVwbGFjZSgvXlthLXpBLVpdW2EtekEtWlxcZCtcXC0uXSo6XFwvXFwvLywgJycpO1xuICBjb25zdCBjYW5kaWRhdGUgPSBgdGNwOi8vJHtob3N0UGFydH1gO1xuICBsZXQgcGFyc2VkOiBVUkw7XG4gIHRyeSB7XG4gICAgcGFyc2VkID0gbmV3IFVSTChjYW5kaWRhdGUpO1xuICB9IGNhdGNoIHtcbiAgICB0aHJvdyBuZXcgRXJyb3IoYEludmFsaWQgLS1kaWZjLXByb3h5LWhvc3QgdmFsdWU6IFwiJHt2YWx1ZX1cIi4gRXhwZWN0ZWQgaG9zdDpwb3J0IGZvcm1hdC5gKTtcbiAgfVxuICAvLyBVUkwuaG9zdG5hbWUgcmV0dXJucyBJUHY2IGFkZHJlc3NlcyB3aXRoIHN1cnJvdW5kaW5nIGJyYWNrZXRzOyBzdHJpcCB0aGVtLlxuICBjb25zdCByYXdIb3N0ID0gcGFyc2VkLmhvc3RuYW1lIHx8ICdob3N0LmRvY2tlci5pbnRlcm5hbCc7XG4gIGNvbnN0IGhvc3QgPSByYXdIb3N0LnJlcGxhY2UoL15cXFsoLispXFxdJC8sICckMScpO1xuICBjb25zdCBwb3J0ID0gcGFyc2VkLnBvcnQgfHwgJzE4NDQzJztcbiAgaWYgKCEvXlxcZCskLy50ZXN0KHBvcnQpKSB7XG4gICAgdGhyb3cgbmV3IEVycm9yKGBJbnZhbGlkIC0tZGlmYy1wcm94eS1ob3N0IHBvcnQ6IFwiJHtwb3J0fVwiLiBNdXN0IGJlIGEgbnVtYmVyLmApO1xuICB9XG4gIGNvbnN0IHBvcnROdW0gPSBOdW1iZXIocG9ydCk7XG4gIGlmIChwb3J0TnVtIDwgMSB8fCBwb3J0TnVtID4gNjU1MzUpIHtcbiAgICB0aHJvdyBuZXcgRXJyb3IoYEludmFsaWQgLS1kaWZjLXByb3h5LWhvc3QgcG9ydDogJHtwb3J0TnVtfS4gTXVzdCBiZSBiZXR3ZWVuIDEgYW5kIDY1NTM1LmApO1xuICB9XG4gIHJldHVybiB7IGhvc3QsIHBvcnQ6IFN0cmluZyhwb3J0TnVtKSB9O1xufVxuIl0sInZlcnNpb24iOjN9

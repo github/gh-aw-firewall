@@ -1,0 +1,98 @@
+f4d91a1cd30d5afe93efce9636e76f2c
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.readEnvVarFromEnvFiles = readEnvVarFromEnvFiles;
+exports.parseEnvironmentVariables = parseEnvironmentVariables;
+const fs = __importStar(require("fs"));
+const path = __importStar(require("path"));
+/**
+ * Reads the last value of an environment variable key from one or more env
+ * files.  Files are processed in order; the last file that defines the key
+ * wins (mirrors shell `source` semantics).
+ *
+ * Non-string, empty, or blank entries in `envFile` are silently skipped.
+ * Unreadable files are silently ignored (pre-flight check only).
+ *
+ * @param envFile - A single file path string, an array of file path strings,
+ *   or any other value (treated as empty).
+ * @param key - The environment variable name to search for (exact match).
+ * @returns The trimmed value if found, or `undefined` if the key was not seen.
+ */
+function readEnvVarFromEnvFiles(envFile, key) {
+    const envFiles = Array.isArray(envFile) ? envFile : envFile ? [envFile] : [];
+    let lastSeen;
+    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`^(?:export\\s+)?${escapedKey}\\s*=\\s*(.*)$`);
+    for (const candidate of envFiles) {
+        if (typeof candidate !== 'string' || candidate.trim() === '')
+            continue;
+        try {
+            const envFilePath = path.isAbsolute(candidate)
+                ? candidate
+                : path.resolve(process.cwd(), candidate);
+            const envFileContents = fs.readFileSync(envFilePath, 'utf8');
+            for (const line of envFileContents.split(/\r?\n/)) {
+                const trimmedLine = line.trim();
+                if (!trimmedLine || trimmedLine.startsWith('#'))
+                    continue;
+                const match = trimmedLine.match(pattern);
+                if (match) {
+                    lastSeen = match[1]?.trim() || '';
+                }
+            }
+        }
+        catch {
+            // Ignore unreadable env files here; this check is only for a pre-flight warning.
+        }
+    }
+    return lastSeen;
+}
+/**
+ * Parses environment variables from an array of KEY=VALUE strings
+ */
+function parseEnvironmentVariables(envVars) {
+    const result = {};
+    for (const envVar of envVars) {
+        const match = envVar.match(/^([^=]+)=(.*)$/);
+        if (!match) {
+            return { success: false, invalidVar: envVar };
+        }
+        const [, key, value] = match;
+        result[key] = value;
+    }
+    return { success: true, env: result };
+}
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJmaWxlIjoiL2hvbWUvcnVubmVyL3dvcmsvZ2gtYXctZmlyZXdhbGwvZ2gtYXctZmlyZXdhbGwvc3JjL3BhcnNlcnMvZW52LXBhcnNlcnMudHMiLCJtYXBwaW5ncyI6Ijs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7QUFnQkEsd0RBeUJDO0FBS0QsOERBZUM7QUE3REQsdUNBQXlCO0FBQ3pCLDJDQUE2QjtBQUU3Qjs7Ozs7Ozs7Ozs7O0dBWUc7QUFDSCxTQUFnQixzQkFBc0IsQ0FBQyxPQUFnQixFQUFFLEdBQVc7SUFDbEUsTUFBTSxRQUFRLEdBQUcsS0FBSyxDQUFDLE9BQU8sQ0FBQyxPQUFPLENBQUMsQ0FBQyxDQUFDLENBQUMsT0FBTyxDQUFDLENBQUMsQ0FBQyxPQUFPLENBQUMsQ0FBQyxDQUFDLENBQUMsT0FBTyxDQUFDLENBQUMsQ0FBQyxDQUFDLEVBQUUsQ0FBQztJQUM3RSxJQUFJLFFBQTRCLENBQUM7SUFDakMsTUFBTSxVQUFVLEdBQUcsR0FBRyxDQUFDLE9BQU8sQ0FBQyxxQkFBcUIsRUFBRSxNQUFNLENBQUMsQ0FBQztJQUM5RCxNQUFNLE9BQU8sR0FBRyxJQUFJLE1BQU0sQ0FBQyxtQkFBbUIsVUFBVSxnQkFBZ0IsQ0FBQyxDQUFDO0lBQzFFLEtBQUssTUFBTSxTQUFTLElBQUksUUFBUSxFQUFFLENBQUM7UUFDakMsSUFBSSxPQUFPLFNBQVMsS0FBSyxRQUFRLElBQUksU0FBUyxDQUFDLElBQUksRUFBRSxLQUFLLEVBQUU7WUFBRSxTQUFTO1FBQ3ZFLElBQUksQ0FBQztZQUNILE1BQU0sV0FBVyxHQUFHLElBQUksQ0FBQyxVQUFVLENBQUMsU0FBUyxDQUFDO2dCQUM1QyxDQUFDLENBQUMsU0FBUztnQkFDWCxDQUFDLENBQUMsSUFBSSxDQUFDLE9BQU8sQ0FBQyxPQUFPLENBQUMsR0FBRyxFQUFFLEVBQUUsU0FBUyxDQUFDLENBQUM7WUFDM0MsTUFBTSxlQUFlLEdBQUcsRUFBRSxDQUFDLFlBQVksQ0FBQyxXQUFXLEVBQUUsTUFBTSxDQUFDLENBQUM7WUFDN0QsS0FBSyxNQUFNLElBQUksSUFBSSxlQUFlLENBQUMsS0FBSyxDQUFDLE9BQU8sQ0FBQyxFQUFFLENBQUM7Z0JBQ2xELE1BQU0sV0FBVyxHQUFHLElBQUksQ0FBQyxJQUFJLEVBQUUsQ0FBQztnQkFDaEMsSUFBSSxDQUFDLFdBQVcsSUFBSSxXQUFXLENBQUMsVUFBVSxDQUFDLEdBQUcsQ0FBQztvQkFBRSxTQUFTO2dCQUMxRCxNQUFNLEtBQUssR0FBRyxXQUFXLENBQUMsS0FBSyxDQUFDLE9BQU8sQ0FBQyxDQUFDO2dCQUN6QyxJQUFJLEtBQUssRUFBRSxDQUFDO29CQUNWLFFBQVEsR0FBRyxLQUFLLENBQUMsQ0FBQyxDQUFDLEVBQUUsSUFBSSxFQUFFLElBQUksRUFBRSxDQUFDO2dCQUNwQyxDQUFDO1lBQ0gsQ0FBQztRQUNILENBQUM7UUFBQyxNQUFNLENBQUM7WUFDUCxpRkFBaUY7UUFDbkYsQ0FBQztJQUNILENBQUM7SUFDRCxPQUFPLFFBQVEsQ0FBQztBQUNsQixDQUFDO0FBRUQ7O0dBRUc7QUFDSCxTQUFnQix5QkFBeUIsQ0FDdkMsT0FBaUI7SUFFakIsTUFBTSxNQUFNLEdBQTJCLEVBQUUsQ0FBQztJQUUxQyxLQUFLLE1BQU0sTUFBTSxJQUFJLE9BQU8sRUFBRSxDQUFDO1FBQzdCLE1BQU0sS0FBSyxHQUFHLE1BQU0sQ0FBQyxLQUFLLENBQUMsZ0JBQWdCLENBQUMsQ0FBQztRQUM3QyxJQUFJLENBQUMsS0FBSyxFQUFFLENBQUM7WUFDWCxPQUFPLEVBQUUsT0FBTyxFQUFFLEtBQUssRUFBRSxVQUFVLEVBQUUsTUFBTSxFQUFFLENBQUM7UUFDaEQsQ0FBQztRQUNELE1BQU0sQ0FBQyxFQUFFLEdBQUcsRUFBRSxLQUFLLENBQUMsR0FBRyxLQUFLLENBQUM7UUFDN0IsTUFBTSxDQUFDLEdBQUcsQ0FBQyxHQUFHLEtBQUssQ0FBQztJQUN0QixDQUFDO0lBRUQsT0FBTyxFQUFFLE9BQU8sRUFBRSxJQUFJLEVBQUUsR0FBRyxFQUFFLE1BQU0sRUFBRSxDQUFDO0FBQ3hDLENBQUMiLCJuYW1lcyI6W10sInNvdXJjZXMiOlsiL2hvbWUvcnVubmVyL3dvcmsvZ2gtYXctZmlyZXdhbGwvZ2gtYXctZmlyZXdhbGwvc3JjL3BhcnNlcnMvZW52LXBhcnNlcnMudHMiXSwic291cmNlc0NvbnRlbnQiOlsiaW1wb3J0ICogYXMgZnMgZnJvbSAnZnMnO1xuaW1wb3J0ICogYXMgcGF0aCBmcm9tICdwYXRoJztcblxuLyoqXG4gKiBSZWFkcyB0aGUgbGFzdCB2YWx1ZSBvZiBhbiBlbnZpcm9ubWVudCB2YXJpYWJsZSBrZXkgZnJvbSBvbmUgb3IgbW9yZSBlbnZcbiAqIGZpbGVzLiAgRmlsZXMgYXJlIHByb2Nlc3NlZCBpbiBvcmRlcjsgdGhlIGxhc3QgZmlsZSB0aGF0IGRlZmluZXMgdGhlIGtleVxuICogd2lucyAobWlycm9ycyBzaGVsbCBgc291cmNlYCBzZW1hbnRpY3MpLlxuICpcbiAqIE5vbi1zdHJpbmcsIGVtcHR5LCBvciBibGFuayBlbnRyaWVzIGluIGBlbnZGaWxlYCBhcmUgc2lsZW50bHkgc2tpcHBlZC5cbiAqIFVucmVhZGFibGUgZmlsZXMgYXJlIHNpbGVudGx5IGlnbm9yZWQgKHByZS1mbGlnaHQgY2hlY2sgb25seSkuXG4gKlxuICogQHBhcmFtIGVudkZpbGUgLSBBIHNpbmdsZSBmaWxlIHBhdGggc3RyaW5nLCBhbiBhcnJheSBvZiBmaWxlIHBhdGggc3RyaW5ncyxcbiAqICAgb3IgYW55IG90aGVyIHZhbHVlICh0cmVhdGVkIGFzIGVtcHR5KS5cbiAqIEBwYXJhbSBrZXkgLSBUaGUgZW52aXJvbm1lbnQgdmFyaWFibGUgbmFtZSB0byBzZWFyY2ggZm9yIChleGFjdCBtYXRjaCkuXG4gKiBAcmV0dXJucyBUaGUgdHJpbW1lZCB2YWx1ZSBpZiBmb3VuZCwgb3IgYHVuZGVmaW5lZGAgaWYgdGhlIGtleSB3YXMgbm90IHNlZW4uXG4gKi9cbmV4cG9ydCBmdW5jdGlvbiByZWFkRW52VmFyRnJvbUVudkZpbGVzKGVudkZpbGU6IHVua25vd24sIGtleTogc3RyaW5nKTogc3RyaW5nIHwgdW5kZWZpbmVkIHtcbiAgY29uc3QgZW52RmlsZXMgPSBBcnJheS5pc0FycmF5KGVudkZpbGUpID8gZW52RmlsZSA6IGVudkZpbGUgPyBbZW52RmlsZV0gOiBbXTtcbiAgbGV0IGxhc3RTZWVuOiBzdHJpbmcgfCB1bmRlZmluZWQ7XG4gIGNvbnN0IGVzY2FwZWRLZXkgPSBrZXkucmVwbGFjZSgvWy4qKz9eJHt9KCl8W1xcXVxcXFxdL2csICdcXFxcJCYnKTtcbiAgY29uc3QgcGF0dGVybiA9IG5ldyBSZWdFeHAoYF4oPzpleHBvcnRcXFxccyspPyR7ZXNjYXBlZEtleX1cXFxccyo9XFxcXHMqKC4qKSRgKTtcbiAgZm9yIChjb25zdCBjYW5kaWRhdGUgb2YgZW52RmlsZXMpIHtcbiAgICBpZiAodHlwZW9mIGNhbmRpZGF0ZSAhPT0gJ3N0cmluZycgfHwgY2FuZGlkYXRlLnRyaW0oKSA9PT0gJycpIGNvbnRpbnVlO1xuICAgIHRyeSB7XG4gICAgICBjb25zdCBlbnZGaWxlUGF0aCA9IHBhdGguaXNBYnNvbHV0ZShjYW5kaWRhdGUpXG4gICAgICAgID8gY2FuZGlkYXRlXG4gICAgICAgIDogcGF0aC5yZXNvbHZlKHByb2Nlc3MuY3dkKCksIGNhbmRpZGF0ZSk7XG4gICAgICBjb25zdCBlbnZGaWxlQ29udGVudHMgPSBmcy5yZWFkRmlsZVN5bmMoZW52RmlsZVBhdGgsICd1dGY4Jyk7XG4gICAgICBmb3IgKGNvbnN0IGxpbmUgb2YgZW52RmlsZUNvbnRlbnRzLnNwbGl0KC9cXHI/XFxuLykpIHtcbiAgICAgICAgY29uc3QgdHJpbW1lZExpbmUgPSBsaW5lLnRyaW0oKTtcbiAgICAgICAgaWYgKCF0cmltbWVkTGluZSB8fCB0cmltbWVkTGluZS5zdGFydHNXaXRoKCcjJykpIGNvbnRpbnVlO1xuICAgICAgICBjb25zdCBtYXRjaCA9IHRyaW1tZWRMaW5lLm1hdGNoKHBhdHRlcm4pO1xuICAgICAgICBpZiAobWF0Y2gpIHtcbiAgICAgICAgICBsYXN0U2VlbiA9IG1hdGNoWzFdPy50cmltKCkgfHwgJyc7XG4gICAgICAgIH1cbiAgICAgIH1cbiAgICB9IGNhdGNoIHtcbiAgICAgIC8vIElnbm9yZSB1bnJlYWRhYmxlIGVudiBmaWxlcyBoZXJlOyB0aGlzIGNoZWNrIGlzIG9ubHkgZm9yIGEgcHJlLWZsaWdodCB3YXJuaW5nLlxuICAgIH1cbiAgfVxuICByZXR1cm4gbGFzdFNlZW47XG59XG5cbi8qKlxuICogUGFyc2VzIGVudmlyb25tZW50IHZhcmlhYmxlcyBmcm9tIGFuIGFycmF5IG9mIEtFWT1WQUxVRSBzdHJpbmdzXG4gKi9cbmV4cG9ydCBmdW5jdGlvbiBwYXJzZUVudmlyb25tZW50VmFyaWFibGVzKFxuICBlbnZWYXJzOiBzdHJpbmdbXVxuKTogeyBzdWNjZXNzOiB0cnVlOyBlbnY6IFJlY29yZDxzdHJpbmcsIHN0cmluZz4gfSB8IHsgc3VjY2VzczogZmFsc2U7IGludmFsaWRWYXI6IHN0cmluZyB9IHtcbiAgY29uc3QgcmVzdWx0OiBSZWNvcmQ8c3RyaW5nLCBzdHJpbmc+ID0ge307XG5cbiAgZm9yIChjb25zdCBlbnZWYXIgb2YgZW52VmFycykge1xuICAgIGNvbnN0IG1hdGNoID0gZW52VmFyLm1hdGNoKC9eKFtePV0rKT0oLiopJC8pO1xuICAgIGlmICghbWF0Y2gpIHtcbiAgICAgIHJldHVybiB7IHN1Y2Nlc3M6IGZhbHNlLCBpbnZhbGlkVmFyOiBlbnZWYXIgfTtcbiAgICB9XG4gICAgY29uc3QgWywga2V5LCB2YWx1ZV0gPSBtYXRjaDtcbiAgICByZXN1bHRba2V5XSA9IHZhbHVlO1xuICB9XG5cbiAgcmV0dXJuIHsgc3VjY2VzczogdHJ1ZSwgZW52OiByZXN1bHQgfTtcbn1cbiJdLCJ2ZXJzaW9uIjozfQ==

@@ -2,8 +2,10 @@
 
 const { mintGitHubOidcToken, httpPost } = require('./github-oidc');
 const { BaseOidcTokenProvider, REFRESH_FACTOR } = require('./oidc-token-provider-base');
+const { logRequest } = require('./logging');
 
 const MAX_TOKEN_LIFETIME_SECS = 300;
+const MIN_RETRY_DELAY_MS = 1000;
 
 function validateDatabricksHost(host) {
   const value = typeof host === 'string' ? host.trim() : '';
@@ -66,6 +68,96 @@ class DatabricksOidcTokenProvider extends BaseOidcTokenProvider {
     this._requestToken = config.requestToken;
     this._clientId = typeof config.clientId === 'string' ? config.clientId.trim() : '';
     this._cachedToken = null;
+    this._initializationStarted = false;
+    this._initSleepTimer = null;
+    this._resolveInitSleep = null;
+  }
+
+  initialize() {
+    if (this._isShutdown) return Promise.resolve();
+    if (this._refreshInFlight) return this._refreshInFlight;
+    if (this._initializationStarted) return Promise.resolve();
+    this._initializationStarted = true;
+    if (this._refreshTimer) {
+      clearTimeout(this._refreshTimer);
+      this._refreshTimer = null;
+    }
+    this._refreshInFlight = super.initialize().finally(() => {
+      this._refreshInFlight = null;
+      if (!this._isShutdown && !this.isReady() && !this._refreshTimer) {
+        this._scheduleRefresh(this._retryDelay());
+      }
+    });
+    return this._refreshInFlight;
+  }
+
+  shutdown() {
+    super.shutdown();
+    if (this._initSleepTimer) {
+      clearTimeout(this._initSleepTimer);
+      this._initSleepTimer = null;
+      this._resolveInitSleep();
+      this._resolveInitSleep = null;
+    }
+  }
+
+  _sleep(ms) {
+    return new Promise(resolve => {
+      this._resolveInitSleep = resolve;
+      this._initSleepTimer = setTimeout(() => {
+        this._initSleepTimer = null;
+        this._resolveInitSleep = null;
+        resolve();
+      }, ms);
+      if (this._initSleepTimer.unref) this._initSleepTimer.unref();
+    });
+  }
+
+  isReady() {
+    return !this._isShutdown && super.isReady();
+  }
+
+  getToken() {
+    if (this.isReady()) return this._cachedToken;
+    if (!this._isShutdown && !this._refreshInFlight && !this._refreshTimer) {
+      this._scheduleRefresh(0);
+    }
+    return null;
+  }
+
+  _retryDelay() {
+    const remainingMs = (this._expiresAt - this._nowSeconds()) * 1000;
+    const delay = Math.max(MIN_RETRY_DELAY_MS, this._retryDelayMs);
+    return remainingMs > 0
+      ? Math.min(delay, Math.max(MIN_RETRY_DELAY_MS, Math.floor(remainingMs / 2)))
+      : delay;
+  }
+
+  _scheduleRefresh(delayMs) {
+    if (this._isShutdown) return;
+    if (this._refreshTimer) clearTimeout(this._refreshTimer);
+    this._refreshTimer = setTimeout(() => {
+      this._refreshTimer = null;
+      if (this._isShutdown || this._refreshInFlight) return;
+      this._refreshInFlight = this._doRefresh()
+        .then(() => {
+          if (!this._isShutdown) {
+            this._initError = null;
+            logRequest('info', 'databricks_oidc_refresh_success', {
+              expires_in_secs: this._expiresAt - this._nowSeconds(),
+            });
+          }
+        })
+        .catch(err => {
+          if (!this._isShutdown) {
+            this._initError = err;
+            logRequest('error', 'databricks_oidc_refresh_failed', { error: err.message });
+            this._scheduleRefresh(this._retryDelay());
+          }
+        })
+        .finally(() => { this._refreshInFlight = null; });
+    }, delayMs);
+    if (this._refreshTimer.unref) this._refreshTimer.unref();
   }
 
   async _doRefresh() {
@@ -80,6 +172,7 @@ class DatabricksOidcTokenProvider extends BaseOidcTokenProvider {
       // The shared transport may include response bodies or credentials in errors.
       throw new Error('Databricks OIDC GitHub token request failed');
     }
+    if (this._isShutdown) return;
     if (typeof jwt !== 'string' || !jwt || /[\s\x00-\x1f\x7f]/.test(jwt)) {
       throw new Error('Databricks OIDC received an invalid GitHub token');
     }
@@ -105,6 +198,7 @@ class DatabricksOidcTokenProvider extends BaseOidcTokenProvider {
     } catch {
       throw new Error('Databricks OIDC token exchange transport failed');
     }
+    if (this._isShutdown) return;
     if (!response || response.statusCode !== 200) {
       const status = response?.statusCode;
       const safeStatus = Number.isInteger(status) && status >= 100 && status <= 599 ? ` (HTTP ${status})` : '';
@@ -129,7 +223,9 @@ class DatabricksOidcTokenProvider extends BaseOidcTokenProvider {
     if (expiresIn <= 0) {
       throw new Error('Databricks OIDC token exchange returned an expired token lifetime');
     }
-    this._storeAndScheduleRefresh(data.access_token, expiresIn);
+    this._cachedToken = data.access_token;
+    this._expiresAt = expiresAt;
+    this._scheduleRefresh(this._getRefreshDelayMs(expiresIn));
   }
 
   _nowSeconds() { return Date.now() / 1000; }

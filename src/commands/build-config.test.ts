@@ -2,6 +2,8 @@ import { buildConfig } from './build-config';
 import { mapAwfFileConfigToCliOptions } from '../config-mapper';
 import { testHelpers as apiProxyEnvTestHelpers } from '../services/api-proxy-env-config';
 import { buildMinimalBuildConfigInput } from '../test-helpers/build-config.test-utils';
+import * as githubEnv from '../github-env';
+import { resolveDatabricksOidcHost } from '../api-proxy-config-validation';
 
 const makeInputs = buildMinimalBuildConfigInput;
 
@@ -27,6 +29,13 @@ const ENV_KEYS = [
   'AWF_CAPTURE_BLOCKED_LLM_REQUESTS',
   'AWF_MAX_BLOCKED_CAPTURE_BYTES',
   'AWF_DEBUG_TOKENS',
+  'AWF_OPENAI_AUTH_SCHEME',
+  'AWF_ANTHROPIC_AUTH_SCHEME',
+  'AWF_AUTH_DATABRICKS_HOST',
+  'AWF_AUTH_DATABRICKS_CLIENT_ID',
+  'AWF_AUTH_TYPE',
+  'AWF_AUTH_PROVIDER',
+  'AWF_AUTH_OIDC_AUDIENCE',
 ] as const;
 
 describe('buildConfig', () => {
@@ -125,6 +134,92 @@ describe('buildConfig', () => {
         process.env[key] = savedEnv[key];
       }
     }
+  });
+
+  describe('auth environment precedence during assembly', () => {
+    const fileEnv = {
+      AWF_OPENAI_AUTH_SCHEME: 'FileOpenAI',
+      AWF_ANTHROPIC_AUTH_SCHEME: 'FileAnthropic',
+      AWF_AUTH_DATABRICKS_HOST: 'https://file.databricks.example',
+      AWF_AUTH_DATABRICKS_CLIENT_ID: 'file-client',
+    };
+    const cliEnv = {
+      AWF_OPENAI_AUTH_SCHEME: 'CliOpenAI',
+      AWF_ANTHROPIC_AUTH_SCHEME: 'CliAnthropic',
+      AWF_AUTH_DATABRICKS_HOST: 'https://cli.databricks.example',
+      AWF_AUTH_DATABRICKS_CLIENT_ID: 'cli-client',
+    };
+    const configValues = {
+      openaiApiAuthScheme: 'ConfigOpenAI',
+      anthropicApiAuthScheme: 'ConfigAnthropic',
+      authDatabricksHost: 'https://config.databricks.example',
+      authDatabricksClientId: 'config-client',
+    };
+
+    beforeEach(() => {
+      process.env.AWF_OPENAI_AUTH_SCHEME = 'HostOpenAI';
+      process.env.AWF_ANTHROPIC_AUTH_SCHEME = 'HostAnthropic';
+      process.env.AWF_AUTH_DATABRICKS_HOST = 'https://host.databricks.example';
+      process.env.AWF_AUTH_DATABRICKS_CLIENT_ID = 'host-client';
+      jest.spyOn(githubEnv, 'readEnvFile').mockReturnValue(fileEnv);
+    });
+
+    afterEach(() => jest.restoreAllMocks());
+
+    it.each([
+      ['host', {}, {}, undefined, 'HostOpenAI', 'HostAnthropic', 'https://host.databricks.example', 'host-client'],
+      ['env file', {}, {}, 'file.env', 'FileOpenAI', 'FileAnthropic', 'https://file.databricks.example', 'file-client'],
+      ['--env', {}, cliEnv, 'file.env', 'CliOpenAI', 'CliAnthropic', 'https://cli.databricks.example', 'cli-client'],
+      ['config', configValues, cliEnv, 'file.env', 'ConfigOpenAI', 'ConfigAnthropic', 'https://config.databricks.example', 'config-client'],
+    ])('uses %s values for routing and sidecar', (_source, values, additionalEnv, envFile, openai, anthropic, host, clientId) => {
+      const config = buildConfig(makeInputs({
+        options: {
+          ...makeInputs().options, ...values, envFile,
+          authType: 'github-oidc', authProvider: 'databricks', authOidcAudience: 'audience',
+        },
+        additionalEnv,
+      }));
+      expect(resolveDatabricksOidcHost(config)?.origin).toBe(host);
+      expect(apiProxyEnvTestHelpers.buildOidcEnv(config)).toMatchObject({
+        AWF_OPENAI_AUTH_SCHEME: openai,
+        AWF_ANTHROPIC_AUTH_SCHEME: anthropic,
+        AWF_AUTH_DATABRICKS_HOST: host,
+        AWF_AUTH_DATABRICKS_CLIENT_ID: clientId,
+      });
+    });
+
+    it('validates the selected scheme rather than an overridden host value', () => {
+      process.env.AWF_OPENAI_AUTH_SCHEME = 'invalid scheme';
+      expect(() => buildConfig(makeInputs({ additionalEnv: cliEnv }))).not.toThrow();
+      expect(() => buildConfig(makeInputs({
+        options: { ...makeInputs().options, envFile: 'file.env' },
+      }))).not.toThrow();
+      expect(() => buildConfig(makeInputs({
+        additionalEnv: { ...cliEnv, AWF_OPENAI_AUTH_SCHEME: '' },
+      }))).toThrow(/auth scheme/);
+    });
+
+    it('validates the selected Databricks host rather than the host environment fallback', () => {
+      process.env.AWF_AUTH_DATABRICKS_HOST = 'invalid-host';
+      const options = {
+        ...makeInputs().options,
+        authType: 'github-oidc', authProvider: 'databricks', authOidcAudience: 'audience',
+      };
+      const config = buildConfig(makeInputs({ options, additionalEnv: cliEnv }));
+      expect(resolveDatabricksOidcHost(config)?.origin).toBe(cliEnv.AWF_AUTH_DATABRICKS_HOST);
+      const invalid = buildConfig(makeInputs({
+        options,
+        additionalEnv: { ...cliEnv, AWF_AUTH_DATABRICKS_HOST: '' },
+      }));
+      expect(() => resolveDatabricksOidcHost(invalid)).toThrow(/Invalid Databricks host/);
+    });
+
+    it('does not replace an explicitly empty Databricks client ID with the host value', () => {
+      const config = buildConfig(makeInputs({
+        additionalEnv: { ...cliEnv, AWF_AUTH_DATABRICKS_CLIENT_ID: '' },
+      }));
+      expect(apiProxyEnvTestHelpers.buildOidcEnv(config).AWF_AUTH_DATABRICKS_CLIENT_ID).toBe('');
+    });
   });
 
   describe('basic config assembly', () => {

@@ -1,0 +1,115 @@
+ecae0fce79c68ae7e3f6d0ce45f0b6c0
+"use strict";
+/**
+ * Domain pattern utilities for wildcard support in --allow-domains
+ *
+ * Low-level utilities and shared types used across domain validation and matching.
+ *
+ * Supports asterisk (*) wildcards that are converted to Squid dstdom_regex ACLs.
+ * Examples:
+ *   *.github.com      -> matches api.github.com, raw.github.com, etc.
+ *   api-*.example.com -> matches api-v1.example.com, api-test.example.com, etc.
+ *
+ * Also supports protocol-specific domain allowlisting:
+ *   http://github.com  -> allow only HTTP traffic (port 80)
+ *   https://github.com -> allow only HTTPS traffic (port 443)
+ *   github.com         -> allow both HTTP and HTTPS (default)
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.parseDomainWithProtocol = parseDomainWithProtocol;
+exports.isWildcardPattern = isWildcardPattern;
+exports.wildcardToRegex = wildcardToRegex;
+/**
+ * Parse a domain string and extract protocol restriction if present
+ *
+ * @param input - Domain string, optionally prefixed with http:// or https://
+ * @returns Object with the domain name and protocol restriction
+ *
+ * Examples:
+ *   'github.com'        -> { domain: 'github.com', protocol: 'both' }
+ *   'http://github.com' -> { domain: 'github.com', protocol: 'http' }
+ *   'https://github.com' -> { domain: 'github.com', protocol: 'https' }
+ */
+function parseDomainWithProtocol(input) {
+    const trimmed = input.trim();
+    if (/^http:\/\//i.test(trimmed)) {
+        return {
+            domain: trimmed.slice(7).replace(/\/$/, ''),
+            protocol: 'http',
+        };
+    }
+    if (/^https:\/\//i.test(trimmed)) {
+        return {
+            domain: trimmed.slice(8).replace(/\/$/, ''),
+            protocol: 'https',
+        };
+    }
+    // No protocol prefix - allow both
+    return {
+        domain: trimmed.replace(/\/$/, ''),
+        protocol: 'both',
+    };
+}
+/**
+ * Check if a domain string contains wildcard characters
+ */
+function isWildcardPattern(domain) {
+    return domain.includes('*');
+}
+/**
+ * Regex pattern for matching valid domain name characters.
+ * Uses character class instead of .* to prevent catastrophic backtracking (ReDoS).
+ * Per RFC 1035, valid domain characters are: letters, digits, hyphens, and dots.
+ */
+const DOMAIN_CHAR_PATTERN = '[a-zA-Z0-9.-]*';
+/**
+ * Convert a wildcard pattern to a Squid-compatible regex pattern
+ *
+ * @param pattern - Domain pattern with asterisk wildcards
+ * @returns Anchored regex string for use with dstdom_regex
+ * @throws Error if pattern is invalid
+ *
+ * Conversion rules:
+ * - `*` becomes `[a-zA-Z0-9.-]*` (match valid domain characters, safe from ReDoS)
+ * - `.` becomes `\.` (literal dot)
+ * - Other regex metacharacters are escaped
+ * - Result is anchored with `^` and `$`
+ */
+function wildcardToRegex(pattern) {
+    // Escape regex metacharacters except for *
+    // Order matters: escape backslash first
+    let regex = '';
+    for (let i = 0; i < pattern.length; i++) {
+        const char = pattern[i];
+        switch (char) {
+            case '*':
+                // Use character class instead of .* to prevent catastrophic backtracking
+                regex += DOMAIN_CHAR_PATTERN;
+                break;
+            case '.':
+                regex += '\\.';
+                break;
+            // Escape other regex metacharacters
+            case '^':
+            case '$':
+            case '+':
+            case '?':
+            case '{':
+            case '}':
+            case '[':
+            case ']':
+            case '|':
+            case '(':
+            case ')':
+            case '\\':
+                regex += '\\' + char;
+                break;
+            default:
+                regex += char;
+                break;
+        }
+    }
+    // Anchor the regex to match the full domain
+    return '^' + regex + '$';
+}
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJmaWxlIjoiL2hvbWUvcnVubmVyL3dvcmsvZ2gtYXctZmlyZXdhbGwvZ2gtYXctZmlyZXdhbGwvc3JjL2RvbWFpbi1wYXR0ZXJucy50cyIsIm1hcHBpbmdzIjoiO0FBQUE7Ozs7Ozs7Ozs7Ozs7O0dBY0c7O0FBa0JILDBEQXNCQztBQUtELDhDQUVDO0FBc0JELDBDQXVDQztBQXJHRDs7Ozs7Ozs7OztHQVVHO0FBQ0gsU0FBZ0IsdUJBQXVCLENBQUMsS0FBYTtJQUNuRCxNQUFNLE9BQU8sR0FBRyxLQUFLLENBQUMsSUFBSSxFQUFFLENBQUM7SUFFN0IsSUFBSSxhQUFhLENBQUMsSUFBSSxDQUFDLE9BQU8sQ0FBQyxFQUFFLENBQUM7UUFDaEMsT0FBTztZQUNMLE1BQU0sRUFBRSxPQUFPLENBQUMsS0FBSyxDQUFDLENBQUMsQ0FBQyxDQUFDLE9BQU8sQ0FBQyxLQUFLLEVBQUUsRUFBRSxDQUFDO1lBQzNDLFFBQVEsRUFBRSxNQUFNO1NBQ2pCLENBQUM7SUFDSixDQUFDO0lBRUQsSUFBSSxjQUFjLENBQUMsSUFBSSxDQUFDLE9BQU8sQ0FBQyxFQUFFLENBQUM7UUFDakMsT0FBTztZQUNMLE1BQU0sRUFBRSxPQUFPLENBQUMsS0FBSyxDQUFDLENBQUMsQ0FBQyxDQUFDLE9BQU8sQ0FBQyxLQUFLLEVBQUUsRUFBRSxDQUFDO1lBQzNDLFFBQVEsRUFBRSxPQUFPO1NBQ2xCLENBQUM7SUFDSixDQUFDO0lBRUQsa0NBQWtDO0lBQ2xDLE9BQU87UUFDTCxNQUFNLEVBQUUsT0FBTyxDQUFDLE9BQU8sQ0FBQyxLQUFLLEVBQUUsRUFBRSxDQUFDO1FBQ2xDLFFBQVEsRUFBRSxNQUFNO0tBQ2pCLENBQUM7QUFDSixDQUFDO0FBRUQ7O0dBRUc7QUFDSCxTQUFnQixpQkFBaUIsQ0FBQyxNQUFjO0lBQzlDLE9BQU8sTUFBTSxDQUFDLFFBQVEsQ0FBQyxHQUFHLENBQUMsQ0FBQztBQUM5QixDQUFDO0FBRUQ7Ozs7R0FJRztBQUNILE1BQU0sbUJBQW1CLEdBQUcsZ0JBQWdCLENBQUM7QUFFN0M7Ozs7Ozs7Ozs7OztHQVlHO0FBQ0gsU0FBZ0IsZUFBZSxDQUFDLE9BQWU7SUFDN0MsMkNBQTJDO0lBQzNDLHdDQUF3QztJQUN4QyxJQUFJLEtBQUssR0FBRyxFQUFFLENBQUM7SUFFZixLQUFLLElBQUksQ0FBQyxHQUFHLENBQUMsRUFBRSxDQUFDLEdBQUcsT0FBTyxDQUFDLE1BQU0sRUFBRSxDQUFDLEVBQUUsRUFBRSxDQUFDO1FBQ3hDLE1BQU0sSUFBSSxHQUFHLE9BQU8sQ0FBQyxDQUFDLENBQUMsQ0FBQztRQUV4QixRQUFRLElBQUksRUFBRSxDQUFDO1lBQ2IsS0FBSyxHQUFHO2dCQUNOLHlFQUF5RTtnQkFDekUsS0FBSyxJQUFJLG1CQUFtQixDQUFDO2dCQUM3QixNQUFNO1lBQ1IsS0FBSyxHQUFHO2dCQUNOLEtBQUssSUFBSSxLQUFLLENBQUM7Z0JBQ2YsTUFBTTtZQUNSLG9DQUFvQztZQUNwQyxLQUFLLEdBQUcsQ0FBQztZQUNULEtBQUssR0FBRyxDQUFDO1lBQ1QsS0FBSyxHQUFHLENBQUM7WUFDVCxLQUFLLEdBQUcsQ0FBQztZQUNULEtBQUssR0FBRyxDQUFDO1lBQ1QsS0FBSyxHQUFHLENBQUM7WUFDVCxLQUFLLEdBQUcsQ0FBQztZQUNULEtBQUssR0FBRyxDQUFDO1lBQ1QsS0FBSyxHQUFHLENBQUM7WUFDVCxLQUFLLEdBQUcsQ0FBQztZQUNULEtBQUssR0FBRyxDQUFDO1lBQ1QsS0FBSyxJQUFJO2dCQUNQLEtBQUssSUFBSSxJQUFJLEdBQUcsSUFBSSxDQUFDO2dCQUNyQixNQUFNO1lBQ1I7Z0JBQ0UsS0FBSyxJQUFJLElBQUksQ0FBQztnQkFDZCxNQUFNO1FBQ1YsQ0FBQztJQUNILENBQUM7SUFFRCw0Q0FBNEM7SUFDNUMsT0FBTyxHQUFHLEdBQUcsS0FBSyxHQUFHLEdBQUcsQ0FBQztBQUMzQixDQUFDIiwibmFtZXMiOltdLCJzb3VyY2VzIjpbIi9ob21lL3J1bm5lci93b3JrL2doLWF3LWZpcmV3YWxsL2doLWF3LWZpcmV3YWxsL3NyYy9kb21haW4tcGF0dGVybnMudHMiXSwic291cmNlc0NvbnRlbnQiOlsiLyoqXG4gKiBEb21haW4gcGF0dGVybiB1dGlsaXRpZXMgZm9yIHdpbGRjYXJkIHN1cHBvcnQgaW4gLS1hbGxvdy1kb21haW5zXG4gKlxuICogTG93LWxldmVsIHV0aWxpdGllcyBhbmQgc2hhcmVkIHR5cGVzIHVzZWQgYWNyb3NzIGRvbWFpbiB2YWxpZGF0aW9uIGFuZCBtYXRjaGluZy5cbiAqXG4gKiBTdXBwb3J0cyBhc3RlcmlzayAoKikgd2lsZGNhcmRzIHRoYXQgYXJlIGNvbnZlcnRlZCB0byBTcXVpZCBkc3Rkb21fcmVnZXggQUNMcy5cbiAqIEV4YW1wbGVzOlxuICogICAqLmdpdGh1Yi5jb20gICAgICAtPiBtYXRjaGVzIGFwaS5naXRodWIuY29tLCByYXcuZ2l0aHViLmNvbSwgZXRjLlxuICogICBhcGktKi5leGFtcGxlLmNvbSAtPiBtYXRjaGVzIGFwaS12MS5leGFtcGxlLmNvbSwgYXBpLXRlc3QuZXhhbXBsZS5jb20sIGV0Yy5cbiAqXG4gKiBBbHNvIHN1cHBvcnRzIHByb3RvY29sLXNwZWNpZmljIGRvbWFpbiBhbGxvd2xpc3Rpbmc6XG4gKiAgIGh0dHA6Ly9naXRodWIuY29tICAtPiBhbGxvdyBvbmx5IEhUVFAgdHJhZmZpYyAocG9ydCA4MClcbiAqICAgaHR0cHM6Ly9naXRodWIuY29tIC0+IGFsbG93IG9ubHkgSFRUUFMgdHJhZmZpYyAocG9ydCA0NDMpXG4gKiAgIGdpdGh1Yi5jb20gICAgICAgICAtPiBhbGxvdyBib3RoIEhUVFAgYW5kIEhUVFBTIChkZWZhdWx0KVxuICovXG5cbi8qKlxuICogUHJvdG9jb2wgcmVzdHJpY3Rpb24gZm9yIGEgZG9tYWluXG4gKi9cbnR5cGUgRG9tYWluUHJvdG9jb2wgPSAnaHR0cCcgfCAnaHR0cHMnIHwgJ2JvdGgnO1xuXG4vKipcbiAqIFBhcnNlIGEgZG9tYWluIHN0cmluZyBhbmQgZXh0cmFjdCBwcm90b2NvbCByZXN0cmljdGlvbiBpZiBwcmVzZW50XG4gKlxuICogQHBhcmFtIGlucHV0IC0gRG9tYWluIHN0cmluZywgb3B0aW9uYWxseSBwcmVmaXhlZCB3aXRoIGh0dHA6Ly8gb3IgaHR0cHM6Ly9cbiAqIEByZXR1cm5zIE9iamVjdCB3aXRoIHRoZSBkb21haW4gbmFtZSBhbmQgcHJvdG9jb2wgcmVzdHJpY3Rpb25cbiAqXG4gKiBFeGFtcGxlczpcbiAqICAgJ2dpdGh1Yi5jb20nICAgICAgICAtPiB7IGRvbWFpbjogJ2dpdGh1Yi5jb20nLCBwcm90b2NvbDogJ2JvdGgnIH1cbiAqICAgJ2h0dHA6Ly9naXRodWIuY29tJyAtPiB7IGRvbWFpbjogJ2dpdGh1Yi5jb20nLCBwcm90b2NvbDogJ2h0dHAnIH1cbiAqICAgJ2h0dHBzOi8vZ2l0aHViLmNvbScgLT4geyBkb21haW46ICdnaXRodWIuY29tJywgcHJvdG9jb2w6ICdodHRwcycgfVxuICovXG5leHBvcnQgZnVuY3Rpb24gcGFyc2VEb21haW5XaXRoUHJvdG9jb2woaW5wdXQ6IHN0cmluZyk6IHsgZG9tYWluOiBzdHJpbmc7IHByb3RvY29sOiBEb21haW5Qcm90b2NvbCB9IHtcbiAgY29uc3QgdHJpbW1lZCA9IGlucHV0LnRyaW0oKTtcblxuICBpZiAoL15odHRwOlxcL1xcLy9pLnRlc3QodHJpbW1lZCkpIHtcbiAgICByZXR1cm4ge1xuICAgICAgZG9tYWluOiB0cmltbWVkLnNsaWNlKDcpLnJlcGxhY2UoL1xcLyQvLCAnJyksXG4gICAgICBwcm90b2NvbDogJ2h0dHAnLFxuICAgIH07XG4gIH1cblxuICBpZiAoL15odHRwczpcXC9cXC8vaS50ZXN0KHRyaW1tZWQpKSB7XG4gICAgcmV0dXJuIHtcbiAgICAgIGRvbWFpbjogdHJpbW1lZC5zbGljZSg4KS5yZXBsYWNlKC9cXC8kLywgJycpLFxuICAgICAgcHJvdG9jb2w6ICdodHRwcycsXG4gICAgfTtcbiAgfVxuXG4gIC8vIE5vIHByb3RvY29sIHByZWZpeCAtIGFsbG93IGJvdGhcbiAgcmV0dXJuIHtcbiAgICBkb21haW46IHRyaW1tZWQucmVwbGFjZSgvXFwvJC8sICcnKSxcbiAgICBwcm90b2NvbDogJ2JvdGgnLFxuICB9O1xufVxuXG4vKipcbiAqIENoZWNrIGlmIGEgZG9tYWluIHN0cmluZyBjb250YWlucyB3aWxkY2FyZCBjaGFyYWN0ZXJzXG4gKi9cbmV4cG9ydCBmdW5jdGlvbiBpc1dpbGRjYXJkUGF0dGVybihkb21haW46IHN0cmluZyk6IGJvb2xlYW4ge1xuICByZXR1cm4gZG9tYWluLmluY2x1ZGVzKCcqJyk7XG59XG5cbi8qKlxuICogUmVnZXggcGF0dGVybiBmb3IgbWF0Y2hpbmcgdmFsaWQgZG9tYWluIG5hbWUgY2hhcmFjdGVycy5cbiAqIFVzZXMgY2hhcmFjdGVyIGNsYXNzIGluc3RlYWQgb2YgLiogdG8gcHJldmVudCBjYXRhc3Ryb3BoaWMgYmFja3RyYWNraW5nIChSZURvUykuXG4gKiBQZXIgUkZDIDEwMzUsIHZhbGlkIGRvbWFpbiBjaGFyYWN0ZXJzIGFyZTogbGV0dGVycywgZGlnaXRzLCBoeXBoZW5zLCBhbmQgZG90cy5cbiAqL1xuY29uc3QgRE9NQUlOX0NIQVJfUEFUVEVSTiA9ICdbYS16QS1aMC05Li1dKic7XG5cbi8qKlxuICogQ29udmVydCBhIHdpbGRjYXJkIHBhdHRlcm4gdG8gYSBTcXVpZC1jb21wYXRpYmxlIHJlZ2V4IHBhdHRlcm5cbiAqXG4gKiBAcGFyYW0gcGF0dGVybiAtIERvbWFpbiBwYXR0ZXJuIHdpdGggYXN0ZXJpc2sgd2lsZGNhcmRzXG4gKiBAcmV0dXJucyBBbmNob3JlZCByZWdleCBzdHJpbmcgZm9yIHVzZSB3aXRoIGRzdGRvbV9yZWdleFxuICogQHRocm93cyBFcnJvciBpZiBwYXR0ZXJuIGlzIGludmFsaWRcbiAqXG4gKiBDb252ZXJzaW9uIHJ1bGVzOlxuICogLSBgKmAgYmVjb21lcyBgW2EtekEtWjAtOS4tXSpgIChtYXRjaCB2YWxpZCBkb21haW4gY2hhcmFjdGVycywgc2FmZSBmcm9tIFJlRG9TKVxuICogLSBgLmAgYmVjb21lcyBgXFwuYCAobGl0ZXJhbCBkb3QpXG4gKiAtIE90aGVyIHJlZ2V4IG1ldGFjaGFyYWN0ZXJzIGFyZSBlc2NhcGVkXG4gKiAtIFJlc3VsdCBpcyBhbmNob3JlZCB3aXRoIGBeYCBhbmQgYCRgXG4gKi9cbmV4cG9ydCBmdW5jdGlvbiB3aWxkY2FyZFRvUmVnZXgocGF0dGVybjogc3RyaW5nKTogc3RyaW5nIHtcbiAgLy8gRXNjYXBlIHJlZ2V4IG1ldGFjaGFyYWN0ZXJzIGV4Y2VwdCBmb3IgKlxuICAvLyBPcmRlciBtYXR0ZXJzOiBlc2NhcGUgYmFja3NsYXNoIGZpcnN0XG4gIGxldCByZWdleCA9ICcnO1xuXG4gIGZvciAobGV0IGkgPSAwOyBpIDwgcGF0dGVybi5sZW5ndGg7IGkrKykge1xuICAgIGNvbnN0IGNoYXIgPSBwYXR0ZXJuW2ldO1xuXG4gICAgc3dpdGNoIChjaGFyKSB7XG4gICAgICBjYXNlICcqJzpcbiAgICAgICAgLy8gVXNlIGNoYXJhY3RlciBjbGFzcyBpbnN0ZWFkIG9mIC4qIHRvIHByZXZlbnQgY2F0YXN0cm9waGljIGJhY2t0cmFja2luZ1xuICAgICAgICByZWdleCArPSBET01BSU5fQ0hBUl9QQVRURVJOO1xuICAgICAgICBicmVhaztcbiAgICAgIGNhc2UgJy4nOlxuICAgICAgICByZWdleCArPSAnXFxcXC4nO1xuICAgICAgICBicmVhaztcbiAgICAgIC8vIEVzY2FwZSBvdGhlciByZWdleCBtZXRhY2hhcmFjdGVyc1xuICAgICAgY2FzZSAnXic6XG4gICAgICBjYXNlICckJzpcbiAgICAgIGNhc2UgJysnOlxuICAgICAgY2FzZSAnPyc6XG4gICAgICBjYXNlICd7JzpcbiAgICAgIGNhc2UgJ30nOlxuICAgICAgY2FzZSAnWyc6XG4gICAgICBjYXNlICddJzpcbiAgICAgIGNhc2UgJ3wnOlxuICAgICAgY2FzZSAnKCc6XG4gICAgICBjYXNlICcpJzpcbiAgICAgIGNhc2UgJ1xcXFwnOlxuICAgICAgICByZWdleCArPSAnXFxcXCcgKyBjaGFyO1xuICAgICAgICBicmVhaztcbiAgICAgIGRlZmF1bHQ6XG4gICAgICAgIHJlZ2V4ICs9IGNoYXI7XG4gICAgICAgIGJyZWFrO1xuICAgIH1cbiAgfVxuXG4gIC8vIEFuY2hvciB0aGUgcmVnZXggdG8gbWF0Y2ggdGhlIGZ1bGwgZG9tYWluXG4gIHJldHVybiAnXicgKyByZWdleCArICckJztcbn1cblxuZXhwb3J0IGludGVyZmFjZSBEb21haW5QYXR0ZXJuIHtcbiAgb3JpZ2luYWw6IHN0cmluZztcbiAgcmVnZXg6IHN0cmluZztcbiAgcHJvdG9jb2w6IERvbWFpblByb3RvY29sO1xufVxuXG4vKipcbiAqIEEgcGxhaW4gZG9tYWluIGVudHJ5IHdpdGggcHJvdG9jb2wgcmVzdHJpY3Rpb25cbiAqL1xuZXhwb3J0IGludGVyZmFjZSBQbGFpbkRvbWFpbkVudHJ5IHtcbiAgZG9tYWluOiBzdHJpbmc7XG4gIHByb3RvY29sOiBEb21haW5Qcm90b2NvbDtcbn1cbiJdLCJ2ZXJzaW9uIjozfQ==

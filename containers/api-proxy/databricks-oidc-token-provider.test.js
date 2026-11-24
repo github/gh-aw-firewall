@@ -167,7 +167,7 @@ describe('DatabricksOidcTokenProvider', () => {
     expect(provider.getToken()).toBeNull();
   });
 
-  it('does not retry a failed refresh after fractional expiry within the same integer second', async () => {
+  it('backs off after fractional expiry within the same integer second', async () => {
     httpPost.mockResolvedValue(success(0.5));
     await provider.initialize();
     httpPost.mockImplementation(() => new Promise((resolve, reject) => {
@@ -176,7 +176,111 @@ describe('DatabricksOidcTokenProvider', () => {
     await jest.advanceTimersByTimeAsync(575);
     expect(provider.isReady()).toBe(false);
     expect(provider._refreshInFlight).toBeNull();
+    expect(jest.getTimerCount()).toBe(1);
+    await jest.advanceTimersByTimeAsync(29_999);
+    expect(httpPost).toHaveBeenCalledTimes(2);
+    provider.shutdown();
     expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it.each([60, 300])('retries a failed refresh before a %ps token expires', async lifetime => {
+    httpPost.mockResolvedValueOnce(success(lifetime))
+      .mockRejectedValueOnce(new Error('transient'))
+      .mockResolvedValue(success(lifetime));
+    await provider.initialize();
+    await jest.advanceTimersByTimeAsync(lifetime * 750);
+    expect(httpPost).toHaveBeenCalledTimes(2);
+    expect(provider.getToken()).toBe(token);
+    await jest.advanceTimersByTimeAsync(lifetime * 125);
+    expect(httpPost).toHaveBeenCalledTimes(3);
+    expect(provider.isReady()).toBe(true);
+  });
+
+  it('reacquires after initialization failure without request-driven retry storms', async () => {
+    httpPost.mockRejectedValueOnce(new Error('transient')).mockResolvedValue(success(60));
+    await provider.initialize();
+    expect(provider.isReady()).toBe(false);
+    for (let i = 0; i < 10; i++) expect(provider.getToken()).toBeNull();
+    await provider.initialize();
+    await jest.advanceTimersByTimeAsync(29_999);
+    expect(httpPost).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(httpPost).toHaveBeenCalledTimes(2);
+    expect(provider.getToken()).toBe(token);
+  });
+
+  it('continues bounded retries after expiry and recovers without serving stale tokens', async () => {
+    httpPost.mockResolvedValueOnce(success(60)).mockRejectedValue(new Error('transient'));
+    await provider.initialize();
+    await jest.advanceTimersByTimeAsync(60_000);
+    expect(provider.getToken()).toBeNull();
+    const calls = httpPost.mock.calls.length;
+    for (let i = 0; i < 10; i++) expect(provider.getToken()).toBeNull();
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(httpPost.mock.calls.length).toBeLessThanOrEqual(calls + 1);
+    const callsAfterExpiry = httpPost.mock.calls.length;
+    await jest.advanceTimersByTimeAsync(29_000);
+    expect(httpPost).toHaveBeenCalledTimes(callsAfterExpiry);
+    httpPost.mockResolvedValue(success(60));
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(provider.getToken()).toBe(token);
+  });
+
+  it('cancels initialization backoff on shutdown', async () => {
+    provider.shutdown();
+    provider = new DatabricksOidcTokenProvider({ ...config, maxInitRetries: 3 });
+    httpPost.mockRejectedValue(new Error('transient'));
+    const initializing = provider.initialize();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(httpPost).toHaveBeenCalledTimes(1);
+    provider.shutdown();
+    await initializing;
+    expect(jest.getTimerCount()).toBe(0);
+    await jest.advanceTimersByTimeAsync(120_000);
+    expect(httpPost).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not exchange a GitHub token that arrives after shutdown', async () => {
+    let resolveMint;
+    mintGitHubOidcToken.mockImplementation(() => new Promise(resolve => { resolveMint = resolve; }));
+    const initializing = provider.initialize();
+    provider.shutdown();
+    resolveMint(jwt({ exp: Date.now() / 1000 + 600 }));
+    await initializing;
+    expect(httpPost).not.toHaveBeenCalled();
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('deduplicates initialization and ignores an in-flight success after shutdown', async () => {
+    let resolveExchange;
+    httpPost.mockImplementation(() => new Promise(resolve => { resolveExchange = resolve; }));
+    const first = provider.initialize();
+    const second = provider.initialize();
+    await Promise.resolve();
+    expect(httpPost).toHaveBeenCalledTimes(1);
+    expect(provider.getToken()).toBeNull();
+    provider.shutdown();
+    resolveExchange(success(60));
+    await Promise.all([first, second]);
+    expect(provider.getToken()).toBeNull();
+    expect(provider.isReady()).toBe(false);
+    expect(provider._cachedToken).toBeNull();
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('does not retry an in-flight refresh that fails after shutdown', async () => {
+    let rejectExchange;
+    await provider.initialize();
+    httpPost.mockImplementation(() => new Promise((resolve, reject) => { rejectExchange = reject; }));
+    await jest.advanceTimersByTimeAsync(225_000);
+    provider.shutdown();
+    rejectExchange(new Error('transient'));
+    await Promise.resolve();
+    await Promise.resolve();
+    await jest.advanceTimersByTimeAsync(60_000);
+    expect(jest.getTimerCount()).toBe(0);
+    expect(provider.getToken()).toBeNull();
+    expect(httpPost).toHaveBeenCalledTimes(2);
   });
 
   it.each(['github', 'transport', 'status', 'json', 'token', 'jwt'])(

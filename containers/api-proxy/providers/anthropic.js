@@ -73,7 +73,7 @@ function createAnthropicAdapter(env, deps = {}) {
   const authHeaderName = validateAuthHeaderEnv(ANTHROPIC_ENV.AUTH_HEADER, env[ANTHROPIC_ENV.AUTH_HEADER], 'x-api-key');
   const staticAuthScheme = validateAuthSchemeEnv(ANTHROPIC_ENV.AUTH_SCHEME, env[ANTHROPIC_ENV.AUTH_SCHEME]);
   const buildStaticAuthHeaders = buildStaticAuthHeaderFn({
-    headerName: env[ANTHROPIC_ENV.AUTH_HEADER] ? authHeaderName : undefined,
+    headerName: (env[ANTHROPIC_ENV.AUTH_HEADER] || '').trim() ? authHeaderName : undefined,
     defaultHeaderName: 'x-api-key',
     scheme: staticAuthScheme,
   });
@@ -157,12 +157,15 @@ function createAnthropicAdapter(env, deps = {}) {
         });
       } : null,
     }),
-    createHeaderBuilders: ({ apiKey }) => ({
-      buildOidcHeaders: (token) => bearerAuthHeaders(token, databricksRequested ? undefined : {
-        'anthropic-beta': OAUTH_API_BETA,
-      }),
-      buildStaticHeaders: () => buildStaticAuthHeaders(apiKey),
-    }),
+    createHeaderBuilders: ({ apiKey }) => {
+      if (apiKey) buildStaticAuthHeaders(apiKey);
+      return {
+        buildOidcHeaders: (token) => bearerAuthHeaders(token, databricksRequested ? undefined : {
+          'anthropic-beta': OAUTH_API_BETA,
+        }),
+        buildStaticHeaders: () => buildStaticAuthHeaders(apiKey),
+      };
+    },
     createAdapterMethodsOptions: ({ authProvider, oidcConfigured, oidcProvider, resolveHeaders }) => ({
       validationPath: '/v1/messages',
       validationMethod: 'POST',

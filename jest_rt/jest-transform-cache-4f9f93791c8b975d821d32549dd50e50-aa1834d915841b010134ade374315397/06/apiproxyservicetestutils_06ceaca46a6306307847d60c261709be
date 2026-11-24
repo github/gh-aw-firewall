@@ -1,0 +1,49 @@
+4e9ef2a8e6df715111f5ac695399e3b3
+"use strict";
+/**
+ * Shared test fixtures for api-proxy-service test modules.
+ *
+ * Note: `jest.mock('execa', ...)` along with the `mockConfig` let-binding and
+ * `useTempWorkDir()` call must remain in each individual test file. Jest hoists
+ * jest.mock() calls to the top of each file before imports are resolved, so the
+ * factory closure cannot reference variables from an imported module.
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.mockNetworkConfigWithProxy = void 0;
+exports.saveAndClearOidcEnvironment = saveAndClearOidcEnvironment;
+const docker_test_fixtures_test_utils_1 = require("../test-helpers/docker-test-fixtures.test-utils");
+/**
+ * Standard network configuration for the AWF Docker network with API proxy IP.
+ * Used across api-proxy-service test modules.
+ */
+exports.mockNetworkConfigWithProxy = {
+    ...docker_test_fixtures_test_utils_1.mockNetworkConfig,
+    proxyIp: '172.30.0.30',
+};
+const oidcVars = [
+    'AWF_AUTH_TYPE',
+    'ACTIONS_ID_TOKEN_REQUEST_URL',
+    'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+];
+/**
+ * Saves and clears OIDC-related environment variables for test isolation.
+ * Returns a restore callback to reinstate prior values after each test.
+ */
+function saveAndClearOidcEnvironment() {
+    const savedEnv = {};
+    for (const key of oidcVars) {
+        savedEnv[key] = process.env[key];
+        delete process.env[key];
+    }
+    return () => {
+        for (const key of oidcVars) {
+            if (savedEnv[key] !== undefined) {
+                process.env[key] = savedEnv[key];
+            }
+            else {
+                delete process.env[key];
+            }
+        }
+    };
+}
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJmaWxlIjoiL2hvbWUvcnVubmVyL3dvcmsvZ2gtYXctZmlyZXdhbGwvZ2gtYXctZmlyZXdhbGwvc3JjL3NlcnZpY2VzL2FwaS1wcm94eS1zZXJ2aWNlLnRlc3QtdXRpbHMudHMiLCJtYXBwaW5ncyI6IjtBQUFBOzs7Ozs7O0dBT0c7OztBQXVCSCxrRUFpQkM7QUF0Q0QscUdBQW9GO0FBRXBGOzs7R0FHRztBQUNVLFFBQUEsMEJBQTBCLEdBQUc7SUFDeEMsR0FBRyxtREFBaUI7SUFDcEIsT0FBTyxFQUFFLGFBQWE7Q0FDdkIsQ0FBQztBQUVGLE1BQU0sUUFBUSxHQUFHO0lBQ2YsZUFBZTtJQUNmLDhCQUE4QjtJQUM5QixnQ0FBZ0M7Q0FDeEIsQ0FBQztBQUVYOzs7R0FHRztBQUNILFNBQWdCLDJCQUEyQjtJQUN6QyxNQUFNLFFBQVEsR0FBdUMsRUFBRSxDQUFDO0lBRXhELEtBQUssTUFBTSxHQUFHLElBQUksUUFBUSxFQUFFLENBQUM7UUFDM0IsUUFBUSxDQUFDLEdBQUcsQ0FBQyxHQUFHLE9BQU8sQ0FBQyxHQUFHLENBQUMsR0FBRyxDQUFDLENBQUM7UUFDakMsT0FBTyxPQUFPLENBQUMsR0FBRyxDQUFDLEdBQUcsQ0FBQyxDQUFDO0lBQzFCLENBQUM7SUFFRCxPQUFPLEdBQUcsRUFBRTtRQUNWLEtBQUssTUFBTSxHQUFHLElBQUksUUFBUSxFQUFFLENBQUM7WUFDM0IsSUFBSSxRQUFRLENBQUMsR0FBRyxDQUFDLEtBQUssU0FBUyxFQUFFLENBQUM7Z0JBQ2hDLE9BQU8sQ0FBQyxHQUFHLENBQUMsR0FBRyxDQUFDLEdBQUcsUUFBUSxDQUFDLEdBQUcsQ0FBQyxDQUFDO1lBQ25DLENBQUM7aUJBQU0sQ0FBQztnQkFDTixPQUFPLE9BQU8sQ0FBQyxHQUFHLENBQUMsR0FBRyxDQUFDLENBQUM7WUFDMUIsQ0FBQztRQUNILENBQUM7SUFDSCxDQUFDLENBQUM7QUFDSixDQUFDIiwibmFtZXMiOltdLCJzb3VyY2VzIjpbIi9ob21lL3J1bm5lci93b3JrL2doLWF3LWZpcmV3YWxsL2doLWF3LWZpcmV3YWxsL3NyYy9zZXJ2aWNlcy9hcGktcHJveHktc2VydmljZS50ZXN0LXV0aWxzLnRzIl0sInNvdXJjZXNDb250ZW50IjpbIi8qKlxuICogU2hhcmVkIHRlc3QgZml4dHVyZXMgZm9yIGFwaS1wcm94eS1zZXJ2aWNlIHRlc3QgbW9kdWxlcy5cbiAqXG4gKiBOb3RlOiBgamVzdC5tb2NrKCdleGVjYScsIC4uLilgIGFsb25nIHdpdGggdGhlIGBtb2NrQ29uZmlnYCBsZXQtYmluZGluZyBhbmRcbiAqIGB1c2VUZW1wV29ya0RpcigpYCBjYWxsIG11c3QgcmVtYWluIGluIGVhY2ggaW5kaXZpZHVhbCB0ZXN0IGZpbGUuIEplc3QgaG9pc3RzXG4gKiBqZXN0Lm1vY2soKSBjYWxscyB0byB0aGUgdG9wIG9mIGVhY2ggZmlsZSBiZWZvcmUgaW1wb3J0cyBhcmUgcmVzb2x2ZWQsIHNvIHRoZVxuICogZmFjdG9yeSBjbG9zdXJlIGNhbm5vdCByZWZlcmVuY2UgdmFyaWFibGVzIGZyb20gYW4gaW1wb3J0ZWQgbW9kdWxlLlxuICovXG5cbmltcG9ydCB7IG1vY2tOZXR3b3JrQ29uZmlnIH0gZnJvbSAnLi4vdGVzdC1oZWxwZXJzL2RvY2tlci10ZXN0LWZpeHR1cmVzLnRlc3QtdXRpbHMnO1xuXG4vKipcbiAqIFN0YW5kYXJkIG5ldHdvcmsgY29uZmlndXJhdGlvbiBmb3IgdGhlIEFXRiBEb2NrZXIgbmV0d29yayB3aXRoIEFQSSBwcm94eSBJUC5cbiAqIFVzZWQgYWNyb3NzIGFwaS1wcm94eS1zZXJ2aWNlIHRlc3QgbW9kdWxlcy5cbiAqL1xuZXhwb3J0IGNvbnN0IG1vY2tOZXR3b3JrQ29uZmlnV2l0aFByb3h5ID0ge1xuICAuLi5tb2NrTmV0d29ya0NvbmZpZyxcbiAgcHJveHlJcDogJzE3Mi4zMC4wLjMwJyxcbn07XG5cbmNvbnN0IG9pZGNWYXJzID0gW1xuICAnQVdGX0FVVEhfVFlQRScsXG4gICdBQ1RJT05TX0lEX1RPS0VOX1JFUVVFU1RfVVJMJyxcbiAgJ0FDVElPTlNfSURfVE9LRU5fUkVRVUVTVF9UT0tFTicsXG5dIGFzIGNvbnN0O1xuXG4vKipcbiAqIFNhdmVzIGFuZCBjbGVhcnMgT0lEQy1yZWxhdGVkIGVudmlyb25tZW50IHZhcmlhYmxlcyBmb3IgdGVzdCBpc29sYXRpb24uXG4gKiBSZXR1cm5zIGEgcmVzdG9yZSBjYWxsYmFjayB0byByZWluc3RhdGUgcHJpb3IgdmFsdWVzIGFmdGVyIGVhY2ggdGVzdC5cbiAqL1xuZXhwb3J0IGZ1bmN0aW9uIHNhdmVBbmRDbGVhck9pZGNFbnZpcm9ubWVudCgpOiAoKSA9PiB2b2lkIHtcbiAgY29uc3Qgc2F2ZWRFbnY6IFJlY29yZDxzdHJpbmcsIHN0cmluZyB8IHVuZGVmaW5lZD4gPSB7fTtcblxuICBmb3IgKGNvbnN0IGtleSBvZiBvaWRjVmFycykge1xuICAgIHNhdmVkRW52W2tleV0gPSBwcm9jZXNzLmVudltrZXldO1xuICAgIGRlbGV0ZSBwcm9jZXNzLmVudltrZXldO1xuICB9XG5cbiAgcmV0dXJuICgpID0+IHtcbiAgICBmb3IgKGNvbnN0IGtleSBvZiBvaWRjVmFycykge1xuICAgICAgaWYgKHNhdmVkRW52W2tleV0gIT09IHVuZGVmaW5lZCkge1xuICAgICAgICBwcm9jZXNzLmVudltrZXldID0gc2F2ZWRFbnZba2V5XTtcbiAgICAgIH0gZWxzZSB7XG4gICAgICAgIGRlbGV0ZSBwcm9jZXNzLmVudltrZXldO1xuICAgICAgfVxuICAgIH1cbiAgfTtcbn1cbiJdLCJ2ZXJzaW9uIjozfQ==

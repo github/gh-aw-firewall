@@ -1,0 +1,151 @@
+32996ae6b7af61eb159cdaa56c1d4b19
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ACT_PRESET_BASE_IMAGE = void 0;
+exports.getSafeHostUid = getSafeHostUid;
+exports.isNativeRootWithoutSudo = isNativeRootWithoutSudo;
+exports.getSafeHostGid = getSafeHostGid;
+exports.getRealUserHome = getRealUserHome;
+const fs = __importStar(require("fs"));
+/**
+ * Base image for the 'act' preset when building locally.
+ * Uses catthehacker's GitHub Actions parity image.
+ */
+exports.ACT_PRESET_BASE_IMAGE = 'ghcr.io/catthehacker/ubuntu:act-24.04';
+/**
+ * Minimum UID/GID value for regular users.
+ * UIDs 0-999 are reserved for system users on most Linux distributions.
+ */
+const MIN_REGULAR_UID = 1000;
+/**
+ * Validates that a UID/GID value is safe for use (not in system range).
+ * Returns the value if valid, or the default (1000) if in system range.
+ */
+function validateIdNotInSystemRange(id) {
+    // Reject system UIDs/GIDs (0-999) - use default unprivileged user instead
+    if (id < MIN_REGULAR_UID) {
+        return MIN_REGULAR_UID.toString();
+    }
+    return id.toString();
+}
+/**
+ * Gets the host user's UID, with fallback to 1000 if unavailable, root (0),
+ * or in the system UID range (0-999).
+ * When running with sudo, uses SUDO_UID to get the actual user's UID.
+ * @internal Exported for testing
+ */
+function getSafeHostUid() {
+    const uid = process.getuid?.();
+    // When running as root (sudo), try to get the original user's UID
+    if (!uid || uid === 0) {
+        const sudoUid = process.env.SUDO_UID;
+        if (sudoUid) {
+            const parsedUid = parseInt(sudoUid, 10);
+            if (!isNaN(parsedUid)) {
+                return validateIdNotInSystemRange(parsedUid);
+            }
+        }
+        return MIN_REGULAR_UID.toString();
+    }
+    return validateIdNotInSystemRange(uid);
+}
+/**
+ * Returns true when AWF is running as root directly rather than through sudo.
+ * In this mode there is no original host identity to recover from SUDO_UID.
+ * @internal Exported for testing
+ */
+function isNativeRootWithoutSudo() {
+    return process.getuid?.() === 0 && !process.env.SUDO_UID;
+}
+/**
+ * Gets the host user's GID, with fallback to 1000 if unavailable, root (0),
+ * or in the system GID range (0-999), except that callers with UID >= 1000
+ * keep their nonzero primary GID, including system-range GIDs, so
+ * ownership changes and the sandbox identity match the actual caller.
+ * When running with sudo, uses SUDO_GID to get the actual user's GID.
+ * @internal Exported for testing
+ */
+function getSafeHostGid() {
+    const gid = process.getgid?.();
+    const uid = process.getuid?.();
+    if (uid !== undefined && uid >= MIN_REGULAR_UID && gid !== undefined && gid > 0) {
+        return gid.toString();
+    }
+    // When running as root (sudo), try to get the original user's GID
+    if (!gid || gid === 0) {
+        const sudoGid = process.env.SUDO_GID;
+        if (sudoGid) {
+            const parsedGid = parseInt(sudoGid, 10);
+            if (!isNaN(parsedGid)) {
+                return validateIdNotInSystemRange(parsedGid);
+            }
+        }
+        return MIN_REGULAR_UID.toString();
+    }
+    return validateIdNotInSystemRange(gid);
+}
+/**
+ * Gets the real user's home directory, accounting for sudo.
+ * When running with sudo, uses SUDO_USER to find the actual user's home.
+ * @internal Exported for testing
+ */
+function getRealUserHome() {
+    const uid = process.getuid?.();
+    // When running as root (sudo), try to get the original user's home
+    if (!uid || uid === 0) {
+        // Try SUDO_USER first - look up their home directory from passwd
+        const sudoUser = process.env.SUDO_USER;
+        if (sudoUser) {
+            try {
+                // Look up user's home directory from /etc/passwd
+                const passwd = fs.readFileSync('/etc/passwd', 'utf-8');
+                const userLine = passwd.split('\n').find(line => line.startsWith(`${sudoUser}:`));
+                if (userLine) {
+                    const parts = userLine.split(':');
+                    if (parts.length >= 6 && parts[5]) {
+                        return parts[5]; // Home directory is the 6th field
+                    }
+                }
+            }
+            catch {
+                // Fall through to use HOME
+            }
+        }
+    }
+    // Use HOME environment variable as fallback
+    return process.env.HOME || '/root';
+}
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJmaWxlIjoiL2hvbWUvcnVubmVyL3dvcmsvZ2gtYXctZmlyZXdhbGwvZ2gtYXctZmlyZXdhbGwvc3JjL2hvc3QtaWRlbnRpdHkudHMiLCJtYXBwaW5ncyI6Ijs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7O0FBZ0NBLHdDQWdCQztBQU9ELDBEQUVDO0FBVUQsd0NBcUJDO0FBT0QsMENBMEJDO0FBekhELHVDQUF5QjtBQUV6Qjs7O0dBR0c7QUFDVSxRQUFBLHFCQUFxQixHQUFHLHVDQUF1QyxDQUFDO0FBRTdFOzs7R0FHRztBQUNILE1BQU0sZUFBZSxHQUFHLElBQUksQ0FBQztBQUU3Qjs7O0dBR0c7QUFDSCxTQUFTLDBCQUEwQixDQUFDLEVBQVU7SUFDNUMsMEVBQTBFO0lBQzFFLElBQUksRUFBRSxHQUFHLGVBQWUsRUFBRSxDQUFDO1FBQ3pCLE9BQU8sZUFBZSxDQUFDLFFBQVEsRUFBRSxDQUFDO0lBQ3BDLENBQUM7SUFDRCxPQUFPLEVBQUUsQ0FBQyxRQUFRLEVBQUUsQ0FBQztBQUN2QixDQUFDO0FBRUQ7Ozs7O0dBS0c7QUFDSCxTQUFnQixjQUFjO0lBQzVCLE1BQU0sR0FBRyxHQUFHLE9BQU8sQ0FBQyxNQUFNLEVBQUUsRUFBRSxDQUFDO0lBRS9CLGtFQUFrRTtJQUNsRSxJQUFJLENBQUMsR0FBRyxJQUFJLEdBQUcsS0FBSyxDQUFDLEVBQUUsQ0FBQztRQUN0QixNQUFNLE9BQU8sR0FBRyxPQUFPLENBQUMsR0FBRyxDQUFDLFFBQVEsQ0FBQztRQUNyQyxJQUFJLE9BQU8sRUFBRSxDQUFDO1lBQ1osTUFBTSxTQUFTLEdBQUcsUUFBUSxDQUFDLE9BQU8sRUFBRSxFQUFFLENBQUMsQ0FBQztZQUN4QyxJQUFJLENBQUMsS0FBSyxDQUFDLFNBQVMsQ0FBQyxFQUFFLENBQUM7Z0JBQ3RCLE9BQU8sMEJBQTBCLENBQUMsU0FBUyxDQUFDLENBQUM7WUFDL0MsQ0FBQztRQUNILENBQUM7UUFDRCxPQUFPLGVBQWUsQ0FBQyxRQUFRLEVBQUUsQ0FBQztJQUNwQyxDQUFDO0lBRUQsT0FBTywwQkFBMEIsQ0FBQyxHQUFHLENBQUMsQ0FBQztBQUN6QyxDQUFDO0FBRUQ7Ozs7R0FJRztBQUNILFNBQWdCLHVCQUF1QjtJQUNyQyxPQUFPLE9BQU8sQ0FBQyxNQUFNLEVBQUUsRUFBRSxLQUFLLENBQUMsSUFBSSxDQUFDLE9BQU8sQ0FBQyxHQUFHLENBQUMsUUFBUSxDQUFDO0FBQzNELENBQUM7QUFFRDs7Ozs7OztHQU9HO0FBQ0gsU0FBZ0IsY0FBYztJQUM1QixNQUFNLEdBQUcsR0FBRyxPQUFPLENBQUMsTUFBTSxFQUFFLEVBQUUsQ0FBQztJQUMvQixNQUFNLEdBQUcsR0FBRyxPQUFPLENBQUMsTUFBTSxFQUFFLEVBQUUsQ0FBQztJQUUvQixJQUFJLEdBQUcsS0FBSyxTQUFTLElBQUksR0FBRyxJQUFJLGVBQWUsSUFBSSxHQUFHLEtBQUssU0FBUyxJQUFJLEdBQUcsR0FBRyxDQUFDLEVBQUUsQ0FBQztRQUNoRixPQUFPLEdBQUcsQ0FBQyxRQUFRLEVBQUUsQ0FBQztJQUN4QixDQUFDO0lBRUQsa0VBQWtFO0lBQ2xFLElBQUksQ0FBQyxHQUFHLElBQUksR0FBRyxLQUFLLENBQUMsRUFBRSxDQUFDO1FBQ3RCLE1BQU0sT0FBTyxHQUFHLE9BQU8sQ0FBQyxHQUFHLENBQUMsUUFBUSxDQUFDO1FBQ3JDLElBQUksT0FBTyxFQUFFLENBQUM7WUFDWixNQUFNLFNBQVMsR0FBRyxRQUFRLENBQUMsT0FBTyxFQUFFLEVBQUUsQ0FBQyxDQUFDO1lBQ3hDLElBQUksQ0FBQyxLQUFLLENBQUMsU0FBUyxDQUFDLEVBQUUsQ0FBQztnQkFDdEIsT0FBTywwQkFBMEIsQ0FBQyxTQUFTLENBQUMsQ0FBQztZQUMvQyxDQUFDO1FBQ0gsQ0FBQztRQUNELE9BQU8sZUFBZSxDQUFDLFFBQVEsRUFBRSxDQUFDO0lBQ3BDLENBQUM7SUFFRCxPQUFPLDBCQUEwQixDQUFDLEdBQUcsQ0FBQyxDQUFDO0FBQ3pDLENBQUM7QUFFRDs7OztHQUlHO0FBQ0gsU0FBZ0IsZUFBZTtJQUM3QixNQUFNLEdBQUcsR0FBRyxPQUFPLENBQUMsTUFBTSxFQUFFLEVBQUUsQ0FBQztJQUUvQixtRUFBbUU7SUFDbkUsSUFBSSxDQUFDLEdBQUcsSUFBSSxHQUFHLEtBQUssQ0FBQyxFQUFFLENBQUM7UUFDdEIsaUVBQWlFO1FBQ2pFLE1BQU0sUUFBUSxHQUFHLE9BQU8sQ0FBQyxHQUFHLENBQUMsU0FBUyxDQUFDO1FBQ3ZDLElBQUksUUFBUSxFQUFFLENBQUM7WUFDYixJQUFJLENBQUM7Z0JBQ0gsaURBQWlEO2dCQUNqRCxNQUFNLE1BQU0sR0FBRyxFQUFFLENBQUMsWUFBWSxDQUFDLGFBQWEsRUFBRSxPQUFPLENBQUMsQ0FBQztnQkFDdkQsTUFBTSxRQUFRLEdBQUcsTUFBTSxDQUFDLEtBQUssQ0FBQyxJQUFJLENBQUMsQ0FBQyxJQUFJLENBQUMsSUFBSSxDQUFDLEVBQUUsQ0FBQyxJQUFJLENBQUMsVUFBVSxDQUFDLEdBQUcsUUFBUSxHQUFHLENBQUMsQ0FBQyxDQUFDO2dCQUNsRixJQUFJLFFBQVEsRUFBRSxDQUFDO29CQUNiLE1BQU0sS0FBSyxHQUFHLFFBQVEsQ0FBQyxLQUFLLENBQUMsR0FBRyxDQUFDLENBQUM7b0JBQ2xDLElBQUksS0FBSyxDQUFDLE1BQU0sSUFBSSxDQUFDLElBQUksS0FBSyxDQUFDLENBQUMsQ0FBQyxFQUFFLENBQUM7d0JBQ2xDLE9BQU8sS0FBSyxDQUFDLENBQUMsQ0FBQyxDQUFDLENBQUMsa0NBQWtDO29CQUNyRCxDQUFDO2dCQUNILENBQUM7WUFDSCxDQUFDO1lBQUMsTUFBTSxDQUFDO2dCQUNQLDJCQUEyQjtZQUM3QixDQUFDO1FBQ0gsQ0FBQztJQUNILENBQUM7SUFFRCw0Q0FBNEM7SUFDNUMsT0FBTyxPQUFPLENBQUMsR0FBRyxDQUFDLElBQUksSUFBSSxPQUFPLENBQUM7QUFDckMsQ0FBQyIsIm5hbWVzIjpbXSwic291cmNlcyI6WyIvaG9tZS9ydW5uZXIvd29yay9naC1hdy1maXJld2FsbC9naC1hdy1maXJld2FsbC9zcmMvaG9zdC1pZGVudGl0eS50cyJdLCJzb3VyY2VzQ29udGVudCI6WyJpbXBvcnQgKiBhcyBmcyBmcm9tICdmcyc7XG5cbi8qKlxuICogQmFzZSBpbWFnZSBmb3IgdGhlICdhY3QnIHByZXNldCB3aGVuIGJ1aWxkaW5nIGxvY2FsbHkuXG4gKiBVc2VzIGNhdHRoZWhhY2tlcidzIEdpdEh1YiBBY3Rpb25zIHBhcml0eSBpbWFnZS5cbiAqL1xuZXhwb3J0IGNvbnN0IEFDVF9QUkVTRVRfQkFTRV9JTUFHRSA9ICdnaGNyLmlvL2NhdHRoZWhhY2tlci91YnVudHU6YWN0LTI0LjA0JztcblxuLyoqXG4gKiBNaW5pbXVtIFVJRC9HSUQgdmFsdWUgZm9yIHJlZ3VsYXIgdXNlcnMuXG4gKiBVSURzIDAtOTk5IGFyZSByZXNlcnZlZCBmb3Igc3lzdGVtIHVzZXJzIG9uIG1vc3QgTGludXggZGlzdHJpYnV0aW9ucy5cbiAqL1xuY29uc3QgTUlOX1JFR1VMQVJfVUlEID0gMTAwMDtcblxuLyoqXG4gKiBWYWxpZGF0ZXMgdGhhdCBhIFVJRC9HSUQgdmFsdWUgaXMgc2FmZSBmb3IgdXNlIChub3QgaW4gc3lzdGVtIHJhbmdlKS5cbiAqIFJldHVybnMgdGhlIHZhbHVlIGlmIHZhbGlkLCBvciB0aGUgZGVmYXVsdCAoMTAwMCkgaWYgaW4gc3lzdGVtIHJhbmdlLlxuICovXG5mdW5jdGlvbiB2YWxpZGF0ZUlkTm90SW5TeXN0ZW1SYW5nZShpZDogbnVtYmVyKTogc3RyaW5nIHtcbiAgLy8gUmVqZWN0IHN5c3RlbSBVSURzL0dJRHMgKDAtOTk5KSAtIHVzZSBkZWZhdWx0IHVucHJpdmlsZWdlZCB1c2VyIGluc3RlYWRcbiAgaWYgKGlkIDwgTUlOX1JFR1VMQVJfVUlEKSB7XG4gICAgcmV0dXJuIE1JTl9SRUdVTEFSX1VJRC50b1N0cmluZygpO1xuICB9XG4gIHJldHVybiBpZC50b1N0cmluZygpO1xufVxuXG4vKipcbiAqIEdldHMgdGhlIGhvc3QgdXNlcidzIFVJRCwgd2l0aCBmYWxsYmFjayB0byAxMDAwIGlmIHVuYXZhaWxhYmxlLCByb290ICgwKSxcbiAqIG9yIGluIHRoZSBzeXN0ZW0gVUlEIHJhbmdlICgwLTk5OSkuXG4gKiBXaGVuIHJ1bm5pbmcgd2l0aCBzdWRvLCB1c2VzIFNVRE9fVUlEIHRvIGdldCB0aGUgYWN0dWFsIHVzZXIncyBVSUQuXG4gKiBAaW50ZXJuYWwgRXhwb3J0ZWQgZm9yIHRlc3RpbmdcbiAqL1xuZXhwb3J0IGZ1bmN0aW9uIGdldFNhZmVIb3N0VWlkKCk6IHN0cmluZyB7XG4gIGNvbnN0IHVpZCA9IHByb2Nlc3MuZ2V0dWlkPy4oKTtcbiAgXG4gIC8vIFdoZW4gcnVubmluZyBhcyByb290IChzdWRvKSwgdHJ5IHRvIGdldCB0aGUgb3JpZ2luYWwgdXNlcidzIFVJRFxuICBpZiAoIXVpZCB8fCB1aWQgPT09IDApIHtcbiAgICBjb25zdCBzdWRvVWlkID0gcHJvY2Vzcy5lbnYuU1VET19VSUQ7XG4gICAgaWYgKHN1ZG9VaWQpIHtcbiAgICAgIGNvbnN0IHBhcnNlZFVpZCA9IHBhcnNlSW50KHN1ZG9VaWQsIDEwKTtcbiAgICAgIGlmICghaXNOYU4ocGFyc2VkVWlkKSkge1xuICAgICAgICByZXR1cm4gdmFsaWRhdGVJZE5vdEluU3lzdGVtUmFuZ2UocGFyc2VkVWlkKTtcbiAgICAgIH1cbiAgICB9XG4gICAgcmV0dXJuIE1JTl9SRUdVTEFSX1VJRC50b1N0cmluZygpO1xuICB9XG4gIFxuICByZXR1cm4gdmFsaWRhdGVJZE5vdEluU3lzdGVtUmFuZ2UodWlkKTtcbn1cblxuLyoqXG4gKiBSZXR1cm5zIHRydWUgd2hlbiBBV0YgaXMgcnVubmluZyBhcyByb290IGRpcmVjdGx5IHJhdGhlciB0aGFuIHRocm91Z2ggc3Vkby5cbiAqIEluIHRoaXMgbW9kZSB0aGVyZSBpcyBubyBvcmlnaW5hbCBob3N0IGlkZW50aXR5IHRvIHJlY292ZXIgZnJvbSBTVURPX1VJRC5cbiAqIEBpbnRlcm5hbCBFeHBvcnRlZCBmb3IgdGVzdGluZ1xuICovXG5leHBvcnQgZnVuY3Rpb24gaXNOYXRpdmVSb290V2l0aG91dFN1ZG8oKTogYm9vbGVhbiB7XG4gIHJldHVybiBwcm9jZXNzLmdldHVpZD8uKCkgPT09IDAgJiYgIXByb2Nlc3MuZW52LlNVRE9fVUlEO1xufVxuXG4vKipcbiAqIEdldHMgdGhlIGhvc3QgdXNlcidzIEdJRCwgd2l0aCBmYWxsYmFjayB0byAxMDAwIGlmIHVuYXZhaWxhYmxlLCByb290ICgwKSxcbiAqIG9yIGluIHRoZSBzeXN0ZW0gR0lEIHJhbmdlICgwLTk5OSksIGV4Y2VwdCB0aGF0IGNhbGxlcnMgd2l0aCBVSUQgPj0gMTAwMFxuICoga2VlcCB0aGVpciBub256ZXJvIHByaW1hcnkgR0lELCBpbmNsdWRpbmcgc3lzdGVtLXJhbmdlIEdJRHMsIHNvXG4gKiBvd25lcnNoaXAgY2hhbmdlcyBhbmQgdGhlIHNhbmRib3ggaWRlbnRpdHkgbWF0Y2ggdGhlIGFjdHVhbCBjYWxsZXIuXG4gKiBXaGVuIHJ1bm5pbmcgd2l0aCBzdWRvLCB1c2VzIFNVRE9fR0lEIHRvIGdldCB0aGUgYWN0dWFsIHVzZXIncyBHSUQuXG4gKiBAaW50ZXJuYWwgRXhwb3J0ZWQgZm9yIHRlc3RpbmdcbiAqL1xuZXhwb3J0IGZ1bmN0aW9uIGdldFNhZmVIb3N0R2lkKCk6IHN0cmluZyB7XG4gIGNvbnN0IGdpZCA9IHByb2Nlc3MuZ2V0Z2lkPy4oKTtcbiAgY29uc3QgdWlkID0gcHJvY2Vzcy5nZXR1aWQ/LigpO1xuXG4gIGlmICh1aWQgIT09IHVuZGVmaW5lZCAmJiB1aWQgPj0gTUlOX1JFR1VMQVJfVUlEICYmIGdpZCAhPT0gdW5kZWZpbmVkICYmIGdpZCA+IDApIHtcbiAgICByZXR1cm4gZ2lkLnRvU3RyaW5nKCk7XG4gIH1cblxuICAvLyBXaGVuIHJ1bm5pbmcgYXMgcm9vdCAoc3VkbyksIHRyeSB0byBnZXQgdGhlIG9yaWdpbmFsIHVzZXIncyBHSURcbiAgaWYgKCFnaWQgfHwgZ2lkID09PSAwKSB7XG4gICAgY29uc3Qgc3Vkb0dpZCA9IHByb2Nlc3MuZW52LlNVRE9fR0lEO1xuICAgIGlmIChzdWRvR2lkKSB7XG4gICAgICBjb25zdCBwYXJzZWRHaWQgPSBwYXJzZUludChzdWRvR2lkLCAxMCk7XG4gICAgICBpZiAoIWlzTmFOKHBhcnNlZEdpZCkpIHtcbiAgICAgICAgcmV0dXJuIHZhbGlkYXRlSWROb3RJblN5c3RlbVJhbmdlKHBhcnNlZEdpZCk7XG4gICAgICB9XG4gICAgfVxuICAgIHJldHVybiBNSU5fUkVHVUxBUl9VSUQudG9TdHJpbmcoKTtcbiAgfVxuICBcbiAgcmV0dXJuIHZhbGlkYXRlSWROb3RJblN5c3RlbVJhbmdlKGdpZCk7XG59XG5cbi8qKlxuICogR2V0cyB0aGUgcmVhbCB1c2VyJ3MgaG9tZSBkaXJlY3RvcnksIGFjY291bnRpbmcgZm9yIHN1ZG8uXG4gKiBXaGVuIHJ1bm5pbmcgd2l0aCBzdWRvLCB1c2VzIFNVRE9fVVNFUiB0byBmaW5kIHRoZSBhY3R1YWwgdXNlcidzIGhvbWUuXG4gKiBAaW50ZXJuYWwgRXhwb3J0ZWQgZm9yIHRlc3RpbmdcbiAqL1xuZXhwb3J0IGZ1bmN0aW9uIGdldFJlYWxVc2VySG9tZSgpOiBzdHJpbmcge1xuICBjb25zdCB1aWQgPSBwcm9jZXNzLmdldHVpZD8uKCk7XG5cbiAgLy8gV2hlbiBydW5uaW5nIGFzIHJvb3QgKHN1ZG8pLCB0cnkgdG8gZ2V0IHRoZSBvcmlnaW5hbCB1c2VyJ3MgaG9tZVxuICBpZiAoIXVpZCB8fCB1aWQgPT09IDApIHtcbiAgICAvLyBUcnkgU1VET19VU0VSIGZpcnN0IC0gbG9vayB1cCB0aGVpciBob21lIGRpcmVjdG9yeSBmcm9tIHBhc3N3ZFxuICAgIGNvbnN0IHN1ZG9Vc2VyID0gcHJvY2Vzcy5lbnYuU1VET19VU0VSO1xuICAgIGlmIChzdWRvVXNlcikge1xuICAgICAgdHJ5IHtcbiAgICAgICAgLy8gTG9vayB1cCB1c2VyJ3MgaG9tZSBkaXJlY3RvcnkgZnJvbSAvZXRjL3Bhc3N3ZFxuICAgICAgICBjb25zdCBwYXNzd2QgPSBmcy5yZWFkRmlsZVN5bmMoJy9ldGMvcGFzc3dkJywgJ3V0Zi04Jyk7XG4gICAgICAgIGNvbnN0IHVzZXJMaW5lID0gcGFzc3dkLnNwbGl0KCdcXG4nKS5maW5kKGxpbmUgPT4gbGluZS5zdGFydHNXaXRoKGAke3N1ZG9Vc2VyfTpgKSk7XG4gICAgICAgIGlmICh1c2VyTGluZSkge1xuICAgICAgICAgIGNvbnN0IHBhcnRzID0gdXNlckxpbmUuc3BsaXQoJzonKTtcbiAgICAgICAgICBpZiAocGFydHMubGVuZ3RoID49IDYgJiYgcGFydHNbNV0pIHtcbiAgICAgICAgICAgIHJldHVybiBwYXJ0c1s1XTsgLy8gSG9tZSBkaXJlY3RvcnkgaXMgdGhlIDZ0aCBmaWVsZFxuICAgICAgICAgIH1cbiAgICAgICAgfVxuICAgICAgfSBjYXRjaCB7XG4gICAgICAgIC8vIEZhbGwgdGhyb3VnaCB0byB1c2UgSE9NRVxuICAgICAgfVxuICAgIH1cbiAgfVxuXG4gIC8vIFVzZSBIT01FIGVudmlyb25tZW50IHZhcmlhYmxlIGFzIGZhbGxiYWNrXG4gIHJldHVybiBwcm9jZXNzLmVudi5IT01FIHx8ICcvcm9vdCc7XG59XG4iXSwidmVyc2lvbiI6M30=

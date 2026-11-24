@@ -384,6 +384,25 @@ function createOidcAwareProviderAdapter({
   const adapterMethods = createAdapterMethods(typeof createAdapterMethodsOptions === 'function'
     ? createAdapterMethodsOptions(context)
     : createAdapterMethodsOptions);
+  if (oidcConfigured && authProvider === 'databricks') {
+    const { isDatabricksPathAllowed, isDatabricksRequestAllowed } = require('./providers/databricks-routes');
+    adapterMethods.isRequestAllowed = req => isDatabricksRequestAllowed(
+      req, adapterMethods.getTargetHost(req), adapterMethods.getBasePath(req),
+    );
+    for (const method of ['getValidationProbe', 'getModelsFetchConfig']) {
+      const original = adapterMethods[method];
+      adapterMethods[method] = () => {
+        const request = original();
+        if (!request || request.skip) return request;
+        try {
+          const url = new URL(request.url);
+          return isDatabricksPathAllowed(request.opts.method, url.pathname + url.search) ? request : null;
+        } catch {
+          return null;
+        }
+      };
+    }
+  }
   const adapterOptions = typeof buildAdapterOptions === 'function'
     ? buildAdapterOptions({ ...context, adapterMethods })
     : buildAdapterOptions;

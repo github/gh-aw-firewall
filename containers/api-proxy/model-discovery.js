@@ -106,6 +106,22 @@ function buildRequest(url, opts, timeoutMs) {
 }
 
 // ── fetchJson ─────────────────────────────────────────────────────────────────
+function redactJsonCredentials(context, value) {
+  if (typeof value === 'string') return redactCredentialText(context, value);
+  if (Array.isArray(value)) return value.map(item => redactJsonCredentials(context, item));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+      redactCredentialText(context, key), redactJsonCredentials(context, item),
+    ]));
+  }
+  if (value !== null) {
+    const serialized = JSON.stringify(value);
+    const redacted = redactCredentialText(context, serialized);
+    if (redacted !== serialized) return redacted;
+  }
+  return value;
+}
+
 /**
  * Make an HTTPS/HTTP request through the proxy and return parsed JSON response.
  * Returns null on any error, non-2xx status, or parse failure.
@@ -139,7 +155,8 @@ function fetchJson(url, opts, timeoutMs) {
       res.on('data', (chunk) => chunks.push(chunk));
       res.on('end', () => {
         try {
-          resolveOnce(JSON.parse(redactCredentialText(credentialContext, Buffer.concat(chunks).toString())));
+          const json = JSON.parse(Buffer.concat(chunks).toString());
+          resolveOnce(redactJsonCredentials(credentialContext, json));
         } catch { resolveOnce(null); }
       });
       res.on('error', (err) => {

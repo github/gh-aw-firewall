@@ -15,6 +15,14 @@ function buildStaticAuthHeaderFn({ headerName, scheme, defaultHeaderName, prefix
   return (key, extraHeaders) => {
     if (!scheme) {
       const headers = legacyBuilder(key, extraHeaders);
+      if (key !== undefined && key !== null) {
+        try {
+          const name = headerName || defaultHeaderName || 'Authorization';
+          validateHeaderValue(name, headers[name]);
+        } catch {
+          throw new Error('Invalid static authentication credential: expected a safe HTTP header value');
+        }
+      }
       const rawKey = typeof key === 'string' ? key.replace(/^(?:Bearer|token)\s+/i, '') : key;
       return markCredentialHeaders(headers, [...getHeaderCredentials(headers), rawKey]);
     }
