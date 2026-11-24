@@ -260,11 +260,14 @@ function selectAdaptive({ summary, rank, ordinary = rank[0], job, price }) {
     if (!incumbentRecord || incumbentRecord.tokens === null) return null;
     const pairPrice = price(pair, incumbentRecord.tokens);
     const incumbentPrice = price(incumbent, incumbentRecord.tokens);
-    if (pairPrice === null || incumbentPrice === null || incumbentPrice === 0) return null;
+    if (!isAmount(pairPrice) || !isAmount(incumbentPrice) || incumbentPrice === 0) return null;
     const incumbentCost = measured(incumbent);
     if (!incumbentCost) return [pairPrice, 'estimated'];
     const modelCredits = incumbentRecord.model_credits ?? incumbentCost[0];
-    return [incumbentCost[0] + modelCredits * (pairPrice / incumbentPrice - 1), 'estimated'];
+    if (modelCredits > incumbentCost[0]) return null;
+    const estimate = incumbentCost[0] + modelCredits * (pairPrice / incumbentPrice - 1);
+    if (!Number.isFinite(estimate) || estimate < 0) return null;
+    return [estimate, 'estimated'];
   };
 
   let incumbent = usable.includes(incumbentBefore) ? incumbentBefore : null;
