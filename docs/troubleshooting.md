@@ -524,6 +524,8 @@ else becomes read-only (see [awf-config-spec.md §4.1](./awf-config-spec.md#41-f
 
 AWF automatically sets `JAVA_TOOL_OPTIONS` with `-Dhttp.proxyHost`, `-Dhttp.proxyPort`, `-Dhttps.proxyHost`, `-Dhttps.proxyPort`, and `-Dhttp.nonProxyHosts` inside the agent container. This works for most Java tools that read standard JVM system properties, including Gradle and SBT.
 
+The CA overlay preserves Java keystores at `/etc/ssl/certs/*/cacerts`, including Debian's `java/cacerts` and Temurin's `adoptium/cacerts`, so JDK symlinks remain valid. These keystores retain their existing CA contents; AWF's PEM bundle filtering does not rebuild Java keystores.
+
 ### Maven Requires Extra Configuration
 
 **Problem:** Maven builds fail with network errors even though the domain is in `--allow-domains`

@@ -1203,10 +1203,15 @@ copy_system_ca_bundle() {
   mkdir -p "$trust"
   sh /opt/awf/trust/filter-ca-store.sh "$trust" "${inputs[@]}"
   cp /opt/awf/trust/node-trust.cjs "$trust/node-trust.cjs"
-  if [ -e /host/etc/ssl/certs/java/cacerts ]; then
-    mkdir -p "$trust/certs/java"
-    cp -L /host/etc/ssl/certs/java/cacerts "$trust/certs/java/cacerts"
-  fi
+  # Preserve distro/vendor Java stores before the overlay hides their paths.
+  # JDK cacerts symlinks may target java/cacerts or adoptium/cacerts.
+  local java_store relative_store
+  for java_store in /host/etc/ssl/certs/*/cacerts; do
+    [ -f "$java_store" ] || continue
+    relative_store="${java_store#/host/etc/ssl/certs/}"
+    mkdir -p "$trust/certs/$(dirname "$relative_store")"
+    cp -L "$java_store" "$trust/certs/$relative_store"
+  done
   # The /run staging root is container-local; none of these operations writes
   # through the read-only host /etc bind mounts.
   for candidate in "${directories[@]}"; do
