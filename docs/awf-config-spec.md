@@ -2939,13 +2939,13 @@ estimate, including one that fills a component the estimate uses when the
 model's own tariff is partial, and a pair without a cost is never chosen on cost.
 
 An evidence summary changes only which permitted pair runs, never whether a run
-starts. When a per-model guard (such as a missing price, a retired or disallowed
-model, or the multiplier cap) rejects the pair the selector chose, AWF falls
-back to ordinary routing: it tries the router's next passing choice and then the
-eligible fallback pool (never trying the rejected pick twice), and records an
-`ordinary` receipt with reason `selection_rejected`. When the router cannot
-choose, AWF serves a fallback pair as ordinary routing does (§13a.1) and records
-an `ordinary` receipt with reason `router_fallback`. On both receipts,
+starts. When a per-model guard (such as a retired or disallowed model, the
+multiplier cap, or harness eligibility) rejects the pair the selector chose, AWF
+falls back to ordinary routing: it tries the router's next passing choice and
+then the eligible fallback pool (never trying the rejected pick twice), and
+records an `ordinary` receipt with reason `selection_rejected`. When the router
+cannot choose, AWF serves a fallback pair as ordinary routing does (§13a.1) and
+records an `ordinary` receipt with reason `router_fallback`. On both receipts,
 `generation`, `mode`, `scope`, `explore_allowed`, and `concurrency` (`turn` and
 `in_flight`, with `capacity` `null`) come from the summary; `selected` and
 `ordinary` both name the pair that runs; `would` is `null`; `incumbent` stays

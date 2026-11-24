@@ -591,6 +591,48 @@ describe('routing controller', () => {
         .toBeLessThan(nextRun.writeAdaptiveReceipt.mock.invocationCallOrder[0]);
     });
 
+    it('clears binding fields on invalid_evidence receipts for malformed object summaries', async () => {
+      const malformed = summary({ v: 1 });
+      const normalRun = run(malformed);
+      const normalResult = await normalRun.controller.run();
+      expect(normalResult.ok).toBe(true);
+      expect(normalResult.adaptiveReceipt).toMatchObject({
+        generation: null,
+        mode: null,
+        scope: null,
+        role: 'ordinary',
+        explore_allowed: false,
+        selected: 'github-copilot/model-a@low',
+        ordinary: 'github-copilot/model-a@low',
+        would: null,
+        incumbent: null,
+        costs: {},
+        concurrency: null,
+        reason: 'invalid_evidence',
+      });
+
+      const fallbackRun = run(malformed, {
+        planner: { route: async () => { throw { statusCode: 422, body: { code: 'no_route' } }; } },
+      });
+      const fallbackResult = await fallbackRun.controller.run();
+      expect(fallbackResult.ok).toBe(true);
+      const fallbackPair = `github-copilot/${fallbackResult.selection.wire_model}@${fallbackResult.selection.choice.effort}`;
+      expect(fallbackResult.adaptiveReceipt).toMatchObject({
+        generation: null,
+        mode: null,
+        scope: null,
+        role: 'ordinary',
+        explore_allowed: false,
+        selected: fallbackPair,
+        ordinary: fallbackPair,
+        would: null,
+        incumbent: null,
+        costs: {},
+        concurrency: null,
+        reason: 'invalid_evidence',
+      });
+    });
+
     it('fails without a receipt on a run-wide guard or when every pair is rejected', async () => {
       const budgetRun = run(summary(), {
         checkBeforePrimary: () => { throw createRoutingError('ai_credits_limit_exceeded', 'Budget exhausted'); },

@@ -320,7 +320,9 @@ function createRoutingController(dependencies) {
               route ? ADAPTIVE_FALLBACK_REASONS.SELECTION_REJECTED : ADAPTIVE_FALLBACK_REASONS.ROUTER_FALLBACK,
             )
             : selectAdaptive({
-              summary: adaptive.summary,
+              // Normalize malformed object summaries so invalid_evidence never echoes live binding
+              // fields next to incumbent: null.
+              summary: adaptive.summary === null || adaptive.summary === undefined ? null : 'invalid',
               rank: [winningPair],
               ordinary: winningPair,
               job: adaptive.job,
