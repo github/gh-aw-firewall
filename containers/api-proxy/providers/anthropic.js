@@ -24,7 +24,7 @@ const {
 const { createStandardProviderAdapter } = require('../adapter-factory');
 const { AnthropicOidcTokenProvider } = require('../anthropic-oidc-token-provider');
 const { ANTHROPIC_ENV } = require('../provider-env-constants');
-const { bearerAuthHeaders, providerKeyHeaders } = require('./auth-headers');
+const { bearerAuthHeaders, buildStaticAuthHeaderFn, validateAuthSchemeEnv } = require('./auth-headers');
 const { markCredentialHeaders, getHeaderCredentials } = require('../credential-protection');
 const {
   parseClaudeHostedWebPolicy,
@@ -71,6 +71,15 @@ function mergeAnthropicBetas(...values) {
  */
 function createAnthropicAdapter(env, deps = {}) {
   const authHeaderName = validateAuthHeaderEnv(ANTHROPIC_ENV.AUTH_HEADER, env[ANTHROPIC_ENV.AUTH_HEADER], 'x-api-key');
+  const staticAuthScheme = validateAuthSchemeEnv(ANTHROPIC_ENV.AUTH_SCHEME, env[ANTHROPIC_ENV.AUTH_SCHEME]);
+  const buildStaticAuthHeaders = buildStaticAuthHeaderFn({
+    headerName: (env[ANTHROPIC_ENV.AUTH_HEADER] || '').trim() ? authHeaderName : undefined,
+    defaultHeaderName: 'x-api-key',
+    scheme: staticAuthScheme,
+  });
+  const databricksRequested = (env.AWF_AUTH_TYPE || '').trim().toLowerCase() === 'github-oidc'
+    && (env.AWF_AUTH_PROVIDER || '').trim().toLowerCase() === 'databricks';
+  const databricksSelected = databricksRequested && !!(env[ANTHROPIC_ENV.TARGET] || '').trim();
 
   // oidcRequested tracks whether the caller asked for Anthropic OIDC, regardless
   // of whether the token env vars (ACTIONS_ID_TOKEN_REQUEST_*) are also present.
@@ -148,21 +157,27 @@ function createAnthropicAdapter(env, deps = {}) {
         });
       } : null,
     }),
-    createHeaderBuilders: ({ apiKey }) => ({
-      buildOidcHeaders: (token) => bearerAuthHeaders(token, {
-        'anthropic-beta': OAUTH_API_BETA,
-      }),
-      buildStaticHeaders: () => providerKeyHeaders(authHeaderName, apiKey),
-    }),
-    createAdapterMethodsOptions: ({ oidcConfigured, oidcProvider, resolveHeaders }) => ({
+    createHeaderBuilders: ({ apiKey }) => {
+      if (apiKey) buildStaticAuthHeaders(apiKey);
+      return {
+        buildOidcHeaders: (token) => bearerAuthHeaders(token, databricksRequested ? undefined : {
+          'anthropic-beta': OAUTH_API_BETA,
+        }),
+        buildStaticHeaders: () => buildStaticAuthHeaders(apiKey),
+      };
+    },
+    createAdapterMethodsOptions: ({ authProvider, oidcConfigured, oidcProvider, resolveHeaders }) => ({
       validationPath: '/v1/messages',
       validationMethod: 'POST',
       validationBody: '{}',
-      validationHeaders: () => ({
-        ...resolveHeaders(),
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      }),
+      validationHeaders: () => {
+        const headers = resolveHeaders();
+        return markCredentialHeaders({
+          ...headers,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        }, getHeaderCredentials(headers));
+      },
       validationSkip: () => {
         if (!oidcConfigured) return null;
         // After OIDC init, validate using the acquired token
@@ -171,20 +186,25 @@ function createAnthropicAdapter(env, deps = {}) {
       },
       skipModelsFetch: () => oidcConfigured && !oidcProvider?.isReady(),
       modelsPath: '/v1/models',
-      modelsFetchHeaders: () => ({
-        ...resolveHeaders(),
-        'anthropic-version': '2023-06-01',
-      }),
+      modelsFetchHeaders: () => {
+        const headers = resolveHeaders();
+        return markCredentialHeaders({
+          ...headers,
+          'anthropic-version': '2023-06-01',
+        }, getHeaderCredentials(headers));
+      },
       reflectionExtra: () => ({
-        auth_type: oidcRequested ? 'github-oidc/anthropic' : 'static-key',
+        auth_type: oidcConfigured ? `github-oidc/${authProvider}` : (oidcRequested ? 'github-oidc/anthropic' : 'static-key'),
       }),
     }),
     buildAdapterOptions: ({ oidcConfigured }) => {
       const oidcScaffold = buildOidcUnavailableScaffold({
-        requested: oidcRequested,
+        requested: oidcRequested || databricksSelected,
         configured: oidcConfigured,
-        unavailableMessage: 'Anthropic OIDC token unavailable; retry shortly',
-        unconfiguredMessage: 'Anthropic OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (permissions: id-token: write).',
+        unavailableMessage: databricksRequested ? 'Databricks OIDC token unavailable; retry shortly' : 'Anthropic OIDC token unavailable; retry shortly',
+        unconfiguredMessage: databricksRequested
+          ? 'Databricks OIDC requires an explicit target matching the HTTPS workspace origin; first-party and conflicting targets are refused.'
+          : 'Anthropic OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (permissions: id-token: write).',
       });
       return {
         missingCredentialResponse: {

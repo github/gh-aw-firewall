@@ -521,10 +521,10 @@ The agent container receives **redacted placeholders** and proxy URLs:
 
 | Variable | Value | When set | Description |
 |----------|-------|----------|-------------|
-| `OPENAI_BASE_URL` | `http://172.30.0.30:10000` | `OPENAI_API_KEY` provided to host | Redirects OpenAI SDK to proxy |
-| `ANTHROPIC_BASE_URL` | `http://172.30.0.30:10001` | `ANTHROPIC_API_KEY` provided to host | Redirects Anthropic SDK to proxy |
-| `ANTHROPIC_AUTH_TOKEN` | `sk-ant-placeholder-key-for-credential-isolation` | `ANTHROPIC_API_KEY` provided to host, or Anthropic WIF configured | Non-secret placeholder accepted by Claude clients (real auth via `ANTHROPIC_BASE_URL`) |
-| `CLAUDE_CODE_API_KEY_HELPER` | `/usr/local/bin/get-claude-key.sh` | `ANTHROPIC_API_KEY` provided to host | Helper script for Claude Code CLI |
+| `OPENAI_BASE_URL` | `http://172.30.0.30:10000` | Static OpenAI key, native OpenAI WIF, or Databricks OIDC with an explicit OpenAI upstream | Redirects OpenAI SDK to proxy |
+| `ANTHROPIC_BASE_URL` | `http://172.30.0.30:10001` | Static Anthropic key, Anthropic WIF, or Databricks OIDC with an explicit Anthropic upstream | Redirects Anthropic SDK to proxy |
+| `ANTHROPIC_AUTH_TOKEN` | `sk-ant-placeholder-key-for-credential-isolation` | Static Anthropic key, Anthropic WIF, or eligible Databricks OIDC | Non-secret placeholder accepted by Claude clients (real auth via `ANTHROPIC_BASE_URL`) |
+| `CLAUDE_CODE_API_KEY_HELPER` | `/usr/local/bin/get-claude-key.sh` | Static Anthropic key, Anthropic WIF, or eligible Databricks OIDC | Helper script for Claude Code CLI |
 | `COPILOT_API_URL` | `http://172.30.0.30:10002` | `COPILOT_GITHUB_TOKEN` or `COPILOT_PROVIDER_API_KEY` provided to host | Redirects Copilot CLI to sidecar |
 | `COPILOT_TOKEN` | `ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` | `COPILOT_GITHUB_TOKEN` or `COPILOT_PROVIDER_API_KEY` provided to host | Placeholder token (real auth via API_URL) |
 | `COPILOT_GITHUB_TOKEN` | `ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` | `COPILOT_GITHUB_TOKEN` provided to host | Placeholder token protected by one-shot-token (real token in sidecar) |
@@ -537,8 +537,8 @@ The agent container receives **redacted placeholders** and proxy URLs:
 | `GEMINI_CLI_SYSTEM_SETTINGS_PATH` | `/etc/awf/gemini-cli/settings.json` | Compose-backed Gemini routed through the proxy, unless `GOOGLE_GENAI_USE_VERTEXAI`/`GOOGLE_GENAI_USE_GCA` is `true` | Root-owned, read-only Gemini CLI system settings file that pins `security.auth.selectedType` to `gemini-api-key` |
 | `GOOGLE_VERTEX_BASE_URL` | `http://172.30.0.30:10004` | `GOOGLE_API_KEY` or GCP OIDC configured | Redirects Vertex AI requests to proxy |
 | `GOOGLE_API_KEY` | `google-api-key-placeholder-for-credential-isolation` | `GOOGLE_API_KEY` or GCP OIDC configured | Placeholder so Vertex mode auth checks pass (real key or WIF token in sidecar) |
-| `OPENAI_API_KEY` | `sk-placeholder-for-api-proxy` | `OPENAI_API_KEY` provided to host | Non-secret placeholder required by newer Codex clients; the real host value is excluded and held in the sidecar |
-| `CODEX_API_KEY` | `sk-placeholder-for-api-proxy` | `OPENAI_API_KEY` provided to host | Non-secret placeholder for Codex routing; the sidecar replaces its auth header |
+| `OPENAI_API_KEY` | `sk-placeholder-for-api-proxy` | Static OpenAI key, native OpenAI WIF, or eligible Databricks OIDC | Non-secret placeholder required by newer Codex clients; the real host value is excluded and held in the sidecar |
+| `CODEX_API_KEY` | `sk-placeholder-for-api-proxy` | Static OpenAI key, native OpenAI WIF, or eligible Databricks OIDC | Non-secret placeholder for Codex routing; the sidecar replaces its auth header |
 | `ANTHROPIC_API_KEY` | Not set | Always | Excluded from agent (held in api-proxy) |
 | `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid proxy |
 | `HTTPS_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid proxy |
@@ -739,8 +739,15 @@ These entries document and constrain agent-originated traffic. They do not const
 | `--gemini-api-base-path <path>` | empty | Base path prefix for Gemini API requests. Can also be set via `GEMINI_API_BASE_PATH` env var. |
 | `--vertex-api-target <host>` | `aiplatform.googleapis.com` | Custom upstream for Vertex API requests. Can also be set via `VERTEX_API_TARGET` env var. |
 | `--vertex-api-base-path <path>` | empty | Base path prefix for Vertex API requests. Can also be set via `VERTEX_API_BASE_PATH` env var. |
-| `--openai-api-auth-header <name>` | `Authorization` (with `Bearer` prefix) | Custom auth header name for OpenAI requests — sends the raw key/token value with no prefix. Can also be set via `AWF_OPENAI_AUTH_HEADER` env var. `traceparent`, `tracestate` and `baggage` are reserved and rejected at startup. |
-| `--anthropic-api-auth-header <name>` | `x-api-key` | Custom auth header name for Anthropic requests — sends the raw key/token value with no prefix. Can also be set via `AWF_ANTHROPIC_AUTH_HEADER` env var. `traceparent`, `tracestate` and `baggage` are reserved and rejected at startup. |
+| `--openai-api-auth-header <name>` | `Authorization` (with `Bearer` prefix) | Custom auth header name for OpenAI requests — sends the raw key/token value with no prefix unless an auth scheme is configured. Can also be set via `AWF_OPENAI_AUTH_HEADER` env var. `traceparent`, `tracestate` and `baggage` are reserved and rejected at startup. |
+| `--anthropic-api-auth-header <name>` | `x-api-key` | Custom auth header name for Anthropic requests — sends the raw key/token value with no prefix unless an auth scheme is configured. Can also be set via `AWF_ANTHROPIC_AUTH_HEADER` env var. `traceparent`, `tracestate` and `baggage` are reserved and rejected at startup. |
+| `--openai-api-auth-scheme <scheme>` | Unset | Static-key scheme prefix, such as `Bearer`. Uses the custom auth header if set, otherwise `Authorization`. Also `AWF_OPENAI_AUTH_SCHEME` or `apiProxy.targets.openai.authScheme`. |
+| `--anthropic-api-auth-scheme <scheme>` | Unset | Static-key scheme prefix, such as `Bearer`. Uses the custom auth header if set, otherwise `Authorization`. Also `AWF_ANTHROPIC_AUTH_SCHEME` or `apiProxy.targets.anthropic.authScheme`. |
+
+`authScheme` accepts a non-empty HTTP authentication scheme token. A static
+credential already prefixed with that scheme (case-insensitive) is not prefixed
+again. Without this option, existing header behavior is unchanged. It does not
+change OIDC headers; Databricks OIDC always uses `Authorization: Bearer`.
 
 > **Important**: When using a custom `--openai-api-target` or `--anthropic-api-target`, you must add the target domain to `--allow-domains` so the firewall permits outbound traffic. AWF will emit a warning if a custom target is set but not in the allowlist.
 
@@ -1944,8 +1951,8 @@ AWF supports OIDC-based credential exchange with multiple cloud providers via Gi
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `AWF_AUTH_TYPE` | ✅ | Set to `github-oidc` to enable OIDC authentication |
-| `AWF_AUTH_PROVIDER` | No | Cloud provider: `azure` (default), `aws`, `gcp`, `anthropic`, or `openai` |
-| `AWF_AUTH_OIDC_AUDIENCE` | No | Override the OIDC audience (provider-specific defaults apply) |
+| `AWF_AUTH_PROVIDER` | No | Provider: `azure` (default), `aws`, `gcp`, `anthropic`, `openai`, or `databricks` |
+| `AWF_AUTH_OIDC_AUDIENCE` | Required for Databricks | Override the OIDC audience (other providers have defaults) |
 | `ACTIONS_ID_TOKEN_REQUEST_URL` | ✅ | Provided automatically by the GitHub Actions runtime |
 | `ACTIONS_ID_TOKEN_REQUEST_TOKEN` | ✅ | Provided automatically by the GitHub Actions runtime |
 
@@ -1959,7 +1966,7 @@ GitHub Agentic Workflows handles HTTP MCP `auth.type: github-oidc` separately: t
 
 ### Cloud OIDC target binding
 
-Azure, AWS and GCP credentials (`AWF_AUTH_PROVIDER=azure|aws|gcp`) are bound to the origin (scheme, host and port) of `COPILOT_PROVIDER_BASE_URL` when present. Otherwise, explicitly configured adapter targets must all have the same origin; conflicting or invalid targets disable cloud OIDC binding. Eligible adapters are `COPILOT_API_TARGET` (set by the CLI from the BYOK URL), `OPENAI_API_TARGET` or the Azure BYOK provider URL (`COPILOT_PROVIDER_TYPE=azure`), `ANTHROPIC_API_TARGET`, and Gemini/Vertex when `AWF_AUTH_PROVIDER=gcp`. With no explicit target, GCP OIDC remains available to the default Gemini and Vertex endpoints. Other adapters left at their default upstream do not initialize a cloud OIDC provider. The sidecar also refuses to bind these credentials to `api.openai.com`, `api.anthropic.com`, `*.githubcopilot.com` and `copilot-api.*.ghe.com`, logging `cloud_oidc_target_refused`. An adapter that is not bound to the selected cloud target logs `cloud_oidc_not_bound` and does not initialize a cloud OIDC provider; its requests then follow the adapter's unconfigured behavior (for example, the OpenAI listener returns `404 OpenAI proxy not configured` when it has no static key). Neither event logs a token. See registry finding `AUTH-008`. Native OpenAI (`openai`) and Anthropic (`anthropic`) workload identity are unaffected. The OpenAI adapter inherits an Azure BYOK API key only when its effective target has the same origin as the BYOK URL.
+Azure, AWS, GCP and Databricks credentials (`AWF_AUTH_PROVIDER=azure|aws|gcp|databricks`) are bound to the origin (scheme, host and port) of `COPILOT_PROVIDER_BASE_URL` when present. Otherwise, explicitly configured adapter targets must all have the same origin; conflicting or invalid targets disable cloud OIDC binding. Eligible adapters are `COPILOT_API_TARGET` (set by the CLI from the BYOK URL), `OPENAI_API_TARGET` or the Azure BYOK provider URL (`COPILOT_PROVIDER_TYPE=azure`), `ANTHROPIC_API_TARGET`, and Gemini/Vertex when `AWF_AUTH_PROVIDER=gcp`. With no explicit target, GCP OIDC remains available to the default Gemini and Vertex endpoints. Other adapters left at their default upstream do not initialize a cloud OIDC provider. The sidecar also refuses to bind these credentials to `api.openai.com`, `api.anthropic.com`, `*.githubcopilot.com` and `copilot-api.*.ghe.com`, logging `cloud_oidc_target_refused`. An adapter that is not bound to the selected cloud target logs `cloud_oidc_not_bound` and does not initialize a cloud OIDC provider; its requests then follow the adapter's unconfigured behavior (for example, the OpenAI listener returns `404 OpenAI proxy not configured` when it has no static key). Neither event logs a token. See registry finding `AUTH-008`. Native OpenAI (`openai`) and Anthropic (`anthropic`) workload identity are unaffected. The OpenAI adapter inherits an Azure BYOK API key only when its effective target has the same origin as the BYOK URL.
 
 When `AWF_AUTH_TYPE=github-oidc` is set but `ACTIONS_ID_TOKEN_REQUEST_URL`/`ACTIONS_ID_TOKEN_REQUEST_TOKEN` are not available in the sidecar, Anthropic OIDC requests fail closed with:
 
@@ -1981,7 +1988,7 @@ Exchanges the GitHub OIDC JWT for an Azure AD access token via workload identity
 Default OIDC audience: `api://AzureADTokenExchange`
 
 :::caution[Agent routing is not automatically configured]
-Azure OIDC can initialize in the sidecar, but OIDC configuration alone does not set `OPENAI_BASE_URL` or OpenAI compatibility placeholders in the agent. `buildOpenAiCredentialEnv()` enables agent routing when `OPENAI_API_KEY` is configured or when native OpenAI WIF is fully configured (`isOpenAiOidcConfigured()`, which requires `AWF_AUTH_PROVIDER=openai` plus both OpenAI IDs). Azure OIDC does not enable that path. Until OIDC-aware OpenAI routing is implemented for Azure, AWF does not provide a complete keyless Azure OpenAI invocation path.
+Azure OIDC can initialize in the sidecar, but OIDC configuration alone does not set `OPENAI_BASE_URL` or OpenAI compatibility placeholders in the agent. Agent routing is enabled by a static OpenAI key, native OpenAI WIF, or Databricks OIDC with an explicit eligible OpenAI upstream. Azure OIDC does not enable that path. AWF does not provide a complete keyless Azure OpenAI invocation path.
 :::
 
 ### AWS Bedrock
@@ -2037,6 +2044,85 @@ Regional locations use `LOCATION-aiplatform.googleapis.com`; the `us` and `eu` m
 
 OpenAI-compatible Vertex endpoints can still use the OpenAI adapter (`OPENAI_API_TARGET` plus a resource-specific `OPENAI_API_BASE_PATH` such as `/v1/projects/PROJECT_ID/locations/LOCATION/endpoints/openapi`).
 :::
+
+### Databricks OAuth token federation
+
+Select `provider: databricks` to exchange a GitHub Actions OIDC token for a
+Databricks workspace OAuth token, including for Unity Gateway model APIs.
+
+| Environment variable | Required | Description |
+|---|---|---|
+| `AWF_AUTH_DATABRICKS_HOST` | ✅ | HTTPS workspace origin, without credentials, path (other than `/`), query, or fragment |
+| `AWF_AUTH_DATABRICKS_CLIENT_ID` | No | Service-principal application ID; omit for account-wide federation policies |
+| `AWF_AUTH_OIDC_AUDIENCE` | ✅ | Federation-policy audience, typically the Databricks account ID; no default |
+
+The sidecar posts a form-encoded RFC 8693 exchange to
+`<workspace>/oidc/v1/token` with `scope=all-apis` and optional `client_id`,
+then injects the access token as `Authorization: Bearer`. No refresh token is
+issued. AWF bounds the cached lifetime by the GitHub JWT expiry and a
+conservative five-minute cap, then refreshes at 75% of that remaining lifetime,
+avoiding immediate refresh loops for tokens lasting five minutes or less.
+
+```yaml
+apiProxy:
+  targets:
+    anthropic:
+      host: dbc-1234.cloud.databricks.com
+      basePath: /ai-gateway/anthropic
+  auth:
+    type: github-oidc
+    provider: databricks
+    databricksHost: https://dbc-1234.cloud.databricks.com
+    databricksClientId: <service-principal-application-id>
+    oidcAudience: <databricks-account-id>
+```
+
+Run AWF with this config in a job with `permissions: id-token: write`.
+When using `sudo`, preserve `ACTIONS_ID_TOKEN_REQUEST_URL` and
+`ACTIONS_ID_TOKEN_REQUEST_TOKEN` for the host AWF process.
+Allowlist the workspace hostname. Databricks OIDC enables
+`ANTHROPIC_BASE_URL` and Claude compatibility placeholders without a static
+Anthropic key. Configuring an explicit OpenAI upstream likewise enables
+`OPENAI_BASE_URL` and Codex placeholders without a static OpenAI key. All
+targets must satisfy [cloud OIDC binding](#cloud-oidc-target-binding); default
+first-party upstreams never receive Databricks tokens, and the selected target
+origin must match `databricksHost`. Databricks bearer
+requests do not receive Anthropic's `oauth-2025-04-20` beta header.
+Unselected adapters retain their independent static credentials. An explicitly
+selected Databricks adapter does not fall back to a static key when its OIDC
+binding is refused or its token is unavailable.
+Federated tokens are restricted to model inference and model discovery routes:
+OpenAI- and Anthropic-compatible routes at the root, `/serving-endpoints`, or
+`/ai-gateway/openai` and `/ai-gateway/anthropic`, plus
+`/serving-endpoints/<endpoint>/invocations`. Discovery is GET-only and inference
+is POST-only. Other workspace APIs and WebSocket upgrades are rejected.
+Static-key adapters are not subject to this restriction.
+
+For Codex, select an explicit Responses provider pointing at the sidecar;
+`OPENAI_BASE_URL` alone does not reliably route the built-in provider's
+WebSocket requests. For example, in Codex `config.toml`:
+
+```toml
+model_provider = "awf"
+
+[model_providers.awf]
+name = "AWF"
+base_url = "http://172.30.0.30:10000"
+wire_api = "responses"
+requires_openai_auth = false
+supports_websockets = false
+```
+
+For a static Databricks token instead, set the corresponding host-side API key
+and `apiProxy.targets.anthropic.authScheme: Bearer` (or
+`--anthropic-api-auth-scheme Bearer`). This sends bearer authorization instead
+of `x-api-key`, without storing the scheme in the secret.
+
+The exchange is covered by mocked HTTP tests, not live workspace verification.
+Using these fields in gh-aw workflow frontmatter also requires compiler support
+to emit them into AWF configuration.
+
+**Official docs:** [OAuth token federation](https://docs.databricks.com/aws/en/dev-tools/auth/oauth-federation-exchange) · [Unity Gateway](https://docs.databricks.com/aws/en/unity-gateway/concepts)
 
 ### OpenAI native workload identity federation
 

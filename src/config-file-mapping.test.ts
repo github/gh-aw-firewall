@@ -1,6 +1,40 @@
 import { mapAwfFileConfigToCliOptions } from './config-mapper';
 
 describe('mapAwfFileConfigToCliOptions', () => {
+  it('maps Databricks OIDC and static adapter auth schemes', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        auth: {
+          type: 'github-oidc',
+          provider: 'databricks',
+          databricksHost: 'https://workspace.cloud.databricks.com',
+          databricksClientId: 'service-principal',
+          oidcAudience: 'workspace-audience',
+        },
+        targets: {
+          openai: { authHeader: 'Authorization', authScheme: 'Bearer' },
+          anthropic: { authHeader: 'Authorization', authScheme: 'Bearer' },
+        },
+      },
+    });
+    expect(result).toMatchObject({
+      authType: 'github-oidc',
+      authProvider: 'databricks',
+      authDatabricksHost: 'https://workspace.cloud.databricks.com',
+      authDatabricksClientId: 'service-principal',
+      authOidcAudience: 'workspace-audience',
+      openaiApiAuthHeader: 'Authorization',
+      openaiApiAuthScheme: 'Bearer',
+      anthropicApiAuthHeader: 'Authorization',
+      anthropicApiAuthScheme: 'Bearer',
+    });
+    const unset = mapAwfFileConfigToCliOptions({});
+    expect(unset.authDatabricksHost).toBeUndefined();
+    expect(unset.authDatabricksClientId).toBeUndefined();
+    expect(unset.openaiApiAuthScheme).toBeUndefined();
+    expect(unset.anthropicApiAuthScheme).toBeUndefined();
+  });
+
   it.each([-1, 0])('omits a disabled AI-credit budget of %s', (maxAiCredits) => {
     expect(mapAwfFileConfigToCliOptions({ apiProxy: { maxAiCredits } }).maxAiCredits).toBeUndefined();
   });

@@ -12,6 +12,8 @@ import { normalizeCodexHostedWebPolicy } from '../codex-hosted-web-policy';
 import { resolveCopilotApiRouting } from '../copilot-api-resolver';
 import { resolveCopilotBrokerRuntime, validateCopilotBrokerTarget } from '../copilot-token-broker';
 import { trustedServiceTargets } from '../trusted-service';
+import { resolveDatabricksOidcHost, validateApiAuthScheme } from '../api-proxy-config-validation';
+import { readEnvFile } from '../github-env';
 
 const DEFAULT_API_PROXY_SHUTDOWN_TIMEOUT_MS = 8000;
 export const API_PROXY_UPSTREAM_CA_CERT_CONTAINER_PATH = '/usr/local/share/ca-certificates/awf-upstream-ca.crt';
@@ -25,6 +27,7 @@ export const MODEL_ROUTING_NOT_STAGED_MESSAGE = 'Model routing was configured bu
 export function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
   const routingValue = (key: string): string | undefined =>
     getConfigEnvValue(config, key) ?? (process.env[key]?.trim() || undefined);
+  const databricksHost = resolveDatabricksOidcHost(config);
   const openAiEndpointOverride = resolveOpenAiEndpointOverride(config);
   const secretOpenAiBaseUrl = resolveOpenAiBaseUrlFromEnv(config.openaiBaseUrlEnv);
   let resolvedOpenAiTarget = secretOpenAiBaseUrl?.url ?? config.openaiApiTarget
@@ -34,7 +37,7 @@ export function buildProviderTargetEnv(config: WrapperConfig): Record<string, st
     : config.openaiApiBasePath ?? routingValue(OPENAI_ENV.BASE_PATH);
   const copilotProviderType = config.copilotProviderType || getConfigEnvValue(config, COPILOT_ENV.PROVIDER_TYPE);
   const copilotProviderBaseUrl = config.copilotProviderBaseUrl || routingValue(COPILOT_ENV.PROVIDER_BASE_URL);
-  if (copilotProviderType?.trim().toLowerCase() === 'azure') {
+  if (!databricksHost && copilotProviderType?.trim().toLowerCase() === 'azure') {
     const azureRouting = resolveCopilotApiRouting({}, { COPILOT_PROVIDER_BASE_URL: copilotProviderBaseUrl });
     resolvedOpenAiTarget ??= azureRouting.copilotApiTarget;
     if (!secretOpenAiBaseUrl) resolvedOpenAiBasePath ||= azureRouting.copilotApiBasePath;
@@ -97,7 +100,29 @@ export function buildProviderTargetEnv(config: WrapperConfig): Record<string, st
     env[COPILOT_ENV.API_TARGET] ??= 'api.githubcopilot.com';
   }
 
-  return { ...env, ...trustedServiceTargets(config) };
+  const targets = { ...env, ...trustedServiceTargets(config) };
+  if (databricksHost) {
+    for (const key of [
+      OPENAI_ENV.TARGET, ANTHROPIC_ENV.TARGET, COPILOT_ENV.API_TARGET,
+      GEMINI_ENV.TARGET, VERTEX_ENV.TARGET, COPILOT_ENV.PROVIDER_BASE_URL,
+    ]) {
+      const target = targets[key];
+      if (!target) continue;
+      let url: URL;
+      try { url = new URL(target.includes('://') ? target : `https://${target}`); } catch {
+        throw new Error('Invalid Databricks API target binding');
+      }
+      const hostname = url.hostname.toLowerCase().replace(/\.$/, '');
+      if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash ||
+          ['api.openai.com', 'api.anthropic.com', 'githubcopilot.com'].includes(hostname) ||
+          hostname.endsWith('.githubcopilot.com') ||
+          (hostname.startsWith('copilot-api.') && hostname.endsWith('.ghe.com')) ||
+          url.origin !== databricksHost.origin) {
+        throw new Error('Databricks API target must match the configured HTTPS workspace origin');
+      }
+    }
+  }
+  return targets;
 }
 
 /** Uses the same effective routing values passed to the trusted sidecar. */
@@ -414,6 +439,18 @@ function buildOidcEnv(config: WrapperConfig): Record<string, string> {
     || (getConfigEnvValue(config, 'AWF_AUTH_TYPE')?.toLowerCase())
     || getLowerCaseProcessEnvValue('AWF_AUTH_TYPE')
     || '';
+  resolveDatabricksOidcHost(config);
+  const authSettings: Record<string, string> = {};
+  for (const [provider, constants] of [['openai', OPENAI_ENV], ['anthropic', ANTHROPIC_ENV]] as const) {
+    for (const [suffix, envVar] of [['AuthHeader', constants.AUTH_HEADER], ['AuthScheme', constants.AUTH_SCHEME]] as const) {
+      const value = config[`${provider}Api${suffix}`]
+        ?? config.additionalEnv?.[envVar]
+        ?? (config.envFile ? readEnvFile(config.envFile)[envVar] : undefined)
+        ?? process.env[envVar];
+      if (suffix === 'AuthScheme') validateApiAuthScheme(value);
+      if (value !== undefined) authSettings[envVar] = value;
+    }
+  }
 
   return {
     // OIDC authentication (Azure, AWS, GCP, Anthropic)
@@ -439,13 +476,17 @@ function buildOidcEnv(config: WrapperConfig): Record<string, string> {
         .filter(([, value]) => !!value)
     ),
     // Custom auth header names for internal AI gateways
-    ...(config.openaiApiAuthHeader && { [OPENAI_ENV.AUTH_HEADER]: config.openaiApiAuthHeader }),
-    ...(config.anthropicApiAuthHeader && { [ANTHROPIC_ENV.AUTH_HEADER]: config.anthropicApiAuthHeader }),
+    ...authSettings,
     ...(config.anthropicTokenUrl && { AWF_AUTH_ANTHROPIC_TOKEN_URL: config.anthropicTokenUrl }),
     // OIDC auth config-file values override host env vars (config-file > env fallback precedence)
     ...Object.fromEntries(
       OIDC_AUTH_ENV_MAPPING
-        .filter(({ configKey }) => (config as unknown as Record<string, unknown>)[configKey])
+        .filter(({ configKey }) => {
+          const value = (config as unknown as Record<string, unknown>)[configKey];
+          return configKey === 'authDatabricksHost' || configKey === 'authDatabricksClientId'
+            ? value !== undefined
+            : !!value;
+        })
         .map(({ configKey, envVar }) => [envVar, (config as unknown as Record<string, unknown>)[configKey] as string])
     ),
     // NOTE: AWF_ANTHROPIC_TRANSFORM_FILE is intentionally NOT forwarded from the host.

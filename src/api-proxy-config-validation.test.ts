@@ -82,6 +82,15 @@ describe('validateApiProxyConfig', () => {
     expect(result.debugMessages[0]).toContain('WIF');
   });
 
+  it('does not require a static API key for Databricks OIDC', () => {
+    const result = validateApiProxyConfig(true, false, false, false, false, false, false, true);
+    expect(result.enabled).toBe(true);
+    expect(result.warnings).toEqual([]);
+    expect(result.debugMessages).toEqual([
+      'Databricks OIDC auth configured - OIDC token exchange will be used in sidecar',
+    ]);
+  });
+
   it('should emit WIF debug message alongside static key debug message when both present', () => {
     const result = validateApiProxyConfig(true, false, true, false, false, true);
     expect(result.enabled).toBe(true);

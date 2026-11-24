@@ -112,6 +112,9 @@ function createCopilotAdapter(env, deps = {}) {
       : 'default';
   const rawTarget = deriveCopilotApiTarget(env);
   const basePath = normalizeBasePath(env[COPILOT_ENV.API_BASE_PATH]);
+  const databricksSelected = (env.AWF_AUTH_TYPE || '').trim().toLowerCase() === 'github-oidc'
+    && (env.AWF_AUTH_PROVIDER || '').trim().toLowerCase() === 'databricks'
+    && !!(env.COPILOT_API_TARGET || '').trim();
 
   // OIDC auth strategy (Azure OpenAI via Entra, AWS Bedrock, GCP Vertex AI) for
   // BYOK targets pointed at by COPILOT_PROVIDER_BASE_URL. Mirrors the OpenAI
@@ -208,7 +211,7 @@ function createCopilotAdapter(env, deps = {}) {
     env,
     oidcAuthOptions: {
       staticAuthToken: authToken,
-      skipWhen: !!staticAuthToken,
+      skipWhen: !!staticAuthToken && !databricksSelected,
       // Cloud OIDC tokens are only bound to an explicit COPILOT_API_TARGET
       // (set from the BYOK provider URL), never a derived GitHub Copilot host.
       allowCloudOidc: !!normalizeApiTarget(env.COPILOT_API_TARGET),
@@ -220,7 +223,7 @@ function createCopilotAdapter(env, deps = {}) {
       buildAuthHeaderFn({ prefix: authPrefix })(authToken, apiKey ? byokExtraHeaders : undefined),
       integrationId
     ),
-    createAdapterMethodsOptions: ({ oidcConfigured, authProvider }) => ({
+    createAdapterMethodsOptions: ({ oidcConfigured, authProvider, oidcProvider, resolveHeaders }) => ({
       apiKey: authToken,
       rawTarget,
       basePath,
@@ -240,6 +243,7 @@ function createCopilotAdapter(env, deps = {}) {
         if (oidcConfigured) {
           return { skip: true, reason: `OIDC auth (${authProvider}); validation via token acquisition` };
         }
+        if (databricksSelected) return null;
         if (!authToken) return null;
 
         // Only COPILOT_GITHUB_TOKEN has a probe endpoint (/models).
@@ -258,6 +262,15 @@ function createCopilotAdapter(env, deps = {}) {
         return buildCopilotModelsRequest();
       },
       getModelsFetchConfig() {
+        if (databricksSelected) {
+          if (!oidcConfigured || !oidcProvider?.isReady()) return null;
+          return {
+            url: `${getTargetScheme(rawTarget)}://${stripTargetScheme(rawTarget)}${modelsPath}`,
+            opts: { method: 'GET', headers: resolveHeaders() },
+            cacheKey: 'copilot',
+            modelMetadataFormat: 'openai',
+          };
+        }
         // OIDC mode: skip startup model fetch — the token isn't available yet at this
         // point and the upstream BYOK target typically isn't api.githubcopilot.com.
         if (oidcConfigured) return null;
@@ -302,7 +315,10 @@ function createCopilotAdapter(env, deps = {}) {
             message: `Copilot OIDC token (${authProvider}) unavailable; retry shortly`,
             retryable: true,
           }
-        : null),
+        : databricksSelected ? {
+            kind: 'provider_not_configured',
+            message: 'Databricks OIDC requires an explicit target matching the HTTPS workspace origin; first-party and conflicting targets are refused.',
+          } : null),
       healthServiceName: 'awf-api-proxy-copilot',
       missingCredentialMessage: 'COPILOT_GITHUB_TOKEN or COPILOT_PROVIDER_API_KEY not configured in api-proxy sidecar',
       unavailableWhen: () => oidcConfigured ? { message: `Copilot OIDC token (${authProvider}) not yet available in api-proxy sidecar` } : null,
@@ -344,7 +360,7 @@ function createCopilotAdapter(env, deps = {}) {
       // BYOK API keys use 'Bearer' regardless of target.
       // Standard api.githubcopilot.com and GHEC (*.ghe.com) also use 'Bearer' for all credentials.
       const isModelsPath = reqPathname === '/models' || reqPathname.startsWith('/models/');
-      const useGithubToken = isModelsPath && req.method === 'GET' && githubToken;
+      const useGithubToken = !databricksSelected && isModelsPath && req.method === 'GET' && githubToken;
       attachCopilotAuthDiagnostic(req, {
         env,
         source: useGithubToken ? 'github_token' : inferenceCredentialSource,

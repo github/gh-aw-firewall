@@ -17,6 +17,10 @@ const ENV_KEYS = [
   'ANTHROPIC_API_BASE_PATH',
   'AWF_OPENAI_AUTH_HEADER',
   'AWF_ANTHROPIC_AUTH_HEADER',
+  'AWF_OPENAI_AUTH_SCHEME',
+  'AWF_ANTHROPIC_AUTH_SCHEME',
+  'AWF_AUTH_DATABRICKS_HOST',
+  'AWF_AUTH_DATABRICKS_CLIENT_ID',
   'AWF_AUTH_ANTHROPIC_TOKEN_URL',
   'AWF_AUTH_TYPE',
   'AWF_AUTH_PROVIDER',
@@ -69,6 +73,53 @@ describe('resolveApiCredentials', () => {
     expect(credentials.geminiApiKey).toBe('sk-gemini');
     expect(credentials.googleApiKey).toBe('sk-google');
   });
+
+  it('maps Databricks OIDC env values and honors explicit option precedence', () => {
+    process.env.AWF_AUTH_TYPE = 'github-oidc';
+    process.env.AWF_AUTH_PROVIDER = 'databricks';
+    process.env.AWF_AUTH_OIDC_AUDIENCE = 'env-audience';
+    process.env.AWF_AUTH_DATABRICKS_HOST = 'https://env.cloud.databricks.com';
+    process.env.AWF_AUTH_DATABRICKS_CLIENT_ID = 'env-client';
+    expect(resolveApiCredentials({})).toMatchObject({
+      authType: 'github-oidc',
+      authProvider: 'databricks',
+      authOidcAudience: 'env-audience',
+      authDatabricksHost: 'https://env.cloud.databricks.com',
+      authDatabricksClientId: 'env-client',
+    });
+    expect(resolveApiCredentials({
+      authDatabricksHost: 'https://config.cloud.databricks.com',
+      authDatabricksClientId: 'config-client',
+      authOidcAudience: 'config-audience',
+    })).toMatchObject({
+      authDatabricksHost: 'https://config.cloud.databricks.com',
+      authDatabricksClientId: 'config-client',
+      authOidcAudience: 'config-audience',
+    });
+  });
+
+  it('maps auth scheme env values and honors explicit option precedence', () => {
+    process.env.AWF_OPENAI_AUTH_SCHEME = 'Bearer';
+    process.env.AWF_ANTHROPIC_AUTH_SCHEME = 'Basic';
+    expect(resolveApiCredentials({})).toMatchObject({
+      openaiApiAuthScheme: 'Bearer',
+      anthropicApiAuthScheme: 'Basic',
+    });
+    expect(resolveApiCredentials({ openaiApiAuthScheme: 'Custom', anthropicApiAuthScheme: 'Bearer' })).toMatchObject({
+      openaiApiAuthScheme: 'Custom',
+      anthropicApiAuthScheme: 'Bearer',
+    });
+  });
+
+  it.each(['', 'Bearer ', 'two tokens', 'Bearer\n', 'Bearer\r\nInjected:', 'bëarer'])(
+    'rejects invalid auth scheme %j from options and host env',
+    (scheme) => {
+      expect(() => resolveApiCredentials({ openaiApiAuthScheme: scheme })).toThrow(/auth scheme/);
+      expect(() => resolveApiCredentials({ anthropicApiAuthScheme: scheme })).toThrow(/auth scheme/);
+      process.env.AWF_OPENAI_AUTH_SCHEME = scheme;
+      expect(() => resolveApiCredentials({})).toThrow(/auth scheme/);
+    },
+  );
 
   describe('neutral API key fallback', () => {
     const providers = [

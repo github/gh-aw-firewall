@@ -10,6 +10,7 @@ const { EventEmitter } = require('events');
 
 const { httpProbe, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, cachedModels, resetModelCacheState } = require('./server');
 const { createCopilotAdapter } = require('./providers/copilot');
+const { bearerAuthHeaders, buildStaticAuthHeaderFn } = require('./providers/auth-headers');
 
 function createModelsAdapter(name, config) {
   return {
@@ -143,6 +144,62 @@ describe('fetchJson', () => {
       headers: {},
     }, 5000);
     expect(result).toEqual({ data: [{ id: 'gpt-4o' }] });
+  });
+
+  it.each(['databricks-bearer', 'custom-static-scheme'])('redacts %s credential echoes before model IDs or metadata reach caches', async authKind => {
+    const secret = 'synthetic-model-discovery-secret';
+    const headers = authKind === 'databricks-bearer' ? bearerAuthHeaders(secret)
+      : buildStaticAuthHeaderFn({ scheme: 'Basic', headerName: 'X-Workspace-Key' })(secret);
+    const wireAuth = Object.values(headers)[0];
+    await startServer(200, JSON.stringify({
+      data: [{ id: secret, name: wireAuth }, { id: 'safe-model', metadata: { echo: secret } }],
+    }));
+    const result = await fetchJson(`http://127.0.0.1:${serverPort}/v1/models`, {
+      method: 'GET', headers,
+    }, 5000);
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(extractModelIds(result)).toContain('safe-model');
+    expect(result.data[1].metadata.echo).not.toBe(secret);
+  });
+
+  it.each(['databricks-bearer', 'custom-static-scheme'])('redacts JSON-escaped %s credentials in keys and values', async authKind => {
+    const secret = 's3cr/et-42';
+    const headers = authKind === 'databricks-bearer' ? bearerAuthHeaders(secret)
+      : buildStaticAuthHeaderFn({ scheme: 'Basic', headerName: 'X-Workspace-Key' })(secret);
+    const scheme = authKind === 'databricks-bearer' ? 'Bearer' : 'Basic';
+    const escaped = 's\\u0033cr\\/et-\\u0034\\u0032';
+    await startServer(200, `{"data":[{"id":"${escaped}","metadata":{"prefix-${escaped}":"${scheme} ${escaped}"}},{"id":"safe-model"}],"nested":["${escaped}",{"${escaped}":"ok"}]}`);
+    const result = await fetchJson(`http://127.0.0.1:${serverPort}/v1/models`, {
+      method: 'GET', headers,
+    }, 5000);
+    expect(result).not.toBeNull();
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(result.data[0].id).not.toBe(secret);
+    expect(Object.keys(result.data[0].metadata)[0]).not.toContain(secret);
+    expect(result.data[0].metadata[Object.keys(result.data[0].metadata)[0]]).not.toContain(secret);
+    expect(result.nested[0]).not.toBe(secret);
+    expect(Object.keys(result.nested[1])[0]).not.toBe(secret);
+    expect(extractModelIds(result)).toContain('safe-model');
+  });
+
+  it('redacts decoded strings without changing JSON primitives or special property names', async () => {
+    await startServer(200, '{"data":[{"id":"safe-model"}],"__proto__":{"value":"\\u0074rue"},"flag":true,"number":123,"empty":null}');
+    const result = await fetchJson(`http://127.0.0.1:${serverPort}/v1/models`, {
+      method: 'GET', headers: bearerAuthHeaders('true'),
+    }, 5000);
+    expect(Object.hasOwn(result, '__proto__')).toBe(true);
+    expect(result.__proto__.value).not.toBe('true');
+    expect(result.flag).not.toBe(true);
+    expect(result).toMatchObject({ number: 123, empty: null });
+  });
+
+  it('redacts numeric credential echoes represented as JSON numbers', async () => {
+    const secret = '123456789012345';
+    await startServer(200, `{"data":[{"id":${secret}}]}`);
+    const result = await fetchJson(`http://127.0.0.1:${serverPort}/v1/models`, {
+      method: 'GET', headers: bearerAuthHeaders(secret),
+    }, 5000);
+    expect(JSON.stringify(result)).not.toContain(secret);
   });
 
   it('should return null for a non-2xx response', async () => {

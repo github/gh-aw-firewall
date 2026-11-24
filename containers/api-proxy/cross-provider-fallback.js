@@ -266,6 +266,9 @@ async function buildCrossProviderRequest({
   }
 
   const upstreamPath = buildUpstreamPath(upstreamEndpoint, targetHost, adapter.getBasePath(req) || '');
+  if (adapter.isRequestAllowed && !adapter.isRequestAllowed({ ...req, url: upstreamEndpoint, method: req.method, headers: req.headers })) {
+    throw new Error('Fallback provider request route not allowed');
+  }
   if (upstreamEndpoint !== plannedEndpoint) checkCompatibility(upstreamEndpoint);
   const protocolTranslation = {
     kind,

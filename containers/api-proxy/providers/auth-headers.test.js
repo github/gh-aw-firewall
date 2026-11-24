@@ -6,7 +6,33 @@ const {
   providerKeyHeaders,
   withCopilotIntegration,
   buildAuthHeaderFn,
+  buildStaticAuthHeaderFn,
+  validateAuthSchemeEnv,
 } = require('./auth-headers');
+
+describe('static auth schemes', () => {
+  it.each(['Bearer', 'Basic', 'token', "custom!#$%&'*+-.^_`|~"])('accepts HTTP token scheme %s', scheme => {
+    expect(validateAuthSchemeEnv('AWF_OPENAI_AUTH_SCHEME', scheme)).toBe(scheme);
+  });
+  it.each([['Bearer', 'extra'].join(' '), 'Bearer\r\nX-Header: injected', ' Bearer', 'Bearer ', 'Basic:', 'Béarér', '\t'])('rejects invalid scheme %p without echoing it', scheme => {
+    expect(() => validateAuthSchemeEnv('AWF_OPENAI_AUTH_SCHEME', scheme)).toThrow('Invalid AWF_OPENAI_AUTH_SCHEME value: expected an HTTP authentication scheme token');
+  });
+  it.each([undefined, ''])('preserves defaults for scheme %p', scheme => {
+    expect(validateAuthSchemeEnv('AWF_OPENAI_AUTH_SCHEME', scheme)).toBe('');
+    expect(buildStaticAuthHeaderFn({ scheme })('key')).toEqual(bearerAuthHeaders('key'));
+    expect(buildStaticAuthHeaderFn({ scheme, defaultHeaderName: 'x-api-key' })('key')).toEqual(providerKeyHeaders('x-api-key', 'key'));
+  });
+  it.each([undefined, 'x-workspace-key'])('uses explicit scheme with header %p and avoids double-prefixing case-insensitively', headerName => {
+    const build = buildStaticAuthHeaderFn({ scheme: 'Basic', headerName, defaultHeaderName: 'x-api-key' });
+    expect(build('synthetic-key')).toEqual({ [headerName || 'Authorization']: 'Basic synthetic-key' });
+    expect(build('bAsIc synthetic-key')).toEqual({ [headerName || 'Authorization']: 'bAsIc synthetic-key' });
+    expect(build('bAsIc\tsynthetic-key')).toEqual({ [headerName || 'Authorization']: 'bAsIc\tsynthetic-key' });
+    expect(build('BasicOther synthetic-key')).toEqual({ [headerName || 'Authorization']: 'Basic BasicOther synthetic-key' });
+  });
+  it('rejects credential header injection without reflecting the key', () => {
+    expect(() => buildStaticAuthHeaderFn({ scheme: 'Basic' })('synthetic-secret\r\nX-Evil: yes')).toThrow('Invalid static authentication credential: expected a safe HTTP header value');
+  });
+});
 
 describe('bearerAuthHeaders', () => {
   it('builds an Authorization: Bearer ... header', () => {

@@ -239,7 +239,9 @@ const STRIPPED_HEADERS = new Set([
 /** Returns true if the header name should be stripped (case-insensitive). */
 function shouldStripHeader(name) {
   const lower = name.toLowerCase();
-  return STRIPPED_HEADERS.has(lower) || lower.startsWith('x-forwarded-');
+  return STRIPPED_HEADERS.has(lower) || lower.startsWith('x-forwarded-')
+    || ['AWF_OPENAI_AUTH_HEADER', 'AWF_ANTHROPIC_AUTH_HEADER']
+      .some(envVar => (process.env[envVar] || '').trim().toLowerCase() === lower);
 }
 
 /**

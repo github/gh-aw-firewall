@@ -15,6 +15,7 @@ import { resolveCopilotBrokerRuntime } from '../../copilot-token-broker';
 import { selectHarness } from '../../model-information-contract/harness-observation';
 import type { EligibilityInput } from '../../model-information-contract/eligibility';
 import { supportsDockerHarnessObservation } from '../../docker-harness-observation';
+import { resolveDatabricksOidcHost } from '../../api-proxy-config-validation';
 
 /**
  * Validates and logs the API proxy configuration.  Emits warnings for missing
@@ -37,6 +38,7 @@ export function validateApiProxyOptions(
   const hasAnthropicWif =
     getLowerCaseProcessEnvValue('AWF_AUTH_TYPE') === 'github-oidc' &&
     getLowerCaseProcessEnvValue('AWF_AUTH_PROVIDER') === 'anthropic';
+  const hasDatabricksOidc = !!resolveDatabricksOidcHost(config);
   const apiProxyValidation = validateApiProxyConfig(
     config.enableApiProxy || false,
     !!config.openaiApiKey,
@@ -45,6 +47,7 @@ export function validateApiProxyOptions(
     !!config.geminiApiKey,
     hasAnthropicWif,
     !!config.googleApiKey,
+    hasDatabricksOidc,
   );
 
   // Log API proxy status at info level for visibility

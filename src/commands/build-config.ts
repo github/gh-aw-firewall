@@ -158,6 +158,8 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
   const apiCredentials = resolveApiCredentials(options, {
     resolvedCopilotApiTarget,
     resolvedCopilotApiBasePath,
+    additionalEnv,
+    envFile: options.envFile as string | undefined,
   });
 
   return {

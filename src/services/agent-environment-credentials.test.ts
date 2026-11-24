@@ -214,6 +214,41 @@ describe('agent environment: credentials', () => {
     expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
   });
 
+  it('keeps Databricks auth from env files in the sidecar and selects only explicit keyless adapters', () => {
+    const workspace = 'workspace.cloud.databricks.com';
+    const envFile = path.join(mockConfig.workDir, 'databricks.env');
+    const settings = {
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'databricks',
+      AWF_AUTH_DATABRICKS_HOST: `https://${workspace}`,
+      AWF_AUTH_DATABRICKS_CLIENT_ID: 'file-client',
+      AWF_AUTH_OIDC_AUDIENCE: 'file-audience',
+      AWF_OPENAI_AUTH_HEADER: 'Authorization',
+      AWF_OPENAI_AUTH_SCHEME: 'Bearer',
+      AWF_ANTHROPIC_AUTH_HEADER: 'Authorization',
+      AWF_ANTHROPIC_AUTH_SCHEME: 'Bearer',
+    };
+    fs.writeFileSync(envFile, [
+      ...Object.entries(settings).map(([name, value]) => `${name}=${value}`),
+      `OPENAI_API_TARGET=${workspace}`,
+      `ANTHROPIC_API_TARGET=${workspace}`,
+    ].join('\n'));
+    const result = generateDockerCompose(
+      { ...mockConfig, enableApiProxy: true, envFile },
+      { ...mockNetworkConfig, proxyIp: '172.30.0.30' },
+    );
+    const agent = result.services.agent.environment as Record<string, string>;
+    const sidecar = result.services['api-proxy'].environment as Record<string, string>;
+    expect(sidecar).toMatchObject(settings);
+    for (const name of Object.keys(settings)) expect(agent[name]).toBeUndefined();
+    expect(agent.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000');
+    expect(agent.ANTHROPIC_BASE_URL).toBe('http://172.30.0.30:10001');
+    expect(agent.OPENAI_API_KEY).toBe('sk-placeholder-for-api-proxy');
+    expect(agent.ANTHROPIC_AUTH_TOKEN).toMatch(/^sk-ant-placeholder/);
+    expect(sidecar.OPENAI_API_KEY).toBeUndefined();
+    expect(sidecar.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
   it('should never pass ACTIONS_RUNTIME_TOKEN to agent container', () => {
     const originalToken = process.env.ACTIONS_RUNTIME_TOKEN;
     process.env.ACTIONS_RUNTIME_TOKEN = 'test-runtime-token-value';

@@ -1,5 +1,5 @@
 import { WrapperConfig, API_PROXY_PORTS } from '../../types';
-import { buildProviderCredentialIsolationEnv } from './provider-credential-isolation';
+import { buildProviderCredentialIsolationEnv, isDatabricksAdapterConfigured } from './provider-credential-isolation';
 import { isOpenAiOidcConfigured } from './openai-oidc-config';
 
 interface OpenAiCredentialEnvParams {
@@ -20,7 +20,7 @@ export function buildOpenAiCredentialEnv(params: OpenAiCredentialEnvParams): Rec
     providerName: 'OpenAI',
     proxyIp,
     port: API_PROXY_PORTS.OPENAI,
-    enabled: !!config.openaiApiKey || isOpenAiOidcConfigured(config),
+    enabled: !!config.openaiApiKey || isOpenAiOidcConfigured(config) || isDatabricksAdapterConfigured(config, 'openai'),
     baseUrlVarNames: ['OPENAI_BASE_URL'],
     target: config.openaiApiTarget,
     basePath: config.openaiApiBasePath,

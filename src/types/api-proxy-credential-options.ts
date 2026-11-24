@@ -145,7 +145,7 @@ export interface ApiProxyCredentialOptions {
    *
    * When set, the proxy uses this header name instead of the default
    * standard Authorization bearer-header format. The key is sent as the raw header
-   * value without a "Bearer" prefix.
+   * value without a "Bearer" prefix unless openaiApiAuthScheme is set.
    *
    * Useful for internal AI gateways (e.g. Azure OpenAI) that require a
    * different header name such as `api-key`.
@@ -158,6 +158,12 @@ export interface ApiProxyCredentialOptions {
    * @example 'api-key'
    */
   openaiApiAuthHeader?: string;
+
+  /**
+   * Optional HTTP auth scheme token prepended to the OpenAI credential in the sidecar.
+   * Set via --openai-api-auth-scheme or AWF_OPENAI_AUTH_SCHEME.
+   */
+  openaiApiAuthScheme?: string;
 
   /**
    * Custom auth header name for Anthropic API requests (used by API proxy sidecar)
@@ -176,6 +182,12 @@ export interface ApiProxyCredentialOptions {
   anthropicApiAuthHeader?: string;
 
   /**
+   * Optional HTTP auth scheme token prepended to the Anthropic credential in the sidecar.
+   * Set via --anthropic-api-auth-scheme or AWF_ANTHROPIC_AUTH_SCHEME.
+   */
+  anthropicApiAuthScheme?: string;
+
+  /**
    * Anthropic OIDC token exchange endpoint override.
    *
    * When set, AWF passes this value to the API proxy as
@@ -191,7 +203,7 @@ export interface ApiProxyCredentialOptions {
   /** Authentication type. Currently only `'github-oidc'` is supported. Maps to `AWF_AUTH_TYPE`. */
   authType?: string;
 
-  /** Cloud provider for OIDC token exchange (`'azure'`, `'aws'`, `'gcp'`, `'anthropic'`). Maps to `AWF_AUTH_PROVIDER`. */
+  /** Cloud provider for OIDC token exchange (`'azure'`, `'aws'`, `'gcp'`, `'anthropic'`, `'databricks'`). Maps to `AWF_AUTH_PROVIDER`. */
   authProvider?: string;
 
   /** Audience claim for the GitHub OIDC token. Maps to `AWF_AUTH_OIDC_AUDIENCE`. */
@@ -226,6 +238,12 @@ export interface ApiProxyCredentialOptions {
 
   /** OAuth2 scope for GCP token. Maps to `AWF_AUTH_GCP_SCOPE`. */
   authGcpScope?: string;
+
+  /** HTTPS Databricks workspace origin. Maps to `AWF_AUTH_DATABRICKS_HOST`. */
+  authDatabricksHost?: string;
+
+  /** Optional Databricks service principal client ID. Maps to `AWF_AUTH_DATABRICKS_CLIENT_ID`. */
+  authDatabricksClientId?: string;
 
   /** Anthropic federation rule ID (e.g. `fdrl_...`). Maps to `AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID`. */
   authAnthropicFederationRuleId?: string;
