@@ -1,5 +1,6 @@
 'use strict';
 
+const { MAX_SUMMARY_BYTES } = require('./adaptive-select');
 const {
   CLASSIFIER_ATTEMPT_TIMEOUT_MS,
   CLASSIFIER_MAX_ATTEMPTS,
@@ -719,6 +720,197 @@ describe('routing controller', () => {
         role: 'ordinary',
         reason: 'selection_rejected',
         selected: 'github-copilot/model-b@high',
+      });
+    });
+
+    describe('classifier-resolved auto level', () => {
+      const autoConfig = { objective: { goal: 'cost', mode: 'auto' } };
+      const withChallenger = (wins, losses, overrides = {}) => summary({
+        level: 'auto',
+        pairs: [
+          ...summary().pairs,
+          {
+            pair: 'github-copilot/model-c@medium',
+            wins,
+            losses,
+            runs: wins + losses,
+            credits: null,
+            model_credits: null,
+            bills: 0,
+            tokens: null,
+            streak: wins === 0 ? losses : 0,
+            tests: 1,
+            suspended: null,
+          },
+        ],
+        ...overrides,
+      });
+      const classifiedAs = mode => ({
+        executeResult: () => ({
+          statusCode: 200,
+          body: classifierBody(JSON.stringify({ ...VALID_CLASSIFICATION, mode })),
+        }),
+      });
+      const degradedClassifier = () => ({
+        executeResult: () => ({ statusCode: 200, body: classifierBody('not json') }),
+      });
+
+      it.each([
+        // With 10 wins / 1 loss (expected rate ~0.906, hopeful rate ~0.977):
+        // - economy (100): C's expected score (~23.6) beats B's hopeful score (~28.1) -> switch incumbent to C.
+        // - balanced (500): C's hopeful score (~24.1) beats B's hopeful score (~28.5) -> test C.
+        // - robust (2500): C's hopeful score (~71.3) loses to B's hopeful score (~30.5) -> serve B.
+        ['economy', 'serve', 'github-copilot/model-c@medium', 'incumbent_switched', 'github-copilot/model-c@medium'],
+        ['balanced', 'test', 'github-copilot/model-c@medium', 'challenger_hopeful_clears_need', 'github-copilot/model-b@high'],
+        ['robust', 'serve', 'github-copilot/model-b@high', 'no_challenger', 'github-copilot/model-b@high'],
+      ])(
+        'resolves level "auto" to classification.mode "%s" (%s -> %s)',
+        async (classifiedMode, expectedRole, expectedPair, expectedReason, expectedIncumbentAfter) => {
+          const inputSummary = Object.freeze(withChallenger(10, 1));
+          const { controller, writeAdaptiveReceipt } = run(inputSummary, {
+            config: autoConfig,
+            ...classifiedAs(classifiedMode),
+          });
+          const result = await controller.run();
+          expect(result.ok).toBe(true);
+          expect(inputSummary.level).toBe('auto');
+          expect(writeAdaptiveReceipt).toHaveBeenCalledTimes(1);
+          expect(result.adaptiveReceipt).toMatchObject({
+            generation: '9f2c41d0',
+            mode: 'live',
+            scope: 'copilot/cost/shared',
+            role: expectedRole,
+            selected: expectedPair,
+            ordinary: 'github-copilot/model-a@low',
+            would: null,
+            incumbent: { before: 'github-copilot/model-b@high', after: expectedIncumbentAfter },
+            reason: expectedReason,
+          });
+        },
+      );
+
+      it.each([
+        ['degraded (null)', degradedClassifier, true],
+        ['unknown', () => classifiedAs('unknown'), false],
+      ])(
+        'falls back to "balanced" when objective.mode is "auto" and classification is %s',
+        async (_label, classifierOverrides, expectDegraded) => {
+          // On 10W/1L, only balanced (500) tests C; economy switches incumbent and robust serves B.
+          const { controller, writeAdaptiveReceipt } = run(withChallenger(10, 1), {
+            config: autoConfig,
+            ...classifierOverrides(),
+          });
+          const result = await controller.run();
+          expect(result.ok).toBe(true);
+          expect(result.degradedClassification).toBe(expectDegraded);
+          expect(writeAdaptiveReceipt).toHaveBeenCalledTimes(1);
+          expect(result.adaptiveReceipt).toMatchObject({
+            generation: '9f2c41d0',
+            mode: 'live',
+            scope: 'copilot/cost/shared',
+            role: 'test',
+            selected: 'github-copilot/model-c@medium',
+            ordinary: 'github-copilot/model-a@low',
+            would: null,
+            incumbent: { before: 'github-copilot/model-b@high', after: 'github-copilot/model-b@high' },
+            reason: 'challenger_hopeful_clears_need',
+          });
+        },
+      );
+
+      it.each(['economy', 'balanced', 'robust'])(
+        'rejects level "auto" as invalid_evidence when objective.mode is fixed (%s)',
+        async fixedMode => {
+          const { controller, writeAdaptiveReceipt } = run(summary({ level: 'auto' }), {
+            config: { objective: { goal: 'cost', mode: fixedMode } },
+            ...classifiedAs(fixedMode),
+          });
+          const result = await controller.run();
+          expect(result.ok).toBe(true);
+          expect(result.selection.choice).toEqual(rankFixture.fullRank[0]);
+          expect(writeAdaptiveReceipt).toHaveBeenCalledTimes(1);
+          expect(result.adaptiveReceipt).toMatchObject({
+            generation: null,
+            mode: null,
+            scope: null,
+            role: 'ordinary',
+            explore_allowed: false,
+            selected: 'github-copilot/model-a@low',
+            ordinary: 'github-copilot/model-a@low',
+            would: null,
+            incumbent: null,
+            costs: {},
+            concurrency: null,
+            reason: 'invalid_evidence',
+          });
+        },
+      );
+
+      it('writes a router_fallback receipt rather than invalid_evidence for level "auto" when routing falls back', async () => {
+        const { controller, writeAdaptiveReceipt } = run(summary({ level: 'auto' }), {
+          config: autoConfig,
+          planner: { route: async () => { throw { statusCode: 422, body: { code: 'no_route' } }; } },
+        });
+        const result = await controller.run();
+        expect(result.ok).toBe(true);
+        expect(result.selection.selection_source).toBe('fallback');
+        expect(writeAdaptiveReceipt).toHaveBeenCalledTimes(1);
+        expect(result.adaptiveReceipt).toMatchObject({
+          generation: '9f2c41d0',
+          mode: 'live',
+          scope: 'copilot/cost/shared',
+          role: 'ordinary',
+          explore_allowed: true,
+          incumbent: { before: 'github-copilot/model-b@high', after: 'github-copilot/model-b@high' },
+          concurrency: { turn: true, in_flight: 0, capacity: null },
+          reason: 'router_fallback',
+        });
+      });
+
+      it('enforces the 16 KiB limit against the staged summary rather than the resolved level string length', async () => {
+        const sizedAutoSummary = targetBytes => {
+          const base = summary({ level: 'auto', generation: '' });
+          const pad = targetBytes - Buffer.byteLength(JSON.stringify(base), 'utf8');
+          expect(pad).toBeGreaterThanOrEqual(0);
+          const sized = { ...base, generation: 'g'.repeat(pad) };
+          expect(Buffer.byteLength(JSON.stringify(sized), 'utf8')).toBe(targetBytes);
+          return sized;
+        };
+
+        // 16,384 bytes staged stays valid even when "auto" (4B) resolves to "balanced" (8B).
+        const atLimit = sizedAutoSummary(MAX_SUMMARY_BYTES);
+        for (const classifierOverrides of [classifiedAs('balanced'), degradedClassifier()]) {
+          const { controller, writeAdaptiveReceipt } = run(atLimit, {
+            config: autoConfig,
+            ...classifierOverrides,
+          });
+          const result = await controller.run();
+          expect(result.ok).toBe(true);
+          expect(writeAdaptiveReceipt).toHaveBeenCalledTimes(1);
+          expect(result.adaptiveReceipt).toMatchObject({
+            role: 'test',
+            selected: 'github-copilot/model-c@medium',
+            reason: 'challenger_hopeful_clears_need',
+          });
+        }
+
+        // 16,385 bytes staged is rejected regardless of resolved level.
+        const overLimit = sizedAutoSummary(MAX_SUMMARY_BYTES + 1);
+        const { controller, writeAdaptiveReceipt } = run(overLimit, {
+          config: autoConfig,
+          ...classifiedAs('robust'),
+        });
+        const overResult = await controller.run();
+        expect(overResult.ok).toBe(true);
+        expect(writeAdaptiveReceipt).toHaveBeenCalledTimes(1);
+        expect(overResult.adaptiveReceipt).toMatchObject({
+          generation: null,
+          mode: null,
+          scope: null,
+          role: 'ordinary',
+          selected: 'github-copilot/model-a@low',
+          reason: 'invalid_evidence',
+        });
       });
     });
   });
