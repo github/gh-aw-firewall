@@ -133,7 +133,7 @@ describe('maintained model compilation', () => {
     const naming = require('../../shared/model-information/naming.generated.json');
     const catalogue = require('../../shared/model-information/catalog.generated.json');
     const members = naming.models.filter((model: { identity: { family?: string } }) => model.identity.family);
-    expect(naming.models).toHaveLength(60);
+    expect(naming.models).toHaveLength(63);
     expect(members).toHaveLength(22);
     expect(new Set(members.map((model: { identity: { family: string } }) => model.identity.family)).size).toBe(9);
     expect(naming.rules).toEqual([]);

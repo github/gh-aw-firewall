@@ -58,7 +58,7 @@ test('the real bundled missing-price request changes charge and selected donor b
   });
   jest.dontMock('../model-information.naming.generated.json');
   expect(backend).toMatchObject({
-    aiCreditsThisResponse: 1.875, pricingEstimate: { basis: 'backend', donorCount: 48 },
+    aiCreditsThisResponse: 1.75, pricingEstimate: { basis: 'backend', donorCount: 51 },
   });
   const usage = charge('gemini-3.1-pro-preview', 10000);
   expect(usage).toMatchObject({
@@ -89,14 +89,14 @@ test('compiler-owned Claude lookup keys recover all reviewed family donors witho
   const fact = estimate('claude-sonnet-4.6', 0, { runtimeCatalog });
   expect(fact.default.input).toBe(3);
   expect(fact.metadata.estimate).toMatchObject({ donorCount: 3, sources: ['curated', 'provider'] });
-  expect(estimate('unknown-family', 0, { runtimeCatalog }).metadata.estimate.donorCount).toBe(48);
+  expect(estimate('unknown-family', 0, { runtimeCatalog }).metadata.estimate.donorCount).toBe(51);
 });
 
 test('families without eligible donors and unknown families retain backend fallback', () => {
   for (const id of ['gpt-4o', 'gpt-4o-mini', 'o3', 'o3-mini', 'gpt-5.1']) {
     expect(charge(id)).toMatchObject({
       aiCreditsThisResponse: 200, accountingPolicy: 'backend_median_estimate',
-      pricingEstimate: { basis: 'backend', donorCount: 48 },
+      pricingEstimate: { basis: 'backend', donorCount: 51 },
     });
   }
   expect(getMedianPricingFact('unassociated-backend', 'gemini-3.1-pro-preview', 0)).toBeNull();
@@ -181,7 +181,7 @@ test('central family donor tariffs retain channel, deployment, freshness and eff
   const retired = structuredClone(catalogue);
   retired.snapshot.models[0].lifecycle.status = 'retired';
   expect(estimate('gemini-3.1-pro-preview', 0, { ...options, catalogue: retired })
-    .metadata.estimate).toMatchObject({ basis: 'backend', donorCount: 47, sources: ['curated'] });
+    .metadata.estimate).toMatchObject({ basis: 'backend', donorCount: 50, sources: ['curated'] });
 });
 
 test.each([

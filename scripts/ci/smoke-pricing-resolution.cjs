@@ -130,8 +130,8 @@ async function main() {
   Date.now = () => Date.parse('2026-11-08T12:00:00Z');
   try {
     reset();
-    assert.equal(charge('unreviewed-family', {}, 10000).ai_credits_this_response, 1.875);
-    chargeHttpAndWebSocket('copilot', 'gemini-3.1-pro-preview', 2, 10000, 'default', 5.875);
+    assert.equal(charge('unreviewed-family', {}, 10000).ai_credits_this_response, 1.75);
+    chargeHttpAndWebSocket('copilot', 'gemini-3.1-pro-preview', 2, 10000, 'default', 5.75);
     const bundledFamily = guard.getAiCreditsReflectState().by_model['gemini-3.1-pro-preview'];
     assert.equal(bundledFamily.accounting_policy, 'family_median_estimate');
     assert.equal(bundledFamily.pricing_estimate.family, 'gemini-3-1-pro');
