@@ -1,7 +1,8 @@
 'use strict';
 
+const { selectAdaptive } = require('./adaptive-select');
 const { getModelMultiplierCapBlockState } = require('./guards/max-model-multiplier-guard');
-const { resolvePrimaryRank, shortlistPrimaryOptions } = require('./routing-candidates');
+const { resolvePrimaryRank, routingPairName, shortlistPrimaryOptions } = require('./routing-candidates');
 const { pinRequestEligibility, proxyEligibilityStore } = require('./model-eligibility');
 const { classifyRouting } = require('./routing-classify');
 const {
@@ -12,6 +13,7 @@ const {
 const { createRoutingError, RoutingError, toRoutingFailure } = require('./routing-errors');
 const { DEFAULT_CODING_TIERS, orderFallbackChoices } = require('./routing-fallback-order');
 const { recordSelection, recordFailure } = require('./routing-observation-records');
+const { writeAdaptiveSelection } = require('./routing-persistence');
 const { createSystemClock } = require('./routing-planner');
 const {
   countCatalogueOverlap, createRoutingStages, deepFreezeJson, mapPlannerFailure, validateRoutingDependencies,
@@ -90,6 +92,9 @@ function createRoutingController(dependencies) {
     eligibilityStore = proxyEligibilityStore,
     eligibilityScope,
     codingTiers = DEFAULT_CODING_TIERS,
+    adaptive,
+    priceRoute = () => null,
+    writeAdaptiveReceipt = writeAdaptiveSelection,
   } = dependencies;
 
   let runPromise;
@@ -183,6 +188,11 @@ function createRoutingController(dependencies) {
           throw error;
         }
       }
+      // The cap matches native wire IDs, not router IDs.
+      const withinModelCap = ({ id }) => {
+        const { wireModel, provider } = pool.byId[id];
+        return !getModelMultiplierCapBlockState(wireModel, provider);
+      };
 
       const triedIds = new Set();
       let firstChoiceError = null;
@@ -210,12 +220,45 @@ function createRoutingController(dependencies) {
         return null;
       }
 
-      let winner = route
-        ? await selectFirstPassing(route.ranked_choices.map(choice => ({
+      let winner = null;
+      let adaptiveReceipt;
+      if (route && adaptive) {
+        // The workflow's evidence chooses among the eligible pairs; the ordinary pick stays the router's.
+        // A pair the router ranks twice is one candidate, which its first choice stands for.
+        const ordinaryPick = route.ranked_choices[0];
+        const byPair = new Map();
+        for (const { id } of route.ranked_choices) {
+          const choice = pool.byId[id].choice;
+          const pair = routingPairName(pool.byId[id]);
+          if (!byPair.has(pair) && withinModelCap(choice)) byPair.set(pair, choice);
+        }
+        adaptiveReceipt = selectAdaptive({
+          summary: adaptive.summary,
+          rank: [...byPair.keys()],
+          ordinary: routingPairName(pool.byId[ordinaryPick.id]),
+          job: adaptive.job,
+          price: (pair, tokens) => (byPair.has(pair) ? priceRoute(pool.byId[byPair.get(pair).id], tokens) : null),
+        });
+        const adaptiveChoice = byPair.get(adaptiveReceipt.selected) ?? ordinaryPick;
+        const adaptiveSelection = createSelection(adaptiveChoice, pool.byId[adaptiveChoice.id], {
+          selectionSource: 'router',
+          fallbackReason: null,
+          fallbackTier: null,
+        });
+        await runPhase(({ signal: phaseSignal }) =>
+          executor.checkBeforePrimary({
+            selection: adaptiveSelection, signal: phaseSignal, awfEligibility: eligibilityRequest.awfEligibility,
+            awfEligibilityScope: eligibilityRequest.awfEligibilityScope,
+          }));
+        // Recorded before the primary starts, once the final guard has accepted the selection.
+        writeAdaptiveReceipt(deepFreezeJson(adaptiveReceipt));
+        winner = { choice: adaptiveChoice, selection: adaptiveSelection };
+      } else if (route) {
+        winner = await selectFirstPassing(route.ranked_choices.map(choice => ({
           choice,
           metadata: { selectionSource: 'router', fallbackReason: null, fallbackTier: null },
-        })))
-        : null;
+        })));
+      }
 
       if (!winner) {
         if (!fallbackReason) fallbackReason = firstChoiceError?.code || 'no_route';
@@ -240,19 +283,16 @@ function createRoutingController(dependencies) {
       const { choice: selectedChoice, selection } = winner;
       let routeOptions;
       if (selection.selection_source === 'router' && config.topK !== undefined && resolvedTopKRank) {
-        const startIndex = resolvedTopKRank.findIndex(choice => choice.id === selectedChoice.id);
+        const startIndex = adaptiveReceipt
+          ? 0
+          : resolvedTopKRank.findIndex(choice => choice.id === selectedChoice.id);
         const remainingRank = startIndex >= 0 ? resolvedTopKRank.slice(startIndex) : resolvedTopKRank;
-        // The cap matches native wire IDs, not router IDs.
-        const withinCap = remainingRank.filter(({ id }) => {
-          const { wireModel, provider } = pool.byId[id];
-          return !getModelMultiplierCapBlockState(wireModel, provider);
-        });
+        const withinCap = remainingRank.filter(withinModelCap);
         routeOptions = deepFreezeJson({
-          ordinaryPick: modelEffortPair(selectedChoice),
+          ordinaryPick: modelEffortPair(adaptiveReceipt ? route.ranked_choices[0] : selectedChoice),
           options: shortlistPrimaryOptions(withinCap, config.topK).map(modelEffortPair),
         });
       }
-
       recordSelection(observer, {
         config, selection, classification, successfulClassifier, rawCapabilities, route,
         conversation, degradedReason, actualAttempts, pool, catalogueOverlap, clock, startedAt,
@@ -262,6 +302,7 @@ function createRoutingController(dependencies) {
         ok: true,
         selection,
         ...(routeOptions ? { routeOptions } : {}),
+        ...(adaptiveReceipt ? { adaptiveReceipt } : {}),
         degradedClassification: classification === null,
         ...(degradedReason ? { degradedReason } : {}),
       });

@@ -388,12 +388,19 @@ function buildModelRoutingEnv(config: WrapperConfig): Record<string, string> {
   if (!config.modelRoutingBootstrap) {
     throw new Error(MODEL_ROUTING_NOT_STAGED_MESSAGE);
   }
+  // The proxy reads private staged copies, never the host paths the configuration names.
+  const { adaptiveSummaryFile, ...routing } = config.modelRouting;
+  const stagedSummary = config.modelRoutingBootstrap.containerAdaptiveInputFile;
+  if (adaptiveSummaryFile !== undefined && stagedSummary === undefined) {
+    throw new Error(MODEL_ROUTING_NOT_STAGED_MESSAGE);
+  }
   return {
     AWF_ROUTING_CONFIG: JSON.stringify({
-      ...config.modelRouting,
+      ...routing,
       task: {
         conversationFile: config.modelRoutingBootstrap.containerInputFile,
       },
+      ...(adaptiveSummaryFile === undefined ? {} : { adaptiveSummaryFile: stagedSummary }),
     }),
   };
 }

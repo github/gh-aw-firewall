@@ -3,7 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { writeRoutingRecord } = require('./routing-persistence');
+const { writeAdaptiveSelection, writeRoutingRecord } = require('./routing-persistence');
 const { resetCopilotInteractionIdForTests } = require('./request-headers');
 const { createRoutingObserver } = require('./routing-runtime');
 
@@ -194,5 +194,43 @@ describe('routing persistence', () => {
 
     expect(fs.statSync(log).mode & 0o777).toBe(0o600);
     expect(readRecords()).toHaveLength(1);
+  });
+});
+
+describe('adaptive selection receipts', () => {
+  let directory;
+  let saved;
+
+  beforeEach(() => {
+    saved = process.env.AWF_TOKEN_LOG_DIR;
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-adaptive-logs-'));
+    process.env.AWF_TOKEN_LOG_DIR = directory;
+  });
+
+  afterEach(() => {
+    if (saved === undefined) delete process.env.AWF_TOKEN_LOG_DIR;
+    else process.env.AWF_TOKEN_LOG_DIR = saved;
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  test('appends one owner-only line per receipt, with a timestamp', () => {
+    const receipt = { event: 'adaptive_selection', v: 2, role: 'test', selected: 'github-copilot/model-a@high' };
+    expect(writeAdaptiveSelection(receipt)).toBe(true);
+    expect(writeAdaptiveSelection({ ...receipt, role: 'serve' })).toBe(true);
+    const file = path.join(directory, 'adaptive-selection.jsonl');
+    const lines = fs.readFileSync(file, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    expect(lines).toEqual([
+      { ...receipt, timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) },
+      { ...receipt, role: 'serve', timestamp: expect.any(String) },
+    ]);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  test('never follows a link, and reports the lost write instead of throwing', () => {
+    const target = path.join(directory, 'elsewhere.jsonl');
+    fs.writeFileSync(target, '');
+    fs.symlinkSync(target, path.join(directory, 'adaptive-selection.jsonl'));
+    expect(writeAdaptiveSelection({ event: 'adaptive_selection' })).toBe(false);
+    expect(fs.readFileSync(target, 'utf8')).toBe('');
   });
 });

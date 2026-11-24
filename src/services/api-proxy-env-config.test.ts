@@ -549,6 +549,42 @@ it('buildModelPolicyEnv no longer sets AWF_ROUTING_CONFIG when modelRouting is c
       );
     });
 
+    it('gives the proxy the staged adaptive summary, never the host path', () => {
+      const staging = {
+        root: '/tmp/awf-test-routing',
+        inputDir: '/tmp/awf-test-routing/input',
+        outputDir: '/tmp/awf-test-routing/output',
+        inputFile: '/tmp/awf-test-routing/input/conversation.json',
+        containerInputFile: '/run/awf-routing/input/conversation.json',
+        containerOutputDir: '/run/awf-routing/output',
+      };
+      const config = {
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        experimentalModelRouting: true,
+        modelRouting: {
+          adaptiveSummaryFile: '/runner/temp/gh-aw/adaptive-summary.json',
+          objective: { goal: 'cost' as const, mode: 'balanced' as const },
+          task: { conversationFile: '/host/conversation.json' },
+        },
+      };
+      const env = buildModelRoutingEnv({
+        ...config,
+        modelRoutingBootstrap: {
+          ...staging,
+          adaptiveInputFile: '/tmp/awf-test-routing/input/adaptive-summary.json',
+          containerAdaptiveInputFile: '/run/awf-routing/input/adaptive-summary.json',
+        },
+      });
+      expect(JSON.parse(env.AWF_ROUTING_CONFIG)).toEqual({
+        objective: { goal: 'cost', mode: 'balanced' },
+        task: { conversationFile: '/run/awf-routing/input/conversation.json' },
+        adaptiveSummaryFile: '/run/awf-routing/input/adaptive-summary.json',
+      });
+      expect(() => buildModelRoutingEnv({ ...config, modelRoutingBootstrap: staging }))
+        .toThrow('Model routing was configured but the routing conversation was not staged');
+    });
+
     it('requires host staging before routing env generation', () => {
       expect(() => buildModelRoutingEnv({
         ...baseConfig,

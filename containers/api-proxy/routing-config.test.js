@@ -97,6 +97,17 @@ describe('routing configuration', () => {
       .toThrow('routing.provider is not supported');
   });
 
+  it('accepts an adaptive summary path and rejects a blank one', () => {
+    const base = { objective: { goal: 'cost', mode: 'balanced' }, task: { conversationFile: '/private/task' } };
+    const parse = fields => parseRoutingConfig(JSON.stringify({ ...base, ...fields }));
+    expect(parse({ adaptiveSummaryFile: '/run/awf-routing/input/adaptive-summary.json' }).adaptiveSummaryFile)
+      .toBe('/run/awf-routing/input/adaptive-summary.json');
+    expect(parse({})).not.toHaveProperty('adaptiveSummaryFile');
+    for (const adaptiveSummaryFile of ['', ' ', 3, null]) {
+      expect(() => parse({ adaptiveSummaryFile })).toThrow('routing.adaptiveSummaryFile must be a nonblank string');
+    }
+  });
+
   it('accepts an explicit bounded integer topK without enabling a manual model override', () => {
     const base = { objective: { goal: 'cost', mode: 'balanced' }, task: { conversationFile: '/private/task' } };
     const parse = fields => parseRoutingConfig(JSON.stringify({ ...base, ...fields }));

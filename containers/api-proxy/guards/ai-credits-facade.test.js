@@ -42,7 +42,7 @@ describe('AI credits facade state ownership', () => {
       'buildAiCreditsLimitError', 'getPendingAiCreditSteeringWarning',
       'hasCrossedAiCreditSteeringThreshold', 'acknowledgeAiCreditSteeringWarning',
       'claimAiCreditSteeringWarning', 'checkModelPricing', 'isRecognizedDynamicSelector',
-      'isModelPriceable', 'canonicalizeModel', 'resetAiCreditsGuardForTests',
+      'isModelPriceable', 'canonicalizeModel', 'resolveModelPricing', 'resetAiCreditsGuardForTests',
     ];
     expect(Object.keys(guard).sort()).toEqual(['HARD_CAP_AI_CREDITS', ...functions].sort());
     expect(guard.HARD_CAP_AI_CREDITS).toBe(10000);

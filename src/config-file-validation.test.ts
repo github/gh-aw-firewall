@@ -326,6 +326,11 @@ describe('validateAwfFileConfig', () => {
     });
     for (const k of [1, 3, 32]) expect(validateK(k)).toEqual([]);
     for (const k of [0, -1, 33, 1.5, '3', null, true]) expect(validateK(k)).not.toEqual([]);
+    const validateSummary = (adaptiveSummaryFile: unknown) => validateAwfFileConfig({
+      experimental: { modelRouting: true }, apiProxy: { routing: { ...valid, adaptiveSummaryFile } },
+    });
+    expect(validateSummary('/runner/temp/gh-aw/adaptive-summary.json')).toEqual([]);
+    for (const value of ['', 3, null, true, ['/a']]) expect(validateSummary(value)).not.toEqual([]);
     expect(validateAwfFileConfig({
       experimental: { modelRouting: true }, apiProxy: { routing: { ...valid, topK: 3, excludedModels: ['openai/model-a'] } },
     })).toContain('config.apiProxy.routing.excludedModels is not supported');

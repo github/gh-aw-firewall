@@ -47,7 +47,7 @@ function parseRoutingConfig(raw) {
     throw configurationError('AWF_ROUTING_CONFIG must contain valid JSON');
   }
 
-  requireClosedObject(value, 'routing', ['objective', 'task'], ['objective', 'task', 'provider', 'candidateModels', 'topK']);
+  requireClosedObject(value, 'routing', ['objective', 'task'], ['objective', 'task', 'provider', 'candidateModels', 'topK', 'adaptiveSummaryFile']);
   requireClosedObject(value.objective, 'routing.objective', ['goal', 'mode']);
   requireClosedObject(value.task, 'routing.task', ['conversationFile']);
 
@@ -74,6 +74,9 @@ function parseRoutingConfig(raw) {
     provider,
     ...(candidateModels ? { candidateModels: Object.freeze(candidateModels) } : {}),
     ...(value.topK !== undefined ? { topK: value.topK } : {}),
+    ...(value.adaptiveSummaryFile !== undefined ? {
+      adaptiveSummaryFile: requireNonblankString(value.adaptiveSummaryFile, 'routing.adaptiveSummaryFile'),
+    } : {}),
     objective: Object.freeze({
       goal: value.objective.goal,
       mode: value.objective.mode,

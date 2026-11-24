@@ -60,4 +60,33 @@ function writeRoutingRecord(record) {
   }
 }
 
-module.exports = { writeRoutingRecord };
+/**
+ * Append the adaptive selection receipt before the primary starts. There is no acknowledgment:
+ * gh-aw counts a run only when it finds a receipt bound to that run, so a lost receipt costs
+ * one sample, never a wrong one.
+ */
+function writeAdaptiveSelection(receipt) {
+  let fd;
+  try {
+    const directory = process.env.AWF_TOKEN_LOG_DIR || '/var/log/api-proxy';
+    fs.mkdirSync(directory, { recursive: true });
+    fd = fs.openSync(path.join(directory, 'adaptive-selection.jsonl'),
+      fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT |
+        fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
+      0o600);
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1) return false;
+    fs.fchmodSync(fd, 0o600);
+    fs.writeFileSync(fd, JSON.stringify({ ...receipt, timestamp: new Date().toISOString() }) + '\n');
+    fs.fsyncSync(fd);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch { /* best-effort */ }
+    }
+  }
+}
+
+module.exports = { writeAdaptiveSelection, writeRoutingRecord };
