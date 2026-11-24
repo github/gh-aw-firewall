@@ -300,10 +300,21 @@ function selectAdaptive({ summary, rank, ordinary = rank[0], job, price }) {
     }
   }
 
-  const due = summary.pairs
-    .filter(entry => entry.suspended?.probe_due && order.has(entry.pair))
-    .map(entry => entry.pair)
-    .sort((left, right) => order.get(left) - order.get(right));
+  const dueEntries = summary.pairs.filter(entry => entry.suspended?.probe_due);
+  const exactDueBases = new Set(
+    dueEntries.filter(entry => order.has(entry.pair)).map(entry => baseOf(entry.pair)),
+  );
+  const dueTargets = new Set();
+  for (const entry of dueEntries) {
+    let target = null;
+    if (order.has(entry.pair)) {
+      target = entry.pair;
+    } else if (!exactDueBases.has(baseOf(entry.pair))) {
+      target = rank.find(pair => baseOf(pair) === baseOf(entry.pair)) ?? null;
+    }
+    if (target !== null) dueTargets.add(target);
+  }
+  const due = [...dueTargets].sort((left, right) => order.get(left) - order.get(right));
   let want = null;
   let room = 0;
   if (due.length > 0) {

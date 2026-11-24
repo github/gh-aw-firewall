@@ -2987,7 +2987,11 @@ router's pairs to be unique):
   than the incumbent's optimistic rate. Switching needs no permission to explore.
   A rival that won on an estimate and cannot price itself keeps that estimate.
 - **Probe.** A suspended pair whose probe is due runs once, before any test, the
-  highest-ranked first. A suspension covers every effort of its base.
+  highest-ranked first. A suspension covers every effort of its base; if a due
+  pair's exact effort is no longer in the eligible rank (and no other due pair
+  of that base is in the rank), the probe falls back to the highest-ranked
+  eligible sibling effort of that base, ordered by the target pair's rank
+  position. If no effort of that base is eligible, no probe runs.
 - **Test.** The shortlist is the first effort of up to three distinct base models
   in rank order. The rival with the best optimistic score is tested if its
   optimistic rate exceeds its need and it has fewer than 20 tests.
