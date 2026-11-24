@@ -88,8 +88,14 @@ function createRoutingProviderExecutor({
     checkBeforePrimary(request) {
       const { selection, awfEligibility, awfEligibilityScope } = request;
       const provider = selection.provider || 'copilot';
-      const pricingOptions = Object.hasOwn(request, 'awfCatalogue')
-        ? { catalogue: request.awfCatalogue } : undefined;
+      const hasPricingCatalogue = Object.hasOwn(request, 'awfCatalogue');
+      const hasPricingCache = request.awfPricingCache instanceof Map;
+      const pricingOptions = hasPricingCatalogue || hasPricingCache
+        ? {
+          ...(hasPricingCatalogue ? { catalogue: request.awfCatalogue } : {}),
+          ...(hasPricingCache ? { pricingCache: request.awfPricingCache } : {}),
+        }
+        : undefined;
       for (const guard of getGuardChecks(selection.wire_model, provider, pricingOptions)) {
         if (!guard.isBlocked(guard.block)) continue;
         const envelope = guard.buildError(guard.block);

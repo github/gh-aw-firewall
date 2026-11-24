@@ -192,13 +192,20 @@ describe('routing provider executor', () => {
     expect(() => executor.checkBeforePrimary({ selection: { wire_model: 'gpt-5.4' } })).not.toThrow();
   });
 
-  it('forwards a pinned pricing catalogue snapshot to guard checks when provided', () => {
+  it('forwards a pinned pricing catalogue snapshot and pricing cache to guard checks when provided', () => {
     const getGuardChecks = jest.fn(() => []);
     const executor = createExecutor({ proxyRequest: jest.fn(), getGuardChecks });
     const awfCatalogue = Object.freeze({ revision: 'pinned-rev' });
+    const awfPricingCache = new Map();
 
     executor.checkBeforePrimary({ selection: { wire_model: 'gpt-5.4' }, awfCatalogue });
     expect(getGuardChecks).toHaveBeenCalledWith('gpt-5.4', 'copilot', { catalogue: awfCatalogue });
+
+    executor.checkBeforePrimary({ selection: { wire_model: 'gpt-5.4' }, awfCatalogue, awfPricingCache });
+    expect(getGuardChecks).toHaveBeenLastCalledWith('gpt-5.4', 'copilot', {
+      catalogue: awfCatalogue,
+      pricingCache: awfPricingCache,
+    });
 
     executor.checkBeforePrimary({ selection: { wire_model: 'gpt-5.4' } });
     expect(getGuardChecks).toHaveBeenLastCalledWith('gpt-5.4', 'copilot', undefined);

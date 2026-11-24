@@ -932,15 +932,39 @@ describe('routing controller', () => {
       expect(fallbackTimedOutResult).toMatchObject({ ok: false, failure: { code: 'routing_timeout' } });
       expect(fallbackTimedOutResult).not.toHaveProperty('adaptiveReceipt');
       expect(fallbackTimedOutRun.writeAdaptiveReceipt).not.toHaveBeenCalled();
+
+      let lastGuardNow = 1_000;
+      const lastGuardClock = {
+        now: () => lastGuardNow,
+        setTimer: () => 1,
+        clearTimer: () => {},
+        sleep: async () => {},
+      };
+      const lastChoiceId = rankFixture.fullRank.at(-1).id;
+      const lastGuardTimedOutRun = run(summary(), {
+        checkBeforePrimary: ({ selection }) => {
+          if (selection.choice.id === lastChoiceId) {
+            lastGuardNow = 1_000 + ROUTING_BOOTSTRAP_TIMEOUT_MS;
+          }
+          throw createRoutingError('pricing_resolution_error', 'unpriced');
+        },
+        dependencies: { clock: lastGuardClock },
+      });
+      const lastGuardTimedOutResult = await lastGuardTimedOutRun.controller.run();
+      expect(lastGuardTimedOutResult).toMatchObject({ ok: false, failure: { code: 'routing_timeout' } });
+      expect(lastGuardTimedOutResult).not.toHaveProperty('adaptiveReceipt');
+      expect(lastGuardTimedOutRun.writeAdaptiveReceipt).not.toHaveBeenCalled();
     });
 
-    it('pins one pricing catalogue capture across the adaptive guard scan and pricing', async () => {
+    it('pins one pricing catalogue capture and caches model pricing across sibling efforts', async () => {
       const { getCatalogueLoader } = require('./catalogue-loader');
+      const pricingResolution = require('./catalogue-contract/pricing-resolution');
       const { createAdaptivePrice } = require('./routing-runtime');
       const { checkBeforePrimary } = require('./routing-provider-executor').createRoutingProviderExecutor({
         getAdapter: jest.fn(), proxyRequest: jest.fn(), checkRateLimit: jest.fn(),
       });
       const captureSpy = jest.spyOn(getCatalogueLoader(), 'capture');
+      const resolveSpy = jest.spyOn(pricingResolution, 'resolvePricing');
       try {
         const { controller, calls } = run(summary(), {
           checkBeforePrimary,
@@ -951,9 +975,17 @@ describe('routing controller', () => {
         expect(calls.checkBeforePrimary.length).toBe(rankFixture.fullRank.length);
         expect(captureSpy).toHaveBeenCalledTimes(1);
         const pinned = calls.checkBeforePrimary[0].awfCatalogue;
-        expect(calls.checkBeforePrimary.every(call => call.awfCatalogue === pinned)).toBe(true);
+        const pricingCache = calls.checkBeforePrimary[0].awfPricingCache;
+        expect(pricingCache).toBeInstanceOf(Map);
+        expect(calls.checkBeforePrimary.every(call =>
+          call.awfCatalogue === pinned && call.awfPricingCache === pricingCache)).toBe(true);
+        // Three distinct models (model-a across 3 efforts, model-b, model-c): model-a is cached after its first effort.
+        expect(pricingCache.size).toBe(3);
+        const modelAResolutions = resolveSpy.mock.calls.filter(([req]) => req.identity?.key === 'copilot:model-a');
+        expect(modelAResolutions.length).toBeLessThanOrEqual(3);
       } finally {
         captureSpy.mockRestore();
+        resolveSpy.mockRestore();
       }
     });
 

@@ -229,6 +229,7 @@ function createRoutingController(dependencies) {
 
       const ROUTER_METADATA = Object.freeze({ selectionSource: 'router', fallbackReason: null, fallbackTier: null });
       const checkedChoices = new Map();
+      const pricingCache = new Map();
       let firstChoiceError = null;
       let pinnedPricingCatalogue;
       let hasPinnedPricingCatalogue = false;
@@ -254,13 +255,14 @@ function createRoutingController(dependencies) {
           await runPhase(({ signal: phaseSignal }) =>
             executor.checkBeforePrimary({
               selection: candidateSelection, signal: phaseSignal, awfEligibility: eligibilityRequest.awfEligibility,
-              awfEligibilityScope: eligibilityRequest.awfEligibilityScope, awfCatalogue,
+              awfEligibilityScope: eligibilityRequest.awfEligibilityScope, awfCatalogue, awfPricingCache: pricingCache,
             }));
           const passed = { ok: true, choice, selection: candidateSelection };
           checkedChoices.set(choice.id, passed);
           return passed;
         } catch (error) {
           if (error instanceof RoutingError && SKIPPABLE_CHOICE_GUARD_CODES.has(error.code)) {
+            assertActive();
             firstChoiceError ||= error;
             const rejected = { ok: false, error };
             checkedChoices.set(choice.id, rejected);
