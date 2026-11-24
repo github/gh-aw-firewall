@@ -1207,10 +1207,17 @@ copy_system_ca_bundle() {
   # JDK cacerts symlinks may target java/cacerts or adoptium/cacerts.
   local java_store relative_store
   for java_store in /host/etc/ssl/certs/*/cacerts; do
-    [ -f "$java_store" ] || continue
     relative_store="${java_store#/host/etc/ssl/certs/}"
-    mkdir -p "$trust/certs/$(dirname "$relative_store")"
-    cp -L "$java_store" "$trust/certs/$relative_store"
+    if [ -L "$java_store" ]; then
+      chroot /host /bin/sh -c '[ -f "$1" ]' sh "/etc/ssl/certs/$relative_store" || continue
+      mkdir -p "$trust/certs/$(dirname "$relative_store")"
+      chroot /host /bin/sh -c 'cp -L "$1" "$2"' sh \
+        "/etc/ssl/certs/$relative_store" "${trust#/host}/certs/$relative_store"
+    else
+      [ -f "$java_store" ] || continue
+      mkdir -p "$trust/certs/$(dirname "$relative_store")"
+      cp -L "$java_store" "$trust/certs/$relative_store"
+    fi
   done
   # The /run staging root is container-local; none of these operations writes
   # through the read-only host /etc bind mounts.
