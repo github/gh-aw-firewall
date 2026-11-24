@@ -129,6 +129,7 @@ function createRoutingController(dependencies) {
           conversation, pool, planner, executor, observer, eligibilityRequest,
           callPlanner: routerStages.callPlanner, signal, deadline: routerDeadline, clock,
           attemptTimeoutMs: CLASSIFIER_ATTEMPT_TIMEOUT_MS, maxAttempts: CLASSIFIER_MAX_ATTEMPTS, purpose: PURPOSE,
+          onAttempt: count => { actualAttempts = count; },
         });
         ({ classification, successfulClassifier, degradedReason, actualAttempts } = classified);
 
@@ -172,8 +173,10 @@ function createRoutingController(dependencies) {
         if (error instanceof RoutingError && error.code === 'routing_timeout' && clock.now() >= deadline) {
           throw error;
         }
-        if (error instanceof RoutingError && ROUTER_FALLBACK_CODES.has(error.code)) {
+        if (error instanceof RoutingError &&
+            (ROUTER_FALLBACK_CODES.has(error.code) || SKIPPABLE_CHOICE_GUARD_CODES.has(error.code))) {
           fallbackReason = error.code;
+          if (actualAttempts > 0 && degradedReason === null) degradedReason = error.code;
           route = null;
           resolvedTopKRank = null;
         } else {
@@ -183,51 +186,39 @@ function createRoutingController(dependencies) {
 
       const triedIds = new Set();
       let firstChoiceError = null;
-      let selection = null;
-      let selectedChoice = null;
-      let selectionSource = null;
-      let fallbackTier = null;
 
-      async function tryCandidate(choice, metadata) {
-        const candidateSelection = createSelection(choice, pool.byId[choice.id], metadata);
-        try {
-          await runPhase(({ signal: phaseSignal }) =>
-            executor.checkBeforePrimary({
-              selection: candidateSelection, signal: phaseSignal, awfEligibility: eligibilityRequest.awfEligibility,
-              awfEligibilityScope: eligibilityRequest.awfEligibilityScope,
-            }));
-          return { ok: true, selection: candidateSelection };
-        } catch (error) {
-          if (error instanceof RoutingError && SKIPPABLE_CHOICE_GUARD_CODES.has(error.code)) {
-            return { ok: false, error };
-          }
-          throw error;
-        }
-      }
-
-      if (route) {
-        for (const choice of route.ranked_choices) {
+      async function selectFirstPassing(candidates) {
+        for (const { choice, metadata } of candidates) {
           if (triedIds.has(choice.id)) continue;
           triedIds.add(choice.id);
-          const outcome = await tryCandidate(choice, {
-            selectionSource: 'router',
-            fallbackReason: null,
-            fallbackTier: null,
-          });
-          if (outcome.ok) {
-            selection = outcome.selection;
-            selectedChoice = choice;
-            selectionSource = 'router';
-            break;
+          const candidateSelection = createSelection(choice, pool.byId[choice.id], metadata);
+          try {
+            await runPhase(({ signal: phaseSignal }) =>
+              executor.checkBeforePrimary({
+                selection: candidateSelection, signal: phaseSignal, awfEligibility: eligibilityRequest.awfEligibility,
+                awfEligibilityScope: eligibilityRequest.awfEligibilityScope,
+              }));
+            return { choice, selection: candidateSelection };
+          } catch (error) {
+            if (error instanceof RoutingError && SKIPPABLE_CHOICE_GUARD_CODES.has(error.code)) {
+              firstChoiceError ||= error;
+              continue;
+            }
+            throw error;
           }
-          firstChoiceError ||= outcome.error;
         }
-        if (!selection && !fallbackReason) {
-          fallbackReason = firstChoiceError?.code || 'no_route';
-        }
+        return null;
       }
 
-      if (!selection) {
+      let winner = route
+        ? await selectFirstPassing(route.ranked_choices.map(choice => ({
+          choice,
+          metadata: { selectionSource: 'router', fallbackReason: null, fallbackTier: null },
+        })))
+        : null;
+
+      if (!winner) {
+        if (!fallbackReason) fallbackReason = firstChoiceError?.code || 'no_route';
         const effectiveMode = config.objective.mode === 'auto' &&
           classification?.mode && classification.mode !== 'unknown'
           ? classification.mode
@@ -236,33 +227,23 @@ function createRoutingController(dependencies) {
           objective: { ...config.objective, mode: effectiveMode },
           codingTiers,
         });
-        for (const entry of fallbackCandidates) {
-          if (triedIds.has(entry.choice.id)) continue;
-          triedIds.add(entry.choice.id);
-          const outcome = await tryCandidate(entry.choice, {
-            selectionSource: 'fallback',
-            fallbackReason,
-            fallbackTier: entry.tier,
-          });
-          if (outcome.ok) {
-            selection = outcome.selection;
-            selectedChoice = entry.choice;
-            selectionSource = 'fallback';
-            fallbackTier = entry.tier;
-            break;
-          }
-          firstChoiceError ||= outcome.error;
-        }
+        winner = await selectFirstPassing(fallbackCandidates.map(entry => ({
+          choice: entry.choice,
+          metadata: { selectionSource: 'fallback', fallbackReason, fallbackTier: entry.tier },
+        })));
       }
 
-      if (!selection) {
+      if (!winner) {
         throw firstChoiceError || createRoutingError('no_route', 'No eligible model passed selection guards');
       }
 
+      const { choice: selectedChoice, selection } = winner;
       let routeOptions;
-      if (selectionSource === 'router' && config.topK !== undefined && resolvedTopKRank) {
+      if (selection.selection_source === 'router' && config.topK !== undefined && resolvedTopKRank) {
+        const startIndex = resolvedTopKRank.findIndex(choice => choice.id === selectedChoice.id);
+        const remainingRank = startIndex >= 0 ? resolvedTopKRank.slice(startIndex) : resolvedTopKRank;
         // The cap matches native wire IDs, not router IDs.
-        const withinCap = resolvedTopKRank.filter(({ id }) => {
+        const withinCap = remainingRank.filter(({ id }) => {
           const { wireModel, provider } = pool.byId[id];
           return !getModelMultiplierCapBlockState(wireModel, provider);
         });
@@ -275,8 +256,6 @@ function createRoutingController(dependencies) {
       recordSelection(observer, {
         config, selection, classification, successfulClassifier, rawCapabilities, route,
         conversation, degradedReason, actualAttempts, pool, catalogueOverlap, clock, startedAt,
-        selectionSource, fallbackReason: selectionSource === 'fallback' ? fallbackReason : null,
-        fallbackTier,
       });
 
       return Object.freeze({

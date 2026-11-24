@@ -511,6 +511,156 @@ describe('routing controller fallback guarantee', () => {
     await expect(expired.run({ jobDeadlineMs: 4_000 }))
       .resolves.toMatchObject({ ok: false, failure: { code: 'routing_timeout' } });
   });
+
+  it('preserves started classifier attempts and degradation reason when classification times out at the router bound', async () => {
+    const records = [];
+    const clock = makeFakeClock(10_000);
+    const controller = createRoutingController({
+      config: {
+        provider: 'copilot',
+        objective: { goal: 'cost', mode: 'balanced' },
+        task: { conversationFile: '/tmp/conversation.json' },
+      },
+      planner: makePlanner('valid_rank', clock),
+      catalogue: {
+        getSnapshot: async () => ({
+          provider: 'copilot',
+          configured: true,
+          discovery: 'complete',
+          models: ELIGIBLE_FIXTURE.slice(0, 2),
+        }),
+      },
+      loadConversation: async () => CONVERSATION,
+      executor: {
+        execute: (_req, { signal }) => new Promise((_, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+          queueMicrotask(() => clock.fireNextTimer());
+        }),
+        checkBeforePrimary: async () => {},
+      },
+      observer: { record: record => records.push(record) },
+      clock,
+      codingTiers: FIXTURE_TIERS,
+    });
+
+    const result = await controller.run({ jobDeadlineMs: 10_000 + 2_000 });
+    expect(result.ok).toBe(true);
+    expect(result.selection).toMatchObject({
+      wire_model: 'std-dated',
+      selection_source: 'fallback',
+      fallback_reason: 'routing_timeout',
+      fallback_tier: 'standard',
+    });
+    expect(records.filter(record => record.stage === 'classification')).toHaveLength(1);
+    expect(records.find(record => record.stage === 'selection')).toMatchObject({
+      classifier_attempts: 1,
+      degraded_classification: true,
+      degraded_reason: 'routing_timeout',
+    });
+  });
+
+  it('falls back to an uncapped model when a per-model guard blocks classification', async () => {
+    const records = [];
+    const controller = createRoutingController({
+      config: {
+        provider: 'copilot',
+        objective: { goal: 'cost', mode: 'balanced' },
+        task: { conversationFile: '/tmp/conversation.json' },
+      },
+      planner: makePlanner('valid_rank'),
+      catalogue: {
+        getSnapshot: async () => ({
+          provider: 'copilot',
+          configured: true,
+          discovery: 'complete',
+          models: [
+            { id: 'gpt-5.3-codex', efforts: ['medium'], protocols: ['responses'], contextWindow: 400_000 },
+            { id: 'claude-haiku-4.5', efforts: [], protocols: ['chat-completions'], contextWindow: 200_000 },
+          ],
+        }),
+      },
+      loadConversation: async () => CONVERSATION,
+      executor: {
+        execute: async () => ({
+          statusCode: 400,
+          body: Buffer.from('{}'),
+          terminal: { code: 'model_multiplier_cap_exceeded', detail: 'Codex exceeds multiplier cap' },
+        }),
+        checkBeforePrimary: async ({ selection }) => {
+          if (selection.wire_model === 'gpt-5.3-codex') {
+            throw createRoutingError('model_multiplier_cap_exceeded', 'Codex exceeds multiplier cap');
+          }
+        },
+      },
+      observer: { record: record => records.push(record) },
+    });
+
+    const result = await controller.run();
+    expect(result.ok).toBe(true);
+    expect(result.selection).toMatchObject({
+      wire_model: 'claude-haiku-4.5',
+      selection_source: 'fallback',
+      fallback_reason: 'model_multiplier_cap_exceeded',
+      fallback_tier: 'lightweight',
+    });
+    expect(records.find(record => record.stage === 'selection')).toMatchObject({
+      classifier_attempts: 1,
+      degraded_reason: 'model_multiplier_cap_exceeded',
+    });
+  });
+
+  it('skips an unpriced fallback model under a configured AI-credit budget without using median estimates', async () => {
+    const env = jest.replaceProperty(process, 'env', {
+      ...process.env,
+      AWF_MAX_AI_CREDITS: '10',
+    });
+    try {
+      const executor = createRoutingProviderExecutor({
+        getAdapter: () => createCopilotAdapter({ COPILOT_GITHUB_TOKEN: 'test-token' }),
+        proxyRequest: jest.fn(),
+        checkRateLimit: jest.fn(),
+      });
+      const controller = createRoutingController({
+        config: {
+          provider: 'copilot',
+          objective: { goal: 'cost', mode: 'balanced' },
+          task: { conversationFile: '/tmp/conversation.json' },
+        },
+        planner: makePlanner('no_route'),
+        catalogue: {
+          getSnapshot: async () => ({
+            provider: 'copilot',
+            configured: true,
+            discovery: 'complete',
+            models: [
+              { id: 'unpriced-newer-model', efforts: ['medium'], protocols: ['responses'], contextWindow: 128_000 },
+              { id: 'gpt-5.3-codex', efforts: ['medium'], protocols: ['responses'], contextWindow: 400_000 },
+            ],
+          }),
+        },
+        loadConversation: async () => CONVERSATION,
+        executor: {
+          execute: async () => ({ statusCode: 200, body: Buffer.from('{}') }),
+          checkBeforePrimary: executor.checkBeforePrimary,
+        },
+        observer: { record: () => {} },
+        codingTiers: {
+          'unpriced-newer-model': { tier: 'standard', releaseDate: '2026-11-20' },
+          'gpt-5-3-codex': { tier: 'standard', releaseDate: '2026-02-05' },
+        },
+      });
+
+      const result = await controller.run();
+      expect(result.ok).toBe(true);
+      expect(result.selection).toMatchObject({
+        wire_model: 'gpt-5.3-codex',
+        selection_source: 'fallback',
+        fallback_tier: 'standard',
+      });
+    } finally {
+      env.restore();
+    }
+  });
 });
 
 describe('named fallback fixtures', () => {

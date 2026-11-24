@@ -291,6 +291,27 @@ describe('routing controller', () => {
     });
   });
 
+  it('shortlists topK from the winning router choice when an earlier choice fails a non-cap guard', async () => {
+    const { controller } = replayRank({
+      config: { topK: 1 },
+      checkBeforePrimary: ({ selection }) => {
+        if (selection.wire_model === 'model-a') {
+          throw createRoutingError('pricing_resolution_error', 'unpriced');
+        }
+      },
+    });
+    const result = await controller.run();
+    expect(result.ok).toBe(true);
+    expect(result.selection).toMatchObject({
+      wire_model: 'model-b',
+      selection_source: 'router',
+    });
+    expect(result.routeOptions).toEqual({
+      ordinaryPick: { model: 'github-copilot/model-b', effort: 'high' },
+      options: [{ model: 'github-copilot/model-b', effort: 'high' }],
+    });
+  });
+
   it('fails when every candidate is vetoed by guards and stops immediately on run-wide guards', async () => {
     const { controller, calls, records } = replayRank({
       config: { topK: 3 },
@@ -736,7 +757,7 @@ describe('routing controller', () => {
     expect(records.filter(record => record.stage === 'classification')).toHaveLength(2);
   });
 
-  it('stops the decision on a terminal provider failure', async () => {
+  it('stops the decision on a run-wide terminal provider failure', async () => {
     const { controller, calls } = createHarness({
       models: [
         { id: 'a-test', efforts: ['low'], protocols: ['responses'], contextWindow: 128_000 },
@@ -745,7 +766,7 @@ describe('routing controller', () => {
       executeResult: () => ({
         statusCode: 403,
         body: Buffer.from('{}'),
-        terminal: { code: 'model_policy_violation', detail: 'blocked' },
+        terminal: { code: 'ai_credits_limit_exceeded', detail: 'budget exhausted' },
       }),
     });
     const result = await controller.run();
@@ -753,8 +774,8 @@ describe('routing controller', () => {
     expect(result.ok).toBe(false);
     expect(result.failure).toEqual({
       schema: 'awf-routing-failure/v1',
-      code: 'model_policy_violation',
-      detail: 'blocked',
+      code: 'ai_credits_limit_exceeded',
+      detail: 'budget exhausted',
       retryable: false,
     });
     expect(calls.execute).toHaveLength(1);

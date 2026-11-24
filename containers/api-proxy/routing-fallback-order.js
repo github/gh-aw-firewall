@@ -60,8 +60,7 @@ function getTierOrder(objective) {
 function lookupTierInfo(wireModel, provider, codingTiers) {
   const lookupId = toLookupId(wireModel, provider);
   const entry = codingTiers && Object.hasOwn(codingTiers, lookupId) ? codingTiers[lookupId] : null;
-  const rawTier = entry?.tier ?? entry?.codingTier;
-  const tier = VALID_TIERS.has(rawTier) ? rawTier : 'unclassified';
+  const tier = VALID_TIERS.has(entry?.tier) ? entry.tier : 'unclassified';
   const releaseDate = typeof entry?.releaseDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(entry.releaseDate)
     ? entry.releaseDate
     : null;
@@ -101,16 +100,10 @@ function chooseFallbackChoiceForModel(choices) {
 
 function resolveWireModel(choice, mapping) {
   if (typeof mapping?.wireModel === 'string' && mapping.wireModel) return mapping.wireModel;
-  if (typeof choice.wireModel === 'string' && choice.wireModel) return choice.wireModel;
-  if (typeof choice.wire_model === 'string' && choice.wire_model) return choice.wire_model;
   if (typeof choice.model === 'string') {
     return choice.model.includes('/') ? choice.model.slice(choice.model.indexOf('/') + 1) : choice.model;
   }
   return '';
-}
-
-function isNativeFamilyPatternOnlyChoice(choice, mapping) {
-  return mapping?.familyPatternEndpointsOnly === true || choice?.familyPatternEndpointsOnly === true;
 }
 
 /**
@@ -122,14 +115,13 @@ function isNativeFamilyPatternOnlyChoice(choice, mapping) {
  * Native-provider choices whose endpoint evidence comes solely from a family
  * pattern are skipped during fallback.
  *
- * @param {{ choices: Array<object>, byId?: Record<string, object> } | Array<object>} choicesOrPool
- * @param {{ codingTiers?: Record<string, { tier?: string, codingTier?: string, releaseDate?: string }>, objective?: string | { mode?: string }, byId?: Record<string, object> }} [options]
+ * @param {{ choices: Array<object>, byId?: Record<string, object> }} pool
+ * @param {{ codingTiers?: Record<string, { tier?: string, releaseDate?: string }>, objective?: string | { mode?: string } }} [options]
  * @returns {ReadonlyArray<{ choice: object, wireModel: string, tier: string, releaseDate: string | null }>}
  */
-function orderFallbackChoices(choicesOrPool, options = {}) {
-  const isPool = choicesOrPool && !Array.isArray(choicesOrPool) && Array.isArray(choicesOrPool.choices);
-  const choices = isPool ? choicesOrPool.choices : (Array.isArray(choicesOrPool) ? choicesOrPool : []);
-  const byId = options.byId || (isPool ? choicesOrPool.byId : null) || null;
+function orderFallbackChoices(pool, options = {}) {
+  const choices = Array.isArray(pool?.choices) ? pool.choices : [];
+  const byId = pool?.byId || null;
   const codingTiers = options.codingTiers === undefined ? DEFAULT_CODING_TIERS : options.codingTiers;
   const tierOrder = getTierOrder(options.objective);
   const tierRank = new Map(tierOrder.map((tier, index) => [tier, index]));
@@ -138,10 +130,10 @@ function orderFallbackChoices(choicesOrPool, options = {}) {
   for (const choice of choices) {
     if (!choice || typeof choice !== 'object') continue;
     const mapping = byId && choice.id ? byId[choice.id] : null;
-    if (isNativeFamilyPatternOnlyChoice(choice, mapping)) continue;
+    if (mapping?.familyPatternEndpointsOnly === true) continue;
     const wireModel = resolveWireModel(choice, mapping);
     if (!wireModel) continue;
-    const provider = mapping?.provider || choice.provider || null;
+    const provider = mapping?.provider || null;
     if (!byWireModel.has(wireModel)) {
       byWireModel.set(wireModel, { wireModel, provider, choices: [] });
     }
@@ -179,10 +171,7 @@ module.exports = {
   DEFAULT_TIER_ORDER,
   EFFORT_LADDER,
   ROBUST_TIER_ORDER,
-  compareEffortPreference,
   getTierOrder,
-  isNativeFamilyPatternOnlyChoice,
-  lookupTierInfo,
   orderFallbackChoices,
   selectFallbackEffort,
   toLookupId,

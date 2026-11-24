@@ -23,15 +23,7 @@ function recordClassifierAttempt(observer, { purpose, attempt, mapping }) {
 function recordSelection(observer, {
   config, selection, classification, successfulClassifier, rawCapabilities, route,
   conversation, degradedReason, actualAttempts, pool, catalogueOverlap, clock, startedAt,
-  selectionSource, fallbackReason, fallbackTier,
 }) {
-  const resolvedSource = selectionSource || selection.selection_source || 'router';
-  const resolvedFallbackReason = fallbackReason !== undefined
-    ? fallbackReason
-    : (selection.fallback_reason ?? null);
-  const resolvedFallbackTier = fallbackTier !== undefined
-    ? fallbackTier
-    : (selection.fallback_tier ?? null);
   const router = rawCapabilities &&
     typeof rawCapabilities.name === 'string' &&
     typeof rawCapabilities.version === 'string'
@@ -50,9 +42,9 @@ function recordSelection(observer, {
     selected_provider: selection.provider,
     wire_model: selection.wire_model,
     endpoint: selection.endpoint,
-    selection_source: resolvedSource,
-    fallback_reason: resolvedFallbackReason,
-    fallback_tier: resolvedFallbackTier,
+    selection_source: selection.selection_source ?? 'router',
+    fallback_reason: selection.fallback_reason ?? null,
+    fallback_tier: selection.fallback_tier ?? null,
     labels: classification?.labels ?? null,
     mode: classification?.mode ?? null,
     classifier_model: successfulClassifier?.model ?? null,

@@ -13,7 +13,7 @@
  */
 
 const { getRuntimeModels } = require('./runtime-model-catalog');
-const { isAutomaticModelEligible } = require('./automatic-model-eligibility');
+const { getAutomaticModelEligibilityBlock } = require('./automatic-model-eligibility');
 
 /**
  * Why a provider model record cannot be selected automatically, or null when
@@ -23,14 +23,7 @@ const { isAutomaticModelEligible } = require('./automatic-model-eligibility');
  * @returns {'model_picker_disabled'|'non_chat_model'|'tool_calls_unsupported'|'no_agent_endpoint'|null}
  */
 function getAutomaticSelectionBlock(record) {
-  if (!record || typeof record !== 'object') return null;
-  if (record.modelPickerEnabled === false) return 'model_picker_disabled';
-  const type = record.capabilities?.type;
-  if (typeof type === 'string' && type.trim() !== '' && type.trim().toLowerCase() !== 'chat') {
-    return 'non_chat_model';
-  }
-  if (record.capabilities?.supports?.tool_calls === false) return 'tool_calls_unsupported';
-  return isAutomaticModelEligible(record) ? null : 'no_agent_endpoint';
+  return getAutomaticModelEligibilityBlock(record);
 }
 
 /**
