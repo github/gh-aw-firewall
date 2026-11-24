@@ -324,12 +324,15 @@ describe('POST /exec HTTP point budgets (real gh, local upstream)', () => {
   });
 
   it('charges an implicit POST from --input stdin as a write', async () => {
+    const check = jest.spyOn(pointLimiter, 'check');
     const response = await postExec({
       args: ['api', 'repos/octo/repo/issues', '--input', '-'],
       stdin: Buffer.from('{"title":"Hello"}').toString('base64'),
     });
     expect(response.body.exitCode).not.toBe(0);
-    expect(response.body.stderr).toContain('HTTP 429');
+    expect(response.body.stderr).toMatch(/HTTP 429|write: broken pipe/);
+    expect(check).toHaveBeenCalledWith('POST', '/api/v3/repos/octo/repo/issues', undefined);
+    expect(check).toHaveReturnedWith(expect.objectContaining({ allowed: false, kind: 'rest', points: 5 }));
     expect(forwarded).toHaveLength(0);
   });
 
