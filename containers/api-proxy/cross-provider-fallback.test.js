@@ -77,11 +77,15 @@ describe('pinned Copilot endpoint planning', () => {
       { id: 'both', supportedEndpoints: ['/v1/responses', '/v1/chat/completions'] },
       { id: 'other', supportedEndpoints: ['/v1/responses'] },
       { id: 'unknown', supportedEndpoints: ['/responses/'] },
+      { id: 'bare-responses', supportedEndpoints: ['/chat/completions', 'responses'] },
+      { id: 'ws-responses', supportedEndpoints: ['/chat/completions', 'ws:/responses'] },
     ] };
     expect(getFallbackUpstreamEndpoint('copilot', 'BOTH', '/chat/completions', false, pinned)).toBe('/chat/completions');
     expect(getFallbackUpstreamEndpoint('copilot', 'other', '/chat/completions', false, pinned)).toBe('/responses');
     expect(getFallbackUpstreamEndpoint('copilot', 'unknown', '/chat/completions', false, pinned)).toBe('/chat/completions');
     expect(getFallbackUpstreamEndpoint('copilot', 'other', '/chat/completions', true, pinned)).toBe('/chat/completions');
+    expect(getFallbackUpstreamEndpoint('copilot', 'bare-responses', '/responses', false, pinned)).toBe('/responses');
+    expect(getFallbackUpstreamEndpoint('copilot', 'ws-responses', '/responses', false, pinned)).toBe('/chat/completions');
   });
 });
 
