@@ -112,10 +112,14 @@ function loadAdaptiveInput(filePath, env = process.env) {
  * so a per-run estimate uses the default tier at list price. Fallback prices give no estimate.
  */
 function createAdaptivePrice(resolve = resolveModelPricing) {
-  return (mapping, tokens) => {
+  return (mapping, tokens, pricingOptions) => {
     let resolution;
     try {
-      resolution = resolve(mapping.wireModel, undefined, mapping.provider, 0, { quiet: true, allowMedianEstimate: false });
+      resolution = resolve(mapping.wireModel, undefined, mapping.provider, 0, {
+        ...(pricingOptions && Object.hasOwn(pricingOptions, 'catalogue') ? { catalogue: pricingOptions.catalogue } : {}),
+        quiet: true,
+        allowMedianEstimate: false,
+      });
     } catch {
       return null;
     }
