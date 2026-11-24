@@ -11,6 +11,7 @@ const {
   validateRouteResponse,
 } = require('./routing-contract');
 const { createRoutingError, RoutingError, toRoutingFailure } = require('./routing-errors');
+const { DEFAULT_CODING_TIERS, orderFallbackChoices } = require('./routing-fallback-order');
 const { recordSelection, recordFailure } = require('./routing-observation-records');
 const { writeAdaptiveSelection } = require('./routing-persistence');
 const { createSystemClock } = require('./routing-planner');
@@ -19,9 +20,34 @@ const {
 } = require('./routing-stages');
 
 const ROUTING_BOOTSTRAP_TIMEOUT_MS = 90_000;
+const ROUTER_PHASE_RESERVE_MS = 5_000;
 const CLASSIFIER_ATTEMPT_TIMEOUT_MS = 30_000;
 const CLASSIFIER_MAX_ATTEMPTS = 2;
 const PURPOSE = 'routing_classification';
+
+const ROUTER_FALLBACK_CODES = new Set([
+  'no_route',
+  'router_unavailable',
+  'routing_contract_error',
+  'routing_configuration_error',
+  'routing_timeout',
+]);
+
+const SKIPPABLE_CHOICE_GUARD_CODES = new Set([
+  'model_multiplier_cap_exceeded',
+  'model_multiplier_cap_unverifiable',
+  'pricing_resolution_error',
+  'retired_model',
+  'model_policy_violation',
+  'no_route',
+]);
+
+function computeRouterDeadline(now, deadline) {
+  const remaining = Math.max(0, deadline - now);
+  if (remaining <= 1) return deadline;
+  const reserve = Math.min(ROUTER_PHASE_RESERVE_MS, Math.max(1, Math.floor(remaining / 4)));
+  return Math.max(now + 1, deadline - reserve);
+}
 
 function modelEffortPair(choice) {
   return {
@@ -30,7 +56,10 @@ function modelEffortPair(choice) {
   };
 }
 
-function createSelection(choice, mapping) {
+function createSelection(choice, mapping, metadata = {}) {
+  const selectionSource = metadata.selectionSource || 'router';
+  const fallbackReason = metadata.fallbackReason ?? null;
+  const fallbackTier = metadata.fallbackTier ?? null;
   return deepFreezeJson({
     schema: 'awf-routing-selection/v1',
     engine: 'copilot',
@@ -42,6 +71,9 @@ function createSelection(choice, mapping) {
       'chat-completions': '/chat/completions',
       messages: '/v1/messages',
     }[mapping.protocol],
+    selection_source: selectionSource,
+    fallback_reason: fallbackReason,
+    fallback_tier: fallbackTier,
   });
 }
 
@@ -59,6 +91,7 @@ function createRoutingController(dependencies) {
     random = Math.random,
     eligibilityStore = proxyEligibilityStore,
     eligibilityScope,
+    codingTiers = DEFAULT_CODING_TIERS,
     adaptive,
     priceRoute = () => null,
     writeAdaptiveReceipt = writeAdaptiveSelection,
@@ -75,69 +108,124 @@ function createRoutingController(dependencies) {
     const signal = options.signal;
 
     const stages = createRoutingStages({ signal, deadline, clock, random });
-    const { runPhase, callPlanner } = stages;
+    const { runPhase } = stages;
     let catalogueOverlap = null;
 
     try {
       validateRoutingDependencies(dependencies);
-      const rawCapabilities = await stages.getCapabilities(planner, config, routerIdentity);
       const pool = await stages.getCandidates(catalogue, config, policy, eligibilityRequest);
-      catalogueOverlap = countCatalogueOverlap(rawCapabilities, pool.choices);
       const conversation = await stages.getConversation(loadConversation, config.task.conversationFile);
-      const { classification, successfulClassifier, degradedReason, actualAttempts } = await classifyRouting({
-        conversation, pool, planner, executor, observer, eligibilityRequest,
-        callPlanner, signal, deadline, clock,
-        attemptTimeoutMs: CLASSIFIER_ATTEMPT_TIMEOUT_MS, maxAttempts: CLASSIFIER_MAX_ATTEMPTS, purpose: PURPOSE,
-      });
 
-      const routeRequest = {
-        objective: config.objective,
-        conversation,
-        models: toRouteCandidates(pool),
-        ...(classification === null ? {} : { classification }),
-      };
-      assertPlanningRequestSize(routeRequest);
-      deepFreezeJson(routeRequest);
+      let rawCapabilities = null;
+      let classification = null;
+      let successfulClassifier = null;
+      let degradedReason = null;
+      let actualAttempts = 0;
+      let route = null;
+      let resolvedTopKRank = null;
+      let fallbackReason = null;
 
-      let rawRoute;
-      const routeTrace = Object.freeze({
-        attributes: Object.freeze({
-          'gh_aw_router.goal': config.objective.goal,
-          'gh_aw_router.mode': config.objective.mode,
-          'gh_aw_router.classification.present': classification !== null,
-        }),
-        // Only a response that passes validation contributes a selection.
-        describeResult: response => {
-          const choice = validateRouteResponse(response, pool.choices).ranked_choices[0];
-          return {
-            'gh_aw_router.selected.model': choice.model,
-            ...(typeof choice.effort === 'string' ? { 'gh_aw_router.selected.effort': choice.effort } : {}),
-          };
-        },
-      });
+      const routerDeadline = computeRouterDeadline(clock.now(), deadline);
+      const routerStages = createRoutingStages({ signal, deadline: routerDeadline, clock, random });
       try {
-        rawRoute = await callPlanner(({ signal: phaseSignal, timeoutMs }) =>
-          planner.route(routeRequest, { signal: phaseSignal, timeoutMs, trace: routeTrace }));
+        rawCapabilities = await routerStages.getCapabilities(planner, config, routerIdentity);
+        catalogueOverlap = countCatalogueOverlap(rawCapabilities, pool.choices);
+        const classified = await classifyRouting({
+          conversation, pool, planner, executor, observer, eligibilityRequest,
+          callPlanner: routerStages.callPlanner, signal, deadline: routerDeadline, clock,
+          attemptTimeoutMs: CLASSIFIER_ATTEMPT_TIMEOUT_MS, maxAttempts: CLASSIFIER_MAX_ATTEMPTS, purpose: PURPOSE,
+          onAttempt: count => { actualAttempts = count; },
+        });
+        ({ classification, successfulClassifier, degradedReason, actualAttempts } = classified);
+
+        const routeRequest = {
+          objective: config.objective,
+          conversation,
+          models: toRouteCandidates(pool),
+          ...(classification === null ? {} : { classification }),
+        };
+        assertPlanningRequestSize(routeRequest);
+        deepFreezeJson(routeRequest);
+
+        let rawRoute;
+        const routeTrace = Object.freeze({
+          attributes: Object.freeze({
+            'gh_aw_router.goal': config.objective.goal,
+            'gh_aw_router.mode': config.objective.mode,
+            'gh_aw_router.classification.present': classification !== null,
+          }),
+          // Only a response that passes validation contributes a selection.
+          describeResult: response => {
+            const choice = validateRouteResponse(response, pool.choices).ranked_choices[0];
+            return {
+              'gh_aw_router.selected.model': choice.model,
+              ...(typeof choice.effort === 'string' ? { 'gh_aw_router.selected.effort': choice.effort } : {}),
+            };
+          },
+        });
+        try {
+          rawRoute = await routerStages.callPlanner(({ signal: phaseSignal, timeoutMs }) =>
+            planner.route(routeRequest, { signal: phaseSignal, timeoutMs, trace: routeTrace }));
+        } catch (error) {
+          mapPlannerFailure(error, 'route');
+        }
+        route = validateRouteResponse(rawRoute, pool.choices);
+        if (config.topK !== undefined) {
+          resolvedTopKRank = resolvePrimaryRank(route.ranked_choices, pool);
+        }
       } catch (error) {
-        mapPlannerFailure(error, 'route');
+        if (signal?.aborted) throw createRoutingError('routing_cancelled', 'Model routing was cancelled');
+        if (error instanceof RoutingError && error.code === 'routing_timeout' && clock.now() >= deadline) {
+          throw error;
+        }
+        if (error instanceof RoutingError &&
+            (ROUTER_FALLBACK_CODES.has(error.code) || SKIPPABLE_CHOICE_GUARD_CODES.has(error.code))) {
+          fallbackReason = error.code;
+          if (actualAttempts > 0 && degradedReason === null) degradedReason = error.code;
+          route = null;
+          resolvedTopKRank = null;
+        } else {
+          throw error;
+        }
       }
-      const route = validateRouteResponse(rawRoute, pool.choices);
-      // Ordinary routing uses choice IDs; only the opt-in options contract requires unique pairs.
-      const ordinaryPick = route.ranked_choices[0];
-      // The cap matches native wire IDs, not router IDs. It must not steer the primary past a guard veto.
+      // The cap matches native wire IDs, not router IDs.
       const withinModelCap = ({ id }) => {
         const { wireModel, provider } = pool.byId[id];
         return !getModelMultiplierCapBlockState(wireModel, provider);
       };
-      let withinCap;
-      if (config.topK !== undefined) {
-        withinCap = resolvePrimaryRank(route.ranked_choices, pool).filter(withinModelCap);
+
+      const triedIds = new Set();
+      let firstChoiceError = null;
+
+      async function selectFirstPassing(candidates) {
+        for (const { choice, metadata } of candidates) {
+          if (triedIds.has(choice.id)) continue;
+          triedIds.add(choice.id);
+          const candidateSelection = createSelection(choice, pool.byId[choice.id], metadata);
+          try {
+            await runPhase(({ signal: phaseSignal }) =>
+              executor.checkBeforePrimary({
+                selection: candidateSelection, signal: phaseSignal, awfEligibility: eligibilityRequest.awfEligibility,
+                awfEligibilityScope: eligibilityRequest.awfEligibilityScope,
+              }));
+            return { choice, selection: candidateSelection };
+          } catch (error) {
+            if (error instanceof RoutingError && SKIPPABLE_CHOICE_GUARD_CODES.has(error.code)) {
+              firstChoiceError ||= error;
+              continue;
+            }
+            throw error;
+          }
+        }
+        return null;
       }
-      let selectedChoice = ordinaryPick;
+
+      let winner = null;
       let adaptiveReceipt;
-      if (adaptive) {
+      if (route && adaptive) {
         // The workflow's evidence chooses among the eligible pairs; the ordinary pick stays the router's.
         // A pair the router ranks twice is one candidate, which its first choice stands for.
+        const ordinaryPick = route.ranked_choices[0];
         const byPair = new Map();
         for (const { id } of route.ranked_choices) {
           const choice = pool.byId[id].choice;
@@ -151,25 +239,60 @@ function createRoutingController(dependencies) {
           job: adaptive.job,
           price: (pair, tokens) => (byPair.has(pair) ? priceRoute(pool.byId[byPair.get(pair).id], tokens) : null),
         });
-        selectedChoice = byPair.get(adaptiveReceipt.selected) ?? ordinaryPick;
+        const adaptiveChoice = byPair.get(adaptiveReceipt.selected) ?? ordinaryPick;
+        const adaptiveSelection = createSelection(adaptiveChoice, pool.byId[adaptiveChoice.id], {
+          selectionSource: 'router',
+          fallbackReason: null,
+          fallbackTier: null,
+        });
+        await runPhase(({ signal: phaseSignal }) =>
+          executor.checkBeforePrimary({
+            selection: adaptiveSelection, signal: phaseSignal, awfEligibility: eligibilityRequest.awfEligibility,
+            awfEligibilityScope: eligibilityRequest.awfEligibilityScope,
+          }));
+        // Recorded before the primary starts, once the final guard has accepted the selection.
+        writeAdaptiveReceipt(deepFreezeJson(adaptiveReceipt));
+        winner = { choice: adaptiveChoice, selection: adaptiveSelection };
+      } else if (route) {
+        winner = await selectFirstPassing(route.ranked_choices.map(choice => ({
+          choice,
+          metadata: { selectionSource: 'router', fallbackReason: null, fallbackTier: null },
+        })));
       }
-      const selection = createSelection(selectedChoice, pool.byId[selectedChoice.id]);
+
+      if (!winner) {
+        if (!fallbackReason) fallbackReason = firstChoiceError?.code || 'no_route';
+        const effectiveMode = config.objective.mode === 'auto' &&
+          classification?.mode && classification.mode !== 'unknown'
+          ? classification.mode
+          : config.objective.mode;
+        const fallbackCandidates = orderFallbackChoices(pool, {
+          objective: { ...config.objective, mode: effectiveMode },
+          codingTiers,
+        });
+        winner = await selectFirstPassing(fallbackCandidates.map(entry => ({
+          choice: entry.choice,
+          metadata: { selectionSource: 'fallback', fallbackReason, fallbackTier: entry.tier },
+        })));
+      }
+
+      if (!winner) {
+        throw firstChoiceError || createRoutingError('no_route', 'No eligible model passed selection guards');
+      }
+
+      const { choice: selectedChoice, selection } = winner;
       let routeOptions;
-      if (config.topK !== undefined) {
+      if (selection.selection_source === 'router' && config.topK !== undefined && resolvedTopKRank) {
+        const startIndex = adaptiveReceipt
+          ? 0
+          : resolvedTopKRank.findIndex(choice => choice.id === selectedChoice.id);
+        const remainingRank = startIndex >= 0 ? resolvedTopKRank.slice(startIndex) : resolvedTopKRank;
+        const withinCap = remainingRank.filter(withinModelCap);
         routeOptions = deepFreezeJson({
-          ordinaryPick: modelEffortPair(ordinaryPick),
+          ordinaryPick: modelEffortPair(adaptiveReceipt ? route.ranked_choices[0] : selectedChoice),
           options: shortlistPrimaryOptions(withinCap, config.topK).map(modelEffortPair),
         });
       }
-
-      await runPhase(({ signal: phaseSignal }) =>
-        executor.checkBeforePrimary({
-          selection, signal: phaseSignal, awfEligibility: eligibilityRequest.awfEligibility,
-          awfEligibilityScope: eligibilityRequest.awfEligibilityScope,
-        }));
-      // Recorded before the primary starts, once the final guard has accepted the selection.
-      if (adaptiveReceipt) writeAdaptiveReceipt(deepFreezeJson(adaptiveReceipt));
-
       recordSelection(observer, {
         config, selection, classification, successfulClassifier, rawCapabilities, route,
         conversation, degradedReason, actualAttempts, pool, catalogueOverlap, clock, startedAt,
@@ -205,6 +328,7 @@ module.exports = {
   CLASSIFIER_ATTEMPT_TIMEOUT_MS,
   CLASSIFIER_MAX_ATTEMPTS,
   PURPOSE,
+  ROUTER_PHASE_RESERVE_MS,
   ROUTING_BOOTSTRAP_TIMEOUT_MS,
   createRoutingController,
 };

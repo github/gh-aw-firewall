@@ -2,6 +2,8 @@
 
 const { Readable, Writable } = require('stream');
 const { getCurrentGuardChecks } = require('./proxy-guards');
+const { isModelPriceable } = require('./guards/ai-credits-guard');
+const { parsePositiveNumber } = require('./guards/guard-utils');
 const { parseModelEndpointBlockedFromBody, parseModelNotSupportedFromBody } = require('./upstream-response');
 const { createRoutingError } = require('./routing-errors');
 const { isNativeAdapter } = require('./routing-catalogue');
@@ -84,14 +86,27 @@ function createRoutingProviderExecutor({
   }
   return Object.freeze({
     checkBeforePrimary({ selection, awfEligibility, awfEligibilityScope }) {
-      for (const guard of getGuardChecks(selection.wire_model, selection.provider || 'copilot')) {
+      const provider = selection.provider || 'copilot';
+      for (const guard of getGuardChecks(selection.wire_model, provider)) {
         if (!guard.isBlocked(guard.block)) continue;
         const envelope = guard.buildError(guard.block);
         const error = envelope?.error || envelope;
         const code = error?.type || error?.code || guard.eventName;
         throw createRoutingError(code, error?.message || `Model routing is blocked by ${code}`);
       }
-      const decision = evaluateModelEligibility(selection.wire_model, selection.provider || 'copilot', { awfEligibility, awfEligibilityScope },
+      if (selection.selection_source === 'fallback' &&
+          parsePositiveNumber(process.env.AWF_MAX_AI_CREDITS) !== null) {
+        let priceable = false;
+        try {
+          priceable = isModelPriceable(selection.wire_model, provider, { allowMedianEstimate: false });
+        } catch (error) {
+          if (error?.code !== 'pricing_resolution_error') throw error;
+        }
+        if (!priceable) {
+          throw createRoutingError('pricing_resolution_error', 'Fallback model has no verified pricing under an AI-credit budget');
+        }
+      }
+      const decision = evaluateModelEligibility(selection.wire_model, provider, { awfEligibility, awfEligibilityScope },
         { inputMode: 'native' });
       if (!decision.admitted) {
         throw createRoutingError('no_route', buildEligibilityError(decision).error.message);

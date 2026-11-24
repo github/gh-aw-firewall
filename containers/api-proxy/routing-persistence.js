@@ -9,6 +9,7 @@ const FIELDS = new Set([
   'stage', 'purpose', 'attempt', 'classifier_model', 'classifier_effort',
   'objective', 'provider', 'selected_id', 'selected_model', 'selected_effort',
   'selected_provider', 'selected_endpoint', 'wire_model', 'endpoint',
+  'selection_source', 'fallback_reason', 'fallback_tier',
   'degraded_classification', 'degraded_reason', 'classifier_attempts',
   'eligible_choices', 'catalogue_overlap', 'latency_ms', 'labels', 'mode',
   'router', 'ranked_choices', 'conversation_sha256', 'phase', 'code', 'detail',

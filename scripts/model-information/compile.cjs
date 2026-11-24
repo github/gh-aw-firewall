@@ -260,9 +260,16 @@ function compile() {
       !Array.isArray(target.routing)) {
     throw new Error('target.json: invalid target metadata or corrections');
   }
-  const tierErrors = validateCodingTiers(
-    JSON.parse(fs.readFileSync(path.join(sources, 'coding-tiers.json'), 'utf8')));
+  const codingTiersDocument = JSON.parse(fs.readFileSync(path.join(sources, 'coding-tiers.json'), 'utf8'));
+  const tierErrors = validateCodingTiers(codingTiersDocument);
   if (tierErrors.length) throw new Error(tierErrors.map(message => `coding-tiers.json: ${message}`).join('\n'));
+  const codingTiersProjection = Object.fromEntries(codingTiersDocument.entries.map(entry => [
+    entry.lookupId,
+    {
+      ...(entry.codingTier !== undefined ? { tier: entry.codingTier } : {}),
+      ...(entry.releaseDate !== undefined ? { releaseDate: entry.releaseDate } : {}),
+    },
+  ]));
   const generatedAt = latestTimestamp([{ at: imported.retrievedAt }, mapping.provenance,
     reference.provenance, ...records.map(([, data]) => data.provenance), target.provenance,
     compatibility.provenance]);
@@ -613,6 +620,7 @@ function compile() {
     'containers/api-proxy/model-information.pricing.generated.json': json(pricing),
     'containers/api-proxy/model-information.fallback-pricing.generated.json': json(fallbackPricing),
     'containers/api-proxy/model-information.retired.generated.json': json(retired),
+    'containers/api-proxy/model-information.coding-tiers.generated.json': json(codingTiersProjection),
     'containers/api-proxy/ai-credits-pricing-reference.json': json({
       schemaVersion: 1, unit: 'USD_PER_1M_TOKENS',
       catalogId: reference.catalogId, version: reference.version, providers: referenceProviders,

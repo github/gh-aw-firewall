@@ -82,6 +82,25 @@ describe('routing persistence', () => {
     expect(record).not.toHaveProperty('routeOptions');
   });
 
+  test('persists selection_source, fallback_reason, and fallback_tier on selection records', () => {
+    writeRoutingRecord({
+      stage: 'selection',
+      selection_source: 'fallback',
+      fallback_reason: 'no_route',
+      fallback_tier: 'standard',
+      router: null,
+      ranked_choices: null,
+    });
+    expect(readRecords()[0]).toMatchObject({
+      stage: 'selection',
+      selection_source: 'fallback',
+      fallback_reason: 'no_route',
+      fallback_tier: 'standard',
+      router: null,
+      ranked_choices: null,
+    });
+  });
+
   test('persists agent_name and caller_source on request records', () => {
     writeRoutingRecord({
       stage: 'request', request_id: 'request-1', outcome: 'completed', status: 200,

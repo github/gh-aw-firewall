@@ -413,6 +413,37 @@ describe('routing bootstrap', () => {
       wire_model: 'model',
     })).toBe(false);
   });
+
+  it('validates fallback selection metadata when present', () => {
+    const base = {
+      schema: 'awf-routing-selection/v1',
+      engine: 'copilot',
+      provider: 'copilot',
+      choice: { id: 'one', model: 'github-copilot/gpt-5.3-codex', effort: 'medium' },
+      wire_model: 'gpt-5.3-codex',
+    };
+    expect(routingBootstrapTestHelpers.isSelectionRecord({
+      ...base,
+      selection_source: 'fallback',
+      fallback_reason: 'router_unavailable',
+      fallback_tier: 'standard',
+    })).toBe(true);
+    expect(routingBootstrapTestHelpers.isSelectionRecord({
+      ...base,
+      selection_source: 'router',
+      fallback_reason: null,
+      fallback_tier: null,
+    })).toBe(true);
+    expect(routingBootstrapTestHelpers.isSelectionRecord({
+      ...base,
+      selection_source: 'unknown',
+    })).toBe(false);
+    expect(routingBootstrapTestHelpers.isSelectionRecord({
+      ...base,
+      selection_source: 'fallback',
+      fallback_tier: 'invalid-tier',
+    })).toBe(false);
+  });
 });
 
 describe('pathsOverlap', () => {

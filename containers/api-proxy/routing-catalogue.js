@@ -24,6 +24,12 @@ function isNativeAdapter(adapter, provider) {
     (targetScheme === undefined || targetScheme === 'https');
 }
 
+const LIVE_ENDPOINT_MODELS = new WeakSet();
+
+function hasLiveEndpointMetadata(model) {
+  return !!model && typeof model === 'object' && LIVE_ENDPOINT_MODELS.has(model);
+}
+
 function freezeModel(model) {
   if (model.efforts) Object.freeze(model.efforts);
   if (model.protocols) Object.freeze(model.protocols);
@@ -67,7 +73,7 @@ function normalizeModel(id, metadata, provider, scope, records, reasoningOptions
       ? new Set(['responses', 'chat-completions', 'messages', 'decisions'])
       : new Set(['responses', 'chat-completions', 'decisions']);
 
-  return pinModelReasoning(freezeModel({
+  const normalized = pinModelReasoning(freezeModel({
     id,
     ...(efforts === undefined ? {} : { efforts }),
     ...(Number.isInteger(contextWindow) && contextWindow > 0 ? { contextWindow } : {}),
@@ -77,6 +83,10 @@ function normalizeModel(id, metadata, provider, scope, records, reasoningOptions
       ? { modelPickerEnabled: metadata.modelPickerEnabled }
       : {}),
   }), reasoning);
+  if (Array.isArray(metadata?.supportedEndpoints)) {
+    LIVE_ENDPOINT_MODELS.add(normalized);
+  }
+  return normalized;
 }
 
 function createRoutingCatalogue({ getAdapter, getCopilotAdapter, getDiscoveredModels, getRuntimeModels }) {
@@ -124,6 +134,7 @@ function createRoutingCatalogue({ getAdapter, getCopilotAdapter, getDiscoveredMo
 
 module.exports = {
   createRoutingCatalogue,
+  hasLiveEndpointMetadata,
   isNativeAdapter,
   normalizeModel,
 };
