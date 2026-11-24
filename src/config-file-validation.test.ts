@@ -321,6 +321,28 @@ describe('validateAwfFileConfig', () => {
       experimental: { modelRouting: true },
       apiProxy: { routing: { ...valid, candidateModels: [] } },
     })).toContain('config.apiProxy.routing.candidateModels must NOT have fewer than 1 items');
+    const validateEndpoints = (endpoints: unknown) => validateAwfFileConfig({
+      experimental: { modelRouting: true }, apiProxy: { routing: { ...valid, endpoints } },
+    });
+    for (const endpoints of [
+      ['/responses'],
+      ['/v1/messages'],
+      ['/responses', '/chat/completions'],
+      ['/v1/messages', '/responses', '/chat/completions'],
+    ]) {
+      expect(validateEndpoints(endpoints)).toEqual([]);
+    }
+    for (const endpoints of [
+      [],
+      ['/responses', '/responses'],
+      ['/v1/decisions'],
+      ['responses'],
+      [123],
+      '/responses',
+      null,
+    ]) {
+      expect(validateEndpoints(endpoints)).not.toEqual([]);
+    }
     const validateK = (topK: unknown) => validateAwfFileConfig({
       experimental: { modelRouting: true }, apiProxy: { routing: { ...valid, topK } },
     });

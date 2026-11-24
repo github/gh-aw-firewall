@@ -120,4 +120,37 @@ describe('routing configuration', () => {
       expect(() => parse({ topK })).toThrow('routing.topK');
     }
   });
+
+  it('accepts an optional unique list of canonical engine endpoints and rejects invalid values', () => {
+    const base = { objective: { goal: 'cost', mode: 'balanced' }, task: { conversationFile: '/private/task' } };
+    const parse = fields => parseRoutingConfig(JSON.stringify({ ...base, ...fields }));
+    expect(parse({})).not.toHaveProperty('endpoints');
+
+    for (const endpoints of [
+      ['/responses'],
+      ['/v1/messages'],
+      ['/responses', '/chat/completions'],
+      ['/v1/messages', '/responses', '/chat/completions'],
+    ]) {
+      const parsed = parse({ endpoints });
+      expect(parsed.endpoints).toEqual(endpoints);
+      expect(Object.isFrozen(parsed.endpoints)).toBe(true);
+    }
+
+    for (const endpoints of [[], null, '/responses', {}]) {
+      expect(() => parse({ endpoints })).toThrow('routing.endpoints must be a non-empty array');
+    }
+    for (const endpoints of [
+      ['/v1/decisions'],
+      ['responses'],
+      [' /responses '],
+      ['/RESPONSES'],
+      [123],
+      [null],
+    ]) {
+      expect(() => parse({ endpoints })).toThrow('routing.endpoints[0] must be one of');
+    }
+    expect(() => parse({ endpoints: ['/responses', '/responses'] }))
+      .toThrow('routing.endpoints must not contain duplicates');
+  });
 });

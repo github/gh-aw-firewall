@@ -877,6 +877,160 @@ describe('named fallback fixtures', () => {
       fallback_tier: 'premium',
     });
   });
+
+  it('skips Chat-only models in both router ranking and fallback for a Codex-like Responses-only run', async () => {
+    const models = [
+      // Higher tier and newer release date, but Chat-only so Codex cannot call it.
+      { id: 'chat-only-newest', efforts: ['low', 'medium', 'high'], protocols: ['chat-completions'], contextWindow: 200_000 },
+      { id: 'responses-older', efforts: ['low', 'medium', 'high'], protocols: ['responses'], contextWindow: 200_000 },
+    ];
+    const tiers = {
+      'chat-only-newest': { tier: 'standard', releaseDate: '2026-11-20' },
+      'responses-older': { tier: 'lightweight', releaseDate: '2026-01-01' },
+    };
+
+    const offeredToClassify = [];
+    const offeredToRoute = [];
+    const runWithBehavior = async behavior => {
+      offeredToClassify.length = 0;
+      offeredToRoute.length = 0;
+      const basePlanner = makePlanner(behavior);
+      const controller = createRoutingController({
+        config: {
+          provider: 'copilot',
+          endpoints: ['/responses'],
+          objective: { goal: 'cost', mode: 'balanced' },
+          task: { conversationFile: '/tmp/conversation.json' },
+        },
+        planner: {
+          ...basePlanner,
+          classify: async request => {
+            offeredToClassify.push(...request.models.map(choice => choice.model));
+            return basePlanner.classify(request);
+          },
+          route: async request => {
+            offeredToRoute.push(...request.models.map(choice => choice.model));
+            return basePlanner.route(request);
+          },
+        },
+        catalogue: { getSnapshot: async () => ({ provider: 'copilot', configured: true, discovery: 'complete', models }) },
+        loadConversation: async () => CONVERSATION,
+        executor: {
+          execute: async () => ({
+            statusCode: 200,
+            body: Buffer.from(JSON.stringify({ output_text: JSON.stringify(VALID_CLASSIFICATION) }), 'utf8'),
+          }),
+          checkBeforePrimary: async () => {},
+        },
+        observer: { record: () => {} },
+        codingTiers: tiers,
+      });
+      return controller.run();
+    };
+
+    const routed = await runWithBehavior('valid_rank');
+    expect(routed.ok).toBe(true);
+    expect(routed.selection).toMatchObject({
+      wire_model: 'responses-older',
+      endpoint: '/responses',
+      selection_source: 'router',
+    });
+    expect(offeredToClassify.every(name => name === 'github-copilot/responses-older')).toBe(true);
+    expect(offeredToRoute.every(name => name === 'github-copilot/responses-older')).toBe(true);
+
+    const fallback = await runWithBehavior('no_route');
+    expect(fallback.ok).toBe(true);
+    expect(fallback.selection).toMatchObject({
+      wire_model: 'responses-older',
+      choice: { model: 'github-copilot/responses-older', effort: 'medium' },
+      endpoint: '/responses',
+      selection_source: 'fallback',
+      fallback_reason: 'no_route',
+      fallback_tier: 'lightweight',
+    });
+  });
+
+  it('classifies and selects on /v1/messages for Claude-on-Copilot including effortless Haiku', async () => {
+    const models = [
+      { id: 'claude-haiku-4.5', efforts: [], protocols: ['chat-completions', 'messages'], contextWindow: 200_000 },
+      { id: 'claude-sonnet-4.6', efforts: ['low', 'medium'], protocols: ['chat-completions', 'messages'], contextWindow: 200_000 },
+      { id: 'gpt-responses-only', efforts: ['medium'], protocols: ['responses'], contextWindow: 200_000 },
+    ];
+    const tiers = {
+      'claude-haiku-4-5': { tier: 'lightweight', releaseDate: '2025-10-15' },
+      'claude-sonnet-4-6': { tier: 'standard', releaseDate: '2026-02-17' },
+      'gpt-responses-only': { tier: 'standard', releaseDate: '2026-11-20' },
+    };
+
+    const classifierRequests = [];
+    let routeRequestSeen = null;
+    const basePlanner = makePlanner('valid_rank');
+    const runMessages = async behavior => {
+      classifierRequests.length = 0;
+      routeRequestSeen = null;
+      const planner = {
+        ...makePlanner(behavior),
+        classify: async request => {
+          const haiku = request.models.find(choice => choice.model === 'github-copilot/claude-haiku-4.5');
+          return {
+            system_prompt: 'classify',
+            prompt: 'task',
+            ranked_choices: [haiku],
+          };
+        },
+        route: async request => {
+          routeRequestSeen = request;
+          return behavior === 'valid_rank' ? basePlanner.route(request) : makePlanner(behavior).route(request);
+        },
+      };
+      const controller = createRoutingController({
+        config: {
+          provider: 'copilot',
+          endpoints: ['/v1/messages'],
+          objective: { goal: 'cost', mode: 'balanced' },
+          task: { conversationFile: '/tmp/conversation.json' },
+        },
+        planner,
+        catalogue: { getSnapshot: async () => ({ provider: 'copilot', configured: true, discovery: 'complete', models }) },
+        loadConversation: async () => CONVERSATION,
+        executor: {
+          execute: async request => {
+            classifierRequests.push(request);
+            return {
+              statusCode: 200,
+              body: Buffer.from(JSON.stringify({
+                content: [{ type: 'text', text: JSON.stringify(VALID_CLASSIFICATION) }],
+              }), 'utf8'),
+            };
+          },
+          checkBeforePrimary: async () => {},
+        },
+        observer: { record: () => {} },
+        codingTiers: tiers,
+      });
+      return controller.run();
+    };
+
+    const routed = await runMessages('valid_rank');
+    expect(routed.ok).toBe(true);
+    expect(routed.degradedClassification).toBe(false);
+    expect(classifierRequests).toHaveLength(1);
+    expect(classifierRequests[0].path).toBe('/v1/messages');
+    expect(classifierRequests[0].body).not.toHaveProperty('output_config');
+    expect(routeRequestSeen.classification).toEqual(VALID_CLASSIFICATION);
+    expect(routeRequestSeen.models.every(choice => choice.model !== 'github-copilot/gpt-responses-only')).toBe(true);
+    expect(routed.selection.endpoint).toBe('/v1/messages');
+
+    const fallback = await runMessages('no_route');
+    expect(fallback.ok).toBe(true);
+    expect(fallback.selection).toMatchObject({
+      wire_model: 'claude-sonnet-4.6',
+      choice: { effort: 'medium' },
+      endpoint: '/v1/messages',
+      selection_source: 'fallback',
+      fallback_tier: 'standard',
+    });
+  });
 });
 
 describe('startup with a router that never becomes healthy', () => {

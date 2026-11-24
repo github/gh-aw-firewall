@@ -26,6 +26,25 @@ function isNativeAdapter(adapter, provider) {
 
 const LIVE_ENDPOINT_MODELS = new WeakSet();
 
+const PROTOCOL_TO_CANONICAL_ENDPOINT = Object.freeze({
+  responses: '/responses',
+  'chat-completions': '/chat/completions',
+  messages: '/v1/messages',
+});
+
+function recognizeAgentEndpointProtocol(endpoint) {
+  if (typeof endpoint !== 'string' || endpoint.includes(':')) return null;
+  if (endpoint === 'responses' || /\/responses$/.test(endpoint)) return 'responses';
+  if (endpoint === 'chat_completions' || /\/chat\/completions$/.test(endpoint)) return 'chat-completions';
+  if (endpoint === 'messages' || /\/messages$/.test(endpoint)) return 'messages';
+  return null;
+}
+
+function canonicalizeAgentEndpoint(endpoint) {
+  const protocol = recognizeAgentEndpointProtocol(endpoint);
+  return protocol ? PROTOCOL_TO_CANONICAL_ENDPOINT[protocol] : endpoint;
+}
+
 function hasLiveEndpointMetadata(model) {
   return !!model && typeof model === 'object' && LIVE_ENDPOINT_MODELS.has(model);
 }
@@ -58,10 +77,8 @@ function normalizeModel(id, metadata, provider, scope, records, reasoningOptions
     : endpointMapping?.endpoints.map(endpoint => endpointMapping.endpointPaths?.[endpoint] || endpoint);
   const protocols = Array.isArray(supportedEndpoints)
     ? supportedEndpoints.flatMap(endpoint => {
-      if (typeof endpoint !== 'string' || endpoint.includes(':')) return [];
-      if (endpoint === 'responses' || /\/responses$/.test(endpoint)) return ['responses'];
-      if (endpoint === 'chat_completions' || /\/chat\/completions$/.test(endpoint)) return ['chat-completions'];
-      if (endpoint === 'messages' || /\/messages$/.test(endpoint)) return ['messages'];
+      const agentProtocol = recognizeAgentEndpointProtocol(endpoint);
+      if (agentProtocol) return [agentProtocol];
       // Catalogue visibility only: Decisions has no automatic routing/translation choice.
       if (['decisions', '/decisions', '/v1/decisions'].includes(endpoint)) return ['decisions'];
       return [];
@@ -133,8 +150,11 @@ function createRoutingCatalogue({ getAdapter, getCopilotAdapter, getDiscoveredMo
 }
 
 module.exports = {
+  PROTOCOL_TO_CANONICAL_ENDPOINT,
+  canonicalizeAgentEndpoint,
   createRoutingCatalogue,
   hasLiveEndpointMetadata,
   isNativeAdapter,
   normalizeModel,
+  recognizeAgentEndpointProtocol,
 };

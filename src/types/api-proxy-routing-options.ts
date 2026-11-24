@@ -5,10 +5,17 @@
 export type ModelRoutingGoal = 'cost';
 export type ModelRoutingMode = 'economy' | 'balanced' | 'robust' | 'auto';
 export type ModelRoutingProvider = 'copilot' | 'openai' | 'anthropic';
+export type ModelRoutingEndpoint = '/responses' | '/chat/completions' | '/v1/messages';
 
 export interface ModelRoutingConfig {
   provider?: ModelRoutingProvider;
   candidateModels?: string[];
+  /**
+   * Optional unordered list of inference endpoints the workflow's engine speaks.
+   * When set, AWF keeps only choices served on one of these endpoints in the candidate pool
+   * and selects each candidate's protocol from this list.
+   */
+  endpoints?: ModelRoutingEndpoint[];
   /** Request a private shortlist of up to this many distinct eligible bases (1 through 32). */
   topK?: number;
   /**
