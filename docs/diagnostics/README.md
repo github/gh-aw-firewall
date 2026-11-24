@@ -324,6 +324,7 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | TCP_DENIED | NET-001 | network | workaround |
 | 403 Forbidden returned by the proxy for an outbound request | NET-001 | network | workaround |
 | curl: (56) Received HTTP code 403 from proxy after CONNECT | NET-001 | network | workaround |
+| Invalid domain "<entry>": ports are not supported / URL paths and queries are not supported / unsupported scheme (AWF rejects the allowlist entry before startup) | NET-001 | network | workaround |
 | Could not resolve host | NET-002 | network | workaround |
 | Temporary failure in name resolution | NET-002 | network | workaround |
 | getaddrinfo EAI_AGAIN inside the agent container | NET-002 | network | workaround |
