@@ -2938,6 +2938,27 @@ dynamic-selector, configured-default, median or built-in fallback price gives no
 estimate, including one that fills a component the estimate uses when the
 model's own tariff is partial, and a pair without a cost is never chosen on cost.
 
+An evidence summary changes only which permitted pair runs, never whether a run
+starts. When a per-model guard (such as a missing price, a retired or disallowed
+model, or the multiplier cap) rejects the pair the selector chose, AWF falls
+back to ordinary routing: it tries the router's next passing choice and then the
+eligible fallback pool (never trying the rejected pick twice), and records an
+`ordinary` receipt with reason `selection_rejected`. When the router cannot
+choose, AWF serves a fallback pair as ordinary routing does (§13a.1) and records
+an `ordinary` receipt with reason `router_fallback`. On both receipts,
+`generation`, `mode`, `scope`, `explore_allowed`, and `concurrency` (`turn` and
+`in_flight`, with `capacity` `null`) come from the summary; `selected` and
+`ordinary` both name the pair that runs; `would` is `null`; `incumbent` stays
+`{ "before": <summary incumbent>, "after": <summary incumbent> }` without
+moving the incumbent; and `costs` is `{}`. With a missing or invalid summary,
+ordinary routing (including the router's next passing choice or a fallback pair)
+likewise writes an `ordinary` receipt naming the pair that runs, with reason
+`summary_missing` or `invalid_evidence`. A run-wide stop (such as an exhausted
+credit budget, cancellation, or the overall deadline), or a pool where no pair
+passes, still fails before the primary starts without a receipt. Whenever the
+receipt has role `ordinary`, any `topK` shortlist is computed as ordinary
+routing computes it, from the choice that runs.
+
 After the selection passes its final guard and before the primary starts, the
 proxy appends one **selection receipt** to `adaptive-selection.jsonl` in
 `apiProxy.logging.tokenLogDir`, with the same owner-only, no-follow semantics as
@@ -2956,15 +2977,15 @@ agent, already is.
 | `generation`, `mode`, `scope` | Copied from the summary (`null` without a valid one) |
 | `role` | `serve`, `test`, `probe`, `observe` or `ordinary` |
 | `explore_allowed` | Whether the summary allowed exploration on attempt 1 |
-| `selected`, `ordinary`, `would` | The pair AWF asked the harness to run, the router's pick, and in observe mode what live mode would have run |
-| `incumbent.before`, `incumbent.after` | The summary's incumbent and the incumbent after this decision; they differ only when the rule chose or switched one |
-| `costs` | For the incumbent and each pair compared: `credits` and `basis` (`measured` or `estimated`) |
-| `concurrency` | `turn` and `in_flight` from the summary, and the `capacity` computed for the challenger or probe considered (or `null`) |
+| `selected`, `ordinary`, `would` | The pair AWF asked the harness to run, the router's pick (or the pair that runs on an `ordinary` receipt), and in observe mode what live mode would have run |
+| `incumbent.before`, `incumbent.after` | The summary's incumbent and the incumbent after this decision; they differ only when the rule chose or switched one, and stay equal on `selection_rejected` and `router_fallback` receipts (`null` as a whole without a valid summary) |
+| `costs` | For the incumbent and each pair compared: `credits` and `basis` (`measured` or `estimated`), or `{}` on an `ordinary` receipt |
+| `concurrency` | `turn` and `in_flight` from the summary, and the `capacity` computed for the challenger or probe considered (or `null`); `null` as a whole without a valid summary |
 | `reason` | One of the reasons below |
 
 | Role | Reasons |
 |---|---|
-| `ordinary` | `summary_missing`, `invalid_evidence` |
+| `ordinary` | `summary_missing`, `invalid_evidence`, `selection_rejected`, `router_fallback` |
 | `serve` | `incumbent_chosen`, `incumbent_switched`, `no_challenger`, `all_suspended`; or, when a test or probe could not run, `explore_denied`, `attempt_not_first`, `share_taken` or `no_turn` |
 | `probe` | `probe_due` |
 | `test` | `challenger_hopeful_clears_need` |
@@ -2976,7 +2997,9 @@ rate above 0.999 × 512 / 528 ≈ 0.969, which its optimistic rate of 0.999 clea
 so a run with permission tests A with `capacity` 1. A run without a turn, or with
 an earlier turn-holder in flight, serves B with reason `no_turn`. The
 [oracle vectors](../containers/api-proxy/fixtures/adaptive/fw2-selector.json),
-generated from gh-aw's reference bandit, pin every decision and reason.
+generated from gh-aw's reference bandit, pin every selector decision and reason
+(outside the controller's `selection_rejected` and `router_fallback` fallback
+receipts).
 
 ## 13. Model Alias Logging
 
