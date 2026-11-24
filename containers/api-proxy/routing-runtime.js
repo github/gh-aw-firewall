@@ -108,8 +108,12 @@ function loadAdaptiveInput(filePath, env = process.env) {
 /**
  * Credits for a run's average tokens at a model's own base tariff, with the meter's semantics:
  * input excludes cache reads and writes, and reasoning is part of output, charged at the
- * reasoning rate when the tariff has one. Long-context tiers and promotions apply per request,
- * so a per-run estimate uses the default tier at list price. Fallback prices give no estimate.
+ * reasoning rate when the tariff has one. When a verified tariff explicitly has no separate
+ * cache-write charge (`cacheWrite === null`, not `unavailable`), `cache_write` tokens are
+ * repriced at the challenger's verified `input` rate because providers without a cache-write
+ * surcharge bill uncached prompt tokens at the input rate. Long-context tiers and promotions
+ * apply per request, so a per-run estimate uses the default tier at list price. Fallback or
+ * unavailable component prices give no estimate when the run used those tokens.
  */
 function createAdaptivePrice(resolve = resolveModelPricing) {
   return (mapping, tokens) => {
@@ -124,6 +128,7 @@ function createAdaptivePrice(resolve = resolveModelPricing) {
     const { pricing } = resolution;
     // A partial tariff keeps its own source but can fill components from fallbacks.
     const ownTariff = field => !NOT_A_TARIFF.has(resolution.componentSources?.[field]?.source);
+    const componentUnavailable = field => resolution.componentSources?.[field]?.unavailable === true;
     const perToken = field => {
       if (pricing[field] === undefined || pricing[field] === null) return null;
       const value = exact.rate(pricing, field);
@@ -134,10 +139,15 @@ function createAdaptivePrice(resolve = resolveModelPricing) {
     if (input === null || output === null || !ownTariff('input') || !ownTariff('output')) return null;
     const reasoningRate = pricing.reasoning === undefined ? output : (perToken('reasoning') ?? 0);
     const reasoning = tokens.reasoning === null ? 0 : Math.min(tokens.reasoning, tokens.output);
-    if ((tokens.cache_read > 0 && !ownTariff('cachedInput')) || (tokens.cache_write > 0 && !ownTariff('cacheWrite')) ||
-        (reasoning > 0 && pricing.reasoning !== undefined && !ownTariff('reasoning'))) return null;
+    if ((tokens.cache_read > 0 && (!ownTariff('cachedInput') || componentUnavailable('cachedInput'))) ||
+        (tokens.cache_write > 0 && (!ownTariff('cacheWrite') || componentUnavailable('cacheWrite') ||
+          pricing.cacheWrite === undefined)) ||
+        (reasoning > 0 && pricing.reasoning !== undefined &&
+          (!ownTariff('reasoning') || componentUnavailable('reasoning')))) return null;
+    // Verified tariffs without a separate cache-write charge bill uncached prompt tokens at input.
+    const cacheWriteRate = perToken('cacheWrite') ?? (pricing.cacheWrite === null ? input : 0);
     return tokens.input * input + tokens.cache_read * (perToken('cachedInput') ?? 0) +
-      tokens.cache_write * (perToken('cacheWrite') ?? 0) + (tokens.output - reasoning) * output +
+      tokens.cache_write * cacheWriteRate + (tokens.output - reasoning) * output +
       reasoning * reasoningRate;
   };
 }

@@ -82,12 +82,19 @@ function getMaintainedPricingFact(provider, model, context = {}) {
       pricingCatalogId: tariff.provenance.source,
       observedAt: tariff.provenance.at,
     });
+    const unavailable = tariff => {
+      const fields = Object.entries(tariff.components)
+        .filter(([, item]) => item.price?.unavailable === true)
+        .map(([field]) => field);
+      return fields.length ? { unavailableComponents: fields } : {};
+    };
     return {
       source: 'curated', tier: selected.tier,
       default: rates(selected), metadata: metadata(selected),
+      defaultMetadata: unavailable(selected),
       ...(base.length === 1 && long.length === 1 ? {
         longContext: rates(long[0]), threshold: long[0].promptTokensAbove,
-        longMetadata: metadata(long[0]),
+        longMetadata: { ...metadata(long[0]), ...unavailable(long[0]) },
       } : {}),
     };
   }
@@ -114,15 +121,22 @@ function getImportedPricingFact(provider, model) {
     if (typeof item.price === 'object') return [field, null];
     return [field, exact.decimal(item.price)];
   }));
+  const unavailableComponents = Object.entries(imported.components)
+    .filter(([, item]) => item.price?.unavailable === true)
+    .map(([field]) => field);
   const estimatedCachedInput = !Object.hasOwn(pricing, 'cachedInput');
   if (estimatedCachedInput) {
     pricing.cachedInput = exact.multiply(pricing.input, exact.decimal('0.1'));
   }
-  if (!Object.hasOwn(pricing, 'cacheWrite')) pricing.cacheWrite = null;
+  if (!Object.hasOwn(pricing, 'cacheWrite')) {
+    pricing.cacheWrite = null;
+    unavailableComponents.push('cacheWrite');
+  }
   return { source: 'models.dev', default: exact.fromExact(pricing), metadata: {
     pricingCatalogId: imported.provenance.source,
     pricingCatalogVersion: imported.provenance.revision,
     observedAt: imported.provenance.at,
+    ...(unavailableComponents.length ? { unavailableComponents } : {}),
     ...(estimatedCachedInput ? {
       accountingPolicy: 'models_dev_missing_cached_input_estimate',
       usedFallbackPricing: true,
@@ -167,6 +181,25 @@ function validateTariffs(snapshot) {
   }
 }
 
+function bundledNoSeparateCacheWriteTiers(provider, record, context) {
+  if (!record || context.deployment !== undefined) return undefined;
+  if ((context.channel || 'copilot-api') !== 'copilot-api') return undefined;
+  const records = maintainedPrices.get(provider)?.records;
+  if (!records) return undefined;
+  const entry = Object.hasOwn(records, record.identity.rawId) ? records[record.identity.rawId] : null;
+  if (!entry || entry.tariffs) return undefined;
+  const tiers = [];
+  const { longContext, ...defaultPricing } = entry;
+  if (defaultPricing.cacheWrite === null) {
+    tiers.push({ tier: 'default', pricing: exact.rates(defaultPricing) });
+  }
+  if (longContext && longContext.cacheWrite === null) {
+    const { threshold, ...longPrices } = longContext;
+    tiers.push({ tier: 'long_context', threshold, pricing: exact.rates(longPrices) });
+  }
+  return tiers.length ? tiers : undefined;
+}
+
 function getCentralPricingFact(provider, model, capture, context = {}) {
   if (!capture) return null;
   // The Copilot adapter's upstream is copilot-api, including calls made by the CLI.
@@ -187,7 +220,11 @@ function getCentralPricingFact(provider, model, capture, context = {}) {
   });
   // Feed identities are authoritative keys, not additional naming inputs.
   const record = records.length === 1 ? records[0] : null;
-  return { record, source: capture.source, revision: capture.revision };
+  const noSeparateCacheWrite = bundledNoSeparateCacheWriteTiers(provider, record, context);
+  return {
+    record, source: capture.source, revision: capture.revision,
+    ...(noSeparateCacheWrite ? { noSeparateCacheWrite } : {}),
+  };
 }
 
 function resolveCentralPricing(provider, model, inputTokens, capture, context = {}) {

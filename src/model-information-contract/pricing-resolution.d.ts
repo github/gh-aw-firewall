@@ -29,6 +29,7 @@ export interface PricingMetadata {
   accountingPolicy?: string;
   dynamicSelector?: string;
   usedFallbackPricing?: boolean;
+  unavailableComponents?: readonly string[];
 }
 export interface PricingFact {
   source: PricingSource;
@@ -70,6 +71,11 @@ export interface CentralPricingFact {
       }>>;
     }[];
   } | null;
+  noSeparateCacheWrite?: readonly {
+    tier: string;
+    threshold?: number;
+    pricing: Readonly<TokenPrices>;
+  }[];
 }
 export interface PricingCapture {
   readonly identity: ModelIdentity | null;
@@ -104,6 +110,7 @@ export interface PricingResolution {
     pricingCatalogId?: string;
     pricingCatalogVersion?: string;
     estimate?: PricingEstimate;
+    unavailable?: true;
   }>;
 }
 export function resolvePricing(capture: PricingCapture): PricingResolution;

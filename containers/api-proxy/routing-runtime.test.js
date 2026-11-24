@@ -136,6 +136,193 @@ describe('createAdaptivePrice', () => {
     // $2 + $0.25 + $3.20 = $5.45 = 545 credits with no cache reads to price.
     expect(createAdaptivePrice(resolve)(mapping, { ...tokens, cache_read: 0 })).toBeCloseTo(545, 9);
   });
+
+  describe('cache_write repricing', () => {
+    const { resolveModelPricing, resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard');
+    const { clearRuntimeModels, replaceRuntimeModels, parseProviderModelMetadata } = require('./runtime-model-catalog');
+    const { resetProviderPricingOverlaysForTests } = require('./provider-pricing-overlays');
+    const { resetModelPricingCatalogForTests } = require('./model-pricing-catalog');
+    const { buildSnapshot, validateSnapshot } = require('./catalogue-contract/publication.v2.cjs');
+    const canonicalCatalog = require('../../shared/model-information/catalog.generated.json');
+    const claudeTokens = { input: 500, cache_read: 300_000, cache_write: 100_000, output: 5_000, reasoning: null };
+    const noCacheWriteTokens = { ...claudeTokens, cache_write: 0 };
+    let originalEnv;
+
+    beforeEach(() => {
+      originalEnv = { ...process.env };
+      delete process.env.AWF_API_PROXY_PROVIDERS;
+      delete process.env.AWF_MODEL_PRICING_CATALOG;
+      delete process.env.AWF_DEFAULT_AI_CREDITS_PRICING;
+      resetAiCreditsGuardForTests();
+      resetProviderPricingOverlaysForTests();
+      resetModelPricingCatalogForTests();
+      clearRuntimeModels();
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+      process.env = originalEnv;
+      resetAiCreditsGuardForTests();
+      resetProviderPricingOverlaysForTests();
+      resetModelPricingCatalogForTests();
+      clearRuntimeModels();
+    });
+
+    test('uses the explicit cacheWrite rate when a verified tariff provides one', () => {
+      const price = createAdaptivePrice(resolveModelPricing);
+      // claude-sonnet-4-6: $3 input, $0.30 cachedInput, $3.75 cacheWrite, $15 output
+      // 0.15 + 9.00 + 37.50 + 7.50 = 54.15 credits
+      expect(price({ wireModel: 'claude-sonnet-4-6', provider: 'copilot' }, claudeTokens)).toBeCloseTo(54.15, 9);
+      // gpt-5.6-luna: $0.20 input, $0.02 cachedInput, $0.25 cacheWrite, $1.20 output
+      // 0.01 + 0.60 + 2.50 + 0.60 = 3.71 credits
+      expect(price({ wireModel: 'gpt-5.6-luna', provider: 'copilot' }, claudeTokens)).toBeCloseTo(3.71, 9);
+      // An explicit numeric 0 cacheWrite rate stays 0 rather than repricing at input.
+      const zeroCacheWrite = () => ({ source: 'provider', pricing: { ...tariff, cacheWrite: 0 } });
+      expect(createAdaptivePrice(zeroCacheWrite)(mapping, tokens)).toBeCloseTo(560, 9);
+    });
+
+    test('prices cache_write tokens at input for verified models with no separate cache-write charge', () => {
+      const price = createAdaptivePrice(resolveModelPricing);
+      // gpt-5.4: $2.50 input, $0.25 cachedInput, cacheWrite: null, $15 output
+      // 0.125 + 7.50 + 25.00 (cache_write at input) + 7.50 = 40.125 credits
+      expect(price({ wireModel: 'gpt-5.4', provider: 'copilot' }, claudeTokens)).toBeCloseTo(40.125, 9);
+      // gemini-4-hydrogen: $1.50 input, $0.075 cachedInput, cacheWrite: null, $7.50 output
+      // 0.075 + 2.25 + 15.00 (cache_write at input) + 3.75 = 21.075 credits
+      expect(price({ wireModel: 'gemini-4-hydrogen', provider: 'copilot' }, claudeTokens)).toBeCloseTo(21.075, 9);
+      // shared_catalog with explicit cacheWrite: null also reprices cache_write at input.
+      process.env.AWF_MODEL_PRICING_CATALOG = JSON.stringify({
+        schemaVersion: 1,
+        catalogId: 'test-catalog',
+        version: 'v1',
+        unit: 'USD_PER_1M_TOKENS',
+        providers: {
+          copilot: {
+            models: {
+              'custom-no-cw': { input: 3, cachedInput: 0.3, cacheWrite: null, output: 15, reasoning: 15 },
+            },
+          },
+        },
+      });
+      resetModelPricingCatalogForTests();
+      expect(price({ wireModel: 'custom-no-cw', provider: 'copilot' }, claudeTokens)).toBeCloseTo(46.65, 9);
+    });
+
+    test('matches bundled repricing when a validated v2 central feed snapshot is active', () => {
+      const snapshotTime = Date.parse('2026-11-24T17:00:00Z');
+      const snapshot = validateSnapshot(
+        buildSnapshot(canonicalCatalog, 'a'.repeat(40), new Date(snapshotTime).toISOString(), 2),
+      );
+      const capture = {
+        snapshot,
+        source: 'github/gh-aw-firewall',
+        revision: snapshot.revision,
+        time: snapshotTime,
+        maxAge: 30 * 24 * 3600 * 1000,
+      };
+      const withFeed = (model, state, provider, inputTokens, options) =>
+        resolveModelPricing(model, state, provider, inputTokens, { ...options, catalogue: capture });
+      expect(withFeed('gemini-4-hydrogen', undefined, 'copilot', 0, { quiet: true, allowMedianEstimate: false })?.source)
+        .toBe('central_feed');
+      expect(withFeed('gemini-4-argon', undefined, 'copilot', 0, { quiet: true, allowMedianEstimate: false })?.source)
+        .toBe('central_feed');
+
+      const price = createAdaptivePrice(withFeed);
+      // Hydrogen matches its bundled tariff and reprices cache_write at input (21.075 credits).
+      expect(price({ wireModel: 'gemini-4-hydrogen', provider: 'copilot' }, claudeTokens)).toBeCloseTo(21.075, 9);
+      // Argon stays unavailable on cacheWrite, returning null when cache_write > 0 and 8.10 when 0.
+      expect(price({ wireModel: 'gemini-4-argon', provider: 'copilot' }, claudeTokens)).toBeNull();
+      expect(price({ wireModel: 'gemini-4-argon', provider: 'copilot' }, noCacheWriteTokens)).toBeCloseTo(8.10, 9);
+
+      // A central-feed tariff whose rates differ from the bundled tariff stays fail-closed.
+      const modified = structuredClone(snapshot);
+      const hydrogen = modified.models.find(entry => entry.identity.rawId === 'gemini-4-hydrogen');
+      hydrogen.tariffs[0].components.input.price = '2';
+      const modifiedCapture = { ...capture, snapshot: modified };
+      const withModifiedFeed = (model, state, provider, inputTokens, options) =>
+        resolveModelPricing(model, state, provider, inputTokens, { ...options, catalogue: modifiedCapture });
+      expect(createAdaptivePrice(withModifiedFeed)({ wireModel: 'gemini-4-hydrogen', provider: 'copilot' }, claudeTokens))
+        .toBeNull();
+
+      // GPT-5.4 also matches when its central-feed tariff is fresh.
+      const gptTime = Date.parse('2026-10-23T12:00:00Z');
+      const gptCapture = { ...capture, time: gptTime };
+      const withGptFeed = (model, state, provider, inputTokens, options) =>
+        resolveModelPricing(model, state, provider, inputTokens, { ...options, catalogue: gptCapture });
+      expect(withGptFeed('gpt-5.4', undefined, 'copilot', 0, { quiet: true, allowMedianEstimate: false })?.source)
+        .toBe('central_feed');
+      expect(createAdaptivePrice(withGptFeed)({ wireModel: 'gpt-5.4', provider: 'copilot' }, claudeTokens))
+        .toBeCloseTo(40.125, 9);
+    });
+
+    test('returns null when cache_write > 0 and cacheWrite is unavailable or omitted in an operator overlay', () => {
+      const price = createAdaptivePrice(resolveModelPricing);
+      // Pin time inside gemini-4-argon's promotional window so this does not depend on wall-clock date.
+      jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-24T12:00:00Z'));
+      expect(price({ wireModel: 'gemini-4-argon', provider: 'copilot' }, claudeTokens)).toBeNull();
+      // With cache_write === 0, gemini-4-argon ($2 input, $0.10 cachedInput, $10 output) is priceable:
+      // 0.10 + 3.00 + 0 + 5.00 = 8.10 credits
+      expect(price({ wireModel: 'gemini-4-argon', provider: 'copilot' }, noCacheWriteTokens)).toBeCloseTo(8.10, 9);
+
+      // Operator overlay omitting cache_write (e.g., on Claude Sonnet 4.6) must NOT reprice at input.
+      process.env.AWF_API_PROXY_PROVIDERS = JSON.stringify({
+        copilot: {
+          models: {
+            'claude-sonnet-4-6': {
+              cost: { input: '3e-06', cache_read: '3e-07', output: '1.5e-05' },
+            },
+          },
+        },
+      });
+      resetProviderPricingOverlaysForTests();
+      expect(price({ wireModel: 'claude-sonnet-4-6', provider: 'copilot' }, claudeTokens)).toBeNull();
+      // When cache_write === 0, the omitted cache_write rate is not needed: 0.15 + 9.00 + 7.50 = 16.65 credits.
+      expect(price({ wireModel: 'claude-sonnet-4-6', provider: 'copilot' }, noCacheWriteTokens)).toBeCloseTo(16.65, 9);
+
+      // When the operator explicitly supplies cache_write, that rate is used.
+      process.env.AWF_API_PROXY_PROVIDERS = JSON.stringify({
+        copilot: {
+          models: {
+            'claude-sonnet-4-6': {
+              cost: { input: '3e-06', cache_read: '3e-07', cache_write: '3.75e-06', output: '1.5e-05' },
+            },
+          },
+        },
+      });
+      resetProviderPricingOverlaysForTests();
+      expect(price({ wireModel: 'claude-sonnet-4-6', provider: 'copilot' }, claudeTokens)).toBeCloseTo(54.15, 9);
+
+      // Omitted cacheWrite (undefined) also refuses when cache_write > 0.
+      const missingCacheWrite = () => ({ source: 'provider', pricing: { input: 2, cachedInput: 0.2, output: 8 } });
+      expect(createAdaptivePrice(missingCacheWrite)(mapping, claudeTokens)).toBeNull();
+    });
+
+    test('returns null when cache_write > 0 and cacheWrite came from a fallback source', () => {
+      // Partial runtime-only model missing cacheWrite, filled from configured_default (both numeric and null).
+      replaceRuntimeModels('copilot', parseProviderModelMetadata('copilot', {
+        data: [{
+          id: 'runtime-only-partial',
+          billing: {
+            token_prices: {
+              batch_size: 1_000_000,
+              default: { input_price: 200, output_price: 1000, cache_read_price: 20 },
+            },
+          },
+        }],
+      }));
+      const price = createAdaptivePrice(resolveModelPricing);
+      for (const defaultCacheWrite of [null, 3.75]) {
+        process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify({
+          input: 3, cachedInput: 0.3, cacheWrite: defaultCacheWrite, output: 15,
+        });
+        resetAiCreditsGuardForTests();
+        expect(price({ wireModel: 'runtime-only-partial', provider: 'copilot' }, claudeTokens)).toBeNull();
+        // With cache_write === 0, the fallback-filled cacheWrite component is unused:
+        // $2 input, $0.20 cachedInput, $10 output -> 0.10 + 6.00 + 5.00 = 11.10 credits
+        expect(price({ wireModel: 'runtime-only-partial', provider: 'copilot' }, noCacheWriteTokens))
+          .toBeCloseTo(11.10, 9);
+      }
+    });
+  });
 });
 
 describe('loadRoutingConversation', () => {

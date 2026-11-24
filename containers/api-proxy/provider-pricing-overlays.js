@@ -47,7 +47,9 @@ function normalizeCostRates(cost) {
 function normalizeCost(cost) {
   const defaultTier = normalizeCostRates(cost);
   if (!defaultTier) return null;
-  if (!Object.hasOwn(cost, 'long_context')) return { default: defaultTier };
+  const defaultMetadata = cost.cache_write === undefined
+    ? { unavailableComponents: ['cacheWrite'] } : {};
+  if (!Object.hasOwn(cost, 'long_context')) return { default: defaultTier, defaultMetadata };
 
   const rawLongContext = cost.long_context;
   if (!rawLongContext || typeof rawLongContext !== 'object' || Array.isArray(rawLongContext) ||
@@ -59,7 +61,9 @@ function normalizeCost(cost) {
   const threshold = rawLongContext.max_prompt_tokens;
   if (!longContext || !Number.isFinite(threshold) || threshold <= 0) return null;
   longContext.threshold = threshold;
-  return { default: defaultTier, longContext };
+  const longMetadata = rawLongContext.cache_write === undefined
+    ? { unavailableComponents: ['cacheWrite'] } : {};
+  return { default: defaultTier, defaultMetadata, longContext, longMetadata };
 }
 
 function getProviderAliases(provider) {

@@ -285,6 +285,14 @@ describe('reviewed Copilot pricing projection', () => {
         pricing: Object.fromEntries(Object.entries(tariff.components).map(([field, item]) =>
           [field, typeof item.price === 'object' ? null : Number(item.price)])),
       });
+      const expectedUnavailable = fixture.projection[id].tariffs
+        ? Object.entries(tariff.components)
+          .filter(([, item]) => item.price?.unavailable === true)
+          .map(([field]) => field)
+        : [];
+      expect(selected.unavailableComponents).toEqual(
+        expectedUnavailable.length ? expectedUnavailable : undefined,
+      );
       expect(pricing.getImportedPricingFact('copilot', id)).toBeNull();
       expect(pricing.getImportedPricingFact('copilot', `google/${id}`)).toBeNull();
     }
