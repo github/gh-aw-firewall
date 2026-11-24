@@ -35,7 +35,7 @@ describe('offline pricing consumer v1', () => {
       scope: { provider: 'openrouter', channel: 'native-api' },
       prices: fallback.imported.openrouter,
     }]);
-    for (const id of ['gpt-5.6-sol-fast', 'gpt-6.1-sol-fast', 'mai-code-2-flash']) {
+    for (const id of ['gpt-5.6-sol-fast', 'gpt-6.1-sol-fast']) {
       expect(snapshot.maintained.some(model => model.identity.rawId === id)).toBe(false);
     }
     expect(snapshot.maintained.length).toBeGreaterThan(0);

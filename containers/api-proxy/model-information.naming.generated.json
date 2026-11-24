@@ -209,6 +209,14 @@
     },
     {
       "identity": {
+        "key": "copilot/gemini-4-carbon",
+        "provider": "copilot",
+        "rawId": "gemini-4-carbon",
+        "lookupId": "gemini-4-carbon"
+      }
+    },
+    {
+      "identity": {
         "key": "copilot/gemini-4-hydrogen",
         "provider": "copilot",
         "rawId": "gemini-4-hydrogen",
@@ -442,6 +450,22 @@
         "provider": "copilot",
         "rawId": "mai-code-1.1-flash",
         "lookupId": "mai-code-1-1-flash"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/mai-code-2",
+        "provider": "copilot",
+        "rawId": "mai-code-2",
+        "lookupId": "mai-code-2"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/mai-code-2-flash",
+        "provider": "copilot",
+        "rawId": "mai-code-2-flash",
+        "lookupId": "mai-code-2-flash"
       }
     },
     {
