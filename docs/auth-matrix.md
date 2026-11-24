@@ -37,7 +37,7 @@ Auth evaluation in the api-proxy is determined by the combination of these indep
 | 4 | Instance Type | `GITHUB_SERVER_URL` | github.com, GHEC (`*.ghe.com`), GHES |
 | 5 | BYOK Mode | `COPILOT_PROVIDER_TYPE` | unset (standard), `azure` |
 | 6 | Target Override | `{PROVIDER}_API_TARGET` | Any hostname |
-| 7 | Custom Auth Header | `AWF_{PROVIDER}_AUTH_HEADER` | Any valid HTTP header name |
+| 7 | Custom Auth Header | `AWF_{PROVIDER}_AUTH_HEADER` | Any valid HTTP header name except the reserved trace headers `traceparent`, `tracestate` and `baggage` |
 | 8 | Extra Injection | `AWF_BYOK_EXTRA_HEADERS`, `AWF_BYOK_EXTRA_BODY_FIELDS` | JSON objects |
 
 :::note
@@ -112,7 +112,7 @@ The API-proxy environment pipeline keeps the federation settings in the sidecar.
 
 ### Custom Auth Header
 
-`AWF_OPENAI_AUTH_HEADER` overrides the header name used for static keys and cloud OIDC tokens. OpenAI native WIF always uses `Authorization: Bearer`, as required by the OpenAI API.
+`AWF_OPENAI_AUTH_HEADER` overrides the header name used for static keys and cloud OIDC tokens. OpenAI native WIF always uses `Authorization: Bearer`, as required by the OpenAI API. The reserved trace headers `traceparent`, `tracestate` and `baggage` are rejected at startup (`Invalid AWF_OPENAI_AUTH_HEADER value: trace context headers are reserved`), because the sidecar controls trace propagation itself.
 
 ---
 
@@ -162,7 +162,7 @@ AWF follows Anthropic's SDK behavior: JWT-bearer `POST /v1/oauth/token` exchange
 
 ### Custom Auth Header
 
-`AWF_ANTHROPIC_AUTH_HEADER` overrides the header name (default: `x-api-key`). Useful for enterprise gateways that expect a different header.
+`AWF_ANTHROPIC_AUTH_HEADER` overrides the header name (default: `x-api-key`). Useful for enterprise gateways that expect a different header. The reserved trace headers `traceparent`, `tracestate` and `baggage` are rejected at startup (`Invalid AWF_ANTHROPIC_AUTH_HEADER value: trace context headers are reserved`).
 
 ---
 
@@ -680,6 +680,10 @@ All OIDC flows require GitHub Actions runtime tokens:
 Documentation audits treat both as non-observable credentials: they verify `id-token: write` and sidecar configuration but never request or print either value, a minted JWT, or exchanged cloud credentials.
 
 AWF forwards these variables to the api-proxy sidecar in `github-oidc` mode, and also when `GH_AW_OTLP_WORKLOAD_IDENTITY` is configured to enable OIDC workload identity for the OTLP trace exporter (`buildOtelEnv()` in `src/services/api-proxy-env-config.ts`); both cases exclude the variables from the agent container. GitHub Agentic Workflows independently passes them from its runner-owned **Start MCP Gateway** step directly to the MCP gateway when a remote HTTP MCP server uses `auth.type: github-oidc`; AWF does not launch or configure that gateway. [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) is resolved by [github/gh-aw#50054](https://github.com/github/gh-aw/pull/50054), which enforces this boundary.
+
+### Cloud OIDC target binding
+
+Azure, AWS and GCP OIDC credentials (`AWF_AUTH_PROVIDER=azure|aws|gcp`) are attached only to an adapter whose upstream is an explicitly configured target (`COPILOT_PROVIDER_BASE_URL`, `*_API_TARGET`, or, for GCP, the default Gemini/Vertex endpoints when no target is set). They are never attached to `api.openai.com`, `api.anthropic.com`, `*.githubcopilot.com` or `copilot-api.*.ghe.com`. An adapter left on its default upstream therefore behaves as unconfigured, even when the `AWF_AUTH_*` variables are present. The sidecar logs `cloud_oidc_not_bound` or `cloud_oidc_target_refused`; see [Cloud OIDC target binding](api-proxy-sidecar.md#cloud-oidc-target-binding) and registry finding `AUTH-008`.
 
 ### Azure (Entra ID)
 
