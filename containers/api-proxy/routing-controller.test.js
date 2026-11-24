@@ -591,6 +591,51 @@ describe('routing controller', () => {
         .toBeLessThan(nextRun.writeAdaptiveReceipt.mock.invocationCallOrder[0]);
     });
 
+    it('accepts a legacy summary with an unrelated non-incumbent pair whose model_credits exceeds credits', async () => {
+      const base = summary();
+      const legacySummary = summary({
+        pairs: [
+          ...base.pairs,
+          {
+            pair: 'github-copilot/legacy-model@high',
+            wins: 1.98,
+            losses: 0,
+            runs: 2,
+            credits: 10,
+            model_credits: 28,
+            bills: 2,
+            tokens,
+            streak: 0,
+            tests: 0,
+            suspended: null,
+          },
+        ],
+      });
+      const { controller, writeAdaptiveReceipt } = run(legacySummary);
+      const result = await controller.run();
+      expect(result.ok).toBe(true);
+      expect(writeAdaptiveReceipt).toHaveBeenCalledTimes(1);
+      expect(result.adaptiveReceipt).toMatchObject({
+        event: 'adaptive_selection',
+        v: 2,
+        workflow: job.workflow,
+        run: { id: job.run_id, attempt: job.attempt },
+        generation: '9f2c41d0',
+        mode: 'live',
+        scope: 'copilot/cost/shared',
+        explore_allowed: true,
+        role: 'test',
+        selected: 'github-copilot/model-c@medium',
+        ordinary: 'github-copilot/model-a@low',
+        incumbent: { before: 'github-copilot/model-b@high', after: 'github-copilot/model-b@high' },
+        concurrency: { turn: true, in_flight: 0, capacity: 1 },
+        reason: 'challenger_hopeful_clears_need',
+      });
+      expect(result.adaptiveReceipt.costs['github-copilot/model-b@high']).toEqual({ credits: 28, basis: 'measured' });
+      expect(result.adaptiveReceipt.costs['github-copilot/model-c@medium'].basis).toBe('estimated');
+      expect(result.adaptiveReceipt.costs['github-copilot/model-c@medium'].credits).toBeCloseTo(12, 9);
+    });
+
     it('clears binding fields on invalid_evidence receipts for malformed object summaries', async () => {
       const malformed = summary({ v: 1 });
       const normalRun = run(malformed);
