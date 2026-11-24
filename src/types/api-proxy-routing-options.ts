@@ -11,6 +11,11 @@ export interface ModelRoutingConfig {
   candidateModels?: string[];
   /** Request a private shortlist of up to this many distinct eligible bases (1 through 32). */
   topK?: number;
+  /**
+   * Host path to gh-aw's evidence summary for adaptive selection. AWF reads it once before the
+   * agent starts and stages a private copy; the file must not be in an agent-visible path.
+   */
+  adaptiveSummaryFile?: string;
   objective: {
     goal: ModelRoutingGoal;
     mode: ModelRoutingMode;
@@ -27,6 +32,9 @@ export interface ModelRoutingBootstrapState {
   inputFile: string;
   containerInputFile: string;
   containerOutputDir: string;
+  /** Staged copy of the adaptive evidence summary, when `adaptiveSummaryFile` is configured. */
+  adaptiveInputFile?: string;
+  containerAdaptiveInputFile?: string;
 }
 
 export interface ApiProxyRoutingOptions {

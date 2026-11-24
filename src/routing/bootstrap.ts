@@ -9,6 +9,7 @@ import { resolveRuntimeImageFor } from '../image-resolver';
 import { runtimeUsesComposeAgent } from '../container-runtime';
 import { findDockerSocketExposingMount } from '../enclave/mount-policy';
 import { applyHostPathPrefixToVolumes } from '../services/host-path-prefix';
+import { HOME_TOOL_SUBDIRS } from '../config/mount-policy';
 
 // Import the proxy-owned validator through its declaration file so the host and
 // proxy keep one contract for the staged planning conversation.
@@ -18,9 +19,12 @@ const { validateConversation } = require('../../containers/api-proxy/routing-con
 export const ROUTING_CONTAINER_INPUT_DIR = '/run/awf-routing/input';
 export const ROUTING_CONTAINER_OUTPUT_DIR = '/run/awf-routing/output';
 export const ROUTING_CONTAINER_CONVERSATION_FILE = `${ROUTING_CONTAINER_INPUT_DIR}/conversation.json`;
+export const ROUTING_CONTAINER_ADAPTIVE_FILE = `${ROUTING_CONTAINER_INPUT_DIR}/adaptive-summary.json`;
 export const ROUTING_SELECTION_TIMEOUT_MS = 90_000;
 const MAX_CONVERSATION_BYTES = 1_048_576;
 const MAX_RESULT_BYTES = 16_384;
+// The proxy enforces the 16 KiB summary bound; the host only refuses to stage anything larger than this.
+const MAX_ADAPTIVE_SUMMARY_BYTES = 32_768;
 const POLL_INTERVAL_MS = 100;
 
 export class RoutingFailureExitError extends Error {
@@ -76,18 +80,22 @@ export function pathsOverlap(left: string, right: string): boolean {
   return inside(path.relative(left, right)) || inside(path.relative(right, left));
 }
 
-function assertRoutingRootDoesNotOverlapAgentMounts(config: WrapperConfig, root: string): void {
+function overlapsAgentVisiblePath(config: WrapperConfig, root: string): boolean {
   const resolvedRoot = normalizeForOverlap(root);
   const translatedRootMount = applyHostPathPrefixToVolumes(
     [`${root}:/awf-routing-private:ro`],
     config.dockerHostPathPrefix,
   )[0];
   const daemonRoot = normalizeForOverlap(parseMountSource(translatedRootMount) ?? root);
+  const home = resolveAgentHome(config);
   const visibleSources = [
     config.workDir,
     `${config.workDir}-chroot-home`,
     process.env.GITHUB_WORKSPACE || process.cwd(),
     '/tmp',
+    // Mounted into every agent: the home tool directories and gh-aw's runner temp tree.
+    ...HOME_TOOL_SUBDIRS.map((subdir) => path.join(home, subdir)),
+    ...(process.env.RUNNER_TEMP ? [path.join(process.env.RUNNER_TEMP, 'gh-aw')] : []),
     ...(config.sessionStateDir ? [config.sessionStateDir] : []),
     ...(config.volumeMounts ?? []).map((volume) => parseMountSource(volume)).filter((value): value is string => !!value),
   ];
@@ -99,9 +107,55 @@ function assertRoutingRootDoesNotOverlapAgentMounts(config: WrapperConfig, root:
       config.dockerHostPathPrefix,
     )[0];
     const daemonVisible = normalizeForOverlap(parseMountSource(translatedVisibleMount) ?? visible);
-    if (pathsOverlap(resolvedRoot, resolvedVisible) || pathsOverlap(daemonRoot, daemonVisible)) {
-      throw new Error('Model routing private state overlaps an agent-visible path');
+    if (pathsOverlap(resolvedRoot, resolvedVisible) || pathsOverlap(daemonRoot, daemonVisible)) return true;
+  }
+  return false;
+}
+
+function assertRoutingRootDoesNotOverlapAgentMounts(config: WrapperConfig, root: string): void {
+  if (overlapsAgentVisiblePath(config, root)) {
+    throw new Error('Model routing private state overlaps an agent-visible path');
+  }
+}
+
+type StagedAdaptiveSummary =
+  | { status: 'present'; summary: unknown }
+  | { status: 'missing' }
+  | { status: 'invalid' };
+
+/**
+ * Read gh-aw's evidence summary once, before the agent starts. Whether the summary is usable is
+ * the proxy's decision; the host records only whether it found a parsable file.
+ */
+function readAdaptiveSummary(source: string): StagedAdaptiveSummary {
+  let descriptor: number;
+  try {
+    descriptor = fs.openSync(
+      source,
+      fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | (fs.constants.O_NOFOLLOW ?? 0),
+    );
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? { status: 'missing' } : { status: 'invalid' };
+  }
+  try {
+    const stat = fs.fstatSync(descriptor);
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size > MAX_ADAPTIVE_SUMMARY_BYTES) return { status: 'invalid' };
+    const buffer = Buffer.alloc(MAX_ADAPTIVE_SUMMARY_BYTES + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const count = fs.readSync(descriptor, buffer, length, buffer.length - length, null);
+      if (count === 0) break;
+      length += count;
     }
+    if (length > MAX_ADAPTIVE_SUMMARY_BYTES) return { status: 'invalid' };
+    return {
+      status: 'present',
+      summary: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, length))),
+    };
+  } catch {
+    return { status: 'invalid' };
+  } finally {
+    fs.closeSync(descriptor);
   }
 }
 
@@ -255,6 +309,10 @@ export function stageRoutingConversation(config: WrapperConfig): ModelRoutingBoo
   assertRoutingHostSupported(config);
   const root = routingRootForWorkDir(config.workDir, resolveAgentHome(config));
   assertRoutingRootDoesNotOverlapAgentMounts(config, root);
+  const adaptiveSummaryFile = config.modelRouting.adaptiveSummaryFile;
+  if (adaptiveSummaryFile !== undefined && overlapsAgentVisiblePath(config, adaptiveSummaryFile)) {
+    throw new Error('apiProxy.routing.adaptiveSummaryFile must not be in an agent-visible path');
+  }
 
   const conversation = readPrivateConversation(config.modelRouting.task.conversationFile);
   const inputDir = path.join(root, 'input');
@@ -266,9 +324,14 @@ export function stageRoutingConversation(config: WrapperConfig): ModelRoutingBoo
   for (const dir of [root, inputDir, outputDir]) chownToSafeIdentity(dir);
 
   const inputFile = path.join(inputDir, 'conversation.json');
+  const adaptiveInputFile = adaptiveSummaryFile === undefined ? undefined : path.join(inputDir, 'adaptive-summary.json');
   try {
     writeJsonNoFollow(inputFile, conversation);
     chownToSafeIdentity(inputFile);
+    if (adaptiveInputFile !== undefined) {
+      writeJsonNoFollow(adaptiveInputFile, readAdaptiveSummary(adaptiveSummaryFile!));
+      chownToSafeIdentity(adaptiveInputFile);
+    }
   } catch (error) {
     fs.rmSync(root, { recursive: true, force: true });
     throw error;
@@ -281,6 +344,10 @@ export function stageRoutingConversation(config: WrapperConfig): ModelRoutingBoo
     inputFile,
     containerInputFile: ROUTING_CONTAINER_CONVERSATION_FILE,
     containerOutputDir: ROUTING_CONTAINER_OUTPUT_DIR,
+    ...(adaptiveInputFile === undefined ? {} : {
+      adaptiveInputFile,
+      containerAdaptiveInputFile: ROUTING_CONTAINER_ADAPTIVE_FILE,
+    }),
   });
   config.modelRoutingBootstrap = state;
   config.modelRouting = {
