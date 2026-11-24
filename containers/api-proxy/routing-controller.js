@@ -1,6 +1,6 @@
 'use strict';
 
-const { selectAdaptive } = require('./adaptive-select');
+const { selectAdaptive, validSummary } = require('./adaptive-select');
 const { getModelMultiplierCapBlockState } = require('./guards/max-model-multiplier-guard');
 const { resolvePrimaryRank, routingPairName, shortlistPrimaryOptions } = require('./routing-candidates');
 const { pinRequestEligibility, proxyEligibilityStore } = require('./model-eligibility');
@@ -41,6 +41,38 @@ const SKIPPABLE_CHOICE_GUARD_CODES = new Set([
   'model_policy_violation',
   'no_route',
 ]);
+
+// Controller-owned reasons written when a valid summary yields to ordinary routing or fallback;
+// kept out of ADAPTIVE_REASONS because that list is the pure selector's oracle vocabulary.
+const ADAPTIVE_FALLBACK_REASONS = Object.freeze({
+  SELECTION_REJECTED: 'selection_rejected',
+  ROUTER_FALLBACK: 'router_fallback',
+});
+
+function createOrdinaryAdaptiveReceipt({ job, summary }, pair, reason) {
+  return {
+    event: 'adaptive_selection',
+    v: 2,
+    workflow: job.workflow,
+    run: { id: job.run_id, attempt: job.attempt },
+    generation: summary.generation,
+    mode: summary.mode,
+    scope: summary.scope,
+    role: 'ordinary',
+    explore_allowed: summary.explore.allowed === true && job.attempt === 1,
+    selected: pair,
+    ordinary: pair,
+    would: null,
+    incumbent: { before: summary.incumbent, after: summary.incumbent },
+    costs: {},
+    concurrency: {
+      turn: summary.explore.turn,
+      in_flight: summary.explore.in_flight,
+      capacity: null,
+    },
+    reason,
+  };
+}
 
 function computeRouterDeadline(now, deadline) {
   const remaining = Math.max(0, deadline - now);
@@ -220,9 +252,10 @@ function createRoutingController(dependencies) {
         return null;
       }
 
+      const hasValidSummary = Boolean(adaptive) && validSummary(adaptive.summary, adaptive.job);
       let winner = null;
-      let adaptiveReceipt;
-      if (route && adaptive) {
+      let adaptiveReceipt = null;
+      if (route && hasValidSummary) {
         // The workflow's evidence chooses among the eligible pairs; the ordinary pick stays the router's.
         // A pair the router ranks twice is one candidate, which its first choice stands for.
         const ordinaryPick = route.ranked_choices[0];
@@ -232,28 +265,24 @@ function createRoutingController(dependencies) {
           const pair = routingPairName(pool.byId[id]);
           if (!byPair.has(pair) && withinModelCap(choice)) byPair.set(pair, choice);
         }
-        adaptiveReceipt = selectAdaptive({
+        const candidateReceipt = selectAdaptive({
           summary: adaptive.summary,
           rank: [...byPair.keys()],
           ordinary: routingPairName(pool.byId[ordinaryPick.id]),
           job: adaptive.job,
           price: (pair, tokens) => (byPair.has(pair) ? priceRoute(pool.byId[byPair.get(pair).id], tokens) : null),
         });
-        const adaptiveChoice = byPair.get(adaptiveReceipt.selected) ?? ordinaryPick;
-        const adaptiveSelection = createSelection(adaptiveChoice, pool.byId[adaptiveChoice.id], {
-          selectionSource: 'router',
-          fallbackReason: null,
-          fallbackTier: null,
-        });
-        await runPhase(({ signal: phaseSignal }) =>
-          executor.checkBeforePrimary({
-            selection: adaptiveSelection, signal: phaseSignal, awfEligibility: eligibilityRequest.awfEligibility,
-            awfEligibilityScope: eligibilityRequest.awfEligibilityScope,
-          }));
-        // Recorded before the primary starts, once the final guard has accepted the selection.
-        writeAdaptiveReceipt(deepFreezeJson(adaptiveReceipt));
-        winner = { choice: adaptiveChoice, selection: adaptiveSelection };
-      } else if (route) {
+        const adaptiveChoice = byPair.get(candidateReceipt.selected) ?? ordinaryPick;
+        winner = await selectFirstPassing([{
+          choice: adaptiveChoice,
+          metadata: { selectionSource: 'router', fallbackReason: null, fallbackTier: null },
+        }]);
+        if (winner) {
+          adaptiveReceipt = candidateReceipt;
+        }
+      }
+
+      if (!winner && route) {
         winner = await selectFirstPassing(route.ranked_choices.map(choice => ({
           choice,
           metadata: { selectionSource: 'router', fallbackReason: null, fallbackTier: null },
@@ -281,15 +310,40 @@ function createRoutingController(dependencies) {
       }
 
       const { choice: selectedChoice, selection } = winner;
+      if (adaptive) {
+        if (!adaptiveReceipt) {
+          const winningPair = routingPairName(pool.byId[selectedChoice.id]);
+          adaptiveReceipt = hasValidSummary
+            ? createOrdinaryAdaptiveReceipt(
+              adaptive,
+              winningPair,
+              route ? ADAPTIVE_FALLBACK_REASONS.SELECTION_REJECTED : ADAPTIVE_FALLBACK_REASONS.ROUTER_FALLBACK,
+            )
+            : selectAdaptive({
+              // Normalize malformed object summaries so invalid_evidence never echoes live binding
+              // fields next to incumbent: null.
+              summary: adaptive.summary === null || adaptive.summary === undefined ? null : 'invalid',
+              rank: [winningPair],
+              ordinary: winningPair,
+              job: adaptive.job,
+              price: () => null,
+            });
+        }
+        adaptiveReceipt = deepFreezeJson(adaptiveReceipt);
+        // Recorded before the primary starts, once the final guard has accepted the selection.
+        writeAdaptiveReceipt(adaptiveReceipt);
+      }
+
+      const useAdaptiveRouteOptions = Boolean(adaptiveReceipt && adaptiveReceipt.role !== 'ordinary');
       let routeOptions;
       if (selection.selection_source === 'router' && config.topK !== undefined && resolvedTopKRank) {
-        const startIndex = adaptiveReceipt
+        const startIndex = useAdaptiveRouteOptions
           ? 0
           : resolvedTopKRank.findIndex(choice => choice.id === selectedChoice.id);
         const remainingRank = startIndex >= 0 ? resolvedTopKRank.slice(startIndex) : resolvedTopKRank;
         const withinCap = remainingRank.filter(withinModelCap);
         routeOptions = deepFreezeJson({
-          ordinaryPick: modelEffortPair(adaptiveReceipt ? route.ranked_choices[0] : selectedChoice),
+          ordinaryPick: modelEffortPair(useAdaptiveRouteOptions ? route.ranked_choices[0] : selectedChoice),
           options: shortlistPrimaryOptions(withinCap, config.topK).map(modelEffortPair),
         });
       }

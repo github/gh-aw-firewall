@@ -276,7 +276,12 @@ describe('routing controller', () => {
       const writeAdaptiveReceipt = jest.fn();
       const harness = replayRank({
         ...overrides,
-        dependencies: { adaptive: { job, summary: adaptiveSummary }, priceRoute, writeAdaptiveReceipt },
+        dependencies: {
+          adaptive: { job: overrides.job || job, summary: adaptiveSummary },
+          priceRoute,
+          writeAdaptiveReceipt,
+          ...overrides.dependencies,
+        },
       });
       return { ...harness, writeAdaptiveReceipt };
     };
@@ -330,16 +335,117 @@ describe('routing controller', () => {
       expect(writeAdaptiveReceipt.mock.calls[0][0]).toMatchObject({ role: 'ordinary', reason, concurrency: null });
     });
 
-    it('does not soften the final guard: a vetoed selection fails without a receipt', async () => {
+    it('falls back to ordinary routing with a selection_rejected receipt when a guard rejects an observe pick', async () => {
+      const checkBeforePrimary = ({ selection }) => {
+        if (selection.wire_model === 'model-a') {
+          throw createRoutingError('pricing_resolution_error', 'unpriced');
+        }
+      };
+      const withoutSummary = await replayRank({ checkBeforePrimary }).controller.run();
+      const observe = summary({
+        mode: 'observe', incumbent: null,
+        explore: { allowed: false, reason: 'observe', mode: 'queued', share: true, turn: true, in_flight: 0 },
+      });
+      const { controller, executor, writeAdaptiveReceipt } = run(observe, { checkBeforePrimary });
+      const result = await controller.run();
+      expect(result.ok).toBe(true);
+      expect(result.selection).toEqual(withoutSummary.selection);
+      expect(result.selection).toMatchObject({ wire_model: 'model-b', selection_source: 'router' });
+      expect(writeAdaptiveReceipt).toHaveBeenCalledTimes(1);
+      expect(result.adaptiveReceipt).toEqual({
+        event: 'adaptive_selection',
+        v: 2,
+        workflow: job.workflow,
+        run: { id: job.run_id, attempt: job.attempt },
+        generation: '9f2c41d0',
+        mode: 'observe',
+        scope: 'copilot/cost/shared',
+        role: 'ordinary',
+        explore_allowed: false,
+        selected: 'github-copilot/model-b@high',
+        ordinary: 'github-copilot/model-b@high',
+        would: null,
+        incumbent: { before: null, after: null },
+        costs: {},
+        concurrency: { turn: true, in_flight: 0, capacity: null },
+        reason: 'selection_rejected',
+      });
+      expect(writeAdaptiveReceipt.mock.calls[0][0]).toEqual(result.adaptiveReceipt);
+      const lastGuardCall = executor.checkBeforePrimary.mock.invocationCallOrder.at(-1);
+      expect(lastGuardCall).toBeLessThan(writeAdaptiveReceipt.mock.invocationCallOrder[0]);
+    });
+
+    it('falls back to ordinary routing without retrying the rejected pick when a guard rejects a live test pick', async () => {
       const checkBeforePrimary = ({ selection }) => {
         if (selection.wire_model === 'model-c') {
           throw createRoutingError('model_policy_violation', 'The selected model is not permitted');
         }
       };
-      const { controller, calls, writeAdaptiveReceipt } = run(summary(), { checkBeforePrimary });
-      await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'model_policy_violation' } });
-      expect(calls.checkBeforePrimary.map(call => call.selection.wire_model)).toEqual(['model-c']);
-      expect(writeAdaptiveReceipt).not.toHaveBeenCalled();
+      const { controller, calls, executor, writeAdaptiveReceipt } = run(summary(), { checkBeforePrimary });
+      const result = await controller.run();
+      expect(result.ok).toBe(true);
+      expect(result.selection).toMatchObject({
+        choice: rankFixture.fullRank[0],
+        wire_model: 'model-a',
+        selection_source: 'router',
+      });
+      expect(calls.checkBeforePrimary.map(call => call.selection.wire_model)).toEqual(['model-c', 'model-a']);
+      expect(writeAdaptiveReceipt).toHaveBeenCalledTimes(1);
+      expect(result.adaptiveReceipt).toEqual({
+        event: 'adaptive_selection',
+        v: 2,
+        workflow: job.workflow,
+        run: { id: job.run_id, attempt: job.attempt },
+        generation: '9f2c41d0',
+        mode: 'live',
+        scope: 'copilot/cost/shared',
+        role: 'ordinary',
+        explore_allowed: true,
+        selected: 'github-copilot/model-a@low',
+        ordinary: 'github-copilot/model-a@low',
+        would: null,
+        incumbent: { before: 'github-copilot/model-b@high', after: 'github-copilot/model-b@high' },
+        costs: {},
+        concurrency: { turn: true, in_flight: 0, capacity: null },
+        reason: 'selection_rejected',
+      });
+      const lastGuardCall = executor.checkBeforePrimary.mock.invocationCallOrder.at(-1);
+      expect(lastGuardCall).toBeLessThan(writeAdaptiveReceipt.mock.invocationCallOrder[0]);
+    });
+
+    it('moves on to the fallback pool with selection_rejected when every router choice is rejected by per-model guards', async () => {
+      const checkBeforePrimary = ({ selection }) => {
+        if (selection.wire_model !== 'model-b') {
+          throw createRoutingError('pricing_resolution_error', 'unpriced');
+        }
+      };
+      const partialRank = [rankFixture.fullRank[0], rankFixture.fullRank[4]];
+      const { controller, calls, executor, writeAdaptiveReceipt } = run(summary(), {
+        routeResponse: () => ({ ranked_choices: partialRank }),
+        checkBeforePrimary,
+      });
+      const result = await controller.run();
+      expect(result.ok).toBe(true);
+      expect(result.selection).toMatchObject({
+        wire_model: 'model-b',
+        selection_source: 'fallback',
+        fallback_reason: 'pricing_resolution_error',
+      });
+      const triedIds = calls.checkBeforePrimary.map(call => call.selection.choice.id);
+      expect(new Set(triedIds).size).toBe(triedIds.length);
+      expect(writeAdaptiveReceipt).toHaveBeenCalledTimes(1);
+      expect(result.adaptiveReceipt).toMatchObject({
+        role: 'ordinary',
+        reason: 'selection_rejected',
+        selected: 'github-copilot/model-b@high',
+        ordinary: 'github-copilot/model-b@high',
+        would: null,
+        incumbent: { before: 'github-copilot/model-b@high', after: 'github-copilot/model-b@high' },
+        costs: {},
+        concurrency: { turn: true, in_flight: 0, capacity: null },
+      });
+      const lastGuardCall = executor.checkBeforePrimary.mock.invocationCallOrder.at(-1);
+      expect(lastGuardCall).toBeLessThan(writeAdaptiveReceipt.mock.invocationCallOrder[0]);
     });
 
     it('writes no receipt without opt-in', async () => {
@@ -350,20 +456,225 @@ describe('routing controller', () => {
       expect(writeAdaptiveReceipt).not.toHaveBeenCalled();
     });
 
-    it('serves a fallback selection as an ordinary selection with no adaptive receipt when the router cannot choose', async () => {
-      const { controller, writeAdaptiveReceipt } = run(summary(), {
-        planner: { route: async () => { throw { statusCode: 422, body: { code: 'no_route' } }; } },
-      });
+    it.each([
+      [
+        '422 no_route',
+        { planner: { route: async () => { throw { statusCode: 422, body: { code: 'no_route' } }; } } },
+        'no_route',
+      ],
+      [
+        'unavailable router',
+        {
+          planner: { route: async () => { throw { statusCode: 503 }; } },
+          dependencies: {
+            clock: { now: () => 1_000, setTimer: () => 1, clearTimer: () => {}, sleep: async () => {} },
+          },
+        },
+        'router_unavailable',
+      ],
+      [
+        'router timeout',
+        { planner: { route: async () => { throw createRoutingError('routing_timeout', 'Router phase timed out'); } } },
+        'routing_timeout',
+      ],
+      [
+        'invalid response',
+        { routeResponse: () => ({ ranked_choices: [{ id: 'foreign', model: 'openai/model-b' }] }) },
+        'routing_contract_error',
+      ],
+    ])('writes a router_fallback receipt when the router cannot choose (%s)', async (_label, overrides, fallbackReason) => {
+      const { controller, executor, writeAdaptiveReceipt } = run(summary(), overrides);
       const result = await controller.run();
       expect(result).toMatchObject({
         ok: true,
         selection: {
           selection_source: 'fallback',
-          fallback_reason: 'no_route',
+          fallback_reason: fallbackReason,
         },
       });
-      expect(result).not.toHaveProperty('adaptiveReceipt');
-      expect(writeAdaptiveReceipt).not.toHaveBeenCalled();
+      const expectedPair = `github-copilot/${result.selection.wire_model}@${result.selection.choice.effort}`;
+      expect(writeAdaptiveReceipt).toHaveBeenCalledTimes(1);
+      expect(result.adaptiveReceipt).toEqual({
+        event: 'adaptive_selection',
+        v: 2,
+        workflow: job.workflow,
+        run: { id: job.run_id, attempt: job.attempt },
+        generation: '9f2c41d0',
+        mode: 'live',
+        scope: 'copilot/cost/shared',
+        role: 'ordinary',
+        explore_allowed: true,
+        selected: expectedPair,
+        ordinary: expectedPair,
+        would: null,
+        incumbent: { before: 'github-copilot/model-b@high', after: 'github-copilot/model-b@high' },
+        costs: {},
+        concurrency: { turn: true, in_flight: 0, capacity: null },
+        reason: 'router_fallback',
+      });
+      expect(writeAdaptiveReceipt.mock.calls[0][0]).toEqual(result.adaptiveReceipt);
+      const lastGuardCall = executor.checkBeforePrimary.mock.invocationCallOrder.at(-1);
+      expect(lastGuardCall).toBeLessThan(writeAdaptiveReceipt.mock.invocationCallOrder[0]);
+    });
+
+    it('sets explore_allowed false on a rerun router_fallback receipt', async () => {
+      const rerunJob = Object.freeze({ workflow: job.workflow, run_id: job.run_id, attempt: 2 });
+      const rerunSummary = summary({ run: { id: job.run_id, number: 812, attempt: 2 } });
+      const { controller, writeAdaptiveReceipt } = run(rerunSummary, {
+        job: rerunJob,
+        planner: { route: async () => { throw { statusCode: 422, body: { code: 'no_route' } }; } },
+      });
+      const result = await controller.run();
+      expect(result.ok).toBe(true);
+      expect(writeAdaptiveReceipt).toHaveBeenCalledTimes(1);
+      expect(result.adaptiveReceipt).toMatchObject({
+        run: { id: job.run_id, attempt: 2 },
+        role: 'ordinary',
+        explore_allowed: false,
+        reason: 'router_fallback',
+      });
+    });
+
+    it.each([
+      [null, 'summary_missing'],
+      ['invalid', 'invalid_evidence'],
+    ])('names the winning pair on a %s receipt after router failure or rejected first choice', async (adaptiveSummary, reason) => {
+      const routerFail = { planner: { route: async () => { throw { statusCode: 422, body: { code: 'no_route' } }; } } };
+      const plainFallback = await replayRank(routerFail).controller.run();
+      const fallbackRun = run(adaptiveSummary, routerFail);
+      const fallbackResult = await fallbackRun.controller.run();
+      expect(fallbackResult.ok).toBe(true);
+      expect(fallbackResult.selection).toEqual(plainFallback.selection);
+      const fallbackPair = `github-copilot/${fallbackResult.selection.wire_model}@${fallbackResult.selection.choice.effort}`;
+      expect(fallbackRun.writeAdaptiveReceipt).toHaveBeenCalledTimes(1);
+      expect(fallbackResult.adaptiveReceipt).toMatchObject({
+        mode: null,
+        role: 'ordinary',
+        explore_allowed: false,
+        selected: fallbackPair,
+        ordinary: fallbackPair,
+        would: null,
+        incumbent: null,
+        costs: {},
+        concurrency: null,
+        reason,
+      });
+      expect(fallbackRun.executor.checkBeforePrimary.mock.invocationCallOrder.at(-1))
+        .toBeLessThan(fallbackRun.writeAdaptiveReceipt.mock.invocationCallOrder[0]);
+
+      const rejectFirst = {
+        checkBeforePrimary: ({ selection }) => {
+          if (selection.wire_model === 'model-a') {
+            throw createRoutingError('pricing_resolution_error', 'unpriced');
+          }
+        },
+      };
+      const plainNext = await replayRank(rejectFirst).controller.run();
+      const nextRun = run(adaptiveSummary, rejectFirst);
+      const nextResult = await nextRun.controller.run();
+      expect(nextResult.ok).toBe(true);
+      expect(nextResult.selection).toEqual(plainNext.selection);
+      expect(nextRun.writeAdaptiveReceipt).toHaveBeenCalledTimes(1);
+      expect(nextResult.adaptiveReceipt).toMatchObject({
+        mode: null,
+        role: 'ordinary',
+        explore_allowed: false,
+        selected: 'github-copilot/model-b@high',
+        ordinary: 'github-copilot/model-b@high',
+        would: null,
+        incumbent: null,
+        costs: {},
+        concurrency: null,
+        reason,
+      });
+      expect(nextRun.executor.checkBeforePrimary.mock.invocationCallOrder.at(-1))
+        .toBeLessThan(nextRun.writeAdaptiveReceipt.mock.invocationCallOrder[0]);
+    });
+
+    it('clears binding fields on invalid_evidence receipts for malformed object summaries', async () => {
+      const malformed = summary({ v: 1 });
+      const normalRun = run(malformed);
+      const normalResult = await normalRun.controller.run();
+      expect(normalResult.ok).toBe(true);
+      expect(normalResult.adaptiveReceipt).toMatchObject({
+        generation: null,
+        mode: null,
+        scope: null,
+        role: 'ordinary',
+        explore_allowed: false,
+        selected: 'github-copilot/model-a@low',
+        ordinary: 'github-copilot/model-a@low',
+        would: null,
+        incumbent: null,
+        costs: {},
+        concurrency: null,
+        reason: 'invalid_evidence',
+      });
+
+      const fallbackRun = run(malformed, {
+        planner: { route: async () => { throw { statusCode: 422, body: { code: 'no_route' } }; } },
+      });
+      const fallbackResult = await fallbackRun.controller.run();
+      expect(fallbackResult.ok).toBe(true);
+      const fallbackPair = `github-copilot/${fallbackResult.selection.wire_model}@${fallbackResult.selection.choice.effort}`;
+      expect(fallbackResult.adaptiveReceipt).toMatchObject({
+        generation: null,
+        mode: null,
+        scope: null,
+        role: 'ordinary',
+        explore_allowed: false,
+        selected: fallbackPair,
+        ordinary: fallbackPair,
+        would: null,
+        incumbent: null,
+        costs: {},
+        concurrency: null,
+        reason: 'invalid_evidence',
+      });
+    });
+
+    it('fails without a receipt on a run-wide guard or when every pair is rejected', async () => {
+      const budgetRun = run(summary(), {
+        checkBeforePrimary: () => { throw createRoutingError('ai_credits_limit_exceeded', 'Budget exhausted'); },
+      });
+      const budgetResult = await budgetRun.controller.run();
+      expect(budgetResult).toMatchObject({ ok: false, failure: { code: 'ai_credits_limit_exceeded' } });
+      expect(budgetResult).not.toHaveProperty('adaptiveReceipt');
+      expect(budgetRun.calls.checkBeforePrimary).toHaveLength(1);
+      expect(budgetRun.writeAdaptiveReceipt).not.toHaveBeenCalled();
+
+      const allRejectedRun = run(summary(), {
+        checkBeforePrimary: ({ selection }) => {
+          if (selection.wire_model === 'model-c') {
+            throw createRoutingError('model_policy_violation', 'blocked');
+          }
+          throw createRoutingError('pricing_resolution_error', 'unpriced');
+        },
+      });
+      const allRejectedResult = await allRejectedRun.controller.run();
+      expect(allRejectedResult).toMatchObject({ ok: false, failure: { code: 'model_policy_violation' } });
+      expect(allRejectedResult).not.toHaveProperty('adaptiveReceipt');
+      const triedIds = allRejectedRun.calls.checkBeforePrimary.map(call => call.selection.choice.id);
+      expect(new Set(triedIds).size).toBe(triedIds.length);
+      expect(allRejectedRun.writeAdaptiveReceipt).not.toHaveBeenCalled();
+    });
+
+    it('computes topK routeOptions as ordinary routing does when a guard rejects the adaptive pick', async () => {
+      const checkBeforePrimary = ({ selection }) => {
+        if (selection.wire_model === 'model-a' || selection.wire_model === 'model-c') {
+          throw createRoutingError('pricing_resolution_error', 'unpriced');
+        }
+      };
+      const withoutSummary = await replayRank({ config: { topK: 2 }, checkBeforePrimary }).controller.run();
+      const withSummary = await run(summary(), { config: { topK: 2 }, checkBeforePrimary }).controller.run();
+      expect(withSummary.ok).toBe(true);
+      expect(withSummary.selection).toEqual(withoutSummary.selection);
+      expect(withSummary.routeOptions).toEqual(withoutSummary.routeOptions);
+      expect(withSummary.adaptiveReceipt).toMatchObject({
+        role: 'ordinary',
+        reason: 'selection_rejected',
+        selected: 'github-copilot/model-b@high',
+      });
     });
   });
 
