@@ -7,12 +7,48 @@ const { createRoutingError } = require('./routing-errors');
 const { isModelEligible } = require('./model-eligibility');
 const { getModelReasoning, pinModelReasoning, assessReasoningEffort } = require('./model-reasoning');
 const { isAutomaticModelEligible } = require('./automatic-model-eligibility');
+const { isFamilyPatternOnlyEndpoint } = require('./model-api-mapping');
+const { hasLiveEndpointMetadata } = require('./routing-catalogue');
 
 const PROVIDERS = Object.freeze({
   copilot: Object.freeze({ canonical: 'github-copilot', alias: 'copilot' }),
   openai: Object.freeze({ canonical: 'openai', alias: 'openai' }),
   anthropic: Object.freeze({ canonical: 'anthropic', alias: 'anthropic' }),
 });
+
+const ROUTING_ENDPOINT_PROTOCOLS = Object.freeze({
+  '/responses': 'responses',
+  '/chat/completions': 'chat-completions',
+  '/v1/messages': 'messages',
+});
+
+function normalizeRoutingEndpoints(value, name = 'routing.endpoints') {
+  if (value === undefined) return null;
+  if (!Array.isArray(value) || value.length === 0) {
+    throw createRoutingError('routing_configuration_error', `${name} must be a non-empty array`);
+  }
+  const seen = new Set();
+  const endpoints = [];
+  for (const [index, endpoint] of value.entries()) {
+    if (typeof endpoint !== 'string' || !Object.hasOwn(ROUTING_ENDPOINT_PROTOCOLS, endpoint)) {
+      throw createRoutingError(
+        'routing_configuration_error',
+        `${name}[${index}] must be one of: /responses, /chat/completions, /v1/messages`,
+      );
+    }
+    if (seen.has(endpoint)) {
+      throw createRoutingError('routing_configuration_error', `${name} must not contain duplicates`);
+    }
+    seen.add(endpoint);
+    endpoints.push(endpoint);
+  }
+  return Object.freeze(endpoints);
+}
+
+function endpointsToProtocols(endpoints) {
+  if (!endpoints) return null;
+  return new Set(endpoints.map(endpoint => ROUTING_ENDPOINT_PROTOCOLS[endpoint]));
+}
 
 function normalizePolicyList(value, name) {
   if (value === undefined || value === null) return null;
@@ -31,23 +67,36 @@ function normalizePolicyList(value, name) {
   });
 }
 
-function protocolFor(provider, effort, protocols) {
-  if (provider === 'anthropic') return 'messages';
-  if (effort === undefined) return protocols.includes('chat-completions') ? 'chat-completions' : null;
-  if (protocols.includes('responses')) return 'responses';
-  if (protocols.includes('chat-completions')) return 'chat-completions';
-  if (protocols.includes('messages')) return 'messages';
+function protocolFor(provider, effort, protocols, allowedProtocols = null) {
+  const available = allowedProtocols
+    ? protocols.filter(protocol => allowedProtocols.has(protocol))
+    : protocols;
+  if (provider === 'anthropic') {
+    return available.includes('messages') ? 'messages' : null;
+  }
+  if (effort === undefined) {
+    if (!allowedProtocols) {
+      return available.includes('chat-completions') ? 'chat-completions' : null;
+    }
+    if (available.includes('chat-completions')) return 'chat-completions';
+    if (available.includes('responses')) return 'responses';
+    if (available.includes('messages')) return 'messages';
+    return null;
+  }
+  if (available.includes('responses')) return 'responses';
+  if (available.includes('chat-completions')) return 'chat-completions';
+  if (available.includes('messages')) return 'messages';
   return null;
 }
 
-function getModelRoutingChoices(providerModel, provider) {
+function getModelRoutingChoices(providerModel, provider, allowedProtocols = null) {
   if (providerModel.automaticSelectionEligible === false || !isAutomaticModelEligible(providerModel)) return [];
   if (!Array.isArray(providerModel.protocols)) return [];
   const decision = getModelReasoning(providerModel, provider);
   const efforts = decision.support === 'unsupported' ? [undefined] : decision.selectableEfforts;
   return efforts.flatMap(effort => {
     if (!assessReasoningEffort(decision, effort, { automatic: true }).admitted) return [];
-    const protocol = protocolFor(provider, effort, providerModel.protocols);
+    const protocol = protocolFor(provider, effort, providerModel.protocols, allowedProtocols);
     return protocol && providerModel.protocols.includes(protocol) ? [{ effort, protocol }] : [];
   });
 }
@@ -99,6 +148,16 @@ function shortlistPrimaryOptions(eligibleRank, topK = PILOT_TOP_K) {
   return Object.freeze(options);
 }
 
+/**
+ * The pair name gh-aw's routing history uses (contract 1 of gh-aw adaptive routing):
+ * `<provider>/<wire model>@<effort>`, with Copilot written `github-copilot` and `none` when
+ * the route has no effort.
+ */
+function routingPairName(mapping) {
+  const provider = Object.hasOwn(PROVIDERS, mapping.provider) ? PROVIDERS[mapping.provider].canonical : mapping.provider;
+  return `${provider}/${mapping.wireModel}@${mapping.effort ?? 'none'}`;
+}
+
 // Only consume the rank accepted by validateRouteResponse, never the (potentially
 // larger) catalogue or offered pool. Resolve IDs to the immutable offered choices.
 function resolvePrimaryRank(rankedChoices, pool) {
@@ -114,7 +173,7 @@ function resolvePrimaryRank(rankedChoices, pool) {
   }));
 }
 
-function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, eligibilityRequest = {} }) {
+function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, endpoints, eligibilityRequest = {} }) {
   const provider = catalogue?.provider;
   const providerInfo = Object.hasOwn(PROVIDERS, provider) ? PROVIDERS[provider] : null;
   if (!catalogue || !providerInfo || catalogue.configured !== true) {
@@ -127,6 +186,7 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, eligi
   const allowedModels = normalizePolicyList(policy.allowedModels, 'allowedModels');
   const disallowedModels = normalizePolicyList(policy.disallowedModels, 'disallowedModels');
   const routingCandidates = normalizePolicyList(candidateModels, 'routing.candidateModels');
+  const allowedProtocols = endpointsToProtocols(normalizeRoutingEndpoints(endpoints, 'routing.endpoints'));
   const providerModels = indexModels(catalogue.models, 'catalogue.models', model => model.id);
   const policyModels = new Map(
     [...providerModels].filter(([, model]) =>
@@ -152,7 +212,7 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, eligi
   for (const providerModel of permittedModels.values()) {
     const nativeName = stripRedundantProviderPrefix(providerModel.id, providerInfo.canonical);
     if (!isModelEligible(nativeName, provider, eligibilityRequest, { inputMode: 'native' })) continue;
-    for (const { effort, protocol } of getModelRoutingChoices(providerModel, provider)) {
+    for (const { effort, protocol } of getModelRoutingChoices(providerModel, provider, allowedProtocols)) {
       pairs.push({
         model: `${providerInfo.canonical}/${nativeName}`,
         effort,
@@ -183,6 +243,10 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, eligi
     const contextWindow = Number.isInteger(pair.providerModel.contextWindow) && pair.providerModel.contextWindow > 0
       ? pair.providerModel.contextWindow
       : undefined;
+    const familyPatternEndpointsOnly = pair.providerModel.familyPatternEndpointsOnly === true ||
+      ((pair.provider === 'openai' || pair.provider === 'anthropic') &&
+        !hasLiveEndpointMetadata(pair.providerModel) &&
+        isFamilyPatternOnlyEndpoint(pair.providerModel.id, pair.provider));
     byId[id] = pinModelReasoning(Object.freeze({
       choice,
       provider: pair.provider,
@@ -190,6 +254,7 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, eligi
       ...(pair.effort === undefined ? {} : { effort: pair.effort }),
       ...(contextWindow === undefined ? {} : { contextWindow }),
       protocol: pair.protocol,
+      ...(familyPatternEndpointsOnly ? { familyPatternEndpointsOnly: true } : {}),
     }), getModelReasoning(pair.providerModel, pair.provider));
     return choice;
   });
@@ -202,8 +267,12 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, eligi
 
 module.exports = {
   PILOT_TOP_K,
+  ROUTING_ENDPOINT_PROTOCOLS,
   assertValidTopK,
+  endpointsToProtocols,
+  normalizeRoutingEndpoints,
   resolvePrimaryRank,
+  routingPairName,
   shortlistPrimaryOptions,
   buildRoutingCandidates,
   getModelRoutingChoices,

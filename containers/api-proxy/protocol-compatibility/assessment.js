@@ -9,7 +9,7 @@ const { chatRequestToAnthropic } = require('../anthropic-chat-compat');
 const { assessReasoningEffort } = require('../catalogue-contract/reasoning');
 
 const ASSESSMENT_REVISION = 'awf-fallback-assessment-v1';
-const CONTRACT_DIGEST = '817972c161924d14e62f8e0a35561f4ba4336d5a1f1c1c70b7ff28367dc0d15b';
+const CONTRACT_DIGEST = 'a2a8dc2ebdd05e34126456a965608906305dd1f926c4e6c3106625df069f1ae4';
 const REASON_CODES = Object.freeze([
   'assessment_limit', 'request_shape_unverified', 'direction_unimplemented', 'implementation_drift',
   'condition_unverified', 'unknown_required_feature', 'unknown_nested_field', 'translator_rejected', 'request_build_failed',

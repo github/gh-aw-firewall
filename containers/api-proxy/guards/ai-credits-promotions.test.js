@@ -114,6 +114,32 @@ describe('AI credit time-bound promotions', () => {
         }
       }
     });
+
+    it('switches bundled promotional models to their published post_promotion rates at expiry', () => {
+      const bundled = jest.requireActual('../model-information.pricing.generated.json');
+      loadProjection(bundled);
+      for (const [id, boundary, promoRate, successorRate] of [
+        ['gemini-4-carbon', '2026-12-01T00:00:00.000Z', 2, 4],
+        ['mai-code-2', '2027-05-17T00:00:00.000Z', 0.5, 1],
+        ['mai-code-2-flash', '2027-05-17T00:00:00.000Z', 0.05, 0.1],
+      ]) {
+        const end = Date.parse(boundary);
+        for (const [time, tier, expectedCredits] of [
+          [end - 1, 'default', promoRate],
+          [end, 'post_promotion', successorRate],
+          [end + 1, 'post_promotion', successorRate],
+        ]) {
+          Date.now.mockReturnValue(time);
+          guard.resetAiCreditsGuardForTests();
+          const usage = guard.applyAiCreditsUsage({ input_tokens: 10000 }, id, 'copilot', {
+            catalogue: null, runtimeCatalog: {},
+          });
+          expect(usage).toMatchObject({
+            pricingSource: 'curated', pricingTier: tier, aiCreditsThisResponse: expectedCredits,
+          });
+        }
+      }
+    });
   });
 
   describe('time-bound provider promotions', () => {

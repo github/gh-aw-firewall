@@ -1,0 +1,161 @@
+{
+  "claude-fable-5": {
+    "tier": "premium",
+    "releaseDate": "2026-06-09"
+  },
+  "claude-fable-5-1": {
+    "tier": "premium",
+    "releaseDate": "2026-09-01"
+  },
+  "claude-fable-5-2": {
+    "tier": "premium",
+    "releaseDate": "2026-11-09"
+  },
+  "claude-haiku-4-5": {
+    "tier": "lightweight",
+    "releaseDate": "2025-10-15"
+  },
+  "claude-haiku-5-5": {
+    "tier": "lightweight",
+    "releaseDate": "2026-10-07"
+  },
+  "claude-mythos-5": {
+    "tier": "premium",
+    "releaseDate": "2026-06-09"
+  },
+  "claude-mythos-5-1": {
+    "tier": "premium",
+    "releaseDate": "2026-09-01"
+  },
+  "claude-mythos-preview": {
+    "tier": "premium",
+    "releaseDate": "2026-04-07"
+  },
+  "claude-opus-4-8": {
+    "tier": "premium",
+    "releaseDate": "2026-05-28"
+  },
+  "claude-opus-5": {
+    "tier": "premium",
+    "releaseDate": "2026-07-24"
+  },
+  "claude-opus-5-5": {
+    "tier": "premium",
+    "releaseDate": "2026-09-22"
+  },
+  "claude-sonnet-4-6": {
+    "tier": "standard",
+    "releaseDate": "2026-02-17"
+  },
+  "claude-sonnet-5": {
+    "tier": "standard",
+    "releaseDate": "2026-06-30"
+  },
+  "claude-sonnet-5-5": {
+    "tier": "standard",
+    "releaseDate": "2026-09-28"
+  },
+  "gemini-3-8-flash": {
+    "tier": "lightweight",
+    "releaseDate": "2026-09-02"
+  },
+  "gemini-4-argon": {
+    "tier": "premium",
+    "releaseDate": "2026-10-01"
+  },
+  "gemini-4-carbon": {
+    "tier": "premium",
+    "releaseDate": "2026-10-28"
+  },
+  "gemini-4-hydrogen": {
+    "tier": "lightweight",
+    "releaseDate": "2026-11-12"
+  },
+  "gemini-4-neon": {
+    "tier": "standard",
+    "releaseDate": "2026-11-18"
+  },
+  "gpt-5-3-codex": {
+    "tier": "standard",
+    "releaseDate": "2026-02-05"
+  },
+  "gpt-5-4-nano": {
+    "tier": "lightweight",
+    "releaseDate": "2026-03-17"
+  },
+  "gpt-5-5": {
+    "tier": "standard",
+    "releaseDate": "2026-04-23"
+  },
+  "gpt-5-6": {
+    "tier": "standard",
+    "releaseDate": "2026-06-26"
+  },
+  "gpt-5-6-luna": {
+    "tier": "lightweight",
+    "releaseDate": "2026-06-26"
+  },
+  "gpt-5-6-sol": {
+    "tier": "standard",
+    "releaseDate": "2026-06-26"
+  },
+  "gpt-5-6-terra": {
+    "tier": "standard",
+    "releaseDate": "2026-06-26"
+  },
+  "gpt-6-1-sol": {
+    "tier": "standard",
+    "releaseDate": "2026-09-29"
+  },
+  "gpt-6-1-terra": {
+    "tier": "standard",
+    "releaseDate": "2026-10-26"
+  },
+  "gpt-6-2-astra": {
+    "tier": "premium",
+    "releaseDate": "2026-11-17"
+  },
+  "gpt-6-2-sol": {
+    "tier": "standard",
+    "releaseDate": "2026-11-17"
+  },
+  "gpt-6-astra": {
+    "tier": "premium",
+    "releaseDate": "2026-09-03"
+  },
+  "gpt-6-luna": {
+    "tier": "lightweight",
+    "releaseDate": "2026-09-22"
+  },
+  "gpt-6-sol": {
+    "tier": "standard",
+    "releaseDate": "2026-09-22"
+  },
+  "grok-4-5": {
+    "tier": "standard",
+    "releaseDate": "2026-07-16"
+  },
+  "grok-4-6": {
+    "tier": "standard",
+    "releaseDate": "2026-08-12"
+  },
+  "grok-4-7": {
+    "tier": "standard",
+    "releaseDate": "2026-09-21"
+  },
+  "kimi-k3": {
+    "tier": "standard"
+  },
+  "mai-code-1-1-flash": {
+    "tier": "lightweight",
+    "releaseDate": "2026-08-11"
+  },
+  "mai-code-2": {
+    "tier": "standard",
+    "releaseDate": "2026-11-17"
+  },
+  "mai-code-2-flash": {
+    "tier": "lightweight",
+    "releaseDate": "2026-11-17"
+  }
+}

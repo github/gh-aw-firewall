@@ -5,12 +5,24 @@
 export type ModelRoutingGoal = 'cost';
 export type ModelRoutingMode = 'economy' | 'balanced' | 'robust' | 'auto';
 export type ModelRoutingProvider = 'copilot' | 'openai' | 'anthropic';
+export type ModelRoutingEndpoint = '/responses' | '/chat/completions' | '/v1/messages';
 
 export interface ModelRoutingConfig {
   provider?: ModelRoutingProvider;
   candidateModels?: string[];
+  /**
+   * Optional unordered list of inference endpoints the workflow's engine speaks.
+   * When set, AWF keeps only choices served on one of these endpoints in the candidate pool
+   * and selects each candidate's protocol from this list.
+   */
+  endpoints?: ModelRoutingEndpoint[];
   /** Request a private shortlist of up to this many distinct eligible bases (1 through 32). */
   topK?: number;
+  /**
+   * Host path to gh-aw's evidence summary for adaptive selection. AWF reads it once before the
+   * agent starts and stages a private copy; the file must not be in an agent-visible path.
+   */
+  adaptiveSummaryFile?: string;
   objective: {
     goal: ModelRoutingGoal;
     mode: ModelRoutingMode;
@@ -27,6 +39,9 @@ export interface ModelRoutingBootstrapState {
   inputFile: string;
   containerInputFile: string;
   containerOutputDir: string;
+  /** Staged copy of the adaptive evidence summary, when `adaptiveSummaryFile` is configured. */
+  adaptiveInputFile?: string;
+  containerAdaptiveInputFile?: string;
 }
 
 export interface ApiProxyRoutingOptions {

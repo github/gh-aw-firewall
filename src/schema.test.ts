@@ -54,6 +54,30 @@ describe('awf-config.schema.json', () => {
     expect(validate.errors).toBeNull();
   });
 
+  it('accepts Databricks OIDC with an explicit audience and rejects incomplete auth', () => {
+    const auth = {
+      type: 'github-oidc',
+      provider: 'databricks',
+      databricksHost: 'https://workspace.cloud.databricks.com',
+      oidcAudience: 'workspace-audience',
+    };
+    expect(validate({ apiProxy: { auth } })).toBe(true);
+    expect(validate({ apiProxy: { auth: { ...auth, oidcAudience: '' } } })).toBe(false);
+    expect(validate({ apiProxy: { auth: { type: auth.type, provider: auth.provider } } })).toBe(false);
+    expect(validate({ apiProxy: { auth: { ...auth, databricksHost: `${auth.databricksHost}/path` } } })).toBe(false);
+    expect(validate({ apiProxy: { auth: { ...auth, databricksHost: `${auth.databricksHost}:65536` } } })).toBe(false);
+    expect(validate({ apiProxy: { auth: { ...auth, databricksHost: `${auth.databricksHost}:0` } } })).toBe(false);
+    expect(validate({ apiProxy: { auth: { ...auth, databricksHost: `${auth.databricksHost}:65535/` } } })).toBe(true);
+  });
+
+  it('accepts auth schemes only on static OpenAI and Anthropic targets', () => {
+    for (const provider of ['openai', 'anthropic']) {
+      expect(validate({ apiProxy: { targets: { [provider]: { authScheme: 'Bearer' } } } })).toBe(true);
+      expect(validate({ apiProxy: { targets: { [provider]: { authScheme: 'Bearer\r\n' } } } })).toBe(false);
+    }
+    expect(validate({ apiProxy: { targets: { copilot: { authScheme: 'Bearer' } } } })).toBe(false);
+  });
+
   it('accepts trusted enclave repository sensitivity', () => {
     expect(validate({
       enclaves: [{

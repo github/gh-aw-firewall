@@ -161,7 +161,12 @@ describe('upstream credential isolation (real provider server and CONNECT proxy)
       });
       res.end(body);
     };
-    const response = await request(adapters[provider]({ ...env, [key]: secret, [apiTarget]: target() }), path);
+    const response = await request(adapters[provider]({
+      ...env,
+      ...(provider === 'openai' && key === 'COPILOT_PROVIDER_API_KEY' ? { COPILOT_PROVIDER_BASE_URL: target() } : {}),
+      [key]: secret,
+      [apiTarget]: target(),
+    }), path);
     expect(seen).toHaveLength(1);
     expect(seen[0][header]).toBe(`${prefix}${secret}`);
     expect(response.status).toBe(400);

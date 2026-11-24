@@ -262,6 +262,51 @@ describe('Copilot wire API compatibility', () => {
     expect(result.wireApiCompatibility).toBeNull();
   });
 
+  test('agrees with scoped Responses routing when a model advertises bare responses alongside /chat/completions', () => {
+    const { normalizeModel } = require('./routing-catalogue');
+    const { buildRoutingCandidates } = require('./routing-candidates');
+    const records = parseProviderModelMetadata('copilot', {
+      data: [
+        {
+          id: 'mixed-alias-model',
+          supported_endpoints: ['/chat/completions', 'responses'],
+          supportedReasoningEfforts: [],
+        },
+        {
+          id: 'ws-only-responses',
+          supported_endpoints: ['/chat/completions', 'ws:/responses'],
+          supportedReasoningEfforts: [],
+        },
+      ],
+    });
+    replaceRuntimeModels('copilot', records);
+
+    const pool = buildRoutingCandidates({
+      catalogue: {
+        provider: 'copilot',
+        configured: true,
+        discovery: 'complete',
+        models: records.map(record => normalizeModel(record.id, record, 'copilot')),
+      },
+      endpoints: ['/responses'],
+    });
+    expect(pool.choices).toEqual([{ id: 'choice-0001', model: 'github-copilot/mixed-alias-model' }]);
+    expect(pool.byId['choice-0001'].protocol).toBe('responses');
+
+    // Bare "responses" is recognized as Responses support, so /responses requests pass through unchanged.
+    expect(translateCopilotWireApi(buffer({
+      model: 'mixed-alias-model',
+      input: 'hello',
+      prompt_cache_key: 'cache-1',
+    }), '/responses')).toBeNull();
+
+    // Non-HTTP "ws:/responses" is not HTTP Responses support, so /responses translates to Chat Completions.
+    expect(translateCopilotWireApi(buffer({
+      model: 'ws-only-responses',
+      input: 'hello',
+    }), '/responses')?.compatibility.direction).toBe('responses_to_chat');
+  });
+
   test.each(['/responses', '/chat/completions'])('preserves custom tools on supported %s', (path) => {
     const body = buffer({
       model: 'both',

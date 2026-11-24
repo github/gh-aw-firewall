@@ -11,7 +11,7 @@ const reserved = new Set([
   'x-goog-api-key', 'host', 'connection', 'keep-alive', 'te', 'trailer', 'upgrade',
   'transfer-encoding', 'content-length', 'content-type', 'content-encoding',
   'expect', 'via', 'forwarded', 'cookie', 'set-cookie', 'range', 'accept-encoding',
-  'anthropic-version', 'anthropic-beta', 'x-request-id',
+  'anthropic-version', 'anthropic-beta', 'x-request-id', 'traceparent', 'tracestate', 'baggage',
   'x-original-url', 'x-rewrite-url', 'x-http-method-override', 'x-method-override',
   'x-real-ip', 'x-host', 'origin', 'referer', 'destination', 'max-forwards',
   'http2-settings', 'content-range', 'x-url-scheme', 'x-scheme',

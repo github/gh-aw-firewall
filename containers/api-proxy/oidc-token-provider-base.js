@@ -64,7 +64,7 @@ class BaseOidcTokenProvider {
 
   /** @returns {boolean} */
   isReady() {
-    const now = Math.floor(Date.now() / 1000);
+    const now = this._nowSeconds();
     return !!(this._getCachedValue() && this._expiresAt > now);
   }
 
@@ -74,7 +74,7 @@ class BaseOidcTokenProvider {
    * @returns {unknown|null}
    */
   getToken() {
-    const now = Math.floor(Date.now() / 1000);
+    const now = this._nowSeconds();
     const cached = this._getCachedValue();
     if (cached && this._expiresAt > now) {
       return cached;
@@ -105,10 +105,18 @@ class BaseOidcTokenProvider {
    * @param {number} expiresIn - token lifetime in seconds
    */
   _storeAndScheduleRefresh(value, expiresIn) {
-    const now = Math.floor(Date.now() / 1000);
+    const now = this._nowSeconds();
     this._setCachedValue(value);
     this._expiresAt = now + expiresIn;
 
+    this._scheduleRefresh(this._getRefreshDelayMs(expiresIn));
+  }
+
+  _nowSeconds() {
+    return Math.floor(Date.now() / 1000);
+  }
+
+  _getRefreshDelayMs(expiresIn) {
     const refreshInSecs = Math.max(
       0,
       Math.min(
@@ -116,7 +124,7 @@ class BaseOidcTokenProvider {
         expiresIn - MIN_REFRESH_MARGIN_SECS
       )
     );
-    this._scheduleRefresh(Math.floor(refreshInSecs * 1000));
+    return Math.floor(refreshInSecs * 1000);
   }
 
   /** @param {number} ms */

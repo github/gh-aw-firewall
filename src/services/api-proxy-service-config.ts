@@ -107,7 +107,7 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
     proxyService.depends_on = {
       ...(proxyService.depends_on || {}),
       [ROUTER_SERVICE_NAME]: {
-        condition: 'service_healthy',
+        condition: 'service_started',
       },
     };
   }

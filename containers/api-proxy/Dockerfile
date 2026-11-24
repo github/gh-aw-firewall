@@ -68,12 +68,13 @@ COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
      model-config.js model-recovery.js model-selector.js model-eligibility.js automatic-model-eligibility.js model-reasoning.js harness-observation.js scoped-auto-model.js key-validation.js server-factory.js startup.js \
      model-config.js model-recovery.js model-selector.js model-eligibility.js automatic-model-eligibility.js automatic-selection.js model-reasoning.js harness-observation.js scoped-auto-model.js key-validation.js server-factory.js startup.js \
      proxy-request.js request-headers.js trusted-service.js upstream-http.js upstream-dispatch.js upstream-dispatch-guards.js upstream-dispatch-transport.js upstream-attempt-recovery.js upstream-protocol-translation.js upstream-auth.js upstream-fallback.js upstream-request-utils.js proxy-guards.js proxy-error-handler.js http-client.js body-handler.js reasoning-effort-validation.js model-discovery.js management.js model-decision-diagnostics.js model-decision-diagnostics.schema.json model-decision-observation.js oidc-token-provider.js \
+     fallback-origin.js fallback-candidate-selection.js \
      body-collection.js request-body-pipeline.js steering-injection.js \
      oidc-token-provider-base.js \
      github-oidc.js aws-oidc-token-provider.js aws-sigv4.js gcp-oidc-token-provider.js openai-oidc-token-provider.js \
-     anthropic-oidc-token-provider.js \
+     anthropic-oidc-token-provider.js databricks-oidc-token-provider.js \
      ai-credits-pricing.js model-pricing-catalog.js models-dev-catalog.js models.dev.catalog.json \
-     model-information.pricing.generated.json model-information.fallback-pricing.generated.json model-information.retired.generated.json model-information.naming.generated.json model-information.eligibility.generated.json \
+     model-information.pricing.generated.json model-information.fallback-pricing.generated.json model-information.retired.generated.json model-information.naming.generated.json model-information.eligibility.generated.json model-information.coding-tiers.generated.json \
      provider-pricing-overlays.js runtime-model-catalog.js catalogue-loader.js catalogue-pricing.js \
      oidc-refresh-utils.js body-transform.js body-utils.js codex-compat.js wire-api-compat.js rate-limit.js websocket-proxy.js \
      anthropic-chat-compat.js cross-provider-fallback.js \
@@ -86,8 +87,8 @@ COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
      token-budget-log.js enclave-model-budget.js blocked-request-diagnostics.js caller-header.js \
      provider-env-constants.js provider-env-constants.json provider-names.js \
      model-api-mapping.js model-api-mapping.json provider-error-fields.js \
-     routing-candidates.js routing-catalogue.js routing-classifier.js routing-config.js \
-     routing-contract.js routing-controller.js routing-errors.js routing-observation.js \
+     adaptive-select.js routing-candidates.js routing-catalogue.js routing-classifier.js routing-config.js \
+     routing-contract.js routing-controller.js routing-errors.js routing-fallback-order.js routing-observation.js \
      routing-stages.js routing-classify.js routing-observation-records.js \
      routing-planner.js routing-provider-executor.js routing-router-client.js routing-runtime.js routing-persistence.js ./
 COPY guards/ ./guards/

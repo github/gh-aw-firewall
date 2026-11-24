@@ -7,6 +7,158 @@
 
 const { createAnthropicAdapter } = require('./providers/anthropic');
 const { createOpenAIAdapter } = require('./providers/openai');
+const { buildRequestHeaders } = require('./request-headers');
+const { rememberInjectedCredentials, redactCredentialText } = require('./credential-protection');
+
+describe.each([
+  ['openai', createOpenAIAdapter, 'OPENAI_API_KEY', 'OPENAI_API_TARGET', 'AWF_OPENAI_AUTH_HEADER', 'AWF_OPENAI_AUTH_SCHEME'],
+  ['anthropic', createAnthropicAdapter, 'ANTHROPIC_API_KEY', 'ANTHROPIC_API_TARGET', 'AWF_ANTHROPIC_AUTH_HEADER', 'AWF_ANTHROPIC_AUTH_SCHEME'],
+])('%s static auth scheme and Databricks', (name, create, keyEnv, targetEnv, headerEnv, schemeEnv) => {
+  const fakeReq = { method: 'POST', url: '/v1/messages', headers: {} };
+  const oidcEnv = {
+    AWF_AUTH_TYPE: 'github-oidc',
+    AWF_AUTH_PROVIDER: 'databricks',
+    AWF_AUTH_DATABRICKS_HOST: 'https://workspace.cloud.databricks.com',
+    AWF_AUTH_OIDC_AUDIENCE: 'workspace-audience',
+    ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/token',
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'synthetic-actions-token',
+    [targetEnv]: 'workspace.cloud.databricks.com',
+  };
+
+  it.each([undefined, 'X-Workspace-Key', 'Authorization'])('uses explicit static scheme consistently for request, startup and models with header %p', header => {
+    const adapter = create({
+      [keyEnv]: 'synthetic-key',
+      [schemeEnv]: 'Basic',
+      ...(header ? { [headerEnv]: header } : {}),
+    });
+    const authName = header || 'Authorization';
+    for (const headers of [
+      adapter.getAuthHeaders(fakeReq),
+      adapter.getValidationProbe().opts.headers,
+      adapter.getModelsFetchConfig().opts.headers,
+    ]) {
+      expect(headers[authName]).toBe('Basic synthetic-key');
+      if (authName !== 'x-api-key') expect(headers['x-api-key']).toBeUndefined();
+    }
+  });
+
+  it('does not double-prefix a static key and protects both raw and prefixed values', () => {
+    const adapter = create({
+      [keyEnv]: 'bAsIc synthetic-secret',
+      [schemeEnv]: 'Basic',
+      [headerEnv]: 'X-Workspace-Key',
+    });
+    for (const headers of [
+      adapter.getAuthHeaders(fakeReq),
+      adapter.getValidationProbe().opts.headers,
+      adapter.getModelsFetchConfig().opts.headers,
+    ]) {
+      expect(headers['X-Workspace-Key']).toBe('bAsIc synthetic-secret');
+      const req = { headers: {} };
+      rememberInjectedCredentials(req, headers);
+      expect(redactCredentialText(req, 'synthetic-secret')).not.toContain('synthetic-secret');
+    }
+  });
+
+  it('also protects the raw token in a legacy prefixed static key sent to a custom header', () => {
+    const adapter = create({ [keyEnv]: ['Bearer', 'synthetic-secret'].join(' '), [headerEnv]: 'X-Workspace-Key' });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['X-Workspace-Key']).toBe(['Bearer', 'synthetic-secret'].join(' '));
+    const req = { headers: {} };
+    rememberInjectedCredentials(req, headers);
+    expect(redactCredentialText(req, 'synthetic-secret')).not.toContain('synthetic-secret');
+  });
+
+  it('rejects invalid scheme without reflecting the supplied value', () => {
+    expect(() => create({ [keyEnv]: 'synthetic-key', [schemeEnv]: 'Basic\r\nX-Injection: secret' }))
+      .toThrow(`Invalid ${schemeEnv} value: expected an HTTP authentication scheme token`);
+  });
+
+  it.each([undefined, 'Basic'])('rejects invalid static credentials at construction with scheme %p', scheme => {
+    expect(() => create({ [keyEnv]: 'synthetic-key\r\nX-Injection: yes', [schemeEnv]: scheme }))
+      .toThrow('Invalid static authentication credential');
+  });
+
+  it('treats a whitespace-only custom header as unset', () => {
+    const adapter = create({ [keyEnv]: 'synthetic-key', [headerEnv]: '   ', [schemeEnv]: 'Bearer' });
+    expect(adapter.getAuthHeaders(fakeReq).Authorization).toBe(['Bearer', 'synthetic-key'].join(' '));
+  });
+
+  it('strips all client auth headers and replaces the configured custom credential', () => {
+    const previous = process.env[headerEnv];
+    process.env[headerEnv] = 'X-Workspace-Key';
+    try {
+      const adapter = create({ [keyEnv]: 'synthetic-key', [headerEnv]: 'X-Workspace-Key', [schemeEnv]: 'Basic' });
+      const req = { ...fakeReq, headers: {
+        authorization: 'caller-auth',
+        'proxy-authorization': 'caller-proxy-auth',
+        'x-api-key': 'caller-key',
+        'api-key': 'caller-key',
+        'x-workspace-key': 'caller-custom-key',
+      } };
+      const headers = buildRequestHeaders(Buffer.alloc(0), 0, req, {
+        injectHeaders: adapter.getAuthHeaders(req), provider: name, targetHost: 'gateway.example', requestId: 'test-id',
+      });
+      expect(headers['X-Workspace-Key']).toBe('Basic synthetic-key');
+      for (const clientHeader of Object.keys(req.headers)) expect(headers[clientHeader]).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env[headerEnv];
+      else process.env[headerEnv] = previous;
+    }
+  });
+
+  it('forces Databricks bearer auth regardless of static scheme/header and preserves correct reflection', () => {
+    const adapter = create({
+      ...oidcEnv,
+      [keyEnv]: 'synthetic-static-key',
+      [headerEnv]: 'X-Workspace-Key',
+      [schemeEnv]: 'Basic',
+    });
+    const provider = adapter.getOidcProvider();
+    try {
+      expect(adapter.isEnabled()).toBe(false);
+      expect(adapter.getAuthHeaders(fakeReq)).toEqual({});
+      provider._cachedToken = 'synthetic-oidc-token';
+      provider._expiresAt = Date.now() / 1000 + 60;
+      expect(adapter.isEnabled()).toBe(true);
+      const headers = adapter.getAuthHeaders(fakeReq);
+      expect(headers.Authorization).toBe(['Bearer', 'synthetic-oidc-token'].join(' '));
+      expect(headers['X-Workspace-Key']).toBeUndefined();
+      expect(headers['anthropic-beta']).toBeUndefined();
+      expect(adapter.getModelsFetchConfig().opts.headers.Authorization).toBe(headers.Authorization);
+      expect(adapter.getReflectionInfo().auth_type).toBe('github-oidc/databricks');
+    } finally {
+      provider.shutdown();
+    }
+  });
+
+  it.each(['api.openai.com', 'api.anthropic.com', 'other.cloud.databricks.com', 'https://[malformed'])('fails closed for an explicitly selected Databricks refused/malformed target %p without static fallback', target => {
+    const adapter = create({ ...oidcEnv, [targetEnv]: target, [keyEnv]: 'synthetic-static-key' });
+    expect(adapter.getOidcProvider()).toBeNull();
+    expect(adapter.isEnabled()).toBe(false);
+    expect(adapter.getAuthHeaders(fakeReq)).toEqual({});
+    expect(adapter.getUnconfiguredResponse().body.error.message).toContain('Databricks OIDC');
+  });
+
+  it('preserves unrelated static first-party auth and model discovery when this adapter did not select Databricks', () => {
+    const adapter = create({ ...oidcEnv, [targetEnv]: undefined, [keyEnv]: 'synthetic-static-key', [schemeEnv]: 'Basic' });
+    expect(adapter.getOidcProvider()).toBeNull();
+    expect(adapter.isEnabled()).toBe(true);
+    expect(adapter.getAuthHeaders(fakeReq).Authorization).toBe('Basic synthetic-static-key');
+    expect(adapter.getModelsFetchConfig().opts.headers.Authorization).toBe('Basic synthetic-static-key');
+  });
+});
+
+describe('reserved trace authentication headers', () => {
+  it.each([
+    ['openai', createOpenAIAdapter, 'AWF_OPENAI_AUTH_HEADER'],
+    ['anthropic', createAnthropicAdapter, 'AWF_ANTHROPIC_AUTH_HEADER'],
+  ])('rejects %s custom auth header conflicts at startup', (provider, create, envVar) => {
+    for (const header of ['traceparent', 'TraceState', ' BAGGAGE ']) {
+      expect(() => create({ [envVar]: header })).toThrow(`Invalid ${envVar} value: trace context headers are reserved`);
+    }
+  });
+});
 
 // ─── Anthropic ───
 
@@ -91,6 +243,38 @@ describe('createAnthropicAdapter — custom auth header', () => {
 describe('createOpenAIAdapter — custom auth header', () => {
   const fakeReq = { url: '/v1/chat/completions', method: 'POST', headers: {} };
 
+  it.each([
+    [undefined, undefined, 'api-key', 'synthetic-static-key'],
+    ['Basic', undefined, 'Authorization', 'Basic synthetic-static-key'],
+    ['Basic', 'X-Workspace-Key', 'X-Workspace-Key', 'Basic synthetic-static-key'],
+  ])('preserves Azure BYOK header semantics with scheme %p and explicit header %p', (scheme, header, expectedHeader, expectedValue) => {
+    const adapter = createOpenAIAdapter({
+      COPILOT_PROVIDER_TYPE: 'azure',
+      COPILOT_PROVIDER_BASE_URL: 'https://workspace.example/ai-gateway/openai',
+      COPILOT_PROVIDER_API_KEY: 'synthetic-static-key',
+      AWF_OPENAI_AUTH_SCHEME: scheme,
+      AWF_OPENAI_AUTH_HEADER: header,
+    });
+    expect(adapter.getAuthHeaders(fakeReq)).toEqual({ [expectedHeader]: expectedValue });
+    expect(adapter.getModelsFetchConfig().opts.headers).toEqual({ [expectedHeader]: expectedValue });
+  });
+
+  it('does not invent a Databricks OpenAI target from the Azure BYOK fallback', () => {
+    const adapter = createOpenAIAdapter({
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'databricks',
+      AWF_AUTH_DATABRICKS_HOST: 'https://workspace.cloud.databricks.com',
+      AWF_AUTH_OIDC_AUDIENCE: 'workspace-audience',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'synthetic-actions-token',
+      COPILOT_PROVIDER_TYPE: 'azure',
+      COPILOT_PROVIDER_BASE_URL: 'https://workspace.cloud.databricks.com/ai-gateway/openai',
+    });
+    expect(adapter.getTargetHost()).toBe('api.openai.com');
+    expect(adapter.getOidcProvider()).toBeNull();
+    expect(adapter.isEnabled()).toBe(false);
+  });
+
   it('uses Authorization Bearer by default', () => {
     const adapter = createOpenAIAdapter({
       OPENAI_API_KEY: 'sk-openai-test',
@@ -137,6 +321,7 @@ describe('createOpenAIAdapter — custom auth header', () => {
     const adapter = createOpenAIAdapter({
       OPENAI_API_KEY: 'sk-openai-test',
       AWF_OPENAI_AUTH_HEADER: 'api-key',
+      OPENAI_API_TARGET: 'my-resource.openai.azure.com',
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'azure',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -224,6 +409,7 @@ describe('createOpenAIAdapter — custom auth header', () => {
   it('OIDC mode (Azure) without custom header uses Authorization Bearer', () => {
     const adapter = createOpenAIAdapter({
       OPENAI_API_KEY: 'sk-openai-test',
+      OPENAI_API_TARGET: 'my-resource.openai.azure.com',
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'azure',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',

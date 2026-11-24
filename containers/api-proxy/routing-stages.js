@@ -68,13 +68,23 @@ function createRoutingStages({ signal, deadline, clock, random }) {
     runPhase,
     callPlanner,
     async getCapabilities(planner, config, routerIdentity) {
-      const health = await callPlanner(({ signal: phaseSignal, timeoutMs }) =>
-        planner.health({ signal: phaseSignal, timeoutMs }));
+      let health;
+      try {
+        health = await callPlanner(({ signal: phaseSignal, timeoutMs }) =>
+          planner.health({ signal: phaseSignal, timeoutMs }));
+      } catch (error) {
+        mapPlannerFailure(error, 'health');
+      }
       if (health !== 204) {
         throw createRoutingError('routing_contract_error', 'The router health response is invalid');
       }
-      const rawCapabilities = await callPlanner(({ signal: phaseSignal, timeoutMs }) =>
-        planner.capabilities({ signal: phaseSignal, timeoutMs }));
+      let rawCapabilities;
+      try {
+        rawCapabilities = await callPlanner(({ signal: phaseSignal, timeoutMs }) =>
+          planner.capabilities({ signal: phaseSignal, timeoutMs }));
+      } catch (error) {
+        mapPlannerFailure(error, 'capabilities');
+      }
       // Checks router identity and objective support. The execution catalogue does not narrow the pool.
       validateCapabilities(rawCapabilities, config.objective, routerIdentity);
       return rawCapabilities;
@@ -85,7 +95,11 @@ function createRoutingStages({ signal, deadline, clock, random }) {
           signal: phaseSignal, provider: config.provider || 'copilot', scope: eligibilityRequest.awfEligibilityScope,
         }));
       return buildRoutingCandidates({
-        catalogue: snapshot, policy, candidateModels: config.candidateModels, eligibilityRequest,
+        catalogue: snapshot,
+        policy,
+        candidateModels: config.candidateModels,
+        endpoints: config.endpoints,
+        eligibilityRequest,
       });
     },
     async getConversation(loadConversation, conversationFile) {

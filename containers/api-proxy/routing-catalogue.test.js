@@ -179,6 +179,7 @@ describe('routing catalogue', () => {
 
   it('does not admit an OIDC provider even after its token becomes ready', async () => {
     const adapter = createCopilotAdapter({
+      COPILOT_API_TARGET: 'aoai.example.com',
       AWF_AUTH_TYPE: 'github-oidc',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',

@@ -106,6 +106,91 @@ describe('routing bootstrap', () => {
     expect(fs.existsSync(state.root)).toBe(false);
   });
 
+  describe('adaptive summary', () => {
+    let summaryDir: string;
+
+    beforeEach(() => {
+      // Outside every agent-visible path, as ${RUNNER_TEMP} is on a runner.
+      summaryDir = fs.mkdtempSync('/var/tmp/awf-adaptive-summary-');
+    });
+
+    afterEach(() => {
+      fs.rmSync(summaryDir, { recursive: true, force: true });
+    });
+
+    function stageWithSummary(prepare: (file: string) => void) {
+      const conversationFile = path.join(tempDir, 'conversation.json');
+      writeConversation(conversationFile);
+      const config = makeConfig(workDirFor(tempDir), conversationFile);
+      const summaryFile = path.join(summaryDir, 'adaptive-summary.json');
+      prepare(summaryFile);
+      config.modelRouting = { ...config.modelRouting!, adaptiveSummaryFile: summaryFile };
+      const state = stageRoutingConversation(config)!;
+      const descriptor = fs.openSync(state.adaptiveInputFile!, 'r');
+      try {
+        expect(state.containerAdaptiveInputFile).toBe('/run/awf-routing/input/adaptive-summary.json');
+        expect(state.adaptiveInputFile).toBe(path.join(state.inputDir, 'adaptive-summary.json'));
+        expect(fs.fstatSync(descriptor).mode & 0o777).toBe(0o600);
+        return JSON.parse(fs.readFileSync(descriptor, 'utf8'));
+      } finally {
+        fs.closeSync(descriptor);
+        cleanupRoutingState(config);
+      }
+    }
+
+    it('stages a private copy of the summary as read before the agent starts', () => {
+      const summary = { v: 2, workflow: 'pr-sous-chef', pairs: [] };
+      expect(stageWithSummary(file => fs.writeFileSync(file, JSON.stringify(summary))))
+        .toEqual({ status: 'present', summary });
+    });
+
+    it.each([
+      ['missing', () => undefined, { status: 'missing' }],
+      ['not JSON', (file: string) => fs.writeFileSync(file, '{'), { status: 'invalid' }],
+      ['oversized', (file: string) => fs.writeFileSync(file, JSON.stringify({ pad: 'x'.repeat(40_000) })), { status: 'invalid' }],
+      ['a link', (file: string) => {
+        const target = `${file}.target`;
+        fs.writeFileSync(target, '{}');
+        fs.symlinkSync(target, file);
+      }, { status: 'invalid' }],
+    ])('records a summary that is %s for the proxy to report', (_name, prepare, envelope) => {
+      expect(stageWithSummary(prepare)).toEqual(envelope);
+    });
+
+    it('refuses a summary in an agent-visible path', () => {
+      const conversationFile = path.join(tempDir, 'conversation.json');
+      writeConversation(conversationFile);
+      const config = makeConfig(workDirFor(tempDir), conversationFile);
+      config.modelRouting = { ...config.modelRouting!, adaptiveSummaryFile: path.join(tempDir, 'summary.json') };
+      expect(() => stageRoutingConversation(config))
+        .toThrow('apiProxy.routing.adaptiveSummaryFile must not be in an agent-visible path');
+      expect(config.modelRoutingBootstrap).toBeUndefined();
+    });
+
+    it.each([
+      ['a home tool directory', (home: string) => path.join(home, '.cache', 'gh-aw', 'summary.json')],
+      ["gh-aw's runner temp tree", (_home: string, runnerTemp: string) => path.join(runnerTemp, 'gh-aw', 'summary.json')],
+    ])('refuses a summary in %s, which every agent mounts', (_name, place) => {
+      const home = fs.mkdtempSync('/var/tmp/awf-routing-home-');
+      const runnerTemp = fs.mkdtempSync('/var/tmp/awf-runner-temp-');
+      const previous = process.env.RUNNER_TEMP;
+      process.env.RUNNER_TEMP = runnerTemp;
+      try {
+        const conversationFile = path.join(tempDir, 'conversation.json');
+        writeConversation(conversationFile);
+        const config = { ...makeConfig(workDirFor(tempDir), conversationFile), homeDir: home };
+        config.modelRouting = { ...config.modelRouting!, adaptiveSummaryFile: place(home, runnerTemp) };
+        expect(() => stageRoutingConversation(config))
+          .toThrow('apiProxy.routing.adaptiveSummaryFile must not be in an agent-visible path');
+      } finally {
+        if (previous === undefined) delete process.env.RUNNER_TEMP;
+        else process.env.RUNNER_TEMP = previous;
+        fs.rmSync(home, { recursive: true, force: true });
+        fs.rmSync(runnerTemp, { recursive: true, force: true });
+      }
+    });
+  });
+
   it('stages routing under the selected local home rather than the runner home', () => {
     const home = fs.mkdtempSync('/var/tmp/awf-routing-home-');
     const conversationFile = path.join(tempDir, 'conversation.json');
@@ -326,6 +411,37 @@ describe('routing bootstrap', () => {
       provider: 'gemini',
       choice: { id: 'one', model: 'gemini/model' },
       wire_model: 'model',
+    })).toBe(false);
+  });
+
+  it('validates fallback selection metadata when present', () => {
+    const base = {
+      schema: 'awf-routing-selection/v1',
+      engine: 'copilot',
+      provider: 'copilot',
+      choice: { id: 'one', model: 'github-copilot/gpt-5.3-codex', effort: 'medium' },
+      wire_model: 'gpt-5.3-codex',
+    };
+    expect(routingBootstrapTestHelpers.isSelectionRecord({
+      ...base,
+      selection_source: 'fallback',
+      fallback_reason: 'router_unavailable',
+      fallback_tier: 'standard',
+    })).toBe(true);
+    expect(routingBootstrapTestHelpers.isSelectionRecord({
+      ...base,
+      selection_source: 'router',
+      fallback_reason: null,
+      fallback_tier: null,
+    })).toBe(true);
+    expect(routingBootstrapTestHelpers.isSelectionRecord({
+      ...base,
+      selection_source: 'unknown',
+    })).toBe(false);
+    expect(routingBootstrapTestHelpers.isSelectionRecord({
+      ...base,
+      selection_source: 'fallback',
+      fallback_tier: 'invalid-tier',
     })).toBe(false);
   });
 });

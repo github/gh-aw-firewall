@@ -25,7 +25,7 @@
 
 # Match the reviewed CLI build in containers/agent/Dockerfile rather than
 # inheriting Ubuntu's gh binary built with a vulnerable Go runtime.
-FROM golang:1.27.3-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS gh-build
+FROM golang:1.27.4-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS gh-build
 
 ENV GOTOOLCHAIN=go1.27.3
 
@@ -54,7 +54,7 @@ RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz"
          '$1 == "dep" && $2 == "github.com/klauspost/compress" && $3 == version { found=1 } END { exit !found }' \
     && /tmp/cli-${GH_VERSION}/bin/gh --version
 
-FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7
+FROM ubuntu:26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db
 
 LABEL org.opencontainers.image.source="https://github.com/github/gh-aw-firewall"
 LABEL org.opencontainers.image.description="Build-tools sysroot for ARC/DinD agent containers"

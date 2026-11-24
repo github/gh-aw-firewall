@@ -21,7 +21,7 @@ const IMPLEMENTATIONS = Object.freeze({
     dependencies: Object.freeze([
       Object.freeze({
         file: 'wire-api/shared.js',
-        sha256: 'd41d6a8fe953d2edc955940cd1681d377d9219f558c7e60f91a53dabc9c2f51d',
+        sha256: '0874cbb7544090f72fb2edd6c166e06a83e78a3510492d50a59c91b04440fa52',
       }),
       Object.freeze({
         file: 'wire-api/request-translation.js',

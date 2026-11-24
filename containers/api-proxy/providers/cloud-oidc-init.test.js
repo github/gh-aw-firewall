@@ -1,11 +1,87 @@
 'use strict';
 
 const {
+  isCloudOidcTargetAllowed,
   resolveCloudOidcProviders,
   createProviderOidcAuth,
   createProviderOidcHeaderResolver,
   createProviderOidcHeaderStrategy,
 } = require('./cloud-oidc-init');
+
+const AZURE_TARGET = { allowCloudOidc: true, targetHost: 'my-resource.openai.azure.com' };
+
+describe('Databricks cloud OIDC binding', () => {
+  const env = {
+    AWF_AUTH_TYPE: 'github-oidc',
+    AWF_AUTH_PROVIDER: 'databricks',
+    AWF_AUTH_DATABRICKS_HOST: 'https://workspace.cloud.databricks.com',
+    AWF_AUTH_OIDC_AUDIENCE: 'workspace-audience',
+    ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/token',
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'synthetic-actions-token',
+    OPENAI_API_TARGET: 'workspace.cloud.databricks.com',
+  };
+  const options = { allowCloudOidc: true, targetHost: env.OPENAI_API_TARGET };
+
+  it('registers Databricks and forwards explicit audience and optional client ID', () => {
+    const result = resolveCloudOidcProviders({ ...env, AWF_AUTH_DATABRICKS_CLIENT_ID: 'client-id' }, options);
+    expect(result.oidcConfigured).toBe(true);
+    expect(result.authProvider).toBe('databricks');
+    expect(result.oidcProvider._host).toBe(env.AWF_AUTH_DATABRICKS_HOST);
+    expect(result.oidcProvider._oidcAudience).toBe(env.AWF_AUTH_OIDC_AUDIENCE);
+    expect(result.oidcProvider._clientId).toBe('client-id');
+    result.oidcProvider.shutdown();
+  });
+
+  it.each([
+    [{ ...env, OPENAI_API_TARGET: '' }, options],
+    [env, { ...options, targetHost: 'other.cloud.databricks.com' }],
+    [{ ...env, OPENAI_API_TARGET: 'other.cloud.databricks.com' }, { ...options, targetHost: 'other.cloud.databricks.com' }],
+    [{ ...env, ANTHROPIC_API_TARGET: 'other.cloud.databricks.com' }, options],
+    [{ ...env, COPILOT_PROVIDER_BASE_URL: 'https://other.cloud.databricks.com' }, options],
+    [{ ...env, COPILOT_PROVIDER_BASE_URL: env.AWF_AUTH_DATABRICKS_HOST, GEMINI_API_TARGET: 'other.cloud.databricks.com' }, options],
+    [{ ...env, COPILOT_PROVIDER_BASE_URL: env.AWF_AUTH_DATABRICKS_HOST, VERTEX_API_TARGET: 'other.cloud.databricks.com' }, options],
+    [{ ...env, COPILOT_PROVIDER_BASE_URL: env.AWF_AUTH_DATABRICKS_HOST, COPILOT_API_TARGET: 'api.githubcopilot.com' }, options],
+    [env, { ...options, targetHost: 'http://workspace.cloud.databricks.com' }],
+    [env, { ...options, targetHost: 'workspace.cloud.databricks.com:8443' }],
+  ])('refuses absent/unbound/conflicting origin %# without static fallback', (configuredEnv, configuredOptions) => {
+    const auth = createProviderOidcAuth(configuredEnv, { ...configuredOptions, staticAuthToken: 'synthetic-static-key' });
+    expect(auth.oidcConfigured).toBe(false);
+    expect(auth.runtimeMethods.isEnabled()).toBe(false);
+    expect(auth.resolveAuthHeaders(token => ({ Authorization: ['Bearer', token].join(' ') }), { 'api-key': 'synthetic-static-key' })).toEqual({});
+  });
+
+  it('preserves static credentials on an unrelated adapter that did not select Databricks', () => {
+    const auth = createProviderOidcAuth(env, {
+      allowCloudOidc: false, targetHost: 'api.anthropic.com', adapterName: 'anthropic', staticAuthToken: 'synthetic-static-key',
+    });
+    expect(auth.oidcConfigured).toBe(false);
+    expect(auth.runtimeMethods.isEnabled()).toBe(true);
+    expect(auth.resolveAuthHeaders(() => ({}), { 'x-api-key': 'synthetic-static-key' })).toEqual({ 'x-api-key': 'synthetic-static-key' });
+  });
+
+  it.each(['api.openai.com', 'api.anthropic.com', 'api.githubcopilot.com', 'copilot-api.acme.ghe.com'])('refuses first-party %s even when the workspace and explicit target match', targetHost => {
+    const result = resolveCloudOidcProviders({
+      ...env,
+      OPENAI_API_TARGET: targetHost,
+      AWF_AUTH_DATABRICKS_HOST: `https://${targetHost}`,
+    }, { ...options, targetHost });
+    expect(result.oidcConfigured).toBe(false);
+  });
+
+  it('binds equal explicit OpenAI/Anthropic origins with path prefixes excluded from identity', () => {
+    const result = resolveCloudOidcProviders({
+      ...env,
+      ANTHROPIC_API_TARGET: `https://${env.OPENAI_API_TARGET}/serving-endpoints/anthropic`,
+      OPENAI_API_BASE_PATH: '/serving-endpoints',
+    }, options);
+    expect(result.oidcConfigured).toBe(true);
+    result.oidcProvider.shutdown();
+  });
+
+  it.each(['AWF_AUTH_DATABRICKS_HOST', 'AWF_AUTH_OIDC_AUDIENCE', 'ACTIONS_ID_TOKEN_REQUEST_URL', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN'])('fails closed with an explicit Databricks error for missing %s even on default adapters', name => {
+    expect(() => resolveCloudOidcProviders({ ...env, [name]: '' }, { targetHost: 'api.openai.com' })).toThrow('Databricks OIDC requires');
+  });
+});
 
 describe('resolveCloudOidcProviders', () => {
   it('returns no providers when github-oidc is not configured', () => {
@@ -37,7 +113,7 @@ describe('resolveCloudOidcProviders', () => {
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
       AWF_AUTH_AZURE_TENANT_ID: 'tenant-uuid',
       AWF_AUTH_AZURE_CLIENT_ID: 'client-uuid',
-    });
+    }, AZURE_TARGET);
 
     expect(result.authProvider).toBe('azure');
     expect(result.oidcProvider).toBeTruthy();
@@ -55,7 +131,7 @@ describe('resolveCloudOidcProviders', () => {
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
       AWF_AUTH_AWS_ROLE_ARN: 'arn:aws:iam::123456789012:role/my-role',
       AWF_AUTH_AWS_REGION: 'us-east-1',
-    });
+    }, { allowCloudOidc: true, targetHost: 'bedrock-runtime.us-east-1.amazonaws.com' });
 
     expect(result.authProvider).toBe('aws');
     expect(result.oidcProvider).toBeNull();
@@ -72,7 +148,7 @@ describe('resolveCloudOidcProviders', () => {
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
       AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER: 'projects/123/locations/global/workloadIdentityPools/pool/providers/provider',
-    });
+    }, { allowCloudOidc: true, targetHost: 'us-central1-aiplatform.googleapis.com' });
 
     expect(result.authProvider).toBe('gcp');
     expect(result.oidcProvider).toBeTruthy();
@@ -80,6 +156,41 @@ describe('resolveCloudOidcProviders', () => {
     expect(result.oidcConfigured).toBe(true);
 
     result.oidcProvider.shutdown();
+  });
+
+  describe('cloud OIDC target binding', () => {
+    const AZURE_ENV = {
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'azure',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
+      AWF_AUTH_AZURE_TENANT_ID: 'tenant-uuid',
+      AWF_AUTH_AZURE_CLIENT_ID: 'client-uuid',
+    };
+
+    it('does not create a cloud provider unless the adapter opts in', () => {
+      const result = resolveCloudOidcProviders(AZURE_ENV, { targetHost: 'my-resource.openai.azure.com' });
+      expect(result.oidcProvider).toBeNull();
+      expect(result.oidcConfigured).toBe(false);
+    });
+
+    it.each(['api.openai.com', 'api.anthropic.com', 'api.githubcopilot.com', 'copilot-api.acme.ghe.com', ''])(
+      'refuses to bind a cloud provider to %p',
+      (targetHost) => {
+        const result = resolveCloudOidcProviders(AZURE_ENV, { allowCloudOidc: true, targetHost });
+        expect(result.oidcProvider).toBeNull();
+        expect(result.oidcConfigured).toBe(false);
+      },
+    );
+
+    it('only creates the Azure provider when AWF_AUTH_PROVIDER is azure', () => {
+      const result = resolveCloudOidcProviders(
+        { ...AZURE_ENV, AWF_AUTH_PROVIDER: 'anthropic' },
+        AZURE_TARGET,
+      );
+      expect(result.oidcProvider).toBeNull();
+      expect(result.oidcConfigured).toBe(false);
+    });
   });
 
   it('does not initialize native OpenAI WIF unless explicitly enabled', () => {
@@ -194,7 +305,7 @@ describe('createProviderOidcAuth', () => {
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
       AWF_AUTH_AZURE_TENANT_ID: 'tenant-uuid',
       AWF_AUTH_AZURE_CLIENT_ID: 'client-uuid',
-    });
+    }, AZURE_TARGET);
 
     expect(auth.authProvider).toBe('azure');
     expect(auth.oidcProvider).toBeTruthy();
@@ -289,7 +400,7 @@ describe('createProviderOidcAuth', () => {
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
       AWF_AUTH_AZURE_TENANT_ID: 'tenant-uuid',
       AWF_AUTH_AZURE_CLIENT_ID: 'client-uuid',
-    }, { oidcProviderFactory: {} });
+    }, { ...AZURE_TARGET, oidcProviderFactory: {} });
 
     expect(auth.authProvider).toBe('azure');
     expect(auth.oidcProvider).toBeTruthy();
@@ -376,5 +487,22 @@ describe('createProviderOidcHeaderStrategy', () => {
       Authorization: 'Bearer oidc-token',
       'x-custom': 'extra',
     });
+  });
+});
+
+describe('isCloudOidcTargetAllowed', () => {
+  it.each([
+    ['my-resource.openai.azure.com', true],
+    ['http://my-gateway.internal:8080', true],
+    ['bedrock-runtime.us-east-1.amazonaws.com', true],
+    ['api.openai.com', false],
+    ['API.OpenAI.com.', false],
+    ['api.anthropic.com', false],
+    ['api.githubcopilot.com', false],
+    ['api.enterprise.githubcopilot.com', false],
+    ['copilot-api.acme.ghe.com', false],
+    [undefined, false],
+  ])('%p -> %p', (targetHost, expected) => {
+    expect(isCloudOidcTargetAllowed(targetHost)).toBe(expected);
   });
 });

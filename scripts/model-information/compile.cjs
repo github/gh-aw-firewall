@@ -38,6 +38,68 @@ const sorted = value => {
 };
 const latestTimestamp = provenances => provenances
   .map(item => new Date(item.at).toISOString()).sort().at(-1);
+const codingTiers = ['standard', 'premium', 'lightweight', 'none'];
+const httpsUrl = value => {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+};
+
+// Coding tiers and release dates only order already eligible models. They live outside the canonical
+// record schema because every released catalogue reader rejects snapshots whose schema hash changes.
+function validateCodingTiers(document) {
+  const provenance = document?.provenance;
+  if (document?.schemaVersion !== 1 ||
+      Object.keys(document).sort().join() !== 'entries,provenance,schemaVersion' ||
+      provenance?.authority !== 'maintained' || !provenance.source || !provenance.confidence ||
+      typeof provenance.at !== 'string' || Number.isNaN(Date.parse(provenance.at)) ||
+      !Array.isArray(document.entries)) {
+    return ['expected schemaVersion 1, reviewed provenance with a valid at timestamp, and entries'];
+  }
+  if (Date.parse(provenance.at) > Date.now()) return [`review date ${provenance.at} is in the future`];
+  const reviewed = new Date(provenance.at).toISOString().slice(0, 10);
+  const errors = [];
+  let previous = '';
+  for (const [index, entry] of document.entries.entries()) {
+    const at = `entries[${index}]`;
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry) || Object.keys(entry)
+      .some(key => !['lookupId', 'codingTier', 'releaseDate', 'evidence'].includes(key))) {
+      errors.push(`${at}: expected only lookupId, codingTier, releaseDate and evidence`);
+      continue;
+    }
+    const { lookupId, codingTier, releaseDate, evidence } = entry;
+    if (typeof lookupId !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(lookupId)) {
+      errors.push(`${at}: lookupId must be a normalized lookup ID such as gpt-5-3-codex`);
+      continue;
+    }
+    if (lookupId <= previous) errors.push(`${at}: ${lookupId} is duplicated or out of order`);
+    previous = lookupId;
+    if (codingTier === undefined && releaseDate === undefined) {
+      errors.push(`${at}: ${lookupId} needs a coding tier or a release date`);
+    }
+    if (codingTier !== undefined && !codingTiers.includes(codingTier)) {
+      errors.push(`${at}: ${lookupId} coding tier must be one of ${codingTiers.join(', ')}`);
+    }
+    if (releaseDate !== undefined) {
+      const time = typeof releaseDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(releaseDate)
+        ? Date.parse(`${releaseDate}T00:00:00Z`) : NaN;
+      if (Number.isNaN(time) || new Date(time).toISOString().slice(0, 10) !== releaseDate) {
+        errors.push(`${at}: ${lookupId} release date must be a calendar date such as 2026-02-05`);
+      } else if (releaseDate > reviewed) {
+        errors.push(`${at}: ${lookupId} release date is after the review date ${reviewed}`);
+      }
+    }
+    if (!Array.isArray(evidence) || !evidence.length || evidence.some(item => !item ||
+        typeof item !== 'object' || Object.keys(item).sort().join() !== 'quote,url' ||
+        !httpsUrl(item.url) || typeof item.quote !== 'string' || item.quote.trim().length < 20)) {
+      errors.push(`${at}: ${lookupId} needs evidence with an https url and a quotation of at least 20 characters`);
+    }
+  }
+  return errors;
+}
 
 function compile() {
   if (process.argv.includes('--contracts-only') || process.argv.includes('--reasoning-types-only')) {
@@ -72,7 +134,7 @@ function compile() {
   const importErrors = validate('importedSnapshot', imported);
   if (importErrors.length) throw new Error(`${importedFile}: ${importErrors.join('; ')}`);
   const records = files.filter(file => !['mapping.json', 'target.json', 'pricing-reference.json',
-    'lifecycle-compatibility.json'].includes(file))
+    'lifecycle-compatibility.json', 'coding-tiers.json'].includes(file))
     .map(file => [file, JSON.parse(fs.readFileSync(path.join(sources, file), 'utf8'))]);
   const errors = [];
   for (const [file, data] of records) {
@@ -198,6 +260,16 @@ function compile() {
       !Array.isArray(target.routing)) {
     throw new Error('target.json: invalid target metadata or corrections');
   }
+  const codingTiersDocument = JSON.parse(fs.readFileSync(path.join(sources, 'coding-tiers.json'), 'utf8'));
+  const tierErrors = validateCodingTiers(codingTiersDocument);
+  if (tierErrors.length) throw new Error(tierErrors.map(message => `coding-tiers.json: ${message}`).join('\n'));
+  const codingTiersProjection = Object.fromEntries(codingTiersDocument.entries.map(entry => [
+    entry.lookupId,
+    {
+      ...(entry.codingTier !== undefined ? { tier: entry.codingTier } : {}),
+      ...(entry.releaseDate !== undefined ? { releaseDate: entry.releaseDate } : {}),
+    },
+  ]));
   const generatedAt = latestTimestamp([{ at: imported.retrievedAt }, mapping.provenance,
     reference.provenance, ...records.map(([, data]) => data.provenance), target.provenance,
     compatibility.provenance]);
@@ -548,6 +620,7 @@ function compile() {
     'containers/api-proxy/model-information.pricing.generated.json': json(pricing),
     'containers/api-proxy/model-information.fallback-pricing.generated.json': json(fallbackPricing),
     'containers/api-proxy/model-information.retired.generated.json': json(retired),
+    'containers/api-proxy/model-information.coding-tiers.generated.json': json(codingTiersProjection),
     'containers/api-proxy/ai-credits-pricing-reference.json': json({
       schemaVersion: 1, unit: 'USD_PER_1M_TOKENS',
       catalogId: reference.catalogId, version: reference.version, providers: referenceProviders,

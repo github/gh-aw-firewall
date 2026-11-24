@@ -104,8 +104,9 @@ mounts read-only.
 
 AWF-owned agent log and session-state mounts and required virtual devices remain
 writable so the sandbox can operate. `filesystem.allowWrite` is supported by the
-Docker and gVisor compose runtimes and by the Cloud Hypervisor microVM runtime,
-where it is enforced by the host mount tree that backs each virtio-fs export
+Docker and gVisor compose runtimes, by the Cloud Hypervisor microVM runtime,
+and by the NVX microVM runtime (see [docs/nvx-security-design.md](./nvx-security-design.md#runtime-registration-opt-in-preview)).
+For Cloud Hypervisor it is enforced by the host mount tree that backs each virtio-fs export
 (see [docs/cloud-hypervisor-foundation.md](./cloud-hypervisor-foundation.md#runtime-integration)).
 Cloud Hypervisor has no always-writable internal mounts, so every export it
 publishes is subject to the policy, including `/tmp/gh-aw` and the guest home
@@ -250,7 +251,9 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `experimental.modelRouting` → *(config-only; experimental opt-in required for `apiProxy.routing`; defaults to off)*
 - `apiProxy.routing` → *(config-only; requires `experimental.modelRouting: true`; task-level routing objective and task conversation input)*
 - `apiProxy.routing.candidateModels` → *(optional glob patterns that limit router/classifier choices; intersected with the model policy; defaults to `apiProxy.allowedModels`)*
+- `apiProxy.routing.endpoints` → *(optional unordered list of inference endpoints supported by the engine: `/responses`, `/chat/completions`, `/v1/messages`; restricts router and fallback candidates and protocol selection to those endpoints)*
 - `apiProxy.routing.topK` → *(optional integer from 1 to 32; request this many distinct primary models in the private result, or fewer if the rank runs out)*
+- `apiProxy.routing.adaptiveSummaryFile` → *(optional host path to gh-aw's evidence summary; enables adaptive selection and the selection receipt, see §13a.2)*
 - `apiProxy.modelRouter.providerType` → *(config-only; maps to `COPILOT_PROVIDER_TYPE`)*
 - `apiProxy.modelRouter.baseUrl` → *(config-only; maps to `COPILOT_PROVIDER_BASE_URL`)*
 - `apiProxy.allowedModels` → *(config-only; maps to `AWF_ALLOWED_MODELS` — JSON array of glob patterns; only matching models are permitted)*
@@ -273,6 +276,8 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.auth.gcpWorkloadIdentityProvider` → *(config-only; maps to `AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER`)*
 - `apiProxy.auth.gcpServiceAccount` → *(config-only; maps to `AWF_AUTH_GCP_SERVICE_ACCOUNT`)*
 - `apiProxy.auth.gcpScope` → *(config-only; maps to `AWF_AUTH_GCP_SCOPE`)*
+- `apiProxy.auth.databricksHost` → *(config-only; maps to `AWF_AUTH_DATABRICKS_HOST`)*
+- `apiProxy.auth.databricksClientId` → *(config-only; maps to `AWF_AUTH_DATABRICKS_CLIENT_ID`)*
 - `apiProxy.auth.anthropicFederationRuleId` → *(config-only; maps to `AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID`)*
 - `apiProxy.auth.anthropicOrganizationId` → *(config-only; maps to `AWF_AUTH_ANTHROPIC_ORGANIZATION_ID`)*
 - `apiProxy.auth.anthropicServiceAccountId` → *(config-only; maps to `AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID`)*
@@ -285,11 +290,13 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.targets.copilot.sessionId` → *(config-only; opt-in `x-session-id` header / `session_id` body field for Copilot BYOK requests, maps to `AWF_PROVIDER_SESSION_ID`. Never auto-derived from `GITHUB_RUN_ID`.)*
 - `apiProxy.targets.openai.basePath` → `--openai-api-base-path`
 - `apiProxy.targets.openai.authHeader` → `--openai-api-auth-header`
+- `apiProxy.targets.openai.authScheme` → `--openai-api-auth-scheme` *(also `AWF_OPENAI_AUTH_SCHEME`)*
 - `apiProxy.targets.openai.baseUrlEnv` → `--openai-base-url-env` *(names a runner environment variable holding a secret OpenAI-compatible base URL; see [§9.7 Secret-Backed OpenAI Target](#97-secret-backed-openai-target))*
 - `apiProxy.targets.openai.trustedService` → *(config-only; opt-in trusted LLM service endpoint and `secretHeaders` mapping header names to runner environment variable names, never literal values; see the trusted-service contract in this spec)*
 - `apiProxy.targets.anthropic.trustedService` → *(config-only; same contract as `apiProxy.targets.openai.trustedService`)*
 - `apiProxy.targets.anthropic.basePath` → `--anthropic-api-base-path`
 - `apiProxy.targets.anthropic.authHeader` → `--anthropic-api-auth-header`
+- `apiProxy.targets.anthropic.authScheme` → `--anthropic-api-auth-scheme` *(also `AWF_ANTHROPIC_AUTH_SCHEME`)*
 - `apiProxy.targets.gemini.basePath` → `--gemini-api-base-path`
 - `apiProxy.targets.antigravity.basePath` → `--gemini-api-base-path`
 - When both `apiProxy.targets.antigravity` and `apiProxy.targets.gemini` are set, `antigravity` takes precedence per field.
@@ -696,7 +703,7 @@ exchange protocol. A conforming implementation MUST:
    |-------------|----------------------|----------|---------|
    | `apiProxy.auth.type` | `AWF_AUTH_TYPE` | ✅ | — |
    | `apiProxy.auth.provider` | `AWF_AUTH_PROVIDER` | No | `azure` |
-   | `apiProxy.auth.oidcAudience` | `AWF_AUTH_OIDC_AUDIENCE` | No | *(provider-specific)* |
+   | `apiProxy.auth.oidcAudience` | `AWF_AUTH_OIDC_AUDIENCE` | Required for Databricks | *(provider-specific)* |
 
 2. Forward the GitHub Actions OIDC runtime tokens
    (`ACTIONS_ID_TOKEN_REQUEST_URL`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN`) to
@@ -800,6 +807,58 @@ omitted.
 `anthropicTokenUrl` is non-sensitive and SHOULD be supplied via AWF config (including stdin config via `--config -`); env var support exists for compatibility.
 
 Default OIDC audience: `https://api.anthropic.com`
+
+#### 9.5.5 Databricks Provider (`provider: databricks`)
+
+Exchanges a GitHub OIDC JWT at `<databricksHost>/oidc/v1/token` using
+RFC 8693 token exchange and `scope=all-apis`. The sidecar MUST inject the
+result as `Authorization: ****** regardless of `authHeader`.
+
+| Config path | Environment variable | Required | Default |
+|-------------|----------------------|----------|---------|
+| `apiProxy.auth.databricksHost` | `AWF_AUTH_DATABRICKS_HOST` | ✅ | — |
+| `apiProxy.auth.databricksClientId` | `AWF_AUTH_DATABRICKS_CLIENT_ID` | No | — |
+| `apiProxy.auth.oidcAudience` | `AWF_AUTH_OIDC_AUDIENCE` | ✅ | — |
+
+`databricksHost` MUST be an HTTPS workspace origin without credentials,
+path (other than `/`), query, or fragment. Supply `databricksClientId` for
+service-principal federation policies; omit it for account-wide policies.
+The audience MUST match the federation policy, typically the Databricks
+account ID; AWF cannot infer it.
+
+Tokens are bound only to explicitly configured upstream adapters, using the
+same origin-binding and first-party-host exclusions as Azure/AWS/GCP.
+The selected upstream origin MUST also match `databricksHost`.
+Databricks OIDC enables OpenAI and Anthropic agent base URLs and compatibility
+placeholders without static keys when their upstream is explicitly configured.
+The exchanged token remains in the sidecar. Since no refresh token is issued
+and the token expires with its GitHub JWT, refresh uses a fraction of the
+remaining lifetime rather than a fixed five-minute margin.
+
+```yaml
+apiProxy:
+  targets:
+    anthropic:
+      host: dbc-1234.cloud.databricks.com
+      basePath: /ai-gateway/anthropic
+  auth:
+    type: github-oidc
+    provider: databricks
+    databricksHost: https://dbc-1234.cloud.databricks.com
+    databricksClientId: <service-principal-application-id>
+    oidcAudience: <databricks-account-id>
+```
+
+#### Static-key authentication schemes
+
+For `apiProxy.targets.openai` and `apiProxy.targets.anthropic`, `authScheme`
+is an optional HTTP authentication scheme token (for example, `Bearer`).
+When present, the sidecar sends `<scheme> <key>` in `authHeader` if configured,
+otherwise in `Authorization`. Credentials already prefixed with that scheme
+(case-insensitive) MUST NOT be prefixed again. Omitting `authScheme` preserves
+existing behavior: a custom `authHeader` receives the raw key; otherwise
+OpenAI uses bearer auth and Anthropic uses `x-api-key`.
+This option affects static keys only, not OIDC token exchange or headers.
 
 ### 9.6 DIFC Proxy Credential Isolation
 
@@ -1200,7 +1259,8 @@ For Anthropic and OpenAI, configure `apiProxy.targets.<provider>.trustedService`
 `secretHeaders` maps supplemental header names to **runner environment variable
 names**, never literal secret values. AWF MUST reject invalid names and values,
 case-insensitive duplicates, and reserved authentication, routing, framing, and
-hop-by-hop headers, including the configured provider authentication header.
+hop-by-hop headers, including the configured provider authentication header and
+the reserved trace headers `traceparent`, `tracestate`, and `baggage`.
 Agent-supplied values MUST NOT override these headers. Secret source variables
 MUST be excluded from the agent even with explicit environment overrides.
 Resolved supplemental values MUST NOT be written into public configuration,
@@ -2496,15 +2556,17 @@ for the run says so:
 | `automatic_selection_reason` | Evidence |
 |------------------------------|----------|
 | `model_picker_disabled` | The provider reports `model_picker_enabled: false` (Copilot) |
+| `non_chat_model` | The provider reports a live `capabilities.type` other than `chat` (for example `embeddings` or `completion`) |
+| `tool_calls_unsupported` | The provider reports `capabilities.supports.tool_calls: false` |
 | `no_agent_endpoint` | The provider lists `supported_endpoints`, and none of them is Chat Completions, Responses, or Messages (for example a Decisions-only or embeddings-only model, or an empty list) |
 
 Absence of evidence is not a reason to exclude a model. A model whose provider
-publishes no picker state and no endpoint list stays selectable, so incomplete
-metadata never empties a catalogue. An empty endpoint list is evidence, not
-absence: it advertises no endpoint. Maintained catalogue data is not used for
-this decision. Endpoint names may be bare or use `/` or `/v1/` prefixes;
-`chat_completions` is also recognized. WebSocket-only endpoints do not qualify
-as an HTTP agent endpoint.
+publishes no picker state, no live `type`, no `tool_calls` flag, and no
+endpoint list stays selectable, so incomplete metadata never empties a
+catalogue. An empty endpoint list is evidence, not absence: it advertises no
+endpoint. Maintained catalogue data is not used for this decision. Endpoint
+names may be bare or use `/` or `/v1/` prefixes; `chat_completions` is also
+recognized. WebSocket-only endpoints do not qualify as an HTTP agent endpoint.
 
 The rule never changes an explicit choice. A model ID requested directly, and
 an alias entry written without `*` (for example
@@ -2592,12 +2654,45 @@ engine model families. Routed Claude and Codex workflows must set
 for the workflow-side configuration.
 
 A genuine routing failure still surfaces as host exit code `78` instead of the
-run silently continuing: no selection could be produced (`no_route`, router
-unreachable, contract or configuration errors), or an upstream failure on a
+run silently continuing: no selection could be produced (an empty eligible pool,
+a policy that excludes every model, an unavailable provider catalogue, an
+invalid staged conversation, or a run-wide guard stop such as an exhausted
+budget, cancellation, or the overall deadline), or an upstream failure on a
 request that used the selected provider and model (a native provider error
 code, an SSE error event, or a prematurely closed response). A request that
 uses another model is not a routing failure, and neither is its upstream
 error or a model-policy rejection of it.
+
+**Router fallback and selection guarantee.** The API proxy depends on the
+router container with `condition: service_started` rather than
+`service_healthy`, builds the eligible pool before contacting the router, and
+bounds the router phase so time remains for fallback before the overall
+deadline. Whenever the router returns a valid rank, AWF tries the ranked
+choices in order and selects the first one that passes the pre-primary guards.
+If the router cannot produce a usable rank (unhealthy, unreachable, timeout,
+invalid response, or `422 no_route`) or every router-ranked choice is ruled out
+by a per-model guard, AWF walks the remaining eligible pool in deterministic
+fallback order:
+
+1. Coding tier from `shared/model-information/sources/coding-tiers.json`
+   (looked up by normalized lookup ID): `standard`, `premium`, `unclassified`,
+   `lightweight`, `none`; or `premium`, `standard`, `unclassified`,
+   `lightweight`, `none` when the objective mode is `robust` (configured
+   explicitly or chosen by classification under `mode: auto`).
+2. Within a tier: newest `releaseDate` first, undated models after dated ones,
+   with ties broken by exact wire model ID.
+3. Per model: `medium` effort, else the nearest offered effort (the higher
+   effort on a tie), else no effort when the model takes none.
+
+During the fallback walk only, native-provider (`openai`, `anthropic`) choices
+whose endpoint evidence comes solely from a family glob pattern (such as
+`gpt-4o-transcribe` under `gpt-4o*`) are skipped; explicitly named models and
+router-ranked choices keep their existing behavior. The guarantee is that a
+selection is made if and only if at least one eligible choice passes its
+guards: per-model guards (such as a multiplier cap or missing pricing) skip
+that choice, while run-wide stops (exhausted budget, max runs, cancellation, or
+the overall deadline) still end the run. Fallback selections do not produce
+`routeOptions` and do not count as router-ranked history.
 
 The agent learns the selected model, effort, and endpoint from the API proxy's
 `GET /reflect` `routing` field (see
@@ -2621,7 +2716,9 @@ apiProxy:
 |-------|----------------|-------------|
 | `provider` | `copilot` (default), `openai`, `anthropic` | Restricts routing to one configured native API-proxy provider; AWF does not switch credentials or translate across providers. |
 | `candidateModels` | non-empty array of model glob patterns | Limits router/classifier choices without widening the request policy; defaults to `apiProxy.allowedModels`. |
+| `endpoints` | non-empty array of unique endpoint paths (`/responses`, `/chat/completions`, `/v1/messages`) | Unordered allowlist of inference endpoints the engine speaks. Keeps only choices served on one of those endpoints in the candidate pool and chooses each candidate's protocol from that list. Omit to keep the default provider protocol behavior. |
 | `topK` | integer from 1 to 32 | Reports up to K distinct eligible models in the private result. The pilot requests `3`. Omit for no list. |
+| `adaptiveSummaryFile` | non-empty string | Host path to gh-aw's evidence summary. Enables adaptive selection (§13a.2); must not be in an agent-visible path. |
 | `objective.goal` | `cost` | Optimization goal used by the router; `cost-speed` is unsupported and MUST NOT be aliased to `cost` |
 | `objective.mode` | `economy`, `balanced`, `robust`, `auto` | Fixed routing profile, or `auto` classification |
 | `task.conversationFile` | non-empty string | Host path to the task conversation whose description the router classifies |
@@ -2647,7 +2744,8 @@ routing profile) selects the one model and effort the agent is seeded with for
 the whole run. The router is not invoked again per request or per sub-agent.
 
 The routing object is closed: `objective` and `task` are required; `provider`,
-`candidateModels` and `topK` are optional. Unknown properties are rejected.
+`candidateModels`, `endpoints`, `topK` and `adaptiveSummaryFile` are optional.
+Unknown properties are rejected.
 Omitting `provider` preserves Copilot routing. OpenAI and Anthropic routing
 require the matching provider to be configured for the agent and currently
 require the native `api.openai.com` or `api.anthropic.com` target; AWF does not
@@ -2682,6 +2780,22 @@ allows one effortless choice. OpenAI uses its mapped Responses or Chat
 Completions protocol; Anthropic uses Messages. Unsupported effort values are
 discarded, and a model with no remaining advertised effort is excluded rather
 than converted into an effortless choice.
+
+When `apiProxy.routing.endpoints` is provided (for example `["/responses"]` for
+Codex, `["/v1/messages"]` for Claude, `["/responses", "/chat/completions"]` for
+Copilot CLI, or all three for Pi), AWF treats it as an unordered allowlist and
+intersects each model's advertised endpoints with that list before offering
+candidates to the classifier, the router, or the routing fallback. A model that
+does not support any listed endpoint is excluded from the pool (failing with
+`no_route` if no choice remains), and each surviving candidate's protocol is
+chosen from the intersection using AWF's deterministic effort-aware preference
+order (Chat Completions, Responses, then Messages for effortless choices;
+Responses, Chat Completions, then Messages for reasoning choices; Anthropic
+always requires `/v1/messages`). Omitting `endpoints` preserves the existing
+default protocol behavior for backwards compatibility. This field restricts
+AWF's candidate pool and selected endpoint only; engines that maintain their
+own per-model API catalog checks (such as Pi) still apply those checks when
+launching.
 
 Request guards and alias resolution use the provider-aware
 `allowedModels` / `disallowedModels` policy. Candidate filtering additionally
@@ -2736,12 +2850,20 @@ Every selection record MUST include:
   (or `null`), and `selected_provider`;
 - `wire_model` and `endpoint` matching the selected route advertised in
   `/reflect`;
+- `selection_source` (`router` or `fallback`), `fallback_reason` (the routing
+  error code that triggered fallback, or `null` for a router selection), and
+  `fallback_tier` (the tier the fallback chose from, or `null` for a router
+  selection); these three fields also appear in the private `selection.json`
+  record;
 - `labels` and `mode` from validated classification, or `null` when
   classification did not succeed;
 - `classifier_model` and `classifier_effort` identifying the successful
   classifier, or `null` when no classifier succeeded;
-- `router` containing `name` and `version`;
-- `ranked_choices` in router preference order, each with `model` and `effort`;
+- `router` containing `name` and `version`, or `null` when the router could not
+  supply capabilities before fallback;
+- `ranked_choices` in router preference order, each with `model` and `effort`,
+  or `null` when the router did not return a validated rank (fallback never
+  invents a rank);
 - the routing `objective` and configured `provider`;
 - `conversation_sha256`, the SHA-256 digest of the UTF-8 `JSON.stringify`
   serialization of the validated staged conversation;
@@ -2824,6 +2946,138 @@ Audit writes are synchronous and best-effort; disk success is not guaranteed,
 and logging errors MUST NOT change routing or inference behavior. The writer
 MUST use owner-only file permissions (`0600`)
 and MUST NOT follow symbolic links. No explicit flush is required.
+
+### 13a.2 Adaptive selection
+
+`apiProxy.routing.adaptiveSummaryFile` lets a workflow's own routing evidence
+choose the primary pair among the models the router already permits. gh-aw's
+trusted prepare step writes the **evidence summary** to that host file before AWF
+starts: for the workflow, its incumbent pair and, for each pair with a record,
+discounted success and failure counts over its last 50 outcomes within 60 days,
+its streak, tests and suspension, and its average measured cost and tokens on
+this workflow, together with whether this run may explore. AWF makes one
+deterministic choice, records it, and keeps no state of its own. Without the
+option, routing, logs and router calls are unchanged.
+
+AWF reads the file once during the routing bootstrap, before the agent starts,
+and stages a private copy that only the proxy can read. The path MUST NOT be
+inside an agent-visible path (the work directory, the workspace, `/tmp`, the
+home tool directories AWF mounts such as `~/.cache`, `${RUNNER_TEMP}/gh-aw`, the
+session state directory or any agent volume); AWF refuses to start otherwise.
+`${RUNNER_TEMP}` outside its `gh-aw` tree qualifies. The proxy accepts the summary only if it has version
+`2`, at most 32 pairs and at most 16 KiB of `JSON.stringify` output, and names
+the job AWF runs in: the workflow ID (the `GITHUB_WORKFLOW_REF` file name
+without `.lock.yml`), `GITHUB_RUN_ID` and `GITHUB_RUN_ATTEMPT`. A missing file
+routes ordinarily with reason `summary_missing`, and an invalid one, including a
+file that holds JSON `null`, with `invalid_evidence`; neither fails the run.
+
+Pairs are named `<provider>/<wire model>@<effort>`, with the Copilot provider
+written `github-copilot` and `none` for a route without an effort. The selector
+works on the full validated rank after the multiplier cap, where a pair the
+router ranks twice counts once, at its first position (only `topK` requires the
+router's pairs to be unique):
+
+- **Incumbent.** It keeps the summary's incumbent while it is eligible and its
+  base model is not suspended. Otherwise it chooses the eligible pair with the
+  lowest expected cost per success among pairs that have succeeded here and have
+  a measured cost, else the highest-ranked pair that has succeeded here, else
+  the first eligible pair.
+- **Switch.** A rival with its own record takes over when its expected success
+  rate exceeds its need, the rate at which it would cost no more per success
+  than the incumbent's optimistic rate. Switching needs no permission to explore.
+  A rival that won on an estimate and cannot price itself keeps that estimate.
+- **Probe.** A suspended pair whose probe is due runs once, before any test, the
+  highest-ranked first. A suspension covers every effort of its base.
+- **Test.** The shortlist is the first effort of up to three distinct base models
+  in rank order. The rival with the best optimistic score is tested if its
+  optimistic rate exceeds its need and it has fewer than 20 tests.
+- **Permission.** A test or probe needs `explore.allowed`, attempt 1, the share
+  (the previous live run did not explore), a test turn, and fewer earlier
+  turn-holders in flight than the rival's capacity (a probe needs none in
+  flight). Capacity is the largest n up to 3 for which the rival would still
+  deserve a test, and would not be suspended, after n - 1 assumed failures.
+  Otherwise the run serves the incumbent with the first unmet requirement as its
+  reason; it never falls back to a lower-scored rival.
+- **All suspended.** When every eligible base is suspended, the run serves the
+  eligible pair with a record and the highest expected rate (ties by rank), or the
+  ordinary pick without one.
+- **Observe mode.** The run keeps the ordinary pick and reports in `would` what a
+  live run would have chosen.
+
+Each cost the decision uses is `measured` (the pair's average AWF-priced cost on
+this workflow) or `estimated`. An estimate prices the incumbent's average tokens
+at the pair's own tariff and scales only the incumbent model's share of the cost:
+`credits(incumbent) + model_credits(incumbent) × (price(pair) / price(incumbent) − 1)`.
+If the incumbent has a measured total `credits` and `model_credits` exceeds
+`credits`, or if a computed estimate is negative or non-finite, the selector
+refuses the estimate (returning no cost for that rival) without invalidating the
+summary. Prices use the meter's semantics at the default tier and list price. A
+dynamic-selector, configured-default, median or built-in fallback price gives no
+estimate, including one that fills a component the estimate uses when the
+model's own tariff is partial, and a pair without a cost is never chosen on cost.
+
+An evidence summary changes only which permitted pair runs, never whether a run
+starts. When a per-model guard (such as a retired or disallowed model, the
+multiplier cap, or harness eligibility) rejects the pair the selector chose, AWF
+falls back to ordinary routing: it tries the router's next passing choice and
+then the eligible fallback pool (never trying the rejected pick twice), and
+records an `ordinary` receipt with reason `selection_rejected`. When the router
+cannot choose, AWF serves a fallback pair as ordinary routing does (§13a.1) and
+records an `ordinary` receipt with reason `router_fallback`. On both receipts,
+`generation`, `mode`, `scope`, `explore_allowed`, and `concurrency` (`turn` and
+`in_flight`, with `capacity` `null`) come from the summary; `selected` and
+`ordinary` both name the pair that runs; `would` is `null`; `incumbent` stays
+`{ "before": <summary incumbent>, "after": <summary incumbent> }` without
+moving the incumbent; and `costs` is `{}`. With a missing or invalid summary,
+ordinary routing (including the router's next passing choice or a fallback pair)
+likewise writes an `ordinary` receipt naming the pair that runs, with reason
+`summary_missing` or `invalid_evidence`. A run-wide stop (such as an exhausted
+credit budget, cancellation, or the overall deadline), or a pool where no pair
+passes, still fails before the primary starts without a receipt. Whenever the
+receipt has role `ordinary`, any `topK` shortlist is computed as ordinary
+routing computes it, from the choice that runs.
+
+After the selection passes its final guard and before the primary starts, the
+proxy appends one **selection receipt** to `adaptive-selection.jsonl` in
+`apiProxy.logging.tokenLogDir`, with the same owner-only, no-follow semantics as
+`model-routing.jsonl`, plus `timestamp`. The write is best effort and nothing
+waits for an acknowledgment: gh-aw counts a run only when it finds a receipt
+bound to it. The selection record in `model-routing.jsonl` names the pair the
+receipt selected. Receipts share that directory with AWF's token-usage and
+routing records, so they are as trustworthy as it is: keep the proxy logs out of
+agent-writable paths, as gh-aw's firewall log directory, which AWF masks from the
+agent, already is.
+
+| Field | Meaning |
+|---|---|
+| `event`, `v` | `adaptive_selection`, version `2` |
+| `workflow`, `run.id`, `run.attempt` | The job AWF runs in |
+| `generation`, `mode`, `scope` | Copied from the summary (`null` without a valid one) |
+| `role` | `serve`, `test`, `probe`, `observe` or `ordinary` |
+| `explore_allowed` | Whether the summary allowed exploration on attempt 1 |
+| `selected`, `ordinary`, `would` | The pair AWF asked the harness to run, the router's pick (or the pair that runs on an `ordinary` receipt), and in observe mode what live mode would have run |
+| `incumbent.before`, `incumbent.after` | The summary's incumbent and the incumbent after this decision; they differ only when the rule chose or switched one, and stay equal on `selection_rejected` and `router_fallback` receipts (`null` as a whole without a valid summary) |
+| `costs` | For the incumbent and each pair compared: `credits` and `basis` (`measured` or `estimated`), or `{}` on an `ordinary` receipt |
+| `concurrency` | `turn` and `in_flight` from the summary, and the `capacity` computed for the challenger or probe considered (or `null`); `null` as a whole without a valid summary |
+| `reason` | One of the reasons below |
+
+| Role | Reasons |
+|---|---|
+| `ordinary` | `summary_missing`, `invalid_evidence`, `selection_rejected`, `router_fallback` |
+| `serve` | `incumbent_chosen`, `incumbent_switched`, `no_challenger`, `all_suspended`; or, when a test or probe could not run, `explore_denied`, `attempt_not_first`, `share_taken` or `no_turn` |
+| `probe` | `probe_due` |
+| `test` | `challenger_hopeful_clears_need` |
+
+For example, at `balanced` (a failure weighs 500 credits), incumbent B has 40
+clean runs at a measured 28 credits. A has never run here, and B's average tokens
+cost 12/28 as much at A's rates, so A's estimate is 12 credits. A needs a success
+rate above 0.999 × 512 / 528 ≈ 0.969, which its optimistic rate of 0.999 clears,
+so a run with permission tests A with `capacity` 1. A run without a turn, or with
+an earlier turn-holder in flight, serves B with reason `no_turn`. The
+[oracle vectors](../containers/api-proxy/fixtures/adaptive/fw2-selector.json),
+generated from gh-aw's reference bandit, pin every selector decision and reason
+(outside the controller's `selection_rejected` and `router_fallback` fallback
+receipts).
 
 ## 13. Model Alias Logging
 

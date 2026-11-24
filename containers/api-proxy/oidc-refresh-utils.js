@@ -38,7 +38,8 @@ function scheduleRefresh(state, delayMs, refreshFn, providerPrefix) {
       })
       .catch((err) => {
         logRequest('error', `${providerPrefix}_refresh_failed`, { error: err.message });
-        const now = Math.floor(Date.now() / 1000);
+        const now = typeof state._nowSeconds === 'function'
+          ? state._nowSeconds() : Math.floor(Date.now() / 1000);
         if (state._expiresAt > now) {
           scheduleRefresh(state, state._retryDelayMs, refreshFn, providerPrefix);
         }

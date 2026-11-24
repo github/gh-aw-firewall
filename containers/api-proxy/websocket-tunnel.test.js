@@ -16,6 +16,37 @@ function makeSocket() {
 }
 
 describe('websocket-tunnel', () => {
+  it.each(['api.githubcopilot.com', 'gateway.example.com'])(
+    'strips caller and injected trace context from untraced upgrades to %s',
+    targetHost => {
+      const connectReq = new EventEmitter();
+      connectReq.end = jest.fn();
+      const requestSpy = jest.spyOn(http, 'request').mockReturnValue(connectReq);
+      try {
+        const tunnel = makeSocket();
+        createWebSocketTunnel({
+          HTTPS_PROXY: 'http://squid:3128', metrics: {}, logRequest: jest.fn(),
+          sanitizeForLog: String, shouldStripHeader, trackWebSocketTokenUsage: jest.fn(),
+        })({
+          req: {
+            url: '/responses',
+            headers: { traceparent: 'caller-trace', Tracestate: 'caller=value', baggage: 'private=value' },
+          },
+          socket: makeSocket(), targetHost, targetScheme: 'http', provider: 'copilot',
+          upstreamPath: '/responses',
+          injectHeaders: { Traceparent: 'injected-trace', Baggage: 'injected-private=value' },
+        });
+        connectReq.emit('connect', { statusCode: 200 }, tunnel);
+        const upgrade = tunnel.write.mock.calls[0][0].toLowerCase();
+        for (const name of ['traceparent', 'tracestate', 'baggage']) {
+          expect(upgrade).not.toContain(`${name}:`);
+        }
+      } finally {
+        requestSpy.mockRestore();
+      }
+    },
+  );
+
   it.each([
     ['http', 'localhost:11434', 'localhost:11434'],
     ['https', 'gateway.example.com:8443', 'gateway.example.com:8443'],

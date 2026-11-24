@@ -47,7 +47,7 @@ function classifierTimeoutError() {
 
 async function classifyRouting({
   conversation, pool, planner, executor, observer, eligibilityRequest,
-  callPlanner, signal, deadline, clock, attemptTimeoutMs, maxAttempts, purpose,
+  callPlanner, signal, deadline, clock, attemptTimeoutMs, maxAttempts, purpose, onAttempt,
 }) {
   const sanitizedConversation = sanitizeConversationPayload(conversation);
   const classifyRequest = deepFreezeJson({ conversation: sanitizedConversation, models: pool.choices });
@@ -81,6 +81,7 @@ async function classifyRouting({
     }
 
     actualAttempts++;
+    onAttempt?.(actualAttempts);
     recordClassifierAttempt(observer, { purpose, attempt: actualAttempts, mapping });
     let result;
     try {

@@ -22,6 +22,8 @@ on:
       - 'containers/api-proxy/upstream-dispatch-guards.js'
       - 'containers/api-proxy/upstream-dispatch-transport.js'
       - 'containers/api-proxy/upstream-attempt-recovery.js'
+      - 'containers/api-proxy/fallback-origin.js'
+      - 'containers/api-proxy/fallback-candidate-selection.js'
       - 'containers/api-proxy/upstream-protocol-translation.js'
       - 'containers/api-proxy/upstream-auth.js'
       - 'containers/api-proxy/upstream-fallback.js'

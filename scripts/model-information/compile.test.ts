@@ -133,7 +133,7 @@ describe('maintained model compilation', () => {
     const naming = require('../../shared/model-information/naming.generated.json');
     const catalogue = require('../../shared/model-information/catalog.generated.json');
     const members = naming.models.filter((model: { identity: { family?: string } }) => model.identity.family);
-    expect(naming.models).toHaveLength(58);
+    expect(naming.models).toHaveLength(63);
     expect(members).toHaveLength(22);
     expect(new Set(members.map((model: { identity: { family: string } }) => model.identity.family)).size).toBe(9);
     expect(naming.rules).toEqual([]);
@@ -515,6 +515,45 @@ describe('maintained model compilation', () => {
     }
   });
 
+  type TierEntry = { lookupId: string; [field: string]: unknown };
+  type TierSource = { provenance: Record<string, unknown>; entries: TierEntry[] };
+  const codex = (source: TierSource) =>
+    source.entries.find(entry => entry.lookupId === 'gpt-5-3-codex') as TierEntry;
+  it.each([
+    { name: 'an unknown tier', mutate: (source: TierSource) => { codex(source).codingTier = 'Standard'; },
+      diagnostic: /gpt-5-3-codex coding tier must be one of standard, premium, lightweight, none/ },
+    { name: 'an impossible date', mutate: (source: TierSource) => { codex(source).releaseDate = '2026-02-30'; },
+      diagnostic: /gpt-5-3-codex release date must be a calendar date/ },
+    { name: 'a date after the review', mutate: (source: TierSource) => { codex(source).releaseDate = '2027-01-01'; },
+      diagnostic: /gpt-5-3-codex release date is after the review date 2026-11-23/ },
+    { name: 'a future review', mutate: (source: TierSource) => {
+      source.provenance.at = '2099-01-02T00:00:00Z';
+      codex(source).releaseDate = '2099-01-01';
+    }, diagnostic: /review date 2099-01-02T00:00:00Z is in the future/ },
+    { name: 'a provider spelling', mutate: (source: TierSource) => { codex(source).lookupId = 'gpt-5.3-codex'; },
+      diagnostic: /lookupId must be a normalized lookup ID/ },
+    { name: 'a duplicate model',
+      mutate: (source: TierSource) => { source.entries.push(structuredClone(source.entries[source.entries.length - 1])); },
+      diagnostic: /is duplicated or out of order/ },
+    { name: 'an unquoted fact', mutate: (source: TierSource) => {
+      codex(source).evidence = [{ url: 'https://github.blog/changelog/', quote: 'too short' }];
+    }, diagnostic: /gpt-5-3-codex needs evidence with an https url/ },
+    { name: 'a free-text field', mutate: (source: TierSource) => { codex(source).productLine = 'Codex'; },
+      diagnostic: /expected only lookupId, codingTier, releaseDate and evidence/ },
+  ])('rejects coding tiers with $name', ({ mutate, diagnostic }) => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-coding-tiers-'));
+    try {
+      fs.cpSync(path.join(root, 'shared/model-information/sources'), temp, { recursive: true });
+      const file = path.join(temp, 'coding-tiers.json');
+      const source = JSON.parse(fs.readFileSync(file, 'utf8'));
+      mutate(source);
+      fs.writeFileSync(file, JSON.stringify(source));
+      expect(() => run('--check', `--source-dir=${temp}`)).toThrow(diagnostic);
+    } finally {
+      fs.rmSync(temp, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     { reasoningMode: 'invented' },
     { defaultEffort: 'max' },
@@ -701,9 +740,39 @@ describe('maintained model compilation', () => {
     }
   });
 
+  it('projects coding-tiers.json only for the routing fallback and keeps published v1/v2 snapshots unchanged', () => {
+    const source = require('../../shared/model-information/sources/coding-tiers.json');
+    const projected = require('../../containers/api-proxy/model-information.coding-tiers.generated.json');
+    const expected = Object.fromEntries(source.entries.map((entry: {
+      lookupId: string;
+      codingTier?: string;
+      releaseDate?: string;
+    }) => [
+      entry.lookupId,
+      {
+        ...(entry.codingTier !== undefined ? { tier: entry.codingTier } : {}),
+        ...(entry.releaseDate !== undefined ? { releaseDate: entry.releaseDate } : {}),
+      },
+    ]));
+    expect(projected).toEqual(expected);
+
+    const mapping = require('../../docs/model-api-mapping.json');
+    expect(JSON.stringify(mapping)).not.toContain('codingTier');
+
+    const baseline = require('../../shared/model-information/catalog.generated.json');
+    const v1 = require('../../shared/model-information/publication.cjs');
+    const v2 = require('../../shared/model-information/publication.v2.cjs');
+    const snapV1 = v1.buildSnapshot(baseline, 'a'.repeat(40), baseline.generatedAt);
+    const snapV2 = v2.buildSnapshot(baseline, 'a'.repeat(40), baseline.generatedAt);
+    expect(snapV1).not.toContain('codingTier');
+    expect(snapV2).not.toContain('codingTier');
+  });
+
   it('resolves generated proxy assets independently of repository shared modules', () => {
     const dockerfile = fs.readFileSync(path.join(root, 'containers/api-proxy/Dockerfile'), 'utf8');
     expect(dockerfile).toMatch(/model-information\.pricing\.generated\.json model-information\.fallback-pricing\.generated\.json model-information\.retired\.generated\.json/);
+    expect(dockerfile).toMatch(/model-information\.coding-tiers\.generated\.json/);
+    expect(dockerfile).toMatch(/routing-fallback-order\.js/);
     expect(dockerfile).toMatch(/model-eligibility\.js/);
     expect(dockerfile).toMatch(/model-reasoning\.js/);
     expect(dockerfile).toMatch(/harness-observation\.js/);

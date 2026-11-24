@@ -13,7 +13,7 @@ function fixedLengthMask(value: string): string {
   return (marker + '*'.repeat(Math.max(0, value.length - marker.length))).slice(0, value.length);
 }
 
-export function redactCredentials(value: string): { output: string; detected: boolean } {
+function redactCredentials(value: string): { output: string; detected: boolean } {
   let detected = false;
   let output = value;
   for (const pattern of CREDENTIAL_PATTERNS) {

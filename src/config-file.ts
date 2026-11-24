@@ -13,6 +13,7 @@ import type { ClaudeHostedWebConfig } from './claude-hosted-web-policy';
 import type { CodexHostedWebConfig } from './codex-hosted-web-policy';
 import type { ModelCatalogueOptions } from './types/rate-limit-options';
 import { parseAiCreditSuffix } from './ai-credits';
+import { validateDatabricksHost } from './api-proxy-config-validation';
 
 /** @internal Used only by config-file helpers — not part of public API */
 // ts-prune-ignore-next
@@ -102,8 +103,8 @@ export interface AwfFileConfig {
     };
     routing?: ModelRoutingConfig;
     targets?: {
-      openai?: { host?: string; basePath?: string; authHeader?: string; baseUrlEnv?: string; trustedService?: import('./trusted-service').TrustedService };
-      anthropic?: { host?: string; basePath?: string; authHeader?: string; trustedService?: import('./trusted-service').TrustedService };
+      openai?: { host?: string; basePath?: string; authHeader?: string; authScheme?: string; baseUrlEnv?: string; trustedService?: import('./trusted-service').TrustedService };
+      anthropic?: { host?: string; basePath?: string; authHeader?: string; authScheme?: string; trustedService?: import('./trusted-service').TrustedService };
       copilot?: {
         host?: string;
         basePath?: string;
@@ -140,6 +141,8 @@ export interface AwfFileConfig {
       gcpWorkloadIdentityProvider?: string;
       gcpServiceAccount?: string;
       gcpScope?: string;
+      databricksHost?: string;
+      databricksClientId?: string;
       anthropicFederationRuleId?: string;
       anthropicOrganizationId?: string;
       anthropicServiceAccountId?: string;
@@ -297,6 +300,11 @@ export function validateAwfFileConfig(config: unknown): string[] {
   const errors = validateWithSchema(normalized.config);
   if (errors.length) return errors;
   const apiProxy = (normalized.config as AwfFileConfig).apiProxy;
+  if (apiProxy?.auth?.databricksHost !== undefined) {
+    try { validateDatabricksHost(apiProxy.auth.databricksHost); } catch (error) {
+      errors.push((error as Error).message);
+    }
+  }
   const steeringBudget = apiProxy?.steering?.budget;
   if (
     apiProxy?.enableTokenSteering !== undefined &&

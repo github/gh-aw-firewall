@@ -214,7 +214,7 @@ describe('generateDockerCompose', () => {
       ]);
       expect(apiProxyService.networks['awf-routing']).toEqual({});
       expect(apiProxyService.depends_on.router).toEqual({
-        condition: 'service_healthy',
+        condition: 'service_started',
       });
       expect(apiProxyService.depends_on['squid-proxy']).toEqual({
         condition: 'service_healthy',
@@ -244,7 +244,7 @@ describe('generateDockerCompose', () => {
       expect(router.ports).toBeUndefined();
       expect(result.networks['awf-routing']).toMatchObject({ internal: true });
       expect(proxy.networks).toHaveProperty('awf-routing');
-      expect(proxy.depends_on.router).toEqual({ condition: 'service_healthy' });
+      expect(proxy.depends_on.router).toEqual({ condition: 'service_started' });
       expect(proxy.volumes).toEqual(expect.arrayContaining([
         `${mockConfig.workDir}-routing/input:/run/awf-routing/input:ro`,
         `${mockConfig.workDir}-routing/output:/run/awf-routing/output:rw`,

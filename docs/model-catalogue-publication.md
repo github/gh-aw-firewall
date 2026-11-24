@@ -176,7 +176,7 @@ independently curated prices with pinned/generated AWF data, distinguish genuine
 user overrides from catalogue defaults, and migrate reporting consumers. These
 are later migration steps; this change does not modify gh-aw, remove automatic
 overrides, or finish #10297. Evidence for uncovered
-`gpt-5.6-sol-fast`, `gpt-6.1-sol-fast` and `mai-code-2-flash` must be migrated
+`gpt-5.6-sol-fast` and `gpt-6.1-sol-fast` must be migrated
 separately; this export does not manufacture their coverage. Packaging tests
 extract an actual npm tarball off-tree and exercise its JSON, schemas, readonly
 types and frozen API with network access prohibited.

@@ -12,15 +12,33 @@ const copilotTariff = tariff => tariff.scope.provider === 'copilot' &&
 // Reviewed display-name mappings for new records; these convey no CLI eligibility.
 const newIdentities = {
   'GPT-6.1 Terra': ['gpt-6.1-terra', sourceFiles[0]],
+  'GPT-6.2 Sol': ['gpt-6.2-sol', sourceFiles[0]],
   'Gemini 3.8 Flash': ['gemini-3.8-flash', sourceFiles[2]],
   'Gemini 4 Argon': ['gemini-4-argon', sourceFiles[2]],
+  'Gemini 4 Carbon': ['gemini-4-carbon', sourceFiles[2]],
+  'Gemini 4 Hydrogen': ['gemini-4-hydrogen', sourceFiles[2]],
   'MAI-Code-1.1-Flash': ['mai-code-1.1-flash', sourceFiles[3]],
+  'MAI Code 2': ['mai-code-2', sourceFiles[3]],
+  'MAI Code 2 Flash': ['mai-code-2-flash', sourceFiles[3]],
 };
 const normalizeName = value => value.toLowerCase().replace(/[ ._-]+/g, '-');
 const decimal = value => {
   const match = /^\$(0|[1-9]\d*)(\.\d+)?$/.exec(value);
   if (!match) throw new Error(`Missing or ambiguous numeric price: ${value || '(empty)'}`);
   return value.slice(1).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+};
+const months = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'];
+const calendarDateUtc = (value, errorMessage) => {
+  const date = /^([A-Za-z]+) (\d{1,2}), (\d{4})$/.exec(value);
+  const month = date ? months.indexOf(date[1]) : -1;
+  const day = date ? Number(date[2]) : NaN;
+  const year = date ? Number(date[3]) : NaN;
+  const utc = Date.UTC(year, month, day);
+  const parsed = new Date(utc);
+  if (month < 0 || parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month ||
+      parsed.getUTCDate() !== day) throw new Error(errorMessage);
+  return utc;
 };
 const cleanHtml = bytes => {
   let html = bytes.toString('utf8');
@@ -66,7 +84,7 @@ function extractPricingTables(bytes, text) {
   return { tables: result, footnotes: notes };
 }
 
-function promotion(row, notes, prices) {
+function promotion(row, notes, prices, tier) {
   if (!row.footnotes.length) return {};
   const attached = row.footnotes.map(id => {
     if (!notes[id]) throw new Error(`Missing attached footnote ${id}`);
@@ -74,10 +92,18 @@ function promotion(row, notes, prices) {
   });
   if (attached.length !== 1) throw new Error('Ambiguous multiple pricing footnotes');
   const note = attached[0];
-  const pattern = /promotional pricing of \$(\d+(?:\.\d+)?) per 1M input tokens, \$(\d+(?:\.\d+)?) per 1M cached input tokens, and \$(\d+(?:\.\d+)?) per 1M output tokens (through|until) ([A-Za-z]+ \d{1,2}, \d{4})\./;
+  const priceTriple = '\\$(\\d+(?:\\.\\d+)?) per 1M input tokens, \\$(\\d+(?:\\.\\d+)?) per 1M cached input tokens, and \\$(\\d+(?:\\.\\d+)?) per 1M output tokens';
+  const prefix = `${row.cells[0]} is available at the `;
+  const pattern = new RegExp(`promotional pricing of ${priceTriple} (through|until) ([A-Za-z]+ \\d{1,2}, \\d{4})\\.`);
   const match = pattern.exec(note);
-  if (!match || match.index === 0 || !note.startsWith(`${row.cells[0]} is available at the `) ||
-      match[0].length + match.index !== note.length) {
+  if (!match || !note.startsWith(prefix) || match.index !== prefix.length) {
+    throw new Error('Ambiguous promotion/successor footnote; prior facts retained');
+  }
+  const trailing = note.slice(match.index + match[0].length);
+  const successorMatch = trailing
+    ? new RegExp(`^ Starting ([A-Za-z]+ \\d{1,2}, \\d{4}), pricing is ${priceTriple}\\.$`).exec(trailing)
+    : null;
+  if (trailing && !successorMatch) {
     throw new Error('Ambiguous promotion/successor footnote; prior facts retained');
   }
   for (const [index, component] of ['input', 'cachedInput', 'output'].entries()) {
@@ -85,24 +111,38 @@ function promotion(row, notes, prices) {
       throw new Error(`Conflicting promotional ${component} component`);
     }
   }
-  const date = /^([A-Za-z]+) (\d{1,2}), (\d{4})$/.exec(match[5]);
-  const month = ['January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'].indexOf(date[1]);
-  const day = Number(date[2]);
-  const year = Number(date[3]);
-  const start = Date.UTC(year, month, day);
-  const parsed = new Date(start);
-  if (month < 0 || parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month ||
-      parsed.getUTCDate() !== day) throw new Error('Invalid promotion end date');
+  const start = calendarDateUtc(match[5], 'Invalid promotion end date');
   const effectiveUntil = new Date(start + (match[4] === 'through' ? 86400000 : 0)).toISOString();
+  const boundaryInterpretation = {
+    publishedCalendarEnd: `${match[4]} ${match[5]}`,
+    publishedTimezone: 'not specified by source',
+    reviewedPolicy: 'Interpret through as inclusive calendar date and until as exclusive calendar date; normalize the exclusive boundary to UTC. The source does not publish this UTC instant.',
+    normalizedExclusiveEnd: effectiveUntil,
+  };
+  let successor;
+  if (successorMatch) {
+    if (tier !== 'default' || typeof prices.cacheWrite !== 'object' || !prices.cacheWrite?.unavailable) {
+      throw new Error('Ambiguous promotion/successor footnote; prior facts retained');
+    }
+    const effectiveFrom = new Date(calendarDateUtc(successorMatch[1], 'Invalid successor start date')).toISOString();
+    if (effectiveFrom !== effectiveUntil) {
+      throw new Error('Ambiguous promotion/successor footnote; prior facts retained');
+    }
+    successor = {
+      effectiveFrom,
+      prices: {
+        input: decimal(`$${successorMatch[2]}`),
+        cachedInput: decimal(`$${successorMatch[3]}`),
+        cacheWrite: { unavailable: true },
+        output: decimal(`$${successorMatch[4]}`),
+      },
+    };
+    boundaryInterpretation.publishedSuccessorStart = `Starting ${successorMatch[1]}`;
+  }
   return {
     effectiveUntil, promotion: `${row.cells[0]} published promotional pricing`,
-    boundaryInterpretation: {
-      publishedCalendarEnd: `${match[4]} ${match[5]}`,
-      publishedTimezone: 'not specified by source',
-      reviewedPolicy: 'Interpret through as inclusive calendar date and until as exclusive calendar date; normalize the exclusive boundary to UTC. The source does not publish this UTC instant.',
-      normalizedExclusiveEnd: effectiveUntil,
-    },
+    ...(successor ? { successor } : {}),
+    boundaryInterpretation,
   };
 }
 
@@ -135,9 +175,10 @@ function observedTariff(table, row, notes) {
       prices[component] = { unavailable: true };
     } else prices[component] = decimal(cell || '');
   }
+  const normalizedTier = tier === 'Default' ? 'default' : 'long_context';
   return {
-    tier: tier === 'Default' ? 'default' : 'long_context', threshold, prices,
-    ...promotion(row, notes, prices), quote: row.quote,
+    tier: normalizedTier, threshold, prices,
+    ...promotion(row, notes, prices, normalizedTier), quote: row.quote,
     footnotes: row.footnotes.map(id => notes[id]),
   };
 }
@@ -215,73 +256,140 @@ function planCopilotPricing(documents, pricingCapture, modelsCapture, pricingByt
           (longs.length !== 1 || longs[0].threshold !== defaults[0].threshold))) {
         throw new Error('Incomplete or conflicting default/long-context row pair');
       }
+      if (longs.length && defaults[0].successor) {
+        throw new Error('Ambiguous promotion/successor footnote; prior facts retained');
+      }
     } catch (error) { fail(error.message); continue; }
     const provenance = {
       authority: 'maintained', source: pricingCapture.url, revision: pricingCapture.sha256,
       at: pricingCapture.retrievedAt, confidence: 'verified',
     };
+    const makeComponents = prices => Object.fromEntries(components.map(component => [component, {
+      price: prices[component], provenance,
+    }]));
+    const candidates = [];
+    for (const observedRow of observed.sort((a, b) => compare(a.tier, b.tier))) {
+      candidates.push({
+        tariff: {
+          scope, currency: 'USD', unit: 'USD_PER_1M_TOKENS', tier: observedRow.tier,
+          ...(observedRow.tier === 'long_context' ? { promptTokensAbove: observedRow.threshold } : {}),
+          ...(observedRow.effectiveUntil ? {
+            effectiveUntil: observedRow.effectiveUntil, promotion: observedRow.promotion,
+            ...(observedRow.successor ? { successor: 'post_promotion' } : {}),
+          } : {}),
+          components: makeComponents(observedRow.prices), provenance,
+        },
+        prices: observedRow.prices,
+        receipts: [
+          receipt(pricingCapture, observedRow.quote, {
+            model: id, tariff: observedRow.tier, components,
+          }),
+          ...observedRow.footnotes.map(quote => receipt(pricingCapture, quote, {
+            model: id, tariff: observedRow.tier,
+            fields: observedRow.successor
+              ? ['effectiveUntil', 'promotion', 'successor']
+              : ['effectiveUntil', 'promotion'],
+            successor: observedRow.successor ? 'post_promotion' : 'not-published',
+            boundaryInterpretation: observedRow.boundaryInterpretation,
+          })),
+        ],
+      });
+      if (observedRow.successor) {
+        candidates.push({
+          tariff: {
+            scope, currency: 'USD', unit: 'USD_PER_1M_TOKENS', tier: 'post_promotion',
+            effectiveFrom: observedRow.successor.effectiveFrom,
+            components: makeComponents(observedRow.successor.prices), provenance,
+          },
+          prices: observedRow.successor.prices,
+          receipts: observedRow.footnotes.map(quote => receipt(pricingCapture, quote, {
+            model: id, tariff: 'post_promotion', fields: ['effectiveFrom', 'components'],
+            components, boundaryInterpretation: observedRow.boundaryInterpretation,
+          })),
+        });
+      }
+    }
     const oldTariffs = existing?.tariffs || [];
+    const oldCopilot = oldTariffs.filter(copilotTariff);
     const nextTariffs = oldTariffs.filter(tariff => !copilotTariff(tariff));
     let changed = false;
     const modelReceipts = [];
-    for (const observedRow of observed.sort((a, b) => compare(a.tier, b.tier))) {
-      const candidate = {
-        scope, currency: 'USD', unit: 'USD_PER_1M_TOKENS', tier: observedRow.tier,
-        ...(observedRow.tier === 'long_context' ? { promptTokensAbove: observedRow.threshold } : {}),
-        ...(observedRow.effectiveUntil ? { effectiveUntil: observedRow.effectiveUntil, promotion: observedRow.promotion } : {}),
-        components: Object.fromEntries(components.map(component => [component, {
-          price: observedRow.prices[component], provenance,
-        }])), provenance,
-      };
-      const old = oldTariffs.filter(tariff => copilotTariff(tariff) && tariff.tier === candidate.tier);
-      if (old.length > 1 || oldTariffs.some(tariff => copilotTariff(tariff) &&
-          (!['default', 'long_context'].includes(tariff.tier) || tariff.effectiveFrom || tariff.successor))) {
-        fail('Existing dated/successor tariff needs explicit reconciliation'); changed = false; observed = null; break;
+    const hasDatedOrSuccessor = oldCopilot.some(tariff =>
+      !['default', 'long_context'].includes(tariff.tier) || tariff.effectiveFrom || tariff.successor);
+    const tariffKey = tariff => JSON.stringify(semanticTariff(tariff));
+    const comparableTariff = candidate => {
+      const old = oldCopilot.filter(tariff => tariff.tier === candidate.tier);
+      if (old.length === 1 && old[0].components.reasoning &&
+          semanticTariff(old[0]).components.output === semanticTariff(candidate).components.output) {
+        return { ...candidate, components: { ...candidate.components, reasoning: old[0].components.reasoning } };
       }
-      if (old.some(tariff => tariff.effectiveUntil) && !candidate.effectiveUntil) {
-        fail('Previously documented promotion interval absent; explicit reconciliation required');
-        changed = false; observed = null; break;
-      }
-      if (old.length && old[0].components.reasoning &&
-          semanticTariff(old[0]).components.output !== semanticTariff(candidate).components.output) {
-        if (semanticTariff(old[0]).components.reasoning !== semanticTariff(old[0]).components.output) {
-          fail('Output changed while the reasoning-rate relationship is unverified; prior tariff retained');
+      return candidate;
+    };
+    const unchangedDatedSet = hasDatedOrSuccessor && oldCopilot.length === candidates.length &&
+      JSON.stringify(oldCopilot.map(tariffKey).sort()) ===
+        JSON.stringify(candidates.map(item => tariffKey(comparableTariff(item.tariff))).sort());
+    if (hasDatedOrSuccessor && !unchangedDatedSet) {
+      fail('Existing dated/successor tariff needs explicit reconciliation'); continue;
+    }
+    if (!unchangedDatedSet) {
+      const oldDefaults = oldCopilot.filter(tariff => tariff.tier === 'default');
+      for (const item of candidates) {
+        const candidate = item.tariff;
+        const old = oldCopilot.filter(tariff => tariff.tier === candidate.tier);
+        if (old.length > 1) {
+          fail('Existing dated/successor tariff needs explicit reconciliation'); changed = false; observed = null; break;
+        }
+        if (old.some(tariff => tariff.effectiveUntil) && !candidate.effectiveUntil) {
+          fail('Previously documented promotion interval absent; explicit reconciliation required');
           changed = false; observed = null; break;
         }
-        candidate.components.reasoning = candidate.components.output;
-      }
-      if (old.length && old[0].components.reasoning && !candidate.components.reasoning) {
-        candidate.components.reasoning = old[0].components.reasoning;
-      }
-      if (old.length && JSON.stringify(semanticTariff(old[0])) === JSON.stringify(semanticTariff(candidate))) {
-        nextTariffs.push(old[0]); continue;
-      }
-      changed = true;
-      if (old.length) {
-        candidate.components = { ...old[0].components, ...candidate.components };
-        for (const component of components) {
-          if (JSON.stringify(semanticTariff(old[0]).components[component]) ===
-              JSON.stringify(observedRow.prices[component])) candidate.components[component] = old[0].components[component];
+        if (candidate.tier === 'post_promotion' && !old.length && oldDefaults.length === 1 &&
+            oldDefaults[0].components.reasoning) {
+          if (semanticTariff(oldDefaults[0]).components.reasoning !== semanticTariff(oldDefaults[0]).components.output) {
+            fail('Output changed while the reasoning-rate relationship is unverified; prior tariff retained');
+            changed = false; observed = null; break;
+          }
+          candidate.components.reasoning = candidate.components.output;
         }
+        if (old.length && old[0].components.reasoning &&
+            semanticTariff(old[0]).components.output !== semanticTariff(candidate).components.output) {
+          if (semanticTariff(old[0]).components.reasoning !== semanticTariff(old[0]).components.output) {
+            fail('Output changed while the reasoning-rate relationship is unverified; prior tariff retained');
+            changed = false; observed = null; break;
+          }
+          candidate.components.reasoning = candidate.components.output;
+        }
+        if (old.length && old[0].components.reasoning && !candidate.components.reasoning) {
+          candidate.components.reasoning = old[0].components.reasoning;
+        }
+        if (old.length && tariffKey(old[0]) === tariffKey(candidate)) {
+          nextTariffs.push(old[0]); continue;
+        }
+        changed = true;
+        if (old.length) {
+          candidate.components = { ...old[0].components, ...candidate.components };
+          for (const component of components) {
+            if (JSON.stringify(semanticTariff(old[0]).components[component]) ===
+                JSON.stringify(item.prices[component])) candidate.components[component] = old[0].components[component];
+          }
+        }
+        nextTariffs.push(candidate);
+        modelReceipts.push(...item.receipts);
       }
-      nextTariffs.push(candidate);
-      modelReceipts.push(receipt(pricingCapture, observedRow.quote, {
-        model: id, tariff: candidate.tier, components,
-      }), ...observedRow.footnotes.map(quote => receipt(pricingCapture, quote, {
-        model: id, tariff: candidate.tier, fields: ['effectiveUntil', 'promotion'],
-        successor: 'not-published', boundaryInterpretation: observedRow.boundaryInterpretation,
-      })));
+      if (!observed) continue;
     }
-    if (!observed) continue;
-    for (const row of observed.filter(item => item.promotion)) diagnostics.push({
+    for (const row of observed.filter(item => item.promotion)) diagnostics.push(row.successor ? {
+      source: pricingCapture.id, model: id, status: 'promotion-with-successor',
+      message: `Published calendar end: ${row.boundaryInterpretation.publishedCalendarEnd}; published successor start: ${row.boundaryInterpretation.publishedSuccessorStart}; reviewed UTC boundary interpretation: ${row.effectiveUntil} (not a page-published UTC instant)`,
+      boundaryInterpretation: row.boundaryInterpretation,
+    } : {
       source: pricingCapture.id, model: id, status: 'promotion-without-successor',
       message: `Published calendar end: ${row.boundaryInterpretation.publishedCalendarEnd}; reviewed UTC boundary interpretation: ${row.effectiveUntil} (not a page-published UTC instant). No successor published; ordinary fallback applies after expiry`,
       boundaryInterpretation: row.boundaryInterpretation,
     });
     if (!changed) continue;
     // A disappeared tier is not evidence that the prior tariff ceased to apply.
-    const missing = oldTariffs.filter(tariff => copilotTariff(tariff) &&
-      !observed.some(row => row.tier === tariff.tier));
+    const missing = oldCopilot.filter(tariff => !candidates.some(item => item.tariff.tier === tariff.tier));
     if (missing.length) { fail('Previously maintained tier absent; explicit reconciliation required'); continue; }
     const document = updates.get(file) || structuredClone(documents[file]);
     if (!document) { fail('Canonical source file missing'); continue; }

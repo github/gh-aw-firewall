@@ -24,6 +24,17 @@ function recordSelection(observer, {
   config, selection, classification, successfulClassifier, rawCapabilities, route,
   conversation, degradedReason, actualAttempts, pool, catalogueOverlap, clock, startedAt,
 }) {
+  const router = rawCapabilities &&
+    typeof rawCapabilities.name === 'string' &&
+    typeof rawCapabilities.version === 'string'
+    ? { name: rawCapabilities.name, version: rawCapabilities.version }
+    : null;
+  const rankedChoices = Array.isArray(route?.ranked_choices)
+    ? route.ranked_choices.map(choice => ({
+      model: choice.model,
+      effort: choice.effort ?? null,
+    }))
+    : null;
   safeRecord(observer, {
     stage: 'selection',
     objective: config.objective,
@@ -31,24 +42,24 @@ function recordSelection(observer, {
     selected_provider: selection.provider,
     wire_model: selection.wire_model,
     endpoint: selection.endpoint,
+    selection_source: selection.selection_source ?? 'router',
+    fallback_reason: selection.fallback_reason ?? null,
+    fallback_tier: selection.fallback_tier ?? null,
     labels: classification?.labels ?? null,
     mode: classification?.mode ?? null,
     classifier_model: successfulClassifier?.model ?? null,
     classifier_effort: successfulClassifier?.effort ?? null,
-    router: { name: rawCapabilities.name, version: rawCapabilities.version },
-    ranked_choices: route.ranked_choices.map(choice => ({
-      model: choice.model,
-      effort: choice.effort ?? null,
-    })),
+    router,
+    ranked_choices: rankedChoices,
     conversation_sha256: createHash('sha256').update(JSON.stringify(conversation)).digest('hex'),
     selected_id: selection.choice.id,
     selected_model: selection.choice.model,
     selected_effort: selection.choice.effort ?? null,
     degraded_classification: classification === null,
-    degraded_reason: degradedReason,
-    classifier_attempts: actualAttempts,
+    degraded_reason: degradedReason ?? null,
+    classifier_attempts: actualAttempts ?? 0,
     eligible_choices: pool.choices.length,
-    catalogue_overlap: catalogueOverlap,
+    catalogue_overlap: catalogueOverlap ?? null,
     latency_ms: Math.max(0, clock.now() - startedAt),
   });
 }

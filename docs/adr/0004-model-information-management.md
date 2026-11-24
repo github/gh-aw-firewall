@@ -231,6 +231,58 @@ concrete JSON Schema may split these into reusable definitions.
 Availability and lifecycle are channel-specific when necessary. A model priced
 for BYOK is not thereby a valid Copilot CLI completion model.
 
+### Coding tier and release date
+
+Two model-level facts order models that are already eligible when the router
+cannot choose (github/gh-aw#80508). They never make a model eligible or keep one
+out, and a model missing either fact still runs.
+
+They live in `shared/model-information/sources/coding-tiers.json`, one entry per
+normalized lookup ID such as `gpt-5-3-codex`, so one entry covers every provider
+spelling of the same model. They are deliberately outside the canonical record
+schema: every released catalogue reader rejects published snapshots whose schema
+hash changes, so adding these fields to `schema.v1.json` would cut released AWF
+versions off central updates. The compiler validates the file, includes it in
+the catalogue revision, and projects it to
+`containers/api-proxy/model-information.coding-tiers.generated.json`. The
+routing fallback is the only reader; the projection never reaches `/reflect`,
+`schema.v1.json`, or the published snapshots.
+
+Each entry has:
+
+- `lookupId`;
+- `codingTier`: `standard`, `premium`, `lightweight` or `none`;
+- `releaseDate`: the day of the model's first official announcement, as
+  `YYYY-MM-DD`, no later than the file's review date, which itself can't be in
+  the future; and
+- `evidence`: one or more `url` and `quote` pairs from official vendor or GitHub
+  sources that support the tier and the date.
+
+Label the tier by how the vendor positions the model's product line, not by how
+good or cheap the model looks today, so tiers stay stable as models improve.
+
+| Tier | Meaning | Recognize it by |
+| --- | --- | --- |
+| `standard` | A capable everyday coding model: the middle of the pack and the safe first choice when nothing is known about the task. Any coding line that is not clearly premium or lightweight, and any vendor's only coding line. | "Balanced", "everyday" or "general purpose" wording, the vendor's main unsuffixed line, or a line specialized for coding: Claude Sonnet; GPT Sol, Terra and Codex; Gemini 4 Neon; MAI Code; Grok; Kimi. |
+| `premium` | The vendor's frontier line, placed above its everyday models for the hardest problems. | "Frontier", "most capable" or "flagship" wording for a line above an everyday line, or a Pro tier: Claude Opus, Fable and Mythos; GPT Astra; Gemini 4 Argon and Carbon. |
+| `lightweight` | The vendor's fast, low-cost line for quick or simple work. It can still run an agent, so it comes last among coding models rather than being excluded. | "Fastest", "most cost-efficient", "small", "lightweight" or "Flash" wording, a mini or nano, or GitHub's "Fast help with simple or repetitive tasks" group: Claude Haiku; GPT Luna and nano; Gemini Flash and Hydrogen; MAI Code Flash. |
+| `none` | Built for a job other than agentic coding, such as search, deep research, images, audio or realtime voice. | The vendor presents the line for that job. |
+
+For cases the table does not settle:
+
+- A variant that only changes speed, snapshot, context length or preview status
+  keeps its base model's tier; a mini or nano is lightweight and a Pro is premium.
+- Price, benchmark scores, measured speed and comparisons with newer or rival
+  models are never inputs. A newer lightweight model that beats an older standard
+  one stays lightweight.
+- When a vendor repositions a line, re-grade every model in it. OpenAI's Sol line
+  was the GPT-5.6 flagship but has been positioned as balanced since GPT-6 Astra,
+  so every Sol model is `standard`.
+- When the sources disagree or say nothing, omit that fact. An entry needs only
+  one of the two, and performance comparisons never count as evidence.
+- Models that can never enter an automatic pool, such as Decisions-only,
+  embedding or picker-hidden models, need no entry.
+
 ### Harness version constraints
 
 Model records can declare channel-specific harness requirements:
@@ -1264,6 +1316,7 @@ The broader pricing/eligibility migration remains separately gated.
 | `shared/model-information/sources/pricing-reference.json` (reviewed reference coverage, provider documentation and dates; rates derive from canonical tiers, with explicitly recorded reasoning-equals-output baseline) | `containers/api-proxy/ai-credits-pricing-reference.json` | Active test oracle only, not a runtime configured catalogue or feed. |
 | `shared/model-information/sources/mapping.json` (pinned endpoint family/ordering, patterns, routing, provenance) | `docs/model-api-mapping.json`, `containers/api-proxy/model-api-mapping.json` | Active byte-identical compatibility format, no routing behavior change. |
 | `shared/model-information/sources/target.json` (#10029/#10030 evidence and exact corrections) | `shared/model-information/target.generated.json`, `baseline-to-target.generated.json` | Staged only; named changes require explicit Gates 4–6 activation/review. |
+| `shared/model-information/sources/coding-tiers.json` (coding tier and first-announcement date per lookup ID, with quoted evidence; see [Coding tier and release date](#coding-tier-and-release-date)) | `containers/api-proxy/model-information.coding-tiers.generated.json`; validated by `models:check` and counted in the catalogue revision | Active for the routing fallback only. Never exposed through `/reflect` and not published; kept outside the canonical schema so published snapshot hashes are unchanged. |
 | Complete assembled maintained sources | `shared/model-information/catalog.generated.json`, `manifest.generated.json` | Static validated exports; not a central feed or live resolver input. |
 | `containers/api-proxy/models.dev.catalog.json` and `shared/model-information/imported/legacy-models-dev.metadata.json` (pinned raw bytes and provenance, not a native billing-provider mapping) | Governed imported snapshot and `containers/api-proxy/model-information.fallback-pricing.generated.json` | Active only for OpenRouter's full qualified IDs. Native-provider compatibility associations in `sources/pricing-reference.json` are explicit legacy accounting policy, not verified current billing evidence. |
 

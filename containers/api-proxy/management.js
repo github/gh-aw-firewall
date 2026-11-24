@@ -22,9 +22,13 @@ const {
   lookupModelRoutingMetadata,
 } = require('./model-api-mapping');
 const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
-const { normalizeModel } = require('./routing-catalogue');
+const { canonicalizeAgentEndpoint, normalizeModel } = require('./routing-catalogue');
 const { getReasoningScope } = require('./model-reasoning');
-const { getModelRoutingChoices } = require('./routing-candidates');
+const {
+  endpointsToProtocols,
+  getModelRoutingChoices,
+  normalizeRoutingEndpoints,
+} = require('./routing-candidates');
 const { reflectScopedAuto } = require('./scoped-auto-model');
 const { projectModelDecisionDiagnostics } = require('./model-decision-diagnostics');
 const { getAutomaticSelectionBlock } = require('./automatic-selection');
@@ -45,8 +49,11 @@ function filterModelCatalogue(entries, provider, modelPolicy, getModel) {
   });
 }
 
-function buildRoutingModelMetadata(provider, modelIds, runtimeRecords, scope) {
+function buildRoutingModelMetadata(provider, modelIds, runtimeRecords, scope, routingEndpoints = null) {
   if (!Array.isArray(modelIds)) return null;
+  const allowedProtocols = routingEndpoints == null
+    ? null
+    : endpointsToProtocols(normalizeRoutingEndpoints(routingEndpoints, 'routing.endpoints'));
   const runtimeById = new Map(
     (Array.isArray(runtimeRecords) ? runtimeRecords : [])
       .filter(record => typeof record?.id === 'string')
@@ -61,9 +68,12 @@ function buildRoutingModelMetadata(provider, modelIds, runtimeRecords, scope) {
     const endpointMapping = lookupModelEndpoints(id, provider);
     const normalized = normalizeModel(id, runtime, provider, scope);
     const efforts = Array.isArray(normalized.efforts) ? normalized.efforts : null;
-    const endpoints = Array.isArray(runtime?.supportedEndpoints)
+    const rawEndpoints = Array.isArray(runtime?.supportedEndpoints)
       ? runtime.supportedEndpoints
       : (endpointMapping?.endpoints || []);
+    const endpoints = allowedProtocols
+      ? [...new Set(rawEndpoints.map(canonicalizeAgentEndpoint))]
+      : rawEndpoints;
     const runtimeHasMetadata = Array.isArray(runtime?.supportedReasoningEfforts) ||
       Array.isArray(runtime?.capabilities?.supports?.reasoning_effort) ||
       runtime?.capabilities?.supports?.reasoningEffort === false ||
@@ -72,7 +82,8 @@ function buildRoutingModelMetadata(provider, modelIds, runtimeRecords, scope) {
       (Number.isInteger(runtime?.capabilities?.limits?.max_context_window_tokens) &&
         runtime.capabilities.limits.max_context_window_tokens > 0);
     const hasMaintainedMetadata = maintained !== null;
-    const candidateMetadataComplete = getModelRoutingChoices(normalized, provider).length > 0;
+    const candidateMetadataComplete = getModelRoutingChoices(normalized, provider).length > 0 ||
+      (allowedProtocols !== null && getModelRoutingChoices(normalized, provider, allowedProtocols).length > 0);
     const automaticSelectionBlock = getAutomaticSelectionBlock(runtime);
     return {
       model_id: id,
@@ -143,6 +154,7 @@ function createManagementHandlers(deps) {
     getMaxCacheMissesUsage,
     getPermissionDeniedUsage,
     getRoutingState = () => null,
+    getRoutingEndpointScope = () => null,
     modelPolicy = null,
     modelBudgetEnabled = false,
     getRecentModelDecisions = () => null,
@@ -187,6 +199,7 @@ function createManagementHandlers(deps) {
     const runtimeModelMetadata = getRuntimeModelMetadata();
     const routingModelMetadata = getPrivateRoutingModelMetadata();
     const modelAliases = getModelAliases();
+    const routingEndpointScope = getRoutingEndpointScope();
     const reflection = {
       endpoints: getAdapters().map(adapter => {
         const info = adapter.getReflectionInfo();
@@ -235,6 +248,7 @@ function createManagementHandlers(deps) {
             models,
             privateRoutingModelMetadata,
             scope,
+            routingEndpointScope?.provider === adapter.name ? routingEndpointScope.endpoints : null,
           ),
           models_url: info.models_url,
           ...(info.credential_kind !== undefined && { credential_kind: info.credential_kind }),

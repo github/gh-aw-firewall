@@ -1,7 +1,7 @@
 'use strict';
 
 const { createRoutingError } = require('./routing-errors');
-const { assertValidTopK, normalizePolicyList } = require('./routing-candidates');
+const { assertValidTopK, normalizePolicyList, normalizeRoutingEndpoints } = require('./routing-candidates');
 
 const ROUTING_GOALS = new Set(['cost']);
 const ROUTING_MODES = new Set(['economy', 'balanced', 'robust', 'auto']);
@@ -47,7 +47,12 @@ function parseRoutingConfig(raw) {
     throw configurationError('AWF_ROUTING_CONFIG must contain valid JSON');
   }
 
-  requireClosedObject(value, 'routing', ['objective', 'task'], ['objective', 'task', 'provider', 'candidateModels', 'topK']);
+  requireClosedObject(
+    value,
+    'routing',
+    ['objective', 'task'],
+    ['objective', 'task', 'provider', 'candidateModels', 'endpoints', 'topK', 'adaptiveSummaryFile'],
+  );
   requireClosedObject(value.objective, 'routing.objective', ['goal', 'mode']);
   requireClosedObject(value.task, 'routing.task', ['conversationFile']);
 
@@ -68,12 +73,20 @@ function parseRoutingConfig(raw) {
     }
     candidateModels = normalizePolicyList(value.candidateModels, 'routing.candidateModels');
   }
+  let endpoints;
+  if (Object.hasOwn(value, 'endpoints')) {
+    endpoints = normalizeRoutingEndpoints(value.endpoints, 'routing.endpoints');
+  }
   if (Object.hasOwn(value, 'topK')) assertValidTopK(value.topK);
 
   const config = {
     provider,
     ...(candidateModels ? { candidateModels: Object.freeze(candidateModels) } : {}),
+    ...(endpoints ? { endpoints } : {}),
     ...(value.topK !== undefined ? { topK: value.topK } : {}),
+    ...(value.adaptiveSummaryFile !== undefined ? {
+      adaptiveSummaryFile: requireNonblankString(value.adaptiveSummaryFile, 'routing.adaptiveSummaryFile'),
+    } : {}),
     objective: Object.freeze({
       goal: value.objective.goal,
       mode: value.objective.mode,

@@ -97,6 +97,17 @@ describe('routing configuration', () => {
       .toThrow('routing.provider is not supported');
   });
 
+  it('accepts an adaptive summary path and rejects a blank one', () => {
+    const base = { objective: { goal: 'cost', mode: 'balanced' }, task: { conversationFile: '/private/task' } };
+    const parse = fields => parseRoutingConfig(JSON.stringify({ ...base, ...fields }));
+    expect(parse({ adaptiveSummaryFile: '/run/awf-routing/input/adaptive-summary.json' }).adaptiveSummaryFile)
+      .toBe('/run/awf-routing/input/adaptive-summary.json');
+    expect(parse({})).not.toHaveProperty('adaptiveSummaryFile');
+    for (const adaptiveSummaryFile of ['', ' ', 3, null]) {
+      expect(() => parse({ adaptiveSummaryFile })).toThrow('routing.adaptiveSummaryFile must be a nonblank string');
+    }
+  });
+
   it('accepts an explicit bounded integer topK without enabling a manual model override', () => {
     const base = { objective: { goal: 'cost', mode: 'balanced' }, task: { conversationFile: '/private/task' } };
     const parse = fields => parseRoutingConfig(JSON.stringify({ ...base, ...fields }));
@@ -108,5 +119,38 @@ describe('routing configuration', () => {
     for (const topK of [0, -1, 33, 1.5, '3', null, true]) {
       expect(() => parse({ topK })).toThrow('routing.topK');
     }
+  });
+
+  it('accepts an optional unique list of canonical engine endpoints and rejects invalid values', () => {
+    const base = { objective: { goal: 'cost', mode: 'balanced' }, task: { conversationFile: '/private/task' } };
+    const parse = fields => parseRoutingConfig(JSON.stringify({ ...base, ...fields }));
+    expect(parse({})).not.toHaveProperty('endpoints');
+
+    for (const endpoints of [
+      ['/responses'],
+      ['/v1/messages'],
+      ['/responses', '/chat/completions'],
+      ['/v1/messages', '/responses', '/chat/completions'],
+    ]) {
+      const parsed = parse({ endpoints });
+      expect(parsed.endpoints).toEqual(endpoints);
+      expect(Object.isFrozen(parsed.endpoints)).toBe(true);
+    }
+
+    for (const endpoints of [[], null, '/responses', {}]) {
+      expect(() => parse({ endpoints })).toThrow('routing.endpoints must be a non-empty array');
+    }
+    for (const endpoints of [
+      ['/v1/decisions'],
+      ['responses'],
+      [' /responses '],
+      ['/RESPONSES'],
+      [123],
+      [null],
+    ]) {
+      expect(() => parse({ endpoints })).toThrow('routing.endpoints[0] must be one of');
+    }
+    expect(() => parse({ endpoints: ['/responses', '/responses'] }))
+      .toThrow('routing.endpoints must not contain duplicates');
   });
 });

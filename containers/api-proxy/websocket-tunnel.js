@@ -5,7 +5,7 @@ const tls = require('tls');
 const crypto = require('crypto');
 const { URL } = require('url');
 const { computeTokenBudgetUsage } = require('./token-budget-log');
-const { applyCopilotHostHeaders, mergeInjectedHeaders } = require('./request-headers');
+const { applyCopilotHostHeaders, mergeInjectedHeaders, applyRequestTraceHeaders } = require('./request-headers');
 const { rememberInjectedCredentials, redactCredentialText } = require('./credential-protection');
 const { createWebSocketCredentialTransform } = require('./credential-websocket');
 
@@ -150,6 +150,7 @@ function createWebSocketTunnel({
           if (!shouldStripHeader(name) && name.toLowerCase() !== 'sec-websocket-extensions') forwardHeaders[name] = value;
         }
         mergeInjectedHeaders(forwardHeaders, injectHeaders, targetHost);
+        applyRequestTraceHeaders(forwardHeaders, { provider, targetHost, targetScheme });
         applyCopilotHostHeaders(forwardHeaders, targetHost);
         forwardHeaders.host = targetHost;
 

@@ -3,6 +3,7 @@ import { WrapperConfig } from '../../types';
 import { addGithubTokenEnvVars } from './github-token-isolation';
 import { COPILOT_BROKER_PRIVATE_ENV, COPILOT_BROKER_CONTEXT_ENV } from '../../copilot-token-broker';
 import { trustedServiceSecretNames } from '../../trusted-service';
+import { OIDC_AUTH_ENV_VARS, OPENAI_ENV, ANTHROPIC_ENV } from '../../api-proxy-env-constants';
 
 export function buildExclusionSet(config: WrapperConfig): Set<string> {
   const excludedEnvVars = new Set([
@@ -21,6 +22,12 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     'ACTIONS_RESULTS_URL',
     'ACTIONS_ID_TOKEN_REQUEST_URL',
     'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+    ...OIDC_AUTH_ENV_VARS,
+    'AWF_AUTH_ANTHROPIC_TOKEN_URL',
+    OPENAI_ENV.AUTH_HEADER,
+    OPENAI_ENV.AUTH_SCHEME,
+    ANTHROPIC_ENV.AUTH_HEADER,
+    ANTHROPIC_ENV.AUTH_SCHEME,
     ...PROXY_ENV_VARS,
     'AWF_PREFLIGHT_BINARY',
     'AWF_ENSURE_USR_LOCAL_BIN',

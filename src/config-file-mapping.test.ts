@@ -1,6 +1,40 @@
 import { mapAwfFileConfigToCliOptions } from './config-mapper';
 
 describe('mapAwfFileConfigToCliOptions', () => {
+  it('maps Databricks OIDC and static adapter auth schemes', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        auth: {
+          type: 'github-oidc',
+          provider: 'databricks',
+          databricksHost: 'https://workspace.cloud.databricks.com',
+          databricksClientId: 'service-principal',
+          oidcAudience: 'workspace-audience',
+        },
+        targets: {
+          openai: { authHeader: 'Authorization', authScheme: 'Bearer' },
+          anthropic: { authHeader: 'Authorization', authScheme: 'Bearer' },
+        },
+      },
+    });
+    expect(result).toMatchObject({
+      authType: 'github-oidc',
+      authProvider: 'databricks',
+      authDatabricksHost: 'https://workspace.cloud.databricks.com',
+      authDatabricksClientId: 'service-principal',
+      authOidcAudience: 'workspace-audience',
+      openaiApiAuthHeader: 'Authorization',
+      openaiApiAuthScheme: 'Bearer',
+      anthropicApiAuthHeader: 'Authorization',
+      anthropicApiAuthScheme: 'Bearer',
+    });
+    const unset = mapAwfFileConfigToCliOptions({});
+    expect(unset.authDatabricksHost).toBeUndefined();
+    expect(unset.authDatabricksClientId).toBeUndefined();
+    expect(unset.openaiApiAuthScheme).toBeUndefined();
+    expect(unset.anthropicApiAuthScheme).toBeUndefined();
+  });
+
   it.each([-1, 0])('omits a disabled AI-credit budget of %s', (maxAiCredits) => {
     expect(mapAwfFileConfigToCliOptions({ apiProxy: { maxAiCredits } }).maxAiCredits).toBeUndefined();
   });
@@ -135,19 +169,21 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.openaiBaseUrlEnv).toBe('CODEX_LB_BASE_URL');
   });
 
-  it('preserves routing candidate models in the routed config', () => {
+  it('preserves routing candidate models and endpoints in the routed config', () => {
     const candidateModels = ['gpt-5.6-luna'];
+    const endpoints = ['/responses' as const];
     const result = mapAwfFileConfigToCliOptions({
       apiProxy: {
         routing: {
           candidateModels,
+          endpoints,
           objective: { goal: 'cost', mode: 'balanced' },
           task: { conversationFile: '/tmp/conversation.json' },
         },
       },
     });
 
-    expect(result.modelRouting).toMatchObject({ candidateModels });
+    expect(result.modelRouting).toMatchObject({ candidateModels, endpoints });
   });
 
   it('maps authHeader fields for openai and anthropic targets', () => {

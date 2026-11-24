@@ -379,6 +379,7 @@ describe('OpenAI adapter with AWS OIDC', () => {
 
   it('should not create AWS provider when required vars are missing', () => {
     const adapter = createOpenAIAdapter({
+      OPENAI_API_TARGET: 'my-resource.openai.azure.com',
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'aws',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -396,6 +397,7 @@ describe('OpenAI adapter with GCP OIDC', () => {
 
   it('should create GCP OIDC provider when provider is gcp', () => {
     const adapter = createOpenAIAdapter({
+      OPENAI_API_TARGET: 'my-resource.openai.azure.com',
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'gcp',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -412,6 +414,7 @@ describe('OpenAI adapter with GCP OIDC', () => {
 
   it('should not create GCP provider when workload identity provider is missing', () => {
     const adapter = createOpenAIAdapter({
+      OPENAI_API_TARGET: 'my-resource.openai.azure.com',
       AWF_AUTH_TYPE: 'github-oidc',
       AWF_AUTH_PROVIDER: 'gcp',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',

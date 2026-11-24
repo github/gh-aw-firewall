@@ -301,7 +301,7 @@ test('all gh builds use the fixed Go toolchain and assert compiled metadata', ()
   const imagePins = {
     'agent': 'golang:1.27.3-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd',
     'cli-proxy': 'golang:1.27.4-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280',
-    'build-tools': 'golang:1.27.3-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd',
+    'build-tools': 'golang:1.27.4-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280',
   };
   for (const [component, imagePin] of Object.entries(imagePins)) {
     const dockerfile = fs.readFileSync(path.join(root, 'containers', component, 'Dockerfile'), 'utf8');

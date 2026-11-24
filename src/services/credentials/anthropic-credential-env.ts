@@ -1,6 +1,6 @@
 import { WrapperConfig, API_PROXY_PORTS } from '../../types';
 import { getLowerCaseProcessEnvValue } from '../../env-utils';
-import { buildProviderCredentialIsolationEnv } from './provider-credential-isolation';
+import { buildProviderCredentialIsolationEnv, isDatabricksAdapterConfigured } from './provider-credential-isolation';
 
 interface AnthropicCredentialEnvParams {
   config: WrapperConfig;
@@ -10,7 +10,8 @@ interface AnthropicCredentialEnvParams {
 function shouldProxyAnthropic(config: WrapperConfig): boolean {
   const normalizedAuthType = getLowerCaseProcessEnvValue('AWF_AUTH_TYPE') || '';
   const normalizedAuthProvider = getLowerCaseProcessEnvValue('AWF_AUTH_PROVIDER') || '';
-  return Boolean(config.anthropicApiKey || (normalizedAuthType === 'github-oidc' && normalizedAuthProvider === 'anthropic'));
+  return Boolean(config.anthropicApiKey || (normalizedAuthType === 'github-oidc' && normalizedAuthProvider === 'anthropic') ||
+    isDatabricksAdapterConfigured(config, 'anthropic'));
 }
 
 export function buildAnthropicCredentialEnv(params: AnthropicCredentialEnvParams): Record<string, string> {

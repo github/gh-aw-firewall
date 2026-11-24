@@ -91,7 +91,7 @@ describe('routing contracts', () => {
         expect(validateCapabilities(
           testCase.response,
           { goal: 'cost', mode: 'auto' },
-          { name: 'gh-aw-router', version: '0.4.0' },
+          { name: 'gh-aw-router', version: '0.4.1' },
         )).toBe(testCase.response);
       } else if (testCase.path === '/classify') {
         expect(validateClassifyResponse(testCase.response, testCase.request.models))

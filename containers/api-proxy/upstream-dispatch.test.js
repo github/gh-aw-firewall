@@ -38,6 +38,31 @@ function setup() {
 
 beforeEach(() => validateReasoningEffort.mockReset());
 
+test('rechecks trace propagation for each outbound attempt before signing', () => {
+  const saved = process.env.OPENAI_API_TARGET;
+  process.env.OPENAI_API_TARGET = 'https://api.example.com';
+  try {
+    const h = setup();
+    const traceparent = '00-aabbccddeeff00112233445566778899-1122334455667788-01';
+    h.otel.getRequestTraceHeaders = jest.fn(() => ({ traceparent }));
+    const requestSigner = jest.fn(request => request.headers);
+    h.dispatch({ baggage: 'private=value', tracestate: 'caller=value' }, {
+      ...h.context, requestSigner,
+    });
+    expect(h.otel.getRequestTraceHeaders).toHaveBeenCalledWith(h.context.span);
+    expect(requestSigner.mock.calls[0][0].headers).toEqual({ traceparent });
+    expect(h.https.request.mock.calls[0][0].headers).toEqual({ traceparent });
+
+    const retryHeaders = { ...h.https.request.mock.calls[0][0].headers };
+    h.dispatch(retryHeaders, { ...h.context, targetHost: 'other.example.com' });
+    expect(h.https.request.mock.calls[1][0].headers).toEqual({});
+    expect(retryHeaders).toEqual({ traceparent });
+  } finally {
+    if (saved === undefined) delete process.env.OPENAI_API_TARGET;
+    else process.env.OPENAI_API_TARGET = saved;
+  }
+});
+
 test.each([
   ['invalid_capability', 'capabilityFailure', 'missing', 'capability_missing'],
   ['invalid_capability', 'capabilityFailure', 'scheme', 'capability_scheme'],

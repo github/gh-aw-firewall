@@ -219,6 +219,107 @@ describe('routing candidates', () => {
       .toThrow(expect.objectContaining({ code: 'no_route', retryable: false }));
   });
 
+  describe('engine endpoint filtering', () => {
+    function buildWithEndpoints(models, endpoints, provider = 'copilot') {
+      return buildRoutingCandidates({
+        catalogue: catalogue(models, provider),
+        endpoints,
+      });
+    }
+
+    it('restricts Codex-like Responses-only runs to Responses models and excludes Chat-only and Messages-only models', () => {
+      const pool = buildWithEndpoints([
+        model('gpt-responses', { efforts: ['medium'], protocols: ['responses'] }),
+        model('gpt-dual', { efforts: ['medium'], protocols: ['chat-completions', 'responses'] }),
+        model('effortless-responses', { efforts: [], protocols: ['responses'] }),
+        model('chat-only', { efforts: ['medium'], protocols: ['chat-completions'] }),
+        model('claude-haiku-4.5', { efforts: [], protocols: ['chat-completions', 'messages'] }),
+        model('messages-only', { efforts: ['medium'], protocols: ['messages'] }),
+      ], ['/responses']);
+
+      expect(pool.choices.map(choice => choice.model)).toEqual([
+        'github-copilot/effortless-responses',
+        'github-copilot/gpt-dual',
+        'github-copilot/gpt-responses',
+      ]);
+      expect(Object.values(pool.byId).every(mapping => mapping.protocol === 'responses')).toBe(true);
+    });
+
+    it('selects Messages for Claude-on-Copilot models including effortless Haiku and excludes non-Messages models', () => {
+      const pool = buildWithEndpoints([
+        model('claude-sonnet-4.6', { efforts: ['low', 'medium'], protocols: ['chat-completions', 'messages'] }),
+        model('claude-haiku-4.5', { efforts: [], protocols: ['chat-completions', 'messages'] }),
+        model('claude-messages-only', { efforts: [], protocols: ['messages'] }),
+        model('gpt-5.4', { efforts: ['medium'], protocols: ['responses', 'chat-completions'] }),
+      ], ['/v1/messages']);
+
+      expect(pool.choices.map(choice => choice.model)).toEqual([
+        'github-copilot/claude-haiku-4.5',
+        'github-copilot/claude-messages-only',
+        'github-copilot/claude-sonnet-4.6',
+        'github-copilot/claude-sonnet-4.6',
+      ]);
+      expect(Object.values(pool.byId).every(mapping => mapping.protocol === 'messages')).toBe(true);
+    });
+
+    it('excludes Messages-only models for Copilot CLI endpoints while preserving effort-aware preference', () => {
+      const pool = buildWithEndpoints([
+        model('gpt-dual', { efforts: ['medium'], protocols: ['responses', 'chat-completions'] }),
+        model('effortless-dual', { efforts: [], protocols: ['responses', 'chat-completions'] }),
+        model('claude-dual', { efforts: ['medium'], protocols: ['chat-completions', 'messages'] }),
+        model('messages-only', { efforts: ['medium'], protocols: ['messages'] }),
+      ], ['/responses', '/chat/completions']);
+
+      expect(pool.choices.map(choice => choice.model)).toEqual([
+        'github-copilot/claude-dual',
+        'github-copilot/effortless-dual',
+        'github-copilot/gpt-dual',
+      ]);
+      expect(Object.values(pool.byId).map(mapping => mapping.protocol)).toEqual([
+        'chat-completions',
+        'chat-completions',
+        'responses',
+      ]);
+    });
+
+    it('treats endpoints as an unordered allowlist for multi-endpoint engines such as Pi', () => {
+      const models = [
+        model('gpt-dual', { efforts: ['medium'], protocols: ['responses', 'chat-completions'] }),
+        model('claude-dual', { efforts: ['medium'], protocols: ['chat-completions', 'messages'] }),
+        model('claude-haiku-4.5', { efforts: [], protocols: ['chat-completions', 'messages'] }),
+        model('messages-only', { efforts: ['medium'], protocols: ['messages'] }),
+      ];
+      const first = buildWithEndpoints(models, ['/v1/messages', '/responses', '/chat/completions']);
+      const permuted = buildWithEndpoints(models, ['/chat/completions', '/v1/messages', '/responses']);
+
+      expect(first).toEqual(permuted);
+      expect(Object.values(first.byId).map(mapping => [mapping.wireModel, mapping.protocol])).toEqual([
+        ['claude-dual', 'chat-completions'],
+        ['claude-haiku-4.5', 'chat-completions'],
+        ['gpt-dual', 'responses'],
+        ['messages-only', 'messages'],
+      ]);
+    });
+
+    it('enforces Anthropic provider Messages requirement against configured endpoints', () => {
+      const anthropicModel = model('claude-sonnet-5', { efforts: ['medium'], protocols: ['messages'] });
+      expect(() => buildWithEndpoints([anthropicModel], ['/responses'], 'anthropic'))
+        .toThrow(expect.objectContaining({ code: 'no_route', retryable: false }));
+
+      const pool = buildWithEndpoints([anthropicModel], ['/v1/messages'], 'anthropic');
+      expect(pool.choices).toEqual([
+        { id: 'choice-0001', model: 'anthropic/claude-sonnet-5', effort: 'medium' },
+      ]);
+      expect(pool.byId['choice-0001'].protocol).toBe('messages');
+    });
+
+    it('throws no_route when endpoints exclude every permitted model', () => {
+      expect(() => buildWithEndpoints([
+        model('chat-only', { efforts: ['medium'], protocols: ['chat-completions'] }),
+      ], ['/responses'])).toThrow(expect.objectContaining({ code: 'no_route', retryable: false }));
+    });
+  });
+
   it('deduplicates overlapping policy patterns, model identities, and efforts', () => {
     const pool = build([
       model('gpt-test', { efforts: ['low', 'low'] }), model('GPT-TEST'), model('gpt-test'),

@@ -224,6 +224,7 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
   getMaxCacheMissesUsage: () => getMaxCacheMissesReflectState(),
   getPermissionDeniedUsage: () => getPermissionDeniedReflectState(),
   getRoutingState: () => routing?.getReflectState() ?? null,
+  getRoutingEndpointScope: () => routing?.getConfiguredEndpointScope?.() ?? null,
   diagnosticsContext,
   getRecentModelDecisions: () => modelDecisionObservation.getRecent(),
   modelBudgetEnabled: Boolean(process.env.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET),

@@ -1,6 +1,56 @@
 import { validateAwfFileConfig } from './config-file';
 
 describe('validateAwfFileConfig', () => {
+  describe('Databricks OIDC', () => {
+    const auth = {
+      type: 'github-oidc',
+      provider: 'databricks',
+      databricksHost: 'https://workspace.cloud.databricks.com',
+      oidcAudience: 'workspace-audience',
+    };
+
+    it('accepts workspace origins with optional client ID', () => {
+      expect(validateAwfFileConfig({ apiProxy: { auth } })).toEqual([]);
+      expect(validateAwfFileConfig({
+        apiProxy: { auth: { ...auth, databricksHost: `${auth.databricksHost}:8443/`, databricksClientId: 'client' } },
+      })).toEqual([]);
+    });
+
+    it.each(['databricksHost', 'oidcAudience'])('requires %s', (key) => {
+      const missing = { ...auth } as Record<string, string>;
+      delete missing[key];
+      expect(validateAwfFileConfig({ apiProxy: { auth: missing } })).not.toEqual([]);
+    });
+
+    it.each(['', ' ', '\t\n'])('rejects empty audience %j', (oidcAudience) => {
+      expect(validateAwfFileConfig({ apiProxy: { auth: { ...auth, oidcAudience } } })).not.toEqual([]);
+    });
+
+    it.each([
+      'http://workspace.cloud.databricks.com',
+      '******workspace.cloud.databricks.com',
+      'https://workspace.cloud.databricks.com/serving-endpoints',
+      'https://workspace.cloud.databricks.com?query',
+      'https://workspace.cloud.databricks.com#fragment',
+      'https://workspace.cloud.databricks.com:65536',
+      'https://workspace.cloud.databricks.com:0',
+      ' https://workspace.cloud.databricks.com',
+      'https://workspace.cloud.databricks.com\n',
+      'https://workspace.cloud.databricks.com\\evil',
+    ])('rejects invalid workspace origin %j', (databricksHost) => {
+      expect(validateAwfFileConfig({ apiProxy: { auth: { ...auth, databricksHost } } })).not.toEqual([]);
+    });
+  });
+
+  it.each(['openai', 'anthropic'])('validates HTTP auth schemes for %s', (provider) => {
+    for (const authScheme of ['Bearer', 'Basic', 'custom-token', "!#$%&'*+.^_`|~012Az-"]) {
+      expect(validateAwfFileConfig({ apiProxy: { targets: { [provider]: { authScheme } } } })).toEqual([]);
+    }
+    for (const authScheme of ['', 'Bearer ', 'two tokens', 'Bearer\n', 'Bearer\r\nInjected:', 'bëarer', 'scheme:']) {
+      expect(validateAwfFileConfig({ apiProxy: { targets: { [provider]: { authScheme } } } })).not.toEqual([]);
+    }
+  });
+
   it('accepts valid nested config sections', () => {
     const errors = validateAwfFileConfig({
       network: { allowDomains: ['github.com'] },
@@ -321,11 +371,38 @@ describe('validateAwfFileConfig', () => {
       experimental: { modelRouting: true },
       apiProxy: { routing: { ...valid, candidateModels: [] } },
     })).toContain('config.apiProxy.routing.candidateModels must NOT have fewer than 1 items');
+    const validateEndpoints = (endpoints: unknown) => validateAwfFileConfig({
+      experimental: { modelRouting: true }, apiProxy: { routing: { ...valid, endpoints } },
+    });
+    for (const endpoints of [
+      ['/responses'],
+      ['/v1/messages'],
+      ['/responses', '/chat/completions'],
+      ['/v1/messages', '/responses', '/chat/completions'],
+    ]) {
+      expect(validateEndpoints(endpoints)).toEqual([]);
+    }
+    for (const endpoints of [
+      [],
+      ['/responses', '/responses'],
+      ['/v1/decisions'],
+      ['responses'],
+      [123],
+      '/responses',
+      null,
+    ]) {
+      expect(validateEndpoints(endpoints)).not.toEqual([]);
+    }
     const validateK = (topK: unknown) => validateAwfFileConfig({
       experimental: { modelRouting: true }, apiProxy: { routing: { ...valid, topK } },
     });
     for (const k of [1, 3, 32]) expect(validateK(k)).toEqual([]);
     for (const k of [0, -1, 33, 1.5, '3', null, true]) expect(validateK(k)).not.toEqual([]);
+    const validateSummary = (adaptiveSummaryFile: unknown) => validateAwfFileConfig({
+      experimental: { modelRouting: true }, apiProxy: { routing: { ...valid, adaptiveSummaryFile } },
+    });
+    expect(validateSummary('/runner/temp/gh-aw/adaptive-summary.json')).toEqual([]);
+    for (const value of ['', 3, null, true, ['/a']]) expect(validateSummary(value)).not.toEqual([]);
     expect(validateAwfFileConfig({
       experimental: { modelRouting: true }, apiProxy: { routing: { ...valid, topK: 3, excludedModels: ['openai/model-a'] } },
     })).toContain('config.apiProxy.routing.excludedModels is not supported');

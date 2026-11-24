@@ -139,6 +139,40 @@ function lookupModelRoutingMetadata(model, provider) {
   };
 }
 
+const AGENT_MAPPING_ENDPOINTS = new Set(['chat_completions', 'responses', 'messages']);
+
+function hasExactModelEndpointEvidence(model, provider) {
+  if (!_mapping || !model || !provider) return false;
+  const prov = _mapping.providers?.[provider];
+  if (!prov || !Array.isArray(prov.models)) return false;
+  const protocols = prov.modelProtocols && Object.hasOwn(prov.modelProtocols, model)
+    ? prov.modelProtocols[model]
+    : undefined;
+  if (Array.isArray(protocols) && protocols.some(item =>
+    item?.support?.state === 'supported' && AGENT_MAPPING_ENDPOINTS.has(item.protocol))) {
+    return true;
+  }
+  for (const entry of prov.models) {
+    const hasAgentEndpoint = Array.isArray(entry.endpoints) &&
+      entry.endpoints.some(endpoint => AGENT_MAPPING_ENDPOINTS.has(endpoint));
+    if (!hasAgentEndpoint) continue;
+    if (Array.isArray(entry.patterns) &&
+      entry.patterns.some(pattern => !pattern.endsWith('*') && pattern === model)) {
+      return true;
+    }
+    if (Array.isArray(entry.routingPatterns) &&
+      entry.routingPatterns.some(pattern => !pattern.endsWith('*') && pattern === model)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isFamilyPatternOnlyEndpoint(model, provider) {
+  if (!model || !provider) return false;
+  return lookupModelEndpoints(model, provider) !== null && !hasExactModelEndpointEvidence(model, provider);
+}
+
 /**
  * Simple glob matching: supports trailing `*` wildcard only.
  * @param {string} value
@@ -177,6 +211,8 @@ function getModelApiMappingReflect() {
 module.exports = {
   getModelApiMapping,
   getModelApiMappingReflect,
+  hasExactModelEndpointEvidence,
+  isFamilyPatternOnlyEndpoint,
   lookupModelEndpoints,
   lookupModelProtocol,
   lookupModelRoutingMetadata,

@@ -1,5 +1,45 @@
 'use strict';
 const { markCredentialHeaders, getHeaderCredentials } = require('../credential-protection');
+const { validateHeaderValue } = require('http');
+
+function validateAuthSchemeEnv(envVarName, value) {
+  if (value === undefined || value === '') return '';
+  if (typeof value !== 'string' || !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(value)) {
+    throw new Error(`Invalid ${envVarName} value: expected an HTTP authentication scheme token`);
+  }
+  return value;
+}
+
+function buildStaticAuthHeaderFn({ headerName, scheme, defaultHeaderName, prefix = 'Bearer' } = {}) {
+  const legacyBuilder = buildAuthHeaderFn({ headerName: headerName || defaultHeaderName, prefix });
+  return (key, extraHeaders) => {
+    if (!scheme) {
+      const headers = legacyBuilder(key, extraHeaders);
+      if (key !== undefined && key !== null) {
+        try {
+          const name = headerName || defaultHeaderName || 'Authorization';
+          validateHeaderValue(name, headers[name]);
+        } catch {
+          throw new Error('Invalid static authentication credential: expected a safe HTTP header value');
+        }
+      }
+      const rawKey = typeof key === 'string' ? key.replace(/^(?:Bearer|token)\s+/i, '') : key;
+      return markCredentialHeaders(headers, [...getHeaderCredentials(headers), rawKey]);
+    }
+    const name = headerName || 'Authorization';
+    const alreadyPrefixed = typeof key === 'string'
+      && key.slice(0, scheme.length).toLowerCase() === scheme.toLowerCase()
+      && /[ \t]/.test(key[scheme.length] || '');
+    const value = alreadyPrefixed ? key : `${scheme} ${key}`;
+    try {
+      validateHeaderValue(name, value);
+    } catch {
+      throw new Error('Invalid static authentication credential: expected a safe HTTP header value');
+    }
+    const unprefixedKey = alreadyPrefixed ? key.slice(scheme.length + 1).trim() : key;
+    return markCredentialHeaders({ ...extraHeaders, [name]: value }, [key, unprefixedKey, value]);
+  };
+}
 
 /**
  * Shared auth-header construction helpers for provider adapters.
@@ -83,4 +123,4 @@ function withCopilotIntegration(headers, integrationId) {
   return markCredentialHeaders({ ...headers, 'Copilot-Integration-Id': integrationId }, getHeaderCredentials(headers));
 }
 
-module.exports = { tokenAuthHeaders, bearerAuthHeaders, providerKeyHeaders, withCopilotIntegration, buildAuthHeaderFn };
+module.exports = { tokenAuthHeaders, bearerAuthHeaders, providerKeyHeaders, withCopilotIntegration, buildAuthHeaderFn, validateAuthSchemeEnv, buildStaticAuthHeaderFn };

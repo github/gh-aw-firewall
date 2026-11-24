@@ -4,6 +4,12 @@ import {
   testHelpers,
   buildApiProxyBaseEnv,
 } from './api-proxy-env-config';
+import { buildProviderTargetEnv } from './api-proxy-env-config';
+import { buildAgentEnvironment } from './agent-environment/environment-builder';
+import { buildAgentCredentialEnv } from './api-proxy-credential-env';
+import { buildOpenAiCredentialEnv } from './credentials/openai-credential-env';
+import { buildAnthropicCredentialEnv } from './credentials/anthropic-credential-env';
+import { OIDC_AUTH_ENV_VARS } from '../api-proxy-env-constants';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaMockFactory());
@@ -25,6 +31,236 @@ const networkConfig = {
   agentIp: '172.30.0.20',
   proxyIp: '172.30.0.30',
 };
+
+describe('Databricks keyless routing and sidecar-only auth', () => {
+  const workspace = 'workspace.cloud.databricks.com';
+  const config = {
+    ...baseConfig,
+    workDir: process.cwd(),
+    enableApiProxy: true,
+    authType: 'github-oidc',
+    authProvider: 'databricks',
+    authDatabricksHost: `https://${workspace}`,
+    authOidcAudience: 'workspace-audience',
+  };
+  const envKeys = [
+    ...OIDC_AUTH_ENV_VARS,
+    'OPENAI_API_TARGET', 'ANTHROPIC_API_TARGET', 'OPENAI_ENDPOINT_OVERRIDE', 'OPENAI_BASE_URL_ENV',
+    'DATABRICKS_BASE_URL_TEST', 'AWF_OPENAI_AUTH_HEADER', 'AWF_OPENAI_AUTH_SCHEME',
+    'AWF_ANTHROPIC_AUTH_HEADER', 'AWF_ANTHROPIC_AUTH_SCHEME', 'AWF_AUTH_ANTHROPIC_TOKEN_URL',
+    'ACTIONS_ID_TOKEN_REQUEST_URL', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+    'COPILOT_PROVIDER_TYPE', 'COPILOT_PROVIDER_BASE_URL', 'AWF_AUTH_PRIVATE_EXTENSION',
+    'COPILOT_API_TARGET', 'GEMINI_API_TARGET', 'VERTEX_API_TARGET',
+  ];
+  let saved: Record<string, string | undefined>;
+  beforeEach(() => {
+    saved = {};
+    for (const name of envKeys) {
+      saved[name] = process.env[name];
+      delete process.env[name];
+    }
+  });
+  afterEach(() => {
+    for (const name of envKeys) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
+    }
+  });
+
+  it('routes only explicitly selected adapters with placeholders and no static keys', () => {
+    const openaiConfig = { ...config, openaiApiTarget: workspace, openaiApiBasePath: '/serving-endpoints' };
+    const openai = buildOpenAiCredentialEnv({ config: openaiConfig, proxyIp: networkConfig.proxyIp });
+    expect(openai.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000');
+    expect(openai.OPENAI_API_KEY).toBe('sk-placeholder-for-api-proxy');
+    expect(openai.CODEX_API_KEY).toBe('sk-placeholder-for-api-proxy');
+    expect(buildAnthropicCredentialEnv({ config: openaiConfig, proxyIp: networkConfig.proxyIp })).toEqual({});
+
+    const anthropicConfig = { ...config, anthropicApiTarget: workspace, anthropicApiBasePath: '/serving-endpoints/claude' };
+    const anthropic = buildAnthropicCredentialEnv({ config: anthropicConfig, proxyIp: networkConfig.proxyIp });
+    expect(anthropic.ANTHROPIC_BASE_URL).toBe('http://172.30.0.30:10001');
+    expect(anthropic.ANTHROPIC_AUTH_TOKEN).toMatch(/^sk-ant-placeholder/);
+    expect(anthropic.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(buildOpenAiCredentialEnv({ config: anthropicConfig, proxyIp: networkConfig.proxyIp })).toEqual({});
+    expect(buildApiProxyBaseEnv(openaiConfig, networkConfig).OPENAI_API_KEY).toBeUndefined();
+    expect(buildApiProxyBaseEnv(anthropicConfig, networkConfig).ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  it('does not invent adapter targets from the workspace origin or Copilot Azure fallback', () => {
+    const unselected = { ...config, copilotProviderType: 'azure', copilotProviderBaseUrl: `https://${workspace}` };
+    expect(buildOpenAiCredentialEnv({ config: unselected, proxyIp: networkConfig.proxyIp })).toEqual({});
+    expect(buildAnthropicCredentialEnv({ config, proxyIp: networkConfig.proxyIp })).toEqual({});
+  });
+
+  it('supports process-env targets and config.env targets with existing precedence', () => {
+    process.env.OPENAI_API_TARGET = workspace;
+    process.env.ANTHROPIC_API_TARGET = workspace;
+    expect(buildOpenAiCredentialEnv({ config, proxyIp: networkConfig.proxyIp }).OPENAI_BASE_URL).toBeDefined();
+    expect(buildAnthropicCredentialEnv({ config, proxyIp: networkConfig.proxyIp }).ANTHROPIC_BASE_URL).toBeDefined();
+    delete process.env.OPENAI_API_TARGET;
+    delete process.env.ANTHROPIC_API_TARGET;
+    const envConfig = {
+      ...baseConfig, workDir: process.cwd(), enableApiProxy: true,
+      additionalEnv: {
+        AWF_AUTH_TYPE: 'github-oidc',
+        AWF_AUTH_PROVIDER: 'databricks',
+        AWF_AUTH_DATABRICKS_HOST: config.authDatabricksHost,
+        AWF_AUTH_OIDC_AUDIENCE: 'env-audience',
+        OPENAI_API_TARGET: workspace,
+        ANTHROPIC_API_TARGET: workspace,
+      },
+    };
+    expect(buildOpenAiCredentialEnv({ config: envConfig, proxyIp: networkConfig.proxyIp }).OPENAI_BASE_URL).toBeDefined();
+    expect(buildAnthropicCredentialEnv({ config: envConfig, proxyIp: networkConfig.proxyIp }).ANTHROPIC_BASE_URL).toBeDefined();
+    process.env.OPENAI_API_TARGET = 'ignored-env.example.com';
+    expect(buildProviderTargetEnv({ ...envConfig, openaiApiTarget: workspace }).OPENAI_API_TARGET).toBe(workspace);
+  });
+
+  it('supports secret baseUrlEnv paths and keeps the value out of the agent', () => {
+    process.env.DATABRICKS_BASE_URL_TEST = `https://${workspace}/ai-gateway/openai`;
+    const secretConfig = { ...config, openaiBaseUrlEnv: 'DATABRICKS_BASE_URL_TEST', envAll: true };
+    const targets = buildProviderTargetEnv(secretConfig);
+    expect(targets.OPENAI_API_BASE_PATH).toBe('/ai-gateway/openai');
+    const environment = {
+      ...buildAgentEnvironment({ config: secretConfig, networkConfig, dnsServers: ['8.8.8.8'] }),
+      ...buildAgentCredentialEnv({ config: secretConfig, networkConfig }),
+    };
+    expect(environment.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000');
+    expect(environment.DATABRICKS_BASE_URL_TEST).toBeUndefined();
+  });
+
+  it('allows explicit endpoint override paths and matching workspace ports', () => {
+    process.env.OPENAI_ENDPOINT_OVERRIDE = `https://${workspace}:8443/ai-gateway/openai`;
+    const withPort = { ...config, authDatabricksHost: `https://${workspace}:8443/` };
+    expect(buildOpenAiCredentialEnv({ config: withPort, proxyIp: networkConfig.proxyIp }).OPENAI_BASE_URL).toBeDefined();
+  });
+
+  it.each([
+    'api.openai.com', 'api.anthropic.com', 'githubcopilot.com', 'api.githubcopilot.com',
+    'copilot-api.enterprise.ghe.com', 'other.example.com', `${workspace}:8443`, `http://${workspace}`,
+  ])(
+    'rejects first-party, conflicting or insecure targets %s',
+    (target) => {
+      expect(() => buildProviderTargetEnv({ ...config, openaiApiTarget: target })).toThrow(/Databricks.*target/);
+      expect(() => buildProviderTargetEnv({ ...config, anthropicApiTarget: target })).toThrow(/Databricks.*target/);
+    },
+  );
+
+  it('does not reject an unused endpoint override shadowed by an explicit target', () => {
+    process.env.OPENAI_ENDPOINT_OVERRIDE = 'https://other.example.com/v1';
+    expect(buildProviderTargetEnv({ ...config, openaiApiTarget: workspace }).OPENAI_API_TARGET).toBe(workspace);
+  });
+
+  it.each([
+    'COPILOT_PROVIDER_BASE_URL', 'COPILOT_API_TARGET', 'GEMINI_API_TARGET', 'VERTEX_API_TARGET',
+  ])('rejects a conflicting selected target %s', (name) => {
+    const conflicting = {
+      ...config, openaiApiTarget: workspace,
+      additionalEnv: { [name]: 'https://other.example.com/v1' },
+    };
+    expect(() => buildProviderTargetEnv(conflicting)).toThrow(/Databricks.*target/);
+    expect(() => buildOpenAiCredentialEnv({ config: conflicting, proxyIp: networkConfig.proxyIp })).toThrow(/Databricks.*target/);
+  });
+
+  it.each(['api.openai.com', 'api.anthropic.com', 'githubcopilot.com', 'api.githubcopilot.com', 'copilot-api.enterprise.ghe.com'])(
+    'rejects a first-party workspace %s even when the target matches it',
+    (host) => {
+      expect(() => buildOpenAiCredentialEnv({
+        config: { ...config, authDatabricksHost: `https://${host}`, openaiApiTarget: host },
+        proxyIp: networkConfig.proxyIp,
+      })).toThrow(/Databricks.*target/);
+    },
+  );
+
+  it('allows multiple explicit selected targets sharing the workspace origin', () => {
+    const matching = {
+      ...config, openaiApiTarget: workspace, anthropicApiTarget: workspace,
+      additionalEnv: {
+        COPILOT_PROVIDER_BASE_URL: `https://${workspace}/byok`,
+        GEMINI_API_TARGET: workspace,
+        VERTEX_API_TARGET: workspace,
+      },
+    };
+    expect(buildOpenAiCredentialEnv({ config: matching, proxyIp: networkConfig.proxyIp }).OPENAI_BASE_URL).toBeDefined();
+  });
+
+  it('rejects incomplete Databricks auth without falling back to a static key', () => {
+    expect(() => buildApiProxyBaseEnv({ ...config, authDatabricksHost: undefined }, networkConfig)).toThrow(/Databricks host/);
+    expect(() => buildApiProxyBaseEnv({ ...config, authOidcAudience: ' ' }, networkConfig)).toThrow(/oidcAudience/);
+    expect(() => buildApiProxyBaseEnv({ ...config, openaiApiKey: 'static-key', openaiApiTarget: 'other.example.com' }, networkConfig))
+      .toThrow(/Databricks.*target/);
+  });
+
+  it.each(['azure', 'aws', 'gcp'])('leaves other cloud provider %s keyless routing unchanged', (authProvider) => {
+    const other = { ...config, authProvider, openaiApiTarget: workspace, anthropicApiTarget: workspace };
+    expect(buildOpenAiCredentialEnv({ config: other, proxyIp: networkConfig.proxyIp })).toEqual({});
+    expect(buildAnthropicCredentialEnv({ config: other, proxyIp: networkConfig.proxyIp })).toEqual({});
+  });
+
+  it.each([false, true])('isolates OIDC and auth settings with explicit env (envAll=%s)', (envAll) => {
+    const privateEnvironment = {
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'databricks',
+      AWF_AUTH_DATABRICKS_HOST: config.authDatabricksHost,
+      AWF_AUTH_DATABRICKS_CLIENT_ID: 'sidecar-client',
+      AWF_AUTH_OIDC_AUDIENCE: 'env-audience',
+      AWF_OPENAI_AUTH_HEADER: 'Authorization',
+      AWF_OPENAI_AUTH_SCHEME: 'Bearer',
+      AWF_ANTHROPIC_AUTH_HEADER: 'Authorization',
+      AWF_ANTHROPIC_AUTH_SCHEME: 'Bearer',
+      AWF_AUTH_ANTHROPIC_TOKEN_URL: 'https://exchange.example.com',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example.com/idtoken',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'sidecar-runtime-token',
+    };
+    Object.assign(process.env, privateEnvironment);
+    const privateConfig = {
+      ...config, envAll, openaiApiTarget: workspace, anthropicApiTarget: workspace,
+      additionalEnv: { ...privateEnvironment, AWF_AUTH_PRIVATE_EXTENSION: 'sidecar-only' },
+    };
+    const sidecar = buildApiProxyBaseEnv(privateConfig, networkConfig);
+    expect(sidecar).toMatchObject({
+      ...privateEnvironment,
+      AWF_AUTH_OIDC_AUDIENCE: config.authOidcAudience,
+    });
+    const agent = {
+      ...buildAgentEnvironment({ config: privateConfig, networkConfig, dnsServers: ['8.8.8.8'] }),
+      ...buildAgentCredentialEnv({ config: privateConfig, networkConfig }),
+    };
+    for (const name of Object.keys(privateEnvironment)) expect(agent[name]).toBeUndefined();
+    expect(agent.AWF_AUTH_PRIVATE_EXTENSION).toBeUndefined();
+    expect(agent.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000');
+    expect(agent.ANTHROPIC_BASE_URL).toBe('http://172.30.0.30:10001');
+  });
+});
+
+describe('static adapter auth schemes', () => {
+  it('forwards config auth header/scheme settings to the sidecar', () => {
+    const env = buildOidcEnv({
+      ...baseConfig, workDir: process.cwd(),
+      openaiApiAuthHeader: 'Authorization', openaiApiAuthScheme: 'Bearer',
+      anthropicApiAuthHeader: 'Authorization', anthropicApiAuthScheme: 'Basic',
+    });
+    expect(env).toMatchObject({
+      AWF_OPENAI_AUTH_HEADER: 'Authorization', AWF_OPENAI_AUTH_SCHEME: 'Bearer',
+      AWF_ANTHROPIC_AUTH_HEADER: 'Authorization', AWF_ANTHROPIC_AUTH_SCHEME: 'Basic',
+    });
+  });
+
+  it('uses explicit env auth settings but gives config options priority', () => {
+    const env = buildOidcEnv({
+      ...baseConfig, workDir: process.cwd(), openaiApiAuthScheme: 'Bearer',
+      additionalEnv: { AWF_OPENAI_AUTH_SCHEME: 'Basic', AWF_ANTHROPIC_AUTH_SCHEME: 'Custom' },
+    });
+    expect(env.AWF_OPENAI_AUTH_SCHEME).toBe('Bearer');
+    expect(env.AWF_ANTHROPIC_AUTH_SCHEME).toBe('Custom');
+  });
+
+  it.each(['', 'Bearer ', 'Bearer\n', 'Bearer\r\nInjected:', 'two tokens'])('rejects invalid explicit/env schemes %j', (scheme) => {
+    expect(() => buildOidcEnv({ ...baseConfig, workDir: process.cwd(), openaiApiAuthScheme: scheme })).toThrow(/auth scheme/);
+    expect(() => buildOidcEnv({
+      ...baseConfig, workDir: process.cwd(), additionalEnv: { AWF_ANTHROPIC_AUTH_SCHEME: scheme },
+    })).toThrow(/auth scheme/);
+  });
+});
 
 describe('buildCredentialEnv', () => {
   it('includes OpenAI API key when set', () => {
@@ -547,6 +783,67 @@ it('buildModelPolicyEnv no longer sets AWF_ROUTING_CONFIG when modelRouting is c
       expect(env.AWF_ROUTING_CONFIG).toBe(
         '{"candidateModels":["gpt-5.6-luna"],"topK":2,"objective":{"goal":"cost","mode":"balanced"},"task":{"conversationFile":"/run/awf-routing/input/conversation.json"}}'
       );
+      expect(JSON.parse(env.AWF_ROUTING_CONFIG)).not.toHaveProperty('endpoints');
+
+      const withEndpoints = buildModelRoutingEnv({
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        experimentalModelRouting: true,
+        modelRouting: {
+          endpoints: ['/responses', '/chat/completions'],
+          objective: { goal: 'cost', mode: 'balanced' },
+          task: { conversationFile: '/host/conversation.json' },
+        },
+        modelRoutingBootstrap: {
+          root: '/tmp/awf-test-routing',
+          inputDir: '/tmp/awf-test-routing/input',
+          outputDir: '/tmp/awf-test-routing/output',
+          inputFile: '/tmp/awf-test-routing/input/conversation.json',
+          containerInputFile: '/run/awf-routing/input/conversation.json',
+          containerOutputDir: '/run/awf-routing/output',
+        },
+      });
+      expect(JSON.parse(withEndpoints.AWF_ROUTING_CONFIG)).toEqual({
+        endpoints: ['/responses', '/chat/completions'],
+        objective: { goal: 'cost', mode: 'balanced' },
+        task: { conversationFile: '/run/awf-routing/input/conversation.json' },
+      });
+    });
+
+    it('gives the proxy the staged adaptive summary, never the host path', () => {
+      const staging = {
+        root: '/tmp/awf-test-routing',
+        inputDir: '/tmp/awf-test-routing/input',
+        outputDir: '/tmp/awf-test-routing/output',
+        inputFile: '/tmp/awf-test-routing/input/conversation.json',
+        containerInputFile: '/run/awf-routing/input/conversation.json',
+        containerOutputDir: '/run/awf-routing/output',
+      };
+      const config = {
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        experimentalModelRouting: true,
+        modelRouting: {
+          adaptiveSummaryFile: '/runner/temp/gh-aw/adaptive-summary.json',
+          objective: { goal: 'cost' as const, mode: 'balanced' as const },
+          task: { conversationFile: '/host/conversation.json' },
+        },
+      };
+      const env = buildModelRoutingEnv({
+        ...config,
+        modelRoutingBootstrap: {
+          ...staging,
+          adaptiveInputFile: '/tmp/awf-test-routing/input/adaptive-summary.json',
+          containerAdaptiveInputFile: '/run/awf-routing/input/adaptive-summary.json',
+        },
+      });
+      expect(JSON.parse(env.AWF_ROUTING_CONFIG)).toEqual({
+        objective: { goal: 'cost', mode: 'balanced' },
+        task: { conversationFile: '/run/awf-routing/input/conversation.json' },
+        adaptiveSummaryFile: '/run/awf-routing/input/adaptive-summary.json',
+      });
+      expect(() => buildModelRoutingEnv({ ...config, modelRoutingBootstrap: staging }))
+        .toThrow('Model routing was configured but the routing conversation was not staged');
     });
 
     it('requires host staging before routing env generation', () => {

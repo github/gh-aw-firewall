@@ -29,6 +29,16 @@ Examples: `api_proxy.copilot.request`, `api_proxy.anthropic.request`, `api_proxy
 
 Spans are children of the workflow's parent trace (linked via `GITHUB_AW_OTEL_TRACE_ID` / `GITHUB_AW_OTEL_PARENT_SPAN_ID` env vars).
 
+LLM requests to an explicitly configured provider endpoint (`COPILOT_PROVIDER_BASE_URL`
+or the provider's `*_API_TARGET`) carry the request span's W3C `traceparent`, plus
+`tracestate` when present. The upstream origin (scheme, host and port) must match that
+configuration; default endpoints, first-party Copilot endpoints (including token-broker
+defaults) and other hosts receive no trace context. Caller trace headers are replaced,
+and `baggage` is never forwarded, including on untraced WebSocket upgrades. This lets a
+BYOK gateway join the workflow trace as a child of `api_proxy.<provider>.request`.
+`traceparent`, `tracestate`, and `baggage` are reserved and cannot be configured
+as custom authentication headers or trusted-service secret headers.
+
 ## Attribute Locations in Sentry UI
 
 In Sentry's trace detail view, expand a span and look under **Tags & Attributes**. Attributes are grouped by dot-separated prefix.
