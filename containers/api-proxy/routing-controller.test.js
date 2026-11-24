@@ -121,6 +121,7 @@ describe('routing controller', () => {
       selection: {
         schema: 'awf-routing-selection/v1', engine: 'copilot', provider: 'copilot',
         choice: selected, wire_model: 'model-a', endpoint: '/responses',
+        selection_source: 'router', fallback_reason: null, fallback_tier: null,
       },
     });
     const offered = [...rankFixture.fullRank].sort((a, b) => a.id.localeCompare(b.id));
@@ -137,6 +138,7 @@ describe('routing controller', () => {
       {
         stage: 'selection', objective: { goal: 'cost', mode: 'balanced' }, provider: 'copilot',
         selected_provider: 'copilot', wire_model: 'model-a', endpoint: '/responses',
+        selection_source: 'router', fallback_reason: null, fallback_tier: null,
         labels: VALID_CLASSIFICATION.labels, mode: 'balanced', classifier_model: offered[0].model, classifier_effort: 'high',
         router: { name: 'gh-aw-router', version: '1.0.0' },
         ranked_choices: rankFixture.fullRank.map(({ model, effort }) => ({ model, effort })),
@@ -201,9 +203,20 @@ describe('routing controller', () => {
       expect(calls.checkBeforePrimary).toHaveLength(1);
 
       process.env.AWF_MODEL_MULTIPLIERS = JSON.stringify({ 'model-a': 3 });
-      const blocked = replayRank({ config: { topK: 2 }, checkBeforePrimary });
-      await expect(blocked.controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'model_multiplier_cap_exceeded' } });
-      expect(blocked.calls.checkBeforePrimary.map(call => call.selection.wire_model)).toEqual(['model-a']);
+      const skipped = replayRank({ config: { topK: 2 }, checkBeforePrimary });
+      await expect(skipped.controller.run()).resolves.toMatchObject({
+        ok: true,
+        selection: {
+          wire_model: 'model-b',
+          selection_source: 'router',
+          fallback_reason: null,
+          fallback_tier: null,
+        },
+      });
+
+      process.env.AWF_MODEL_MULTIPLIERS = JSON.stringify({ 'model-a': 3, 'model-b': 3, 'model-c': 3 });
+      const allBlocked = replayRank({ config: { topK: 2 }, checkBeforePrimary });
+      await expect(allBlocked.controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'model_multiplier_cap_exceeded' } });
     } finally {
       env.restore();
     }
@@ -212,15 +225,32 @@ describe('routing controller', () => {
   it.each([
     [{ dependencies: { policy: { disallowedModels: ['*'] } } }, 'model_policy_violation'],
     [{ config: { candidateModels: ['missing'] } }, 'no_route'],
-    [{ planner: { route: async () => { throw { statusCode: 422, body: { code: 'no_route' } }; } } }, 'no_route'],
-    [{ routeResponse: () => ({ ranked_choices: [...rankFixture.fullRank, rankFixture.fullRank[0]] }) }, 'routing_contract_error'],
-    [{ routeResponse: () => ({ ranked_choices: [...rankFixture.fullRank, { id: 'foreign', model: 'openai/model-b' }] }) }, 'routing_contract_error'],
-  ])('does not soften a hard failure: %s', async (overrides, code) => {
+  ])('does not soften an empty pool or policy failure: %s', async (overrides, code) => {
     const { controller, calls } = replayRank({
       ...overrides, config: { ...overrides.config, topK: 3 },
     });
     await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code } });
     expect(calls.checkBeforePrimary).toHaveLength(0);
+  });
+
+  it.each([
+    [{ planner: { route: async () => { throw { statusCode: 422, body: { code: 'no_route' } }; } } }, 'no_route'],
+    [{ routeResponse: () => ({ ranked_choices: [...rankFixture.fullRank, rankFixture.fullRank[0]] }) }, 'routing_contract_error'],
+    [{ routeResponse: () => ({ ranked_choices: [...rankFixture.fullRank, { id: 'foreign', model: 'openai/model-b' }] }) }, 'routing_contract_error'],
+  ])('falls back without routeOptions when the router cannot produce a usable rank: %s', async (overrides, reason) => {
+    const { controller } = replayRank({
+      ...overrides, config: { ...overrides.config, topK: 3 },
+    });
+    const result = await controller.run();
+    expect(result).toMatchObject({
+      ok: true,
+      selection: {
+        selection_source: 'fallback',
+        fallback_reason: reason,
+        fallback_tier: 'unclassified',
+      },
+    });
+    expect(result).not.toHaveProperty('routeOptions');
   });
 
   describe('two offered IDs for the same model and effort', () => {
@@ -246,19 +276,27 @@ describe('routing controller', () => {
       expect(calls.checkBeforePrimary.map(call => call.selection)).toEqual([result.selection]);
     });
 
-    it('rejects a duplicate pair even when only one option is requested', async () => {
-      const { controller, calls } = createHarness({ models, routeResponse, config: { topK: 1 } });
-      await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'routing_contract_error' } });
-      expect(calls.checkBeforePrimary).toHaveLength(0);
+    it('falls back without routeOptions when topK rejects duplicate pairs from the router', async () => {
+      const { controller } = createHarness({ models, routeResponse, config: { topK: 1 } });
+      const result = await controller.run();
+      expect(result).toMatchObject({
+        ok: true,
+        selection: {
+          selection_source: 'fallback',
+          fallback_reason: 'routing_contract_error',
+          fallback_tier: 'unclassified',
+        },
+      });
+      expect(result).not.toHaveProperty('routeOptions');
     });
   });
 
-  it('a final guard veto is terminal even when alternatives are reported', async () => {
+  it('fails when every candidate is vetoed by guards and stops immediately on run-wide guards', async () => {
     const { controller, calls, records } = replayRank({
       config: { topK: 3 },
-      checkBeforePrimary: () => { throw createRoutingError('model_policy_violation', 'Final guard veto'); },
+      checkBeforePrimary: () => { throw createRoutingError('ai_credits_limit_exceeded', 'Budget exhausted'); },
     });
-    await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'model_policy_violation' } });
+    await expect(controller.run()).resolves.toMatchObject({ ok: false, failure: { code: 'ai_credits_limit_exceeded' } });
     expect(calls.checkBeforePrimary).toHaveLength(1);
     expect(calls.checkBeforePrimary[0].selection.choice).toMatchObject(rankFixture.ordinaryPick);
     expect(records.map(r => r.stage)).toEqual(['classification', 'failure']);
@@ -333,6 +371,9 @@ describe('routing controller', () => {
       choice: { id: 'choice-0001', model: 'github-copilot/gpt-test', effort: 'low' },
       wire_model: 'gpt-test',
       endpoint: '/responses',
+      selection_source: 'router',
+      fallback_reason: null,
+      fallback_tier: null,
     });
     expect(Object.isFrozen(result)).toBe(true);
     expect(Object.isFrozen(result.selection)).toBe(true);
@@ -548,7 +589,7 @@ describe('routing controller', () => {
           executeResult: () => ({ statusCode: 200, body: classifierBody('private invalid output') }),
         } : {}),
         ...(scenario === 'failure' ? {
-          planner: { route: jest.fn(async () => { throw { statusCode: 422, body: { code: 'no_route' } }; }) },
+          checkBeforePrimary: () => { throw createRoutingError('ai_credits_limit_exceeded', 'Budget exhausted'); },
         } : {}),
         dependencies: { observer: createRoutingObserver(jest.fn()) },
       });
@@ -563,7 +604,7 @@ describe('routing controller', () => {
       expect(records[0]).toMatchObject({ stage: 'classification', attempt: 1 });
       if (scenario === 'failure') {
         expect(result.ok).toBe(false);
-        expect(records.at(-1)).toMatchObject({ stage: 'failure', code: 'no_route' });
+        expect(records.at(-1)).toMatchObject({ stage: 'failure', code: 'ai_credits_limit_exceeded' });
       } else {
         expect(result.ok).toBe(true);
         expect(records.at(-1)).toMatchObject({
@@ -720,7 +761,7 @@ describe('routing controller', () => {
     expect(calls.route).toHaveLength(0);
   });
 
-  it('reports an unresolvable router name as a configuration error after one planner attempt', async () => {
+  it('falls back after one planner attempt when the router name cannot be resolved', async () => {
     let attempts = 0;
     const { controller, records } = createHarness({
       planner: {
@@ -733,15 +774,24 @@ describe('routing controller', () => {
     const result = await controller.run();
 
     expect(attempts).toBe(1);
-    expect(result.ok).toBe(false);
-    expect(result.failure.code).toBe('routing_configuration_error');
-    expect(records.find(record => record.stage === 'failure')).toMatchObject({
-      code: 'routing_configuration_error',
+    expect(result.ok).toBe(true);
+    expect(result.selection).toMatchObject({
+      wire_model: 'gpt-test',
+      selection_source: 'fallback',
+      fallback_reason: 'routing_configuration_error',
+      fallback_tier: 'unclassified',
+    });
+    expect(records.find(record => record.stage === 'selection')).toMatchObject({
+      selection_source: 'fallback',
+      fallback_reason: 'routing_configuration_error',
+      fallback_tier: 'unclassified',
+      router: null,
+      ranked_choices: null,
     });
   });
 
-  it('maps an unservable pool to a sanitized no_route failure', async () => {
-    const { controller } = createHarness({
+  it('falls back when the router returns 422 no_route for an eligible pool', async () => {
+    const { controller, records } = createHarness({
       planner: {
         route: jest.fn(async () => {
           throw Object.assign(new Error('no route'), { statusCode: 422, body: { code: 'no_route' } });
@@ -750,16 +800,29 @@ describe('routing controller', () => {
     });
     const result = await controller.run();
 
-    expect(result.ok).toBe(false);
-    expect(result.failure.code).toBe('no_route');
-    expect(Object.isFrozen(result.failure)).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(result.selection).toMatchObject({
+      wire_model: 'gpt-test',
+      selection_source: 'fallback',
+      fallback_reason: 'no_route',
+      fallback_tier: 'unclassified',
+    });
+    expect(Object.isFrozen(result.selection)).toBe(true);
+    expect(records.find(record => record.stage === 'selection')).toMatchObject({
+      selection_source: 'fallback',
+      fallback_reason: 'no_route',
+      ranked_choices: null,
+    });
   });
 
-  it('rejects an invalid router health response and a missing dependency', async () => {
+  it('falls back on an invalid router health response and still rejects a missing dependency', async () => {
     const unhealthy = createHarness({ planner: { health: jest.fn(async () => 200) } });
     await expect(unhealthy.controller.run()).resolves.toMatchObject({
-      ok: false,
-      failure: { code: 'routing_contract_error' },
+      ok: true,
+      selection: {
+        selection_source: 'fallback',
+        fallback_reason: 'routing_contract_error',
+      },
     });
 
     const incomplete = createHarness({ dependencies: { executor: { execute: () => {} } } });

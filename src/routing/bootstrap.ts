@@ -331,10 +331,21 @@ function isFailureRecord(value: unknown): value is RoutingFailureRecord {
     typeof record.retryable === 'boolean';
 }
 
+const SELECTION_SOURCES = new Set(['router', 'fallback']);
+const FALLBACK_TIERS = new Set(['standard', 'premium', 'unclassified', 'lightweight', 'none']);
+
 function isSelectionRecord(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   const choice = record.choice as Record<string, unknown> | undefined;
+  const sourceValid = record.selection_source === undefined ||
+    (typeof record.selection_source === 'string' && SELECTION_SOURCES.has(record.selection_source));
+  const reasonValid = record.fallback_reason === undefined ||
+    record.fallback_reason === null ||
+    typeof record.fallback_reason === 'string';
+  const tierValid = record.fallback_tier === undefined ||
+    record.fallback_tier === null ||
+    (typeof record.fallback_tier === 'string' && FALLBACK_TIERS.has(record.fallback_tier));
   return record.schema === 'awf-routing-selection/v1' &&
     record.engine === 'copilot' &&
     typeof record.provider === 'string' &&
@@ -342,7 +353,8 @@ function isSelectionRecord(value: unknown): boolean {
     typeof record.wire_model === 'string' &&
     !!choice && typeof choice === 'object' &&
     typeof choice.id === 'string' &&
-    typeof choice.model === 'string';
+    typeof choice.model === 'string' &&
+    sourceValid && reasonValid && tierValid;
 }
 
 function routingFailureMessage(record: RoutingFailureRecord): string {

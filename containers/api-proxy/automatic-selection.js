@@ -20,11 +20,16 @@ const { isAutomaticModelEligible } = require('./automatic-model-eligibility');
  * it can.
  *
  * @param {object|null|undefined} record - Runtime model record from provider discovery
- * @returns {'model_picker_disabled'|'no_agent_endpoint'|null}
+ * @returns {'model_picker_disabled'|'non_chat_model'|'tool_calls_unsupported'|'no_agent_endpoint'|null}
  */
 function getAutomaticSelectionBlock(record) {
   if (!record || typeof record !== 'object') return null;
   if (record.modelPickerEnabled === false) return 'model_picker_disabled';
+  const type = record.capabilities?.type;
+  if (typeof type === 'string' && type.trim() !== '' && type.trim().toLowerCase() !== 'chat') {
+    return 'non_chat_model';
+  }
+  if (record.capabilities?.supports?.tool_calls === false) return 'tool_calls_unsupported';
   return isAutomaticModelEligible(record) ? null : 'no_agent_endpoint';
 }
 

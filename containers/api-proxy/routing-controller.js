@@ -10,6 +10,7 @@ const {
   validateRouteResponse,
 } = require('./routing-contract');
 const { createRoutingError, RoutingError, toRoutingFailure } = require('./routing-errors');
+const { DEFAULT_CODING_TIERS, orderFallbackChoices } = require('./routing-fallback-order');
 const { recordSelection, recordFailure } = require('./routing-observation-records');
 const { createSystemClock } = require('./routing-planner');
 const {
@@ -17,9 +18,34 @@ const {
 } = require('./routing-stages');
 
 const ROUTING_BOOTSTRAP_TIMEOUT_MS = 90_000;
+const ROUTER_PHASE_RESERVE_MS = 5_000;
 const CLASSIFIER_ATTEMPT_TIMEOUT_MS = 30_000;
 const CLASSIFIER_MAX_ATTEMPTS = 2;
 const PURPOSE = 'routing_classification';
+
+const ROUTER_FALLBACK_CODES = new Set([
+  'no_route',
+  'router_unavailable',
+  'routing_contract_error',
+  'routing_configuration_error',
+  'routing_timeout',
+]);
+
+const SKIPPABLE_CHOICE_GUARD_CODES = new Set([
+  'model_multiplier_cap_exceeded',
+  'model_multiplier_cap_unverifiable',
+  'pricing_resolution_error',
+  'retired_model',
+  'model_policy_violation',
+  'no_route',
+]);
+
+function computeRouterDeadline(now, deadline) {
+  const remaining = Math.max(0, deadline - now);
+  if (remaining <= 1) return deadline;
+  const reserve = Math.min(ROUTER_PHASE_RESERVE_MS, Math.max(1, Math.floor(remaining / 4)));
+  return Math.max(now + 1, deadline - reserve);
+}
 
 function modelEffortPair(choice) {
   return {
@@ -28,7 +54,10 @@ function modelEffortPair(choice) {
   };
 }
 
-function createSelection(choice, mapping) {
+function createSelection(choice, mapping, metadata = {}) {
+  const selectionSource = metadata.selectionSource || 'router';
+  const fallbackReason = metadata.fallbackReason ?? null;
+  const fallbackTier = metadata.fallbackTier ?? null;
   return deepFreezeJson({
     schema: 'awf-routing-selection/v1',
     engine: 'copilot',
@@ -40,6 +69,9 @@ function createSelection(choice, mapping) {
       'chat-completions': '/chat/completions',
       messages: '/v1/messages',
     }[mapping.protocol],
+    selection_source: selectionSource,
+    fallback_reason: fallbackReason,
+    fallback_tier: fallbackTier,
   });
 }
 
@@ -57,6 +89,7 @@ function createRoutingController(dependencies) {
     random = Math.random,
     eligibilityStore = proxyEligibilityStore,
     eligibilityScope,
+    codingTiers = DEFAULT_CODING_TIERS,
   } = dependencies;
 
   let runPromise;
@@ -70,79 +103,180 @@ function createRoutingController(dependencies) {
     const signal = options.signal;
 
     const stages = createRoutingStages({ signal, deadline, clock, random });
-    const { runPhase, callPlanner } = stages;
+    const { runPhase } = stages;
     let catalogueOverlap = null;
 
     try {
       validateRoutingDependencies(dependencies);
-      const rawCapabilities = await stages.getCapabilities(planner, config, routerIdentity);
       const pool = await stages.getCandidates(catalogue, config, policy, eligibilityRequest);
-      catalogueOverlap = countCatalogueOverlap(rawCapabilities, pool.choices);
       const conversation = await stages.getConversation(loadConversation, config.task.conversationFile);
-      const { classification, successfulClassifier, degradedReason, actualAttempts } = await classifyRouting({
-        conversation, pool, planner, executor, observer, eligibilityRequest,
-        callPlanner, signal, deadline, clock,
-        attemptTimeoutMs: CLASSIFIER_ATTEMPT_TIMEOUT_MS, maxAttempts: CLASSIFIER_MAX_ATTEMPTS, purpose: PURPOSE,
-      });
 
-      const routeRequest = {
-        objective: config.objective,
-        conversation,
-        models: toRouteCandidates(pool),
-        ...(classification === null ? {} : { classification }),
-      };
-      assertPlanningRequestSize(routeRequest);
-      deepFreezeJson(routeRequest);
+      let rawCapabilities = null;
+      let classification = null;
+      let successfulClassifier = null;
+      let degradedReason = null;
+      let actualAttempts = 0;
+      let route = null;
+      let resolvedTopKRank = null;
+      let fallbackReason = null;
 
-      let rawRoute;
-      const routeTrace = Object.freeze({
-        attributes: Object.freeze({
-          'gh_aw_router.goal': config.objective.goal,
-          'gh_aw_router.mode': config.objective.mode,
-          'gh_aw_router.classification.present': classification !== null,
-        }),
-        // Only a response that passes validation contributes a selection.
-        describeResult: response => {
-          const choice = validateRouteResponse(response, pool.choices).ranked_choices[0];
-          return {
-            'gh_aw_router.selected.model': choice.model,
-            ...(typeof choice.effort === 'string' ? { 'gh_aw_router.selected.effort': choice.effort } : {}),
-          };
-        },
-      });
+      const routerDeadline = computeRouterDeadline(clock.now(), deadline);
+      const routerStages = createRoutingStages({ signal, deadline: routerDeadline, clock, random });
       try {
-        rawRoute = await callPlanner(({ signal: phaseSignal, timeoutMs }) =>
-          planner.route(routeRequest, { signal: phaseSignal, timeoutMs, trace: routeTrace }));
+        rawCapabilities = await routerStages.getCapabilities(planner, config, routerIdentity);
+        catalogueOverlap = countCatalogueOverlap(rawCapabilities, pool.choices);
+        const classified = await classifyRouting({
+          conversation, pool, planner, executor, observer, eligibilityRequest,
+          callPlanner: routerStages.callPlanner, signal, deadline: routerDeadline, clock,
+          attemptTimeoutMs: CLASSIFIER_ATTEMPT_TIMEOUT_MS, maxAttempts: CLASSIFIER_MAX_ATTEMPTS, purpose: PURPOSE,
+        });
+        ({ classification, successfulClassifier, degradedReason, actualAttempts } = classified);
+
+        const routeRequest = {
+          objective: config.objective,
+          conversation,
+          models: toRouteCandidates(pool),
+          ...(classification === null ? {} : { classification }),
+        };
+        assertPlanningRequestSize(routeRequest);
+        deepFreezeJson(routeRequest);
+
+        let rawRoute;
+        const routeTrace = Object.freeze({
+          attributes: Object.freeze({
+            'gh_aw_router.goal': config.objective.goal,
+            'gh_aw_router.mode': config.objective.mode,
+            'gh_aw_router.classification.present': classification !== null,
+          }),
+          // Only a response that passes validation contributes a selection.
+          describeResult: response => {
+            const choice = validateRouteResponse(response, pool.choices).ranked_choices[0];
+            return {
+              'gh_aw_router.selected.model': choice.model,
+              ...(typeof choice.effort === 'string' ? { 'gh_aw_router.selected.effort': choice.effort } : {}),
+            };
+          },
+        });
+        try {
+          rawRoute = await routerStages.callPlanner(({ signal: phaseSignal, timeoutMs }) =>
+            planner.route(routeRequest, { signal: phaseSignal, timeoutMs, trace: routeTrace }));
+        } catch (error) {
+          mapPlannerFailure(error, 'route');
+        }
+        route = validateRouteResponse(rawRoute, pool.choices);
+        if (config.topK !== undefined) {
+          resolvedTopKRank = resolvePrimaryRank(route.ranked_choices, pool);
+        }
       } catch (error) {
-        mapPlannerFailure(error, 'route');
+        if (signal?.aborted) throw createRoutingError('routing_cancelled', 'Model routing was cancelled');
+        if (error instanceof RoutingError && error.code === 'routing_timeout' && clock.now() >= deadline) {
+          throw error;
+        }
+        if (error instanceof RoutingError && ROUTER_FALLBACK_CODES.has(error.code)) {
+          fallbackReason = error.code;
+          route = null;
+          resolvedTopKRank = null;
+        } else {
+          throw error;
+        }
       }
-      const route = validateRouteResponse(rawRoute, pool.choices);
-      // Ordinary routing uses choice IDs; only the opt-in options contract requires unique pairs.
-      const ordinaryPick = route.ranked_choices[0];
-      const selection = createSelection(ordinaryPick, pool.byId[ordinaryPick.id]);
+
+      const triedIds = new Set();
+      let firstChoiceError = null;
+      let selection = null;
+      let selectedChoice = null;
+      let selectionSource = null;
+      let fallbackTier = null;
+
+      async function tryCandidate(choice, metadata) {
+        const candidateSelection = createSelection(choice, pool.byId[choice.id], metadata);
+        try {
+          await runPhase(({ signal: phaseSignal }) =>
+            executor.checkBeforePrimary({
+              selection: candidateSelection, signal: phaseSignal, awfEligibility: eligibilityRequest.awfEligibility,
+              awfEligibilityScope: eligibilityRequest.awfEligibilityScope,
+            }));
+          return { ok: true, selection: candidateSelection };
+        } catch (error) {
+          if (error instanceof RoutingError && SKIPPABLE_CHOICE_GUARD_CODES.has(error.code)) {
+            return { ok: false, error };
+          }
+          throw error;
+        }
+      }
+
+      if (route) {
+        for (const choice of route.ranked_choices) {
+          if (triedIds.has(choice.id)) continue;
+          triedIds.add(choice.id);
+          const outcome = await tryCandidate(choice, {
+            selectionSource: 'router',
+            fallbackReason: null,
+            fallbackTier: null,
+          });
+          if (outcome.ok) {
+            selection = outcome.selection;
+            selectedChoice = choice;
+            selectionSource = 'router';
+            break;
+          }
+          firstChoiceError ||= outcome.error;
+        }
+        if (!selection && !fallbackReason) {
+          fallbackReason = firstChoiceError?.code || 'no_route';
+        }
+      }
+
+      if (!selection) {
+        const effectiveMode = config.objective.mode === 'auto' &&
+          classification?.mode && classification.mode !== 'unknown'
+          ? classification.mode
+          : config.objective.mode;
+        const fallbackCandidates = orderFallbackChoices(pool, {
+          objective: { ...config.objective, mode: effectiveMode },
+          codingTiers,
+        });
+        for (const entry of fallbackCandidates) {
+          if (triedIds.has(entry.choice.id)) continue;
+          triedIds.add(entry.choice.id);
+          const outcome = await tryCandidate(entry.choice, {
+            selectionSource: 'fallback',
+            fallbackReason,
+            fallbackTier: entry.tier,
+          });
+          if (outcome.ok) {
+            selection = outcome.selection;
+            selectedChoice = entry.choice;
+            selectionSource = 'fallback';
+            fallbackTier = entry.tier;
+            break;
+          }
+          firstChoiceError ||= outcome.error;
+        }
+      }
+
+      if (!selection) {
+        throw firstChoiceError || createRoutingError('no_route', 'No eligible model passed selection guards');
+      }
+
       let routeOptions;
-      if (config.topK !== undefined) {
-        const fullRank = resolvePrimaryRank(route.ranked_choices, pool);
-        // The cap matches native wire IDs, not router IDs. It must not steer the primary past a guard veto.
-        const withinCap = fullRank.filter(({ id }) => {
+      if (selectionSource === 'router' && config.topK !== undefined && resolvedTopKRank) {
+        // The cap matches native wire IDs, not router IDs.
+        const withinCap = resolvedTopKRank.filter(({ id }) => {
           const { wireModel, provider } = pool.byId[id];
           return !getModelMultiplierCapBlockState(wireModel, provider);
         });
         routeOptions = deepFreezeJson({
-          ordinaryPick: modelEffortPair(ordinaryPick),
+          ordinaryPick: modelEffortPair(selectedChoice),
           options: shortlistPrimaryOptions(withinCap, config.topK).map(modelEffortPair),
         });
       }
 
-      await runPhase(({ signal: phaseSignal }) =>
-        executor.checkBeforePrimary({
-          selection, signal: phaseSignal, awfEligibility: eligibilityRequest.awfEligibility,
-          awfEligibilityScope: eligibilityRequest.awfEligibilityScope,
-        }));
-
       recordSelection(observer, {
         config, selection, classification, successfulClassifier, rawCapabilities, route,
         conversation, degradedReason, actualAttempts, pool, catalogueOverlap, clock, startedAt,
+        selectionSource, fallbackReason: selectionSource === 'fallback' ? fallbackReason : null,
+        fallbackTier,
       });
 
       return Object.freeze({
@@ -174,6 +308,7 @@ module.exports = {
   CLASSIFIER_ATTEMPT_TIMEOUT_MS,
   CLASSIFIER_MAX_ATTEMPTS,
   PURPOSE,
+  ROUTER_PHASE_RESERVE_MS,
   ROUTING_BOOTSTRAP_TIMEOUT_MS,
   createRoutingController,
 };

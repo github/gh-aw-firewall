@@ -740,9 +740,39 @@ describe('maintained model compilation', () => {
     }
   });
 
+  it('projects coding-tiers.json only for the routing fallback and keeps published v1/v2 snapshots unchanged', () => {
+    const source = require('../../shared/model-information/sources/coding-tiers.json');
+    const projected = require('../../containers/api-proxy/model-information.coding-tiers.generated.json');
+    const expected = Object.fromEntries(source.entries.map((entry: {
+      lookupId: string;
+      codingTier?: string;
+      releaseDate?: string;
+    }) => [
+      entry.lookupId,
+      {
+        ...(entry.codingTier !== undefined ? { tier: entry.codingTier } : {}),
+        ...(entry.releaseDate !== undefined ? { releaseDate: entry.releaseDate } : {}),
+      },
+    ]));
+    expect(projected).toEqual(expected);
+
+    const mapping = require('../../docs/model-api-mapping.json');
+    expect(JSON.stringify(mapping)).not.toContain('codingTier');
+
+    const baseline = require('../../shared/model-information/catalog.generated.json');
+    const v1 = require('../../shared/model-information/publication.cjs');
+    const v2 = require('../../shared/model-information/publication.v2.cjs');
+    const snapV1 = v1.buildSnapshot(baseline, 'a'.repeat(40), baseline.generatedAt);
+    const snapV2 = v2.buildSnapshot(baseline, 'a'.repeat(40), baseline.generatedAt);
+    expect(snapV1).not.toContain('codingTier');
+    expect(snapV2).not.toContain('codingTier');
+  });
+
   it('resolves generated proxy assets independently of repository shared modules', () => {
     const dockerfile = fs.readFileSync(path.join(root, 'containers/api-proxy/Dockerfile'), 'utf8');
     expect(dockerfile).toMatch(/model-information\.pricing\.generated\.json model-information\.fallback-pricing\.generated\.json model-information\.retired\.generated\.json/);
+    expect(dockerfile).toMatch(/model-information\.coding-tiers\.generated\.json/);
+    expect(dockerfile).toMatch(/routing-fallback-order\.js/);
     expect(dockerfile).toMatch(/model-eligibility\.js/);
     expect(dockerfile).toMatch(/model-reasoning\.js/);
     expect(dockerfile).toMatch(/harness-observation\.js/);

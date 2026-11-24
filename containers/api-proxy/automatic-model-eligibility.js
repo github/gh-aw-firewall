@@ -6,6 +6,9 @@ const AGENT_ENDPOINTS = new Set(['chat/completions', 'responses', 'messages']);
 
 function isAutomaticModelEligible(record) {
   if (record?.modelPickerEnabled === false) return false;
+  const type = record?.capabilities?.type;
+  if (typeof type === 'string' && type.trim() !== '' && type.trim().toLowerCase() !== 'chat') return false;
+  if (record?.capabilities?.supports?.tool_calls === false) return false;
   if (!Array.isArray(record?.supportedEndpoints)) return true;
   return record.supportedEndpoints.some(endpoint =>
     typeof endpoint === 'string' &&

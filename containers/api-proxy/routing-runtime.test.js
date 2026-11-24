@@ -104,13 +104,38 @@ describe('createProductionRoutingController', () => {
 
   describe('router call tracing', () => {
     const { EventEmitter } = require('events');
+    const { createCopilotAdapter } = require('./providers/copilot');
+    const { cachedModels } = require('./key-validation');
+    const { clearRuntimeModels, replaceRuntimeModels } = require('./runtime-model-catalog');
     const TRACEPARENT = '00-0123456789abcdef0123456789abcdef-0123456789abcdef-01';
-    const rawConfig = JSON.stringify({
-      objective: { goal: 'cost', mode: 'balanced' },
-      task: { conversationFile: '/run/awf-routing/input/conversation.json' },
+    let conversationDir;
+    let rawConfig;
+    let savedCopilotModels;
+
+    beforeEach(() => {
+      savedCopilotModels = cachedModels.copilot;
+      conversationDir = makeOutputDir();
+      const conversationFile = path.join(conversationDir, 'conversation.json');
+      fs.writeFileSync(conversationFile, JSON.stringify([{ role: 'user', parts: [{ text: 'trace test' }] }]));
+      rawConfig = JSON.stringify({
+        objective: { goal: 'cost', mode: 'balanced' },
+        task: { conversationFile },
+      });
+      cachedModels.copilot = ['gpt-test'];
+      replaceRuntimeModels('copilot', [{
+        id: 'gpt-test',
+        supportedEndpoints: ['/responses'],
+        supportedReasoningEfforts: ['medium'],
+      }]);
     });
 
-    // Answers health and returns invalid capabilities, so the run stops after one traced call.
+    afterEach(() => {
+      cachedModels.copilot = savedCopilotModels;
+      clearRuntimeModels();
+      fs.rmSync(conversationDir, { recursive: true, force: true });
+    });
+
+    // Answers health and returns invalid capabilities, so the router phase stops after one traced call.
     function fakeRouterTransport(seen) {
       return {
         request(options, onResponse) {
@@ -141,12 +166,15 @@ describe('createProductionRoutingController', () => {
       const seen = [];
       const controller = create({
         rawConfig,
-        getCopilotAdapter: () => null,
+        getCopilotAdapter: () => createCopilotAdapter({ COPILOT_GITHUB_TOKEN: 'test-token' }),
         routerTransport: fakeRouterTransport(seen),
         observer: { record() {} },
         ...(routerTracing === undefined ? {} : { routerTracing }),
       });
-      await expect(controller.run()).resolves.toMatchObject({ ok: false });
+      await expect(controller.run()).resolves.toMatchObject({
+        ok: true,
+        selection: { selection_source: 'fallback', fallback_reason: 'routing_contract_error' },
+      });
       return seen.map(options => [options.path, options.headers.traceparent]);
     }
 
@@ -154,6 +182,12 @@ describe('createProductionRoutingController', () => {
       let runtime;
       jest.isolateModules(() => {
         jest.doMock('./otel', factory);
+        require('./key-validation').cachedModels.copilot = ['gpt-test'];
+        require('./runtime-model-catalog').replaceRuntimeModels('copilot', [{
+          id: 'gpt-test',
+          supportedEndpoints: ['/responses'],
+          supportedReasoningEfforts: ['medium'],
+        }]);
         runtime = require('./routing-runtime');
       });
       jest.dontMock('./otel');

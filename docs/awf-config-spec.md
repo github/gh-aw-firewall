@@ -2497,15 +2497,17 @@ for the run says so:
 | `automatic_selection_reason` | Evidence |
 |------------------------------|----------|
 | `model_picker_disabled` | The provider reports `model_picker_enabled: false` (Copilot) |
+| `non_chat_model` | The provider reports a live `capabilities.type` other than `chat` (for example `embeddings` or `completion`) |
+| `tool_calls_unsupported` | The provider reports `capabilities.supports.tool_calls: false` |
 | `no_agent_endpoint` | The provider lists `supported_endpoints`, and none of them is Chat Completions, Responses, or Messages (for example a Decisions-only or embeddings-only model, or an empty list) |
 
 Absence of evidence is not a reason to exclude a model. A model whose provider
-publishes no picker state and no endpoint list stays selectable, so incomplete
-metadata never empties a catalogue. An empty endpoint list is evidence, not
-absence: it advertises no endpoint. Maintained catalogue data is not used for
-this decision. Endpoint names may be bare or use `/` or `/v1/` prefixes;
-`chat_completions` is also recognized. WebSocket-only endpoints do not qualify
-as an HTTP agent endpoint.
+publishes no picker state, no live `type`, no `tool_calls` flag, and no
+endpoint list stays selectable, so incomplete metadata never empties a
+catalogue. An empty endpoint list is evidence, not absence: it advertises no
+endpoint. Maintained catalogue data is not used for this decision. Endpoint
+names may be bare or use `/` or `/v1/` prefixes; `chat_completions` is also
+recognized. WebSocket-only endpoints do not qualify as an HTTP agent endpoint.
 
 The rule never changes an explicit choice. A model ID requested directly, and
 an alias entry written without `*` (for example
@@ -2593,12 +2595,45 @@ engine model families. Routed Claude and Codex workflows must set
 for the workflow-side configuration.
 
 A genuine routing failure still surfaces as host exit code `78` instead of the
-run silently continuing: no selection could be produced (`no_route`, router
-unreachable, contract or configuration errors), or an upstream failure on a
+run silently continuing: no selection could be produced (an empty eligible pool,
+a policy that excludes every model, an unavailable provider catalogue, an
+invalid staged conversation, or a run-wide guard stop such as an exhausted
+budget, cancellation, or the overall deadline), or an upstream failure on a
 request that used the selected provider and model (a native provider error
 code, an SSE error event, or a prematurely closed response). A request that
 uses another model is not a routing failure, and neither is its upstream
 error or a model-policy rejection of it.
+
+**Router fallback and selection guarantee.** The API proxy depends on the
+router container with `condition: service_started` rather than
+`service_healthy`, builds the eligible pool before contacting the router, and
+bounds the router phase so time remains for fallback before the overall
+deadline. Whenever the router returns a valid rank, AWF tries the ranked
+choices in order and selects the first one that passes the pre-primary guards.
+If the router cannot produce a usable rank (unhealthy, unreachable, timeout,
+invalid response, or `422 no_route`) or every router-ranked choice is ruled out
+by a per-model guard, AWF walks the remaining eligible pool in deterministic
+fallback order:
+
+1. Coding tier from `shared/model-information/sources/coding-tiers.json`
+   (looked up by normalized lookup ID): `standard`, `premium`, `unclassified`,
+   `lightweight`, `none`; or `premium`, `standard`, `unclassified`,
+   `lightweight`, `none` when the objective mode is `robust` (configured
+   explicitly or chosen by classification under `mode: auto`).
+2. Within a tier: newest `releaseDate` first, undated models after dated ones,
+   with ties broken by exact wire model ID.
+3. Per model: `medium` effort, else the nearest offered effort (the higher
+   effort on a tie), else no effort when the model takes none.
+
+During the fallback walk only, native-provider (`openai`, `anthropic`) choices
+whose endpoint evidence comes solely from a family glob pattern (such as
+`gpt-4o-transcribe` under `gpt-4o*`) are skipped; explicitly named models and
+router-ranked choices keep their existing behavior. The guarantee is that a
+selection is made if and only if at least one eligible choice passes its
+guards: per-model guards (such as a multiplier cap or missing pricing) skip
+that choice, while run-wide stops (exhausted budget, max runs, cancellation, or
+the overall deadline) still end the run. Fallback selections do not produce
+`routeOptions` and do not count as router-ranked history.
 
 The agent learns the selected model, effort, and endpoint from the API proxy's
 `GET /reflect` `routing` field (see
@@ -2737,12 +2772,20 @@ Every selection record MUST include:
   (or `null`), and `selected_provider`;
 - `wire_model` and `endpoint` matching the selected route advertised in
   `/reflect`;
+- `selection_source` (`router` or `fallback`), `fallback_reason` (the routing
+  error code that triggered fallback, or `null` for a router selection), and
+  `fallback_tier` (the tier the fallback chose from, or `null` for a router
+  selection); these three fields also appear in the private `selection.json`
+  record;
 - `labels` and `mode` from validated classification, or `null` when
   classification did not succeed;
 - `classifier_model` and `classifier_effort` identifying the successful
   classifier, or `null` when no classifier succeeded;
-- `router` containing `name` and `version`;
-- `ranked_choices` in router preference order, each with `model` and `effort`;
+- `router` containing `name` and `version`, or `null` when the router could not
+  supply capabilities before fallback;
+- `ranked_choices` in router preference order, each with `model` and `effort`,
+  or `null` when the router did not return a validated rank (fallback never
+  invents a rank);
 - the routing `objective` and configured `provider`;
 - `conversation_sha256`, the SHA-256 digest of the UTF-8 `JSON.stringify`
   serialization of the validated staged conversation;

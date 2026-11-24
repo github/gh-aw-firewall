@@ -12,6 +12,9 @@ afterEach(clearRuntimeModels);
 describe('provider-metadata automatic selection eligibility', () => {
   test.each([
     undefined, {}, { supportedEndpoints: null },
+    { capabilities: { type: 'chat' }, supportedEndpoints: ['/responses'] },
+    { capabilities: { type: 'CHAT', supports: { tool_calls: true } }, supportedEndpoints: ['/chat/completions'] },
+    { capabilities: { supports: {} }, supportedEndpoints: ['/responses'] },
     ...['/chat/completions', '/v1/chat/completions', 'chat/completions', 'chat_completions',
       '/responses', '/v1/responses', 'responses', '/v1/responses/', '/messages', '/v1/messages', 'messages']
       .map(endpoint => ({ supportedEndpoints: ['/v1/decisions', endpoint] })),
@@ -22,6 +25,10 @@ describe('provider-metadata automatic selection eligibility', () => {
   test.each([
     { modelPickerEnabled: false },
     { modelPickerEnabled: false, supportedEndpoints: ['/responses'] },
+    { capabilities: { type: 'embeddings' }, supportedEndpoints: ['/responses'] },
+    { capabilities: { type: 'completion' }, supportedEndpoints: ['/chat/completions'] },
+    { capabilities: { type: 'chat', supports: { tool_calls: false } }, supportedEndpoints: ['/responses'] },
+    { capabilities: { supports: { tool_calls: false } }, supportedEndpoints: ['/chat/completions'] },
     { supportedEndpoints: [] },
     { supportedEndpoints: ['/v1/decisions'] },
     { supportedEndpoints: ['decisions', '/embeddings', null, 42, 'ws:/responses'] },

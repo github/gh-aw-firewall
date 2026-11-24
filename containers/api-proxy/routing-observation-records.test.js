@@ -22,7 +22,9 @@ describe('routing observation records', () => {
     recordSelection(observer, context);
     expect(observer.record).toHaveBeenCalledWith({
       stage: 'selection', objective: context.config.objective, provider: 'copilot', selected_provider: 'copilot',
-      wire_model: 'gpt-test', endpoint: '/responses', labels: null, mode: null,
+      wire_model: 'gpt-test', endpoint: '/responses',
+      selection_source: 'router', fallback_reason: null, fallback_tier: null,
+      labels: null, mode: null,
       classifier_model: null, classifier_effort: null, router: context.rawCapabilities,
       ranked_choices: [{ model: choice.model, effort: null }],
       conversation_sha256: createHash('sha256').update(JSON.stringify(conversation)).digest('hex'),
@@ -46,6 +48,32 @@ describe('routing observation records', () => {
       labels: classification.labels, mode: 'balanced',
       classifier_model: 'github-copilot/classifier', classifier_effort: 'high',
       selected_model: choice.model, degraded_classification: false, degraded_reason: null,
+    }));
+  });
+
+  it('records a fallback selection without inventing a router name or rank', () => {
+    const observer = { record: jest.fn() };
+    recordSelection(observer, {
+      ...context,
+      selection: {
+        provider: 'copilot', wire_model: 'gpt-test', endpoint: '/responses', choice,
+        selection_source: 'fallback', fallback_reason: 'router_unavailable', fallback_tier: 'standard',
+      },
+      rawCapabilities: null,
+      route: null,
+      degradedReason: null,
+      actualAttempts: 0,
+      catalogueOverlap: null,
+    });
+    expect(observer.record).toHaveBeenCalledWith(expect.objectContaining({
+      stage: 'selection',
+      selection_source: 'fallback',
+      fallback_reason: 'router_unavailable',
+      fallback_tier: 'standard',
+      router: null,
+      ranked_choices: null,
+      classifier_attempts: 0,
+      catalogue_overlap: null,
     }));
   });
 

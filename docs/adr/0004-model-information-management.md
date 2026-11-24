@@ -242,8 +242,11 @@ normalized lookup ID such as `gpt-5-3-codex`, so one entry covers every provider
 spelling of the same model. They are deliberately outside the canonical record
 schema: every released catalogue reader rejects published snapshots whose schema
 hash changes, so adding these fields to `schema.v1.json` would cut released AWF
-versions off central updates. The compiler validates the file and includes it in
-the catalogue revision; no projection consumes it yet.
+versions off central updates. The compiler validates the file, includes it in
+the catalogue revision, and projects it to
+`containers/api-proxy/model-information.coding-tiers.generated.json`. The
+routing fallback is the only reader; the projection never reaches `/reflect`,
+`schema.v1.json`, or the published snapshots.
 
 Each entry has:
 
@@ -1313,7 +1316,7 @@ The broader pricing/eligibility migration remains separately gated.
 | `shared/model-information/sources/pricing-reference.json` (reviewed reference coverage, provider documentation and dates; rates derive from canonical tiers, with explicitly recorded reasoning-equals-output baseline) | `containers/api-proxy/ai-credits-pricing-reference.json` | Active test oracle only, not a runtime configured catalogue or feed. |
 | `shared/model-information/sources/mapping.json` (pinned endpoint family/ordering, patterns, routing, provenance) | `docs/model-api-mapping.json`, `containers/api-proxy/model-api-mapping.json` | Active byte-identical compatibility format, no routing behavior change. |
 | `shared/model-information/sources/target.json` (#10029/#10030 evidence and exact corrections) | `shared/model-information/target.generated.json`, `baseline-to-target.generated.json` | Staged only; named changes require explicit Gates 4–6 activation/review. |
-| `shared/model-information/sources/coding-tiers.json` (coding tier and first-announcement date per lookup ID, with quoted evidence; see [Coding tier and release date](#coding-tier-and-release-date)) | None yet; validated by `models:check` and counted in the catalogue revision | Not consumed and not published. Kept outside the canonical schema so published snapshot hashes are unchanged. |
+| `shared/model-information/sources/coding-tiers.json` (coding tier and first-announcement date per lookup ID, with quoted evidence; see [Coding tier and release date](#coding-tier-and-release-date)) | `containers/api-proxy/model-information.coding-tiers.generated.json`; validated by `models:check` and counted in the catalogue revision | Active for the routing fallback only. Never exposed through `/reflect` and not published; kept outside the canonical schema so published snapshot hashes are unchanged. |
 | Complete assembled maintained sources | `shared/model-information/catalog.generated.json`, `manifest.generated.json` | Static validated exports; not a central feed or live resolver input. |
 | `containers/api-proxy/models.dev.catalog.json` and `shared/model-information/imported/legacy-models-dev.metadata.json` (pinned raw bytes and provenance, not a native billing-provider mapping) | Governed imported snapshot and `containers/api-proxy/model-information.fallback-pricing.generated.json` | Active only for OpenRouter's full qualified IDs. Native-provider compatibility associations in `sources/pricing-reference.json` are explicit legacy accounting policy, not verified current billing evidence. |
 

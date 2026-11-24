@@ -7,6 +7,8 @@ const { createRoutingError } = require('./routing-errors');
 const { isModelEligible } = require('./model-eligibility');
 const { getModelReasoning, pinModelReasoning, assessReasoningEffort } = require('./model-reasoning');
 const { isAutomaticModelEligible } = require('./automatic-model-eligibility');
+const { isFamilyPatternOnlyEndpoint } = require('./model-api-mapping');
+const { hasLiveEndpointMetadata } = require('./routing-catalogue');
 
 const PROVIDERS = Object.freeze({
   copilot: Object.freeze({ canonical: 'github-copilot', alias: 'copilot' }),
@@ -183,6 +185,10 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, eligi
     const contextWindow = Number.isInteger(pair.providerModel.contextWindow) && pair.providerModel.contextWindow > 0
       ? pair.providerModel.contextWindow
       : undefined;
+    const familyPatternEndpointsOnly = pair.providerModel.familyPatternEndpointsOnly === true ||
+      ((pair.provider === 'openai' || pair.provider === 'anthropic') &&
+        !hasLiveEndpointMetadata(pair.providerModel) &&
+        isFamilyPatternOnlyEndpoint(pair.providerModel.id, pair.provider));
     byId[id] = pinModelReasoning(Object.freeze({
       choice,
       provider: pair.provider,
@@ -190,6 +196,7 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, eligi
       ...(pair.effort === undefined ? {} : { effort: pair.effort }),
       ...(contextWindow === undefined ? {} : { contextWindow }),
       protocol: pair.protocol,
+      ...(familyPatternEndpointsOnly ? { familyPatternEndpointsOnly: true } : {}),
     }), getModelReasoning(pair.providerModel, pair.provider));
     return choice;
   });

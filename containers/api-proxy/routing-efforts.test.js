@@ -160,6 +160,9 @@ describe('routed reasoning efforts', () => {
         choice: { id: expect.any(String), model: 'github-copilot/gpt-test', effort },
         wire_model: 'gpt-test',
         endpoint: '/responses',
+        selection_source: 'router',
+        fallback_reason: null,
+        fallback_tier: null,
       };
       expect(result.selection).toEqual(selection);
       expect(readResult(outputDir, 'selection.json')).toEqual(selection);
@@ -234,17 +237,20 @@ describe('routed reasoning efforts', () => {
     ['a null effort', { id: 'choice-0004', model: 'github-copilot/gpt-test', effort: null }],
     ['an omitted effort where none was offered', { id: 'choice-0004', model: 'github-copilot/gpt-test' }],
     ['an explicit none where the effort was omitted', { id: 'choice-0001', model: 'github-copilot/chat-test', effort: 'none' }],
-  ])('fails closed when the router returns %s', async (_name, choice) => {
+  ])('rejects the router choice and falls back to an offered choice when the router returns %s', async (_name, choice) => {
     const { session, result, outputDir } = await runRoutedSession({ pick: () => choice });
-    expect(result.ok).toBe(false);
-    expect(result.failure.code).toBe('routing_contract_error');
-    expect(fs.existsSync(path.join(outputDir, 'selection.json'))).toBe(false);
-    expect(readResult(outputDir, 'failure.json')).toMatchObject({ code: 'routing_contract_error' });
-    expect(session.getReflectState()).toEqual({
-      status: 'failed',
-      failure_code: 'routing_contract_error',
-      selection: null,
+    expect(result.ok).toBe(true);
+    expect(result.selection).toMatchObject({
+      selection_source: 'fallback',
+      fallback_reason: 'routing_contract_error',
     });
+    expect(result.selection.choice).not.toEqual(choice);
+    expect(fs.existsSync(path.join(outputDir, 'failure.json'))).toBe(false);
+    expect(readResult(outputDir, 'selection.json')).toMatchObject({
+      selection_source: 'fallback',
+      fallback_reason: 'routing_contract_error',
+    });
+    expect(session.getReflectState().status).toBe('selected');
   });
 
   it('excludes unsupported catalogue efforts and fails closed when none remain', async () => {
