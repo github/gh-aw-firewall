@@ -1,6 +1,6 @@
 'use strict';
 
-const { selectAdaptive, validSummary } = require('./adaptive-select');
+const { PRICE, selectAdaptive, validSummary } = require('./adaptive-select');
 const { getModelMultiplierCapBlockState } = require('./guards/max-model-multiplier-guard');
 const { resolvePrimaryRank, routingPairName, shortlistPrimaryOptions } = require('./routing-candidates');
 const { pinRequestEligibility, proxyEligibilityStore } = require('./model-eligibility');
@@ -48,6 +48,19 @@ const ADAPTIVE_FALLBACK_REASONS = Object.freeze({
   SELECTION_REJECTED: 'selection_rejected',
   ROUTER_FALLBACK: 'router_fallback',
 });
+
+function resolveAdaptiveLevel(summary, objectiveMode, classification) {
+  if (objectiveMode !== 'auto' || !summary || typeof summary !== 'object' || Array.isArray(summary)) {
+    return undefined;
+  }
+  if (!Object.hasOwn(summary, 'level') || summary.level !== 'auto') {
+    return undefined;
+  }
+  const classifiedMode = classification?.mode;
+  return typeof classifiedMode === 'string' && Object.hasOwn(PRICE, classifiedMode)
+    ? classifiedMode
+    : 'balanced';
+}
 
 function createOrdinaryAdaptiveReceipt({ job, summary }, pair, reason) {
   return {
@@ -252,7 +265,10 @@ function createRoutingController(dependencies) {
         return null;
       }
 
-      const hasValidSummary = Boolean(adaptive) && validSummary(adaptive.summary, adaptive.job);
+      const adaptiveLevel = adaptive
+        ? resolveAdaptiveLevel(adaptive.summary, config.objective.mode, classification)
+        : undefined;
+      const hasValidSummary = Boolean(adaptive) && validSummary(adaptive.summary, adaptive.job, adaptiveLevel);
       let winner = null;
       let adaptiveReceipt = null;
       if (route && hasValidSummary) {
@@ -271,6 +287,7 @@ function createRoutingController(dependencies) {
           ordinary: routingPairName(pool.byId[ordinaryPick.id]),
           job: adaptive.job,
           price: (pair, tokens) => (byPair.has(pair) ? priceRoute(pool.byId[byPair.get(pair).id], tokens) : null),
+          level: adaptiveLevel,
         });
         const adaptiveChoice = byPair.get(candidateReceipt.selected) ?? ordinaryPick;
         winner = await selectFirstPassing([{

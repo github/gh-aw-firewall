@@ -2971,6 +2971,16 @@ without `.lock.yml`), `GITHUB_RUN_ID` and `GITHUB_RUN_ATTEMPT`. A missing file
 routes ordinarily with reason `summary_missing`, and an invalid one, including a
 file that holds JSON `null`, with `invalid_evidence`; neither fails the run.
 
+The summary's `level` sets the failure price the selector uses (`economy`: 100
+credits, `balanced`: 500 credits, `robust`: 2,500 credits). When
+`apiProxy.routing.objective.mode` is `"auto"`, the summary may set `"level":
+"auto"`; the proxy resolves it to `classification.mode` when the classifier
+returns `economy`, `balanced`, or `robust`, and falls back to `"balanced"` (500
+credits) when classification is degraded (`classification` is unavailable) or
+`classification.mode` is `"unknown"`. When `apiProxy.routing.objective.mode` is
+fixed (`economy`, `balanced`, or `robust`), a summary with `"level": "auto"` is
+rejected as `invalid_evidence`.
+
 Pairs are named `<provider>/<wire model>@<effort>`, with the Copilot provider
 written `github-copilot` and `none` for a route without an effort. The selector
 works on the full validated rank after the multiplier cap, where a pair the

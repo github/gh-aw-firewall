@@ -84,4 +84,19 @@ describe('selectAdaptive input handling', () => {
     const receipt = selectAdaptive({ summary: null, rank, ordinary: rank[1], job, price });
     expect(receipt).toMatchObject({ role: 'ordinary', selected: rank[1], ordinary: rank[1], reason: 'summary_missing' });
   });
+
+  it('accepts a caller-resolved concrete level only when summary.level is "auto"', () => {
+    const base = vectors.cases.find(c => c.name === 'cheaper-test');
+    const autoSummary = { ...base.summary, level: 'auto' };
+    const tariffs = priceFrom(vectors.tariffs);
+
+    expect(selectAdaptive({ summary: autoSummary, rank: base.rank, job: base.job, price: tariffs }))
+      .toMatchObject({ role: 'ordinary', reason: 'invalid_evidence' });
+    expect(selectAdaptive({ summary: autoSummary, rank: base.rank, job: base.job, price: tariffs, level: 'balanced' }))
+      .toEqual(base.receipt);
+    expect(selectAdaptive({ summary: autoSummary, rank: base.rank, job: base.job, price: tariffs, level: 'auto' }))
+      .toMatchObject({ role: 'ordinary', reason: 'invalid_evidence' });
+    expect(selectAdaptive({ summary: base.summary, rank: base.rank, job: base.job, price: tariffs, level: 'economy' }))
+      .toMatchObject({ role: 'ordinary', reason: 'invalid_evidence' });
+  });
 });
