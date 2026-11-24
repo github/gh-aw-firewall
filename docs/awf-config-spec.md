@@ -3008,7 +3008,10 @@ Each cost the decision uses is `measured` (the pair's average AWF-priced cost on
 this workflow) or `estimated`. An estimate prices the incumbent's average tokens
 at the pair's own tariff and scales only the incumbent model's share of the cost:
 `credits(incumbent) + model_credits(incumbent) × (price(pair) / price(incumbent) − 1)`.
-Prices use the meter's semantics at the default tier and list price. A
+If the incumbent has a measured total `credits` and `model_credits` exceeds
+`credits`, or if a computed estimate is negative or non-finite, the selector
+refuses the estimate (returning no cost for that rival) without invalidating the
+summary. Prices use the meter's semantics at the default tier and list price. A
 dynamic-selector, configured-default, median or built-in fallback price gives no
 estimate, including one that fills a component the estimate uses when the
 model's own tariff is partial, and a pair without a cost is never chosen on cost.
