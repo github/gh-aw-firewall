@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogRevision": "573ebcabe2ea27b3642c1ad4788aea911a0bab3204a8641f7dbe19ecdd1be62f",
+  "catalogRevision": "82159d19113aa230b07b0d0b6ed6b1a175dc0e52f23b0eacd44bc8cbab30e9d9",
   "generatedAt": "2026-11-23T00:48:33.747Z",
   "models": [
     {
@@ -6351,6 +6351,88 @@
     {
       "schemaVersion": 1,
       "identity": {
+        "key": "copilot/gemini-4-hydrogen",
+        "provider": "copilot",
+        "rawId": "gemini-4-hydrogen",
+        "lookupId": "gemini-4-hydrogen"
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "modelType": "completion",
+      "tariffs": [
+        {
+          "scope": {
+            "provider": "copilot",
+            "channel": "copilot-api"
+          },
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "tier": "default",
+          "components": {
+            "input": {
+              "price": "1.5",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                "revision": "5886b62dd2c921ca276b95f8ca6216ea520dc1ac0199f138d4dccf1342febcc1",
+                "at": "2026-11-24T03:08:13.770Z",
+                "confidence": "verified"
+              }
+            },
+            "cachedInput": {
+              "price": "0.075",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                "revision": "5886b62dd2c921ca276b95f8ca6216ea520dc1ac0199f138d4dccf1342febcc1",
+                "at": "2026-11-24T03:08:13.770Z",
+                "confidence": "verified"
+              }
+            },
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                "revision": "5886b62dd2c921ca276b95f8ca6216ea520dc1ac0199f138d4dccf1342febcc1",
+                "at": "2026-11-24T03:08:13.770Z",
+                "confidence": "verified"
+              }
+            },
+            "output": {
+              "price": "7.5",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                "revision": "5886b62dd2c921ca276b95f8ca6216ea520dc1ac0199f138d4dccf1342febcc1",
+                "at": "2026-11-24T03:08:13.770Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "maintained",
+            "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "revision": "5886b62dd2c921ca276b95f8ca6216ea520dc1ac0199f138d4dccf1342febcc1",
+            "at": "2026-11-24T03:08:13.770Z",
+            "confidence": "verified"
+          }
+        }
+      ],
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+        "revision": "5886b62dd2c921ca276b95f8ca6216ea520dc1ac0199f138d4dccf1342febcc1",
+        "at": "2026-11-24T03:08:13.770Z",
+        "confidence": "verified"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "identity": {
         "key": "copilot/gpt-4",
         "provider": "copilot",
         "rawId": "gpt-4",
@@ -8769,6 +8851,145 @@
         "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
         "revision": "5f07cb3b59251688d15d46aca7b8e8c2e72678f8173b9337781c96b705d9129d",
         "at": "2026-11-07T12:52:50.618Z",
+        "confidence": "verified"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "identity": {
+        "key": "copilot/gpt-6.2-sol",
+        "provider": "copilot",
+        "rawId": "gpt-6.2-sol",
+        "lookupId": "gpt-6-2-sol"
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "modelType": "completion",
+      "tariffs": [
+        {
+          "scope": {
+            "provider": "copilot",
+            "channel": "copilot-api"
+          },
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "tier": "default",
+          "components": {
+            "input": {
+              "price": "2",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                "revision": "5886b62dd2c921ca276b95f8ca6216ea520dc1ac0199f138d4dccf1342febcc1",
+                "at": "2026-11-24T03:08:13.770Z",
+                "confidence": "verified"
+              }
+            },
+            "cachedInput": {
+              "price": "0.1",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                "revision": "5886b62dd2c921ca276b95f8ca6216ea520dc1ac0199f138d4dccf1342febcc1",
+                "at": "2026-11-24T03:08:13.770Z",
+                "confidence": "verified"
+              }
+            },
+            "cacheWrite": {
+              "price": "2.5",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                "revision": "5886b62dd2c921ca276b95f8ca6216ea520dc1ac0199f138d4dccf1342febcc1",
+                "at": "2026-11-24T03:08:13.770Z",
+                "confidence": "verified"
+              }
+            },
+            "output": {
+              "price": "10",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                "revision": "5886b62dd2c921ca276b95f8ca6216ea520dc1ac0199f138d4dccf1342febcc1",
+                "at": "2026-11-24T03:08:13.770Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "maintained",
+            "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "revision": "5886b62dd2c921ca276b95f8ca6216ea520dc1ac0199f138d4dccf1342febcc1",
+            "at": "2026-11-24T03:08:13.770Z",
+            "confidence": "verified"
+          }
+        },
+        {
+          "scope": {
+            "provider": "copilot",
+            "channel": "copilot-api"
+          },
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "tier": "long_context",
+          "promptTokensAbove": 272000,
+          "components": {
+            "input": {
+              "price": "4",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                "revision": "5886b62dd2c921ca276b95f8ca6216ea520dc1ac0199f138d4dccf1342febcc1",
+                "at": "2026-11-24T03:08:13.770Z",
+                "confidence": "verified"
+              }
+            },
+            "cachedInput": {
+              "price": "0.2",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                "revision": "5886b62dd2c921ca276b95f8ca6216ea520dc1ac0199f138d4dccf1342febcc1",
+                "at": "2026-11-24T03:08:13.770Z",
+                "confidence": "verified"
+              }
+            },
+            "cacheWrite": {
+              "price": "5",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                "revision": "5886b62dd2c921ca276b95f8ca6216ea520dc1ac0199f138d4dccf1342febcc1",
+                "at": "2026-11-24T03:08:13.770Z",
+                "confidence": "verified"
+              }
+            },
+            "output": {
+              "price": "15",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+                "revision": "5886b62dd2c921ca276b95f8ca6216ea520dc1ac0199f138d4dccf1342febcc1",
+                "at": "2026-11-24T03:08:13.770Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "maintained",
+            "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+            "revision": "5886b62dd2c921ca276b95f8ca6216ea520dc1ac0199f138d4dccf1342febcc1",
+            "at": "2026-11-24T03:08:13.770Z",
+            "confidence": "verified"
+          }
+        }
+      ],
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+        "revision": "5886b62dd2c921ca276b95f8ca6216ea520dc1ac0199f138d4dccf1342febcc1",
+        "at": "2026-11-24T03:08:13.770Z",
         "confidence": "verified"
       }
     },

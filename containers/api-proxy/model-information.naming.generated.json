@@ -209,6 +209,14 @@
     },
     {
       "identity": {
+        "key": "copilot/gemini-4-hydrogen",
+        "provider": "copilot",
+        "rawId": "gemini-4-hydrogen",
+        "lookupId": "gemini-4-hydrogen"
+      }
+    },
+    {
+      "identity": {
         "key": "copilot/gpt-4",
         "provider": "copilot",
         "rawId": "gpt-4",
@@ -410,6 +418,14 @@
         "provider": "copilot",
         "rawId": "gpt-6.1-terra",
         "lookupId": "gpt-6-1-terra"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-6.2-sol",
+        "provider": "copilot",
+        "rawId": "gpt-6.2-sol",
+        "lookupId": "gpt-6-2-sol"
       }
     },
     {
