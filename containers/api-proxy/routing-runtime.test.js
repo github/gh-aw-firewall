@@ -296,6 +296,26 @@ describe('createAdaptivePrice', () => {
       expect(createAdaptivePrice(missingCacheWrite)(mapping, claudeTokens)).toBeNull();
     });
 
+    test('refuses repricing mixed-source cacheWrite null when a partial runtime tariff borrows curated null', () => {
+      // Partial runtime gpt-5.4 tariff omitting cache_write_price with a different provider input rate ($9).
+      replaceRuntimeModels('copilot', parseProviderModelMetadata('copilot', {
+        data: [{
+          id: 'gpt-5.4',
+          billing: {
+            token_prices: {
+              batch_size: 1_000_000,
+              default: { input_price: 900, output_price: 2000, cache_read_price: 90 },
+            },
+          },
+        }],
+      }));
+      const price = createAdaptivePrice(resolveModelPricing);
+      expect(price({ wireModel: 'gpt-5.4', provider: 'copilot' }, claudeTokens)).toBeNull();
+      // With cache_write === 0, the borrowed cacheWrite null is unused:
+      // $9 input, $0.90 cachedInput, $20 output -> 0.45 + 27.00 + 10.00 = 37.45 credits
+      expect(price({ wireModel: 'gpt-5.4', provider: 'copilot' }, noCacheWriteTokens)).toBeCloseTo(37.45, 9);
+    });
+
     test('returns null when cache_write > 0 and cacheWrite came from a fallback source', () => {
       // Partial runtime-only model missing cacheWrite, filled from configured_default (both numeric and null).
       replaceRuntimeModels('copilot', parseProviderModelMetadata('copilot', {

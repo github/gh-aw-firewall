@@ -3013,11 +3013,12 @@ cross-family adjustment for `cache_write` tokens: when the incumbent has
 non-zero `cache_write` tokens and a challenger's verified tariff has an explicit
 `cacheWrite` rate, `cache_write` tokens are priced at that rate; when the
 challenger's verified tariff explicitly has no separate cache-write charge
-(`cacheWrite: null`), those uncached prompt tokens are repriced at the
-challenger's verified `input` rate instead of zero; and when the challenger's
-`cacheWrite` component is `unavailable` (unknown or omitted in an operator
-overlay or imported tariff) or comes from a fallback source, no estimate is
-produced. A dynamic-selector, configured-default, median
+(`cacheWrite: null` from the same tariff source and tier as `input`), those
+uncached prompt tokens are repriced at the challenger's verified `input` rate
+instead of zero; and when the challenger's `cacheWrite` component is
+`unavailable` (unknown or omitted in an operator overlay or imported tariff),
+borrowed as `null` from a different source on a partial tariff, or comes from a
+fallback source, no estimate is produced. A dynamic-selector, configured-default, median
 or built-in fallback price gives no estimate, including one that fills a
 component the estimate uses when the model's own tariff is partial, and a pair
 without a cost is never chosen on cost.

@@ -129,6 +129,11 @@ function createAdaptivePrice(resolve = resolveModelPricing) {
     // A partial tariff keeps its own source but can fill components from fallbacks.
     const ownTariff = field => !NOT_A_TARIFF.has(resolution.componentSources?.[field]?.source);
     const componentUnavailable = field => resolution.componentSources?.[field]?.unavailable === true;
+    // Only reprice cache_write at input when cacheWrite === null came from the same tariff as input.
+    const sameTariffAsInput = field => !resolution.componentSources ||
+      (resolution.componentSources[field]?.source !== undefined &&
+       resolution.componentSources[field]?.source === resolution.componentSources.input?.source &&
+       resolution.componentSources[field]?.tier === resolution.componentSources.input?.tier);
     const perToken = field => {
       if (pricing[field] === undefined || pricing[field] === null) return null;
       const value = exact.rate(pricing, field);
@@ -141,7 +146,8 @@ function createAdaptivePrice(resolve = resolveModelPricing) {
     const reasoning = tokens.reasoning === null ? 0 : Math.min(tokens.reasoning, tokens.output);
     if ((tokens.cache_read > 0 && (!ownTariff('cachedInput') || componentUnavailable('cachedInput'))) ||
         (tokens.cache_write > 0 && (!ownTariff('cacheWrite') || componentUnavailable('cacheWrite') ||
-          pricing.cacheWrite === undefined)) ||
+          pricing.cacheWrite === undefined ||
+          (pricing.cacheWrite === null && !sameTariffAsInput('cacheWrite')))) ||
         (reasoning > 0 && pricing.reasoning !== undefined &&
           (!ownTariff('reasoning') || componentUnavailable('reasoning')))) return null;
     // Verified tariffs without a separate cache-write charge bill uncached prompt tokens at input.
