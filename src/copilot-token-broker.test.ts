@@ -70,7 +70,7 @@ it('maps only an explicit boolean opt-in, with no URL config surface', () => {
 it('builds actual CLI broker configuration without implicit fallback or routing defaults', () => {
   program.parse(['node', 'awf', '--copilot-token-broker', '--', 'true']);
   const config = buildConfig(buildMinimalBuildConfigInput({
-    options: { ...program.opts(), enableApiProxy: true, workDir: root },
+    options: { ...program.opts(), keepContainers: false, enableApiProxy: true, workDir: root },
   }));
   expect(config.copilotTokenBroker).toBe(true);
   expect(config.modelFallback).toBeUndefined();

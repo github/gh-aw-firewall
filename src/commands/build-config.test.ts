@@ -29,6 +29,7 @@ const ENV_KEYS = [
   'AWF_CAPTURE_BLOCKED_LLM_REQUESTS',
   'AWF_MAX_BLOCKED_CAPTURE_BYTES',
   'AWF_DEBUG_TOKENS',
+  'AWF_TOKEN_LOG_DIR',
   'AWF_OPENAI_AUTH_SCHEME',
   'AWF_ANTHROPIC_AUTH_SCHEME',
   'AWF_AUTH_DATABRICKS_HOST',
@@ -134,6 +135,225 @@ describe('buildConfig', () => {
         process.env[key] = savedEnv[key];
       }
     }
+  });
+
+  it.each(['minimal', 'configured'] as const)('preserves the complete %s config', (variant) => {
+    const environment = jest.replaceProperty(process, 'env', variant === 'minimal' ? {} : {
+      AWF_AUDIT_DIR: '/env/audit',
+      AWF_SESSION_STATE_DIR: '/env/state',
+      AWF_DEBUG_TOKENS: '1',
+      AWF_TOKEN_LOG_DIR: ' /env/tokens ',
+      AWF_CAPTURE_BLOCKED_LLM_REQUESTS: 'redacted',
+      AWF_MAX_BLOCKED_CAPTURE_BYTES: '2048',
+      OPENAI_API_TARGET: 'https://openai.example.com',
+      AWF_AUTH_TYPE: 'github-oidc',
+    });
+    try {
+      const inputs = makeInputs(variant === 'minimal' ? {} : {
+        options: {
+          ...makeInputs().options,
+          keepContainers: true,
+          tty: true,
+          buildLocal: true,
+          skipPull: true,
+          images: { agent: 'example/agent:test' },
+          envAll: true,
+          excludeEnv: ['PRIVATE_VALUE'],
+          inputDir: ['/inputs'],
+          filesystemAllowWrite: ['/workspace/output'],
+          containerWorkdir: '/workspace',
+          proxyLogsDir: '/logs/proxy',
+          captureCommandOutput: '/logs/command',
+          captureCommandOutputMaxBytes: '1024',
+          runnerToolCachePath: '/opt/toolcache',
+          enableHostAccess: true,
+          networkIsolation: true,
+          verifySbxEgress: true,
+          topologyAttach: ['tools'],
+          allowHostPorts: '8080',
+          allowHostServicePorts: '9000',
+          sslBump: true,
+          enableDind: true,
+          enableDlp: true,
+          legacySecurity: true,
+          enableApiProxy: true,
+          apiProxyCaCert: '/certs/upstream.pem',
+          copilotTokenBroker: true,
+          modelFallback: { enabled: true, strategy: 'middle_power' },
+          fallbackModels: ['fallback-model'],
+          experimentalModelRouting: true,
+          modelRouting: {
+            objective: { goal: 'cost', mode: 'auto' },
+            task: { conversationFile: '/conversation.json' },
+          },
+          requestedModel: 'requested-model',
+          anthropicAutoCache: true,
+          anthropicCacheTailTtl: '1h',
+          claudeHostedWeb: { enabled: true, allowedDomains: ['example.com'] },
+          codexHostedWeb: { enabled: false },
+          defaultAiCreditsPricing: { input: 3, output: 15 },
+          apiProxyProviders: { custom: { models: {} } },
+          modelCatalogue: { enabled: true, offline: true },
+          steeringBudget: false,
+          copilotByokExtraHeaders: { 'x-session': 'test-session' },
+          copilotByokExtraBodyFields: { session_id: 'test-session' },
+          copilotByokSessionId: 'test-session',
+          copilotProviderType: 'openai',
+          copilotProviderBaseUrl: 'https://provider.example.com',
+          difcProxyHost: 'proxy.example.com',
+          difcProxyCaCert: '/certs/difc.pem',
+          maxGithubApiPointsRest: '100',
+          maxGithubApiPointsGraphql: '200',
+          maxNumToolCalls: '20',
+          diagnosticLogs: true,
+          dockerHost: 'unix:///var/run/docker.sock',
+          containerRuntime: 'docker',
+          runnerTopology: 'arc-dind',
+          sysrootImage: 'example/sysroot:test',
+          chrootBinariesSourcePath: '/binaries',
+          chrootIdentityHome: '/home/agent',
+          chrootIdentityUser: 'agent',
+          chrootIdentityUid: '1001',
+          chrootIdentityGid: 1002,
+          dindPreStageDirs: true,
+          dindWorkDir: '/dind',
+          dindStagingImage: 'example/dind:test',
+          dindStageEngineBinaryPath: '/usr/bin/engine',
+          dindStageEngineBinaryTargetPath: '/usr/local/bin/engine',
+          enclaveDebugPublic: true,
+        },
+        agentCommand: 'echo configured',
+        logLevel: 'debug',
+        allowedDomains: ['example.com'],
+        sensitiveAllowedDomains: ['private.example.com'],
+        blockedDomains: ['blocked.example.com'],
+        localhostDetected: true,
+        additionalEnv: { BUILD_CONFIG_TEST: 'true' },
+        volumeMounts: ['/workspace:/workspace:rw'],
+        upstreamProxy: { host: 'upstream.example.com', port: 3128 },
+        dnsServers: ['1.1.1.1'],
+        dnsServersExplicit: true,
+        dnsOverHttps: 'https://dns.example.com/dns-query',
+        networkSubnet: '172.29.0.0/24',
+        allowedUrls: ['https://example.com/allowed'],
+        memoryLimit: '2g',
+        pidsLimit: 256,
+        agentImage: 'act',
+        modelAliases: { fast: ['test-model'] },
+        allowedModels: ['test-model'],
+        disallowedModels: ['blocked-model'],
+        maxAiCredits: 10,
+        modelMultipliers: { 'test-model': 2 },
+        defaultModelMultiplier: 1,
+        maxModelMultiplierCap: 5,
+        maxRuns: 3,
+        maxPermissionDenied: 4,
+        maxCacheMisses: 5,
+        resolvedCopilotApiTarget: 'https://copilot.example.com',
+        resolvedCopilotApiBasePath: '/v1',
+        dockerHostPathPrefix: '/host',
+      });
+      expect(buildConfig(inputs)).toMatchSnapshot();
+    } finally {
+      environment.restore();
+    }
+  });
+
+  describe('injected environment fallbacks', () => {
+    const env = {
+      AWF_AUDIT_DIR: '/injected/audit',
+      AWF_SESSION_STATE_DIR: '/injected/state',
+      AWF_DEBUG_TOKENS: '1',
+      AWF_TOKEN_LOG_DIR: ' /injected/tokens ',
+      AWF_CAPTURE_BLOCKED_LLM_REQUESTS: 'redacted',
+      AWF_MAX_BLOCKED_CAPTURE_BYTES: '2048',
+    };
+
+    it('uses the supplied environment without mutating it', () => {
+      const config = buildConfig(makeInputs(), Object.freeze(env));
+      expect(config).toMatchObject({
+        auditDir: '/injected/audit',
+        sessionStateDir: '/injected/state',
+        debugTokens: true,
+        tokenLogDir: '/injected/tokens',
+        captureBlockedRequests: 'redacted',
+        maxCapturedBytes: 2048,
+      });
+    });
+
+    it('preserves option precedence, including false, zero, and empty strings', () => {
+      const config = buildConfig(makeInputs({
+        options: {
+          ...makeInputs().options,
+          auditDir: '/options/audit',
+          sessionStateDir: '/options/state',
+          debugTokens: false,
+          tokenLogDir: '',
+          captureBlockedRequests: false,
+          maxCapturedBytes: 0,
+        },
+      }), env);
+      expect(config).toMatchObject({
+        auditDir: '/options/audit',
+        sessionStateDir: '/options/state',
+        debugTokens: false,
+        tokenLogDir: '',
+        captureBlockedRequests: false,
+        maxCapturedBytes: 0,
+      });
+    });
+
+    it('retains the directory fallbacks for empty option values', () => {
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, auditDir: '', sessionStateDir: '' },
+      }), env);
+      expect(config.auditDir).toBe(env.AWF_AUDIT_DIR);
+      expect(config.sessionStateDir).toBe(env.AWF_SESSION_STATE_DIR);
+    });
+
+    it('does not fall back to the host environment when an empty environment is supplied', () => {
+      process.env.AWF_AUDIT_DIR = '/host/audit';
+      process.env.AWF_SESSION_STATE_DIR = '/host/state';
+      process.env.AWF_DEBUG_TOKENS = '1';
+      process.env.AWF_TOKEN_LOG_DIR = '/host/tokens';
+      process.env.AWF_CAPTURE_BLOCKED_LLM_REQUESTS = 'full';
+      process.env.AWF_MAX_BLOCKED_CAPTURE_BYTES = '4096';
+      process.env.OPENAI_API_KEY = 'test-host-only';
+      process.env.AWF_AUTH_TYPE = 'host-auth';
+
+      const config = buildConfig(makeInputs(), {});
+      expect(config).toMatchObject({
+        auditDir: undefined,
+        sessionStateDir: undefined,
+        debugTokens: undefined,
+        tokenLogDir: undefined,
+        captureBlockedRequests: undefined,
+        maxCapturedBytes: undefined,
+        openaiApiKey: undefined,
+      });
+      expect(config).not.toHaveProperty('authType');
+    });
+
+    it.each(['', ' ', '0', 'true'])('only enables debug tokens for the exact value 1, not %j', (value) => {
+      expect(buildConfig(makeInputs(), { AWF_DEBUG_TOKENS: value }).debugTokens).toBeUndefined();
+    });
+
+    it('preserves empty environment and numeric conversion behavior', () => {
+      const config = buildConfig(makeInputs(), {
+        AWF_AUDIT_DIR: '',
+        AWF_SESSION_STATE_DIR: '',
+        AWF_TOKEN_LOG_DIR: ' \t ',
+        AWF_CAPTURE_BLOCKED_LLM_REQUESTS: '',
+        AWF_MAX_BLOCKED_CAPTURE_BYTES: '',
+      });
+      expect(config.auditDir).toBe('');
+      expect(config.sessionStateDir).toBe('');
+      expect(config.tokenLogDir).toBeUndefined();
+      expect(config.captureBlockedRequests).toBeUndefined();
+      expect(config.maxCapturedBytes).toBeUndefined();
+      expect(buildConfig(makeInputs(), { AWF_MAX_BLOCKED_CAPTURE_BYTES: '0' }).maxCapturedBytes).toBe(0);
+      expect(buildConfig(makeInputs(), { AWF_MAX_BLOCKED_CAPTURE_BYTES: 'invalid' }).maxCapturedBytes).toBeNaN();
+    });
   });
 
   describe('auth environment precedence during assembly', () => {

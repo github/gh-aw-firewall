@@ -43,23 +43,27 @@ type ApiCredentials = Pick<WrapperConfig,
   | 'githubToken'
 >;
 
+type ApiCredentialOptions = Partial<Pick<WrapperConfig, keyof ApiCredentials | 'enableApiProxy'>>;
+type StringCredentialKey = Exclude<keyof ApiCredentials, 'openaiTrustedService' | 'anthropicTrustedService'>;
+
 /**
  * Resolves API proxy credentials and related auth settings from config options
  * and environment variables.
  */
 export function resolveApiCredentials(
-  options: Record<string, unknown>,
-  inputs: ResolveApiCredentialsInputs = {}
+  options: ApiCredentialOptions,
+  inputs: ResolveApiCredentialsInputs = {},
+  env: NodeJS.ProcessEnv = process.env,
 ): ApiCredentials {
   let fileEnvironment: Record<string, string> | undefined;
-  const resolveExplicitEnvOrHost = (configKey: string, envVar: string): string | undefined => {
-    const option = options[configKey] as string | undefined;
+  const resolveExplicitEnvOrHost = (configKey: StringCredentialKey, envVar: string): string | undefined => {
+    const option = options[configKey];
     if (option !== undefined) return option;
     if (inputs.additionalEnv?.[envVar] !== undefined) return inputs.additionalEnv[envVar];
     if (inputs.envFile && fileEnvironment === undefined) {
       try { fileEnvironment = readEnvFile(inputs.envFile); } catch { fileEnvironment = {}; }
     }
-    return fileEnvironment?.[envVar] ?? process.env[envVar];
+    return fileEnvironment?.[envVar] ?? env[envVar];
   };
   const oidcCredentials = Object.fromEntries(
     OIDC_AUTH_ENV_MAPPING
@@ -67,67 +71,70 @@ export function resolveApiCredentials(
         configKey,
         configKey === 'authDatabricksHost' || configKey === 'authDatabricksClientId'
           ? resolveExplicitEnvOrHost(configKey, envVar)
-          : resolveOptionOrEnv(options, configKey, envVar),
+          : resolveOptionOrEnv(options, configKey, envVar, env),
       ])
       .filter(([, value]) => value !== undefined)
   ) as Pick<ApiCredentials, OidcConfigKey>;
 
-  const agentApiKey = resolveAgentApiKey(options);
+  const agentApiKey = resolveAgentApiKey(options, env);
   const openaiApiAuthScheme = resolveExplicitEnvOrHost('openaiApiAuthScheme', OPENAI_ENV.AUTH_SCHEME);
   const anthropicApiAuthScheme = resolveExplicitEnvOrHost('anthropicApiAuthScheme', ANTHROPIC_ENV.AUTH_SCHEME);
   validateApiAuthScheme(openaiApiAuthScheme);
   validateApiAuthScheme(anthropicApiAuthScheme);
 
   return {
-    openaiTrustedService: options.openaiTrustedService as WrapperConfig['openaiTrustedService'],
-    anthropicTrustedService: options.anthropicTrustedService as WrapperConfig['anthropicTrustedService'],
-    openaiApiKey: process.env[OPENAI_ENV.KEY] || agentApiKey.openai,
-    anthropicApiKey: process.env[ANTHROPIC_ENV.KEY] || agentApiKey.anthropic,
-    copilotGithubToken: process.env[COPILOT_ENV.GITHUB_TOKEN],
-    copilotProviderApiKey: process.env[COPILOT_ENV.PROVIDER_API_KEY] || agentApiKey.copilot,
-    copilotProviderType: resolveOptionOrEnv(options, 'copilotProviderType', COPILOT_ENV.PROVIDER_TYPE),
+    openaiTrustedService: options.openaiTrustedService,
+    anthropicTrustedService: options.anthropicTrustedService,
+    openaiApiKey: env[OPENAI_ENV.KEY] || agentApiKey.openai,
+    anthropicApiKey: env[ANTHROPIC_ENV.KEY] || agentApiKey.anthropic,
+    copilotGithubToken: env[COPILOT_ENV.GITHUB_TOKEN],
+    copilotProviderApiKey: env[COPILOT_ENV.PROVIDER_API_KEY] || agentApiKey.copilot,
+    copilotProviderType: resolveOptionOrEnv(options, 'copilotProviderType', COPILOT_ENV.PROVIDER_TYPE, env),
     copilotProviderBaseUrl: resolveOptionOrEnv(
       options,
       'copilotProviderBaseUrl',
-      COPILOT_ENV.PROVIDER_BASE_URL
+      COPILOT_ENV.PROVIDER_BASE_URL,
+      env,
     ),
-    geminiApiKey: process.env[GEMINI_ENV.KEY] || agentApiKey.gemini,
-    googleApiKey: process.env[VERTEX_ENV.KEY] || agentApiKey.vertex,
+    geminiApiKey: env[GEMINI_ENV.KEY] || agentApiKey.gemini,
+    googleApiKey: env[VERTEX_ENV.KEY] || agentApiKey.vertex,
     copilotApiTarget: inputs.resolvedCopilotApiTarget,
     copilotApiBasePath: inputs.resolvedCopilotApiBasePath,
-    openaiApiTarget: resolveOptionOrEnv(options, 'openaiApiTarget', OPENAI_ENV.TARGET),
-    openaiBaseUrlEnv: resolveOptionOrEnv(options, 'openaiBaseUrlEnv', 'OPENAI_BASE_URL_ENV'),
-    openaiApiBasePath: resolveOptionOrEnv(options, 'openaiApiBasePath', OPENAI_ENV.BASE_PATH),
-    anthropicApiTarget: resolveOptionOrEnv(options, 'anthropicApiTarget', ANTHROPIC_ENV.TARGET),
+    openaiApiTarget: resolveOptionOrEnv(options, 'openaiApiTarget', OPENAI_ENV.TARGET, env),
+    openaiBaseUrlEnv: resolveOptionOrEnv(options, 'openaiBaseUrlEnv', 'OPENAI_BASE_URL_ENV', env),
+    openaiApiBasePath: resolveOptionOrEnv(options, 'openaiApiBasePath', OPENAI_ENV.BASE_PATH, env),
+    anthropicApiTarget: resolveOptionOrEnv(options, 'anthropicApiTarget', ANTHROPIC_ENV.TARGET, env),
     anthropicApiBasePath: resolveOptionOrEnv(
       options,
       'anthropicApiBasePath',
-      ANTHROPIC_ENV.BASE_PATH
+      ANTHROPIC_ENV.BASE_PATH,
+      env,
     ),
-    openaiApiAuthHeader: resolveOptionOrEnv(options, 'openaiApiAuthHeader', OPENAI_ENV.AUTH_HEADER),
+    openaiApiAuthHeader: resolveOptionOrEnv(options, 'openaiApiAuthHeader', OPENAI_ENV.AUTH_HEADER, env),
     openaiApiAuthScheme,
     anthropicApiAuthHeader: resolveOptionOrEnv(
       options,
       'anthropicApiAuthHeader',
-      ANTHROPIC_ENV.AUTH_HEADER
+      ANTHROPIC_ENV.AUTH_HEADER,
+      env,
     ),
     anthropicApiAuthScheme,
-    anthropicTokenUrl: (options.anthropicTokenUrl as string | undefined) ?? process.env.AWF_AUTH_ANTHROPIC_TOKEN_URL,
+    anthropicTokenUrl: options.anthropicTokenUrl ?? env.AWF_AUTH_ANTHROPIC_TOKEN_URL,
     ...oidcCredentials,
-    geminiApiTarget: resolveOptionOrEnv(options, 'geminiApiTarget', GEMINI_ENV.TARGET),
-    geminiApiBasePath: resolveOptionOrEnv(options, 'geminiApiBasePath', GEMINI_ENV.BASE_PATH),
-    vertexApiTarget: resolveOptionOrEnv(options, 'vertexApiTarget', VERTEX_ENV.TARGET),
-    vertexApiBasePath: resolveOptionOrEnv(options, 'vertexApiBasePath', VERTEX_ENV.BASE_PATH),
-    githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN,
+    geminiApiTarget: resolveOptionOrEnv(options, 'geminiApiTarget', GEMINI_ENV.TARGET, env),
+    geminiApiBasePath: resolveOptionOrEnv(options, 'geminiApiBasePath', GEMINI_ENV.BASE_PATH, env),
+    vertexApiTarget: resolveOptionOrEnv(options, 'vertexApiTarget', VERTEX_ENV.TARGET, env),
+    vertexApiBasePath: resolveOptionOrEnv(options, 'vertexApiBasePath', VERTEX_ENV.BASE_PATH, env),
+    githubToken: env.GITHUB_TOKEN || env.GH_TOKEN,
   };
 }
 
-function resolveAgentApiKey(options: Record<string, unknown>): Partial<Record<string, string>> {
-  const key = process.env.AWF_AGENT_API_KEY?.trim();
+function resolveAgentApiKey(options: ApiCredentialOptions, env: NodeJS.ProcessEnv): Partial<Record<string, string>> {
+  const key = env.AWF_AGENT_API_KEY?.trim();
   if (options.enableApiProxy === false || !key) return {};
 
   // The proxy can enable multiple providers; never broadcast a neutral key.
-  const provider = process.env.AWF_AGENT_API_PROVIDER?.trim().toLowerCase();
+  const provider = env.AWF_AGENT_API_PROVIDER?.trim().toLowerCase();
   switch (provider) {
     case 'openai':
     case 'anthropic':
@@ -141,9 +148,10 @@ function resolveAgentApiKey(options: Record<string, unknown>): Partial<Record<st
 }
 
 function resolveOptionOrEnv(
-  options: Record<string, unknown>,
-  optionKey: string,
-  envVar: string
+  options: ApiCredentialOptions,
+  optionKey: StringCredentialKey,
+  envVar: string,
+  env: NodeJS.ProcessEnv,
 ): string | undefined {
-  return (options[optionKey] as string | undefined) ?? process.env[envVar];
+  return options[optionKey] ?? env[envVar];
 }
