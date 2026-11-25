@@ -385,6 +385,53 @@
       ]
     }
   ],
+  "importedMedianEstimateEffects": [
+    {
+      "file": "containers/api-proxy/models.dev.catalog.json",
+      "changes": [
+        {
+          "pointer": "/importedOnlyBackendMedian/componentDonors/cachedInput",
+          "before": 368,
+          "after": 363
+        },
+        {
+          "pointer": "/importedOnlyBackendMedian/componentDonors/input",
+          "before": 368,
+          "after": 363
+        },
+        {
+          "pointer": "/importedOnlyBackendMedian/componentDonors/output",
+          "before": 368,
+          "after": 363
+        },
+        {
+          "pointer": "/importedOnlyBackendMedian/componentDonors/reasoning",
+          "before": 368,
+          "after": 363
+        },
+        {
+          "pointer": "/importedOnlyBackendMedian/donorCount",
+          "before": 368,
+          "after": 363
+        },
+        {
+          "pointer": "/importedOnlyBackendMedian/pricing/input",
+          "before": "0.375",
+          "after": "0.372"
+        },
+        {
+          "pointer": "/importedOnlyBackendMedian/pricing/output",
+          "before": "1.55",
+          "after": "1.5"
+        },
+        {
+          "pointer": "/importedOnlyBackendMedian/pricing/reasoning",
+          "before": "1.55",
+          "after": "1.5"
+        }
+      ]
+    }
+  ],
   "historicalLookupEffects": [
     {
       "file": "containers/api-proxy/models.dev.catalog.json",
@@ -809,6 +856,7 @@
   ],
   "impactInterpretation": {
     "backendScopedFallbackEffects": "Imported OpenRouter rates affect budgets only when this fallback is selected, below valid provider, central-feed and operator pricing.",
+    "importedMedianEstimateEffects": "Imported-only OpenRouter backend medians are conditional estimates in USD per million tokens, not tariffs. When selected for unpriced requests, they affect accounting and budgets; family donors, other pricing sources and configured defaults can change or supersede these estimates.",
     "historicalLookupEffects": "Order-sensitive bare-slug lookup observations are reported separately and are not budget-active tariff changes."
   },
   "pathFormat": "JSON Pointer fields; data/models arrays use @id=<escaped exact ID> selectors, not positional indices. Raw import diffs cover governed observations only; exact bytes are pinned separately.",
