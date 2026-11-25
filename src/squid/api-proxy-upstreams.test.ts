@@ -69,6 +69,67 @@ describe('trusted API proxy custom upstream ports', () => {
     expect(generateSquidConfig({ ...config, apiProxyIp: undefined })).not.toContain('api_upstream_');
   });
 
+  describe.each([false, true])('broker destinations with sslBump=%s', sslBump => {
+    it.each([
+      ['192.0.2.10', '192.0.2.10/32'],
+      ['2001:db8::10', '2001:db8::10/128'],
+      ['[2001:db8::10]', '2001:db8::10/128'],
+    ])('keeps %s numeric-only in access, splice and logging ACLs', (hostname, destination) => {
+      const result = generateSquidConfig({
+        ...config,
+        domains: ['192.0.2.20', 'example.com'],
+        apiProxyUpstreams: [],
+        apiProxyBrokerUpstreams: [{ hostname, port: 8443 }],
+        sslBump,
+        caFiles: { certPath: '/tmp/ca.crt', keyPath: '/tmp/ca.key' },
+        sslDbPath: '/tmp/ssl_db',
+      });
+
+      for (const acl of [
+        'api_upstream_0_host',
+        'api_broker_log_0_destination',
+        ...(sslBump ? ['api_broker_tls_0_host'] : []),
+      ]) {
+        expect(result).toContain(`acl ${acl} dst -n ${destination}\n`);
+      }
+      const destinationAcls = result.split('\n').filter(line => /^acl \S+ dst /.test(line));
+      expect(destinationAcls.length).toBeGreaterThanOrEqual(4);
+      for (const acl of destinationAcls) expect(acl).toMatch(/^acl \S+ dst -n /);
+      expect(result).toContain(
+        'http_access allow api_upstream_source api_broker_connect api_upstream_0_host api_upstream_0_port'
+      );
+      if (sslBump) {
+        expect(result).toContain(
+          'ssl_bump splice api_broker_tls_source api_broker_tls_0_host api_broker_tls_0_port'
+        );
+      } else {
+        expect(result).toContain('ssl_bump splice tls_sni_guard_api_proxy');
+      }
+      expect(result).toContain(
+        'acl api_broker_log_0_private all-of api_broker_log_0_source api_broker_log_0_destination api_broker_log_0_port'
+      );
+    });
+
+    it('retains non-resolving exact hostname broker ACLs', () => {
+      const result = generateSquidConfig({
+        ...config,
+        apiProxyUpstreams: [],
+        apiProxyBrokerUpstreams: [{ hostname: 'broker.example.com', port: 8443 }],
+        sslBump,
+        caFiles: { certPath: '/tmp/ca.crt', keyPath: '/tmp/ca.key' },
+        sslDbPath: '/tmp/ssl_db',
+      });
+
+      for (const acl of [
+        'api_upstream_0_host',
+        'api_broker_log_0_destination',
+        ...(sslBump ? ['api_broker_tls_0_host'] : []),
+      ]) {
+        expect(result).toContain(`acl ${acl} dstdom_regex -i -n ^broker\\.example\\.com$\n`);
+      }
+    });
+  });
+
   it.each([
     { hostname: 'gateway.example.com', port: 443 },
     { hostname: '127.0.0.1', port: 80 },

@@ -102,6 +102,35 @@ describe('diagnosis registry', () => {
     }
   });
 
+  it('includes every destination-IP ACL in the NET-008 read-only probe', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'net008-probe-'));
+    try {
+      const configPath = path.join(root, 'squid.conf');
+      const destinationAcls = [
+        'acl allow_api_proxy_ip dst -n 172.30.0.30',
+        'acl allow_ip_192_0_2_10 dst -n 192.0.2.10',
+        'acl tls_sni_guard_allowed_ip dst 192.0.2.10',
+        'acl api_upstream_0_host dst 192.0.2.10/32',
+        'acl api_broker_tls_0_host dst 2001:db8::10/128',
+        'acl api_broker_log_0_destination dst 192.0.2.10/32',
+      ];
+      const config = [
+        ...destinationAcls,
+        'acl api_upstream_source src 172.30.0.30/32',
+        'acl api_upstream_1_host dstdom_regex -i -n ^broker\\.example\\.com$',
+      ].join('\n') + '\n';
+      fs.writeFileSync(configPath, config);
+      const finding = loaded.find((entry) => entry.finding.id === 'NET-008')!.finding;
+      const command = finding.probe.command.replace('path/to/squid.conf', configPath);
+      const output = execFileSync('sh', ['-c', command], { encoding: 'utf8' });
+      expect(output.trim().split('\n').map(line => line.replace(/^\d+:/, '')))
+        .toEqual(destinationAcls);
+      expect(fs.readFileSync(configPath, 'utf8')).toBe(config);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('keeps B37 unresolved and distinguishes confirmed safeoutputs identity from the gateway report', () => {
     const finding = loaded.find((entry) => entry.finding.id === 'B37')!.finding;
     expect(finding.status).toBe('unresolved');

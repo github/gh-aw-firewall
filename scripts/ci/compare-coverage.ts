@@ -15,6 +15,9 @@
 
 import * as fs from 'fs';
 
+// Allow for subtraction error when comparing percentages in the 0-100 range.
+const COVERAGE_TOLERANCE = 0.01 + 100 * Number.EPSILON;
+
 interface CoverageMetric {
   total: number;
   covered: number;
@@ -83,14 +86,12 @@ function compareCoverage(
   const functionsDelta = prTotal.functions.pct - baseTotal.functions.pct;
   const branchesDelta = prTotal.branches.pct - baseTotal.branches.pct;
 
-  // Check for regression (any overall metric decreased)
-  // Use a small epsilon to avoid floating point comparison issues
-  const epsilon = 0.01;
+  // Check for regression beyond the comparison tolerance.
   const overallRegression =
-    linesDelta < -epsilon ||
-    statementsDelta < -epsilon ||
-    functionsDelta < -epsilon ||
-    branchesDelta < -epsilon;
+    linesDelta < -COVERAGE_TOLERANCE ||
+    statementsDelta < -COVERAGE_TOLERANCE ||
+    functionsDelta < -COVERAGE_TOLERANCE ||
+    branchesDelta < -COVERAGE_TOLERANCE;
 
   // Get file lists
   const prFiles = new Set(Object.keys(prCoverage).filter((f) => f !== 'total'));
@@ -112,7 +113,7 @@ function compareCoverage(
       const statementsDiff = prFile.statements.pct - baseFile.statements.pct;
 
       // Only include files with significant changes
-      if (Math.abs(linesDiff) > epsilon || Math.abs(statementsDiff) > epsilon) {
+      if (Math.abs(linesDiff) > COVERAGE_TOLERANCE || Math.abs(statementsDiff) > COVERAGE_TOLERANCE) {
         fileChanges.push({
           file,
           linesBefore: baseFile.lines.pct,
@@ -153,8 +154,8 @@ function formatDelta(delta: number): string {
 }
 
 function formatDeltaEmoji(delta: number): string {
-  if (delta > 0.01) return '📈';
-  if (delta < -0.01) return '📉';
+  if (delta > COVERAGE_TOLERANCE) return '📈';
+  if (delta < -COVERAGE_TOLERANCE) return '📉';
   return '➡️';
 }
 

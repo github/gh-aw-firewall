@@ -149,9 +149,9 @@ it.each([
   };
   const squid = generateSquidConfig(squidConfig);
   expect(buildApiProxyBaseEnv(config, network).GH_AW_TOKEN_BROKER_URL).toBe(url);
-  expect(squid).toContain(`acl api_upstream_0_host dst ${cidr}`);
-  expect(squid).toContain(`acl api_broker_tls_0_host dst ${cidr}`);
-  expect(squid).toContain(`acl api_broker_log_0_destination dst ${cidr}`);
+  expect(squid).toContain(`acl api_upstream_0_host dst -n ${cidr}`);
+  expect(squid).toContain(`acl api_broker_tls_0_host dst -n ${cidr}`);
+  expect(squid).toContain(`acl api_broker_log_0_destination dst -n ${cidr}`);
   expect(squid).toContain(`acl api_broker_log_0_source src ${network.proxyIp}/32`);
   expect(squid).toContain('acl api_broker_log_0_private all-of api_broker_log_0_source api_broker_log_0_destination api_broker_log_0_port');
   for (const line of squid.split('\n').filter(value => value.startsWith('access_log '))) {
