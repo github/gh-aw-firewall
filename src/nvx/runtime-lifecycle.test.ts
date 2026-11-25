@@ -173,6 +173,20 @@ describe('NVX Phase 3d runtime lifecycle', () => {
     expect(runtimeLifecycle).toEqual({ ...identity, ...cgroup, ...launchPlan });
   });
 
+  it('preserves the original type exports through the compatibility barrel', () => {
+    type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends
+      (<T>() => T extends B ? 1 : 2) ? true : false;
+    const typeExportsMatch: [
+      Equal<runtimeLifecycle.NvxVmmIdentity, identity.NvxVmmIdentity>,
+      Equal<runtimeLifecycle.NvxRuntimeToolPaths, identity.NvxRuntimeToolPaths>,
+      Equal<runtimeLifecycle.NvxRuntimeLifecycleDependencies, identity.NvxRuntimeLifecycleDependencies>,
+      Equal<runtimeLifecycle.NvxRuntimeLifecycleObserver, identity.NvxRuntimeLifecycleObserver>,
+      Equal<runtimeLifecycle.NvxCgroupDependencies, cgroup.NvxCgroupDependencies>,
+      Equal<runtimeLifecycle.NvxPhase3dLaunchPlan, launchPlan.NvxPhase3dLaunchPlan>,
+    ] = [true, true, true, true, true, true];
+    expect(typeExportsMatch).toEqual([true, true, true, true, true, true]);
+  });
+
   it('passes aggregate child mappings and the exact distro format token to direct OpenVMM', () => {
     const mounts = [
       {
@@ -340,6 +354,7 @@ describe('NVX Phase 3d runtime lifecycle', () => {
     const deviceLock = '/run/awf-nvx/.device-acl-lock';
     const heldLocks = new Set<string>();
     const events: string[] = [];
+    let revocations = 0;
     const originalMkdir = deps.mkdir;
     const originalRm = deps.rm;
     const originalRun = deps.run;
@@ -357,29 +372,41 @@ describe('NVX Phase 3d runtime lifecycle', () => {
     deps.run = jest.fn(async (command, args) => {
       if (command === tools.useradd || command === tools.userdel) {
         expect([...heldLocks]).toEqual([accountLock]);
+        if (command === tools.userdel) events.push('delete account');
       }
       if (command === tools.setfacl) {
-        expect([...heldLocks]).toEqual([deviceLock]);
+        if (args[0] === '--remove') {
+          revocations++;
+          expect([...heldLocks]).toEqual(revocations === 1 ? [deviceLock] : [accountLock, deviceLock]);
+          events.push('remove ACL');
+          if (revocations === 1) throw new Error('first ACL removal failed');
+        } else {
+          expect([...heldLocks]).toEqual([deviceLock]);
+        }
       }
       return originalRun(command, args);
     });
     const manager = new NvxVmmIdentityManager(RUN_ID, tools, deps);
     await manager.allocate();
-    await manager.withDeviceAccess(async () => {
+    await expect(manager.withDeviceAccess(async () => {
       expect(heldLocks.size).toBe(0);
-    });
+    })).rejects.toThrow('first ACL removal failed');
     await manager.cleanup();
 
+    expect(revocations).toBe(2);
     expect(events).toEqual([
       `acquire ${accountLock}`,
       `release ${accountLock}`,
       `acquire ${deviceLock}`,
       `release ${deviceLock}`,
       `acquire ${deviceLock}`,
+      'remove ACL',
       `release ${deviceLock}`,
       `acquire ${accountLock}`,
       `acquire ${deviceLock}`,
+      'remove ACL',
       `release ${deviceLock}`,
+      'delete account',
       `release ${accountLock}`,
     ]);
     expect(heldLocks.size).toBe(0);
