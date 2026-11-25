@@ -7,12 +7,34 @@ import type { WrapperConfig } from '../types';
  */
 export interface ParsedCliOptions extends Record<string, unknown>, Omit<Partial<WrapperConfig>,
   | 'enclaves'
+  | 'dnsServers'
+  | 'dnsOverHttps'
+  | 'upstreamProxy'
+  | 'pidsLimit'
+  | 'agentTimeout'
+  | 'maxAiCredits'
+  | 'defaultModelMultiplier'
+  | 'maxModelMultiplierCap'
+  | 'maxRuns'
+  | 'maxPermissionDenied'
+  | 'maxCacheMisses'
   | 'maxGithubApiPointsRest'
   | 'maxGithubApiPointsGraphql'
   | 'maxNumToolCalls'
 > {
   keepContainers: boolean;
   workDir: string;
+  dnsServers?: string;
+  dnsOverHttps?: string | boolean;
+  upstreamProxy?: string;
+  pidsLimit?: string;
+  agentTimeout?: string;
+  maxAiCredits?: string | number;
+  defaultModelMultiplier?: string | number;
+  maxModelMultiplierCap?: string | number;
+  maxRuns?: string | number;
+  maxPermissionDenied?: string | number;
+  maxCacheMisses?: string | number;
   home?: string;
   inputDir?: string[];
   containerWorkdir?: string;
