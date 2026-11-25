@@ -1,5 +1,5 @@
 import { WrapperConfig, LogLevel, UpstreamProxyConfig } from '../types';
-import type { AwfFileConfig } from '../config-file';
+import type { ParsedCliOptions } from './parsed-cli-options';
 import { resolveApiCredentials } from './resolve-credentials';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import { resolveSteeringBudget } from '../parsers/rate-limit-parsers';
@@ -28,15 +28,15 @@ import {
  * 1. `--legacy-security` boolean flag (preferred)
  * 2. `--security-mode compat` (deprecated, maps to legacySecurity=true)
  */
-function resolveLegacySecurity(options: Record<string, unknown>): boolean | undefined {
+function resolveLegacySecurity(options: ParsedCliOptions): boolean | undefined {
   // Preferred new flag takes precedence
-  const legacySecurity = options.legacySecurity as boolean | undefined;
+  const legacySecurity = options.legacySecurity;
   if (legacySecurity !== undefined) {
     return legacySecurity || undefined;
   }
 
   // Handle deprecated --security-mode flag (only if --legacy-security not specified)
-  const securityMode = options.securityMode as string | undefined;
+  const securityMode = options.securityMode;
   if (securityMode === 'compat') {
     logger.warn(
       '⚠️  --security-mode compat is deprecated. Use --legacy-security instead.',
@@ -57,7 +57,7 @@ function resolveLegacySecurity(options: Record<string, unknown>): boolean | unde
  * Resolves `--steering-budget` and its `--enable-token-steering` alias.
  * Calls `process.exit(1)` when the two are set to different values.
  */
-function resolveSteeringBudgetOrExit(options: Record<string, unknown>): boolean {
+function resolveSteeringBudgetOrExit(options: ParsedCliOptions): boolean {
   const result = resolveSteeringBudget(options);
   if (!result.valid) {
     logger.error(`❌ ${result.error}`);
@@ -72,7 +72,7 @@ function resolveSteeringBudgetOrExit(options: Record<string, unknown>): boolean 
  * All fields must already be parsed and validated by the caller.
  */
 interface BuildConfigInputs {
-  options: Record<string, unknown>;
+  options: ParsedCliOptions;
   agentCommand: string;
   logLevel: LogLevel;
   allowedDomains: string[];
@@ -109,163 +109,193 @@ interface BuildConfigInputs {
  * Assembles a {@link WrapperConfig} from pre-parsed and pre-validated inputs.
  *
  * This function performs no validation — callers must validate before calling.
+ * The supplied environment defaults to the host environment for CLI callers.
  */
-export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
-  const {
-    options,
-    agentCommand,
-    logLevel,
-    allowedDomains,
-    sensitiveAllowedDomains = [],
-    blockedDomains,
-    localhostDetected,
-    additionalEnv,
-    volumeMounts,
-    upstreamProxy,
-    dnsServers,
-    dnsServersExplicit,
-    dnsOverHttps,
-    networkSubnet,
-    allowedUrls,
-    memoryLimit,
-    pidsLimit,
-    agentImage,
-    modelAliases,
-    allowedModels,
-    disallowedModels,
-    maxAiCredits,
-    modelMultipliers,
-    defaultModelMultiplier,
-    maxModelMultiplierCap,
-    maxRuns,
-    maxPermissionDenied,
-    maxCacheMisses,
-    resolvedCopilotApiTarget,
-    resolvedCopilotApiBasePath,
-    dockerHostPathPrefix,
-  } = inputs;
-
+export function buildConfig(
+  inputs: BuildConfigInputs,
+  env: NodeJS.ProcessEnv = process.env,
+): WrapperConfig {
+  const { options } = inputs;
   const chrootIdentity = buildChrootIdentity(options);
-  const homeDir = options.home === undefined ? undefined : resolveAgentHome({
-    homeDir: options.home as string,
-    containerRuntime: options.containerRuntime as string | undefined,
-    runnerTopology: options.runnerTopology as WrapperConfig['runnerTopology'],
-    chrootIdentity,
-  });
+  const environment = buildEnvironmentAndVolumeConfig(inputs, env, chrootIdentity);
   const dind = buildDindConfig(options);
   const cloudHypervisor = buildCloudHypervisorConfig(options);
   const nvx = buildNvxConfig(options);
-  const apiCredentials = resolveApiCredentials(options, {
-    resolvedCopilotApiTarget,
-    resolvedCopilotApiBasePath,
-    additionalEnv,
-    envFile: options.envFile as string | undefined,
-  });
+  const apiProxy = buildApiProxyConfig(inputs, env);
 
+  return {
+    agentCommand: inputs.agentCommand,
+    logLevel: inputs.logLevel,
+    keepContainers: options.keepContainers,
+    tty: options.tty || false,
+    buildLocal: options.buildLocal,
+    skipPull: options.skipPull,
+    images: options.images,
+    agentImage: inputs.agentImage,
+    imageRegistry: options.imageRegistry,
+    imageTag: options.imageTag,
+    memoryLimit: inputs.memoryLimit,
+    pidsLimit: inputs.pidsLimit,
+    awfDockerHost: options.dockerHost,
+    dockerHostPathPrefix: inputs.dockerHostPathPrefix,
+    containerRuntime: options.containerRuntime,
+    runnerTopology: options.runnerTopology,
+    sysrootImage: options.sysrootImage,
+    chrootBinariesSourcePath: options.chrootBinariesSourcePath,
+    chrootIdentity,
+    dind,
+    cloudHypervisor,
+    enclaveDebugPublic: options.enclaveDebugPublic,
+    nvx,
+    ...environment,
+    ...buildNetworkConfig(inputs),
+    ...buildModelRoutingConfig(inputs),
+    ...buildTokenObservabilityConfig(options, env),
+    ...apiProxy,
+    enclaves: normalizeEnclavesConfig(
+      options.enclaves,
+      { primaryRuntime: options.containerRuntime },
+    ),
+  };
+}
+
+function buildNetworkConfig(inputs: BuildConfigInputs) {
+  const { options, allowedDomains, sensitiveAllowedDomains = [], blockedDomains } = inputs;
   return {
     allowedDomains,
     sensitiveAllowedDomains: sensitiveAllowedDomains.length > 0 ? sensitiveAllowedDomains : undefined,
     blockedDomains: blockedDomains.length > 0 ? blockedDomains : undefined,
-    agentCommand,
-    logLevel,
-    keepContainers: options.keepContainers as boolean,
-    tty: (options.tty as boolean) || false,
-    workDir: options.workDir as string,
+    dnsServers: inputs.dnsServers,
+    dnsServersExplicit: inputs.dnsServersExplicit,
+    dnsOverHttps: inputs.dnsOverHttps,
+    enableHostAccess: options.enableHostAccess,
+    networkIsolation: options.networkIsolation,
+    networkSubnet: inputs.networkSubnet,
+    verifySbxEgress: options.verifySbxEgress,
+    topologyAttach: options.topologyAttach,
+    localhostDetected: inputs.localhostDetected,
+    allowHostPorts: options.allowHostPorts,
+    allowHostServicePorts: options.allowHostServicePorts,
+    sslBump: options.sslBump,
+    enableDind: options.enableDind,
+    enableDlp: options.enableDlp,
+    legacySecurity: resolveLegacySecurity(options),
+    allowedUrls: inputs.allowedUrls,
+    upstreamProxy: inputs.upstreamProxy,
+  } satisfies Partial<WrapperConfig>;
+}
+
+function buildEnvironmentAndVolumeConfig(
+  inputs: BuildConfigInputs,
+  env: NodeJS.ProcessEnv,
+  chrootIdentity: WrapperConfig['chrootIdentity'],
+) {
+  const { options, additionalEnv } = inputs;
+  const homeDir = options.home === undefined ? undefined : resolveAgentHome({
+    homeDir: options.home,
+    containerRuntime: options.containerRuntime,
+    runnerTopology: options.runnerTopology,
+    chrootIdentity,
+  }, env);
+  return {
+    workDir: options.workDir,
     homeDir,
-    buildLocal: options.buildLocal as boolean,
-    skipPull: options.skipPull as boolean,
-    images: options.images as WrapperConfig['images'],
-    agentImage,
-    imageRegistry: options.imageRegistry as string,
-    imageTag: options.imageTag as string,
     additionalEnv: Object.keys(additionalEnv).length > 0 ? additionalEnv : undefined,
-    envAll: options.envAll as boolean,
+    envAll: options.envAll,
     excludeEnv:
-      options.excludeEnv && (options.excludeEnv as string[]).length > 0
-        ? (options.excludeEnv as string[])
+      options.excludeEnv && options.excludeEnv.length > 0
+        ? options.excludeEnv
         : undefined,
-    envFile: options.envFile as string | undefined,
-    volumeMounts,
-    inputDirs: options.inputDir as string[] | undefined,
-    filesystemAllowWrite: options.filesystemAllowWrite as string[] | undefined,
-    containerWorkDir: options.containerWorkdir as string | undefined,
-    dnsServers,
-    dnsServersExplicit,
-    dnsOverHttps,
-    memoryLimit,
-    pidsLimit,
-    proxyLogsDir: options.proxyLogsDir as string | undefined,
-    auditDir: (options.auditDir as string | undefined) || process.env.AWF_AUDIT_DIR,
-    sessionStateDir:
-      (options.sessionStateDir as string | undefined) || process.env.AWF_SESSION_STATE_DIR,
-    commandOutputCaptureDir: options.captureCommandOutput as string | undefined,
+    envFile: options.envFile,
+    volumeMounts: inputs.volumeMounts,
+    inputDirs: options.inputDir,
+    filesystemAllowWrite: options.filesystemAllowWrite,
+    containerWorkDir: options.containerWorkdir,
+    proxyLogsDir: options.proxyLogsDir,
+    auditDir: options.auditDir || env.AWF_AUDIT_DIR,
+    sessionStateDir: options.sessionStateDir || env.AWF_SESSION_STATE_DIR,
+    commandOutputCaptureDir: options.captureCommandOutput,
     commandOutputCaptureMaxBytes: options.captureCommandOutputMaxBytes === undefined
       ? undefined
       : Number(options.captureCommandOutputMaxBytes),
-    runnerToolCachePath: options.runnerToolCachePath as string | undefined,
-    enableHostAccess: options.enableHostAccess as boolean,
-    networkIsolation: options.networkIsolation as boolean | undefined,
-    networkSubnet,
-    verifySbxEgress: options.verifySbxEgress as boolean | undefined,
-    topologyAttach: options.topologyAttach as string[] | undefined,
-    localhostDetected,
-    allowHostPorts: options.allowHostPorts as string | undefined,
-    allowHostServicePorts: options.allowHostServicePorts as string | undefined,
-    sslBump: options.sslBump as boolean,
-    enableDind: options.enableDind as boolean,
-    enableDlp: options.enableDlp as boolean,
-    legacySecurity: resolveLegacySecurity(options),
-    allowedUrls,
-    enableApiProxy: options.enableApiProxy as boolean | undefined,
-    apiProxyCaCert: options.apiProxyCaCert as string | undefined,
-    copilotTokenBroker: options.copilotTokenBroker as boolean | undefined,
-    modelFallback:
-      options.modelFallback as { enabled?: boolean; strategy?: 'middle_power' } | undefined,
-    fallbackModels: options.fallbackModels as string[] | undefined,
-    experimentalModelRouting: options.experimentalModelRouting as boolean | undefined,
-    modelRouting: options.modelRouting as WrapperConfig['modelRouting'],
-    requestedModel: options.requestedModel as string | undefined,
-    anthropicAutoCache: options.anthropicAutoCache as boolean,
-    anthropicCacheTailTtl: options.anthropicCacheTailTtl as '5m' | '1h' | undefined,
-    claudeHostedWeb: options.claudeHostedWeb as WrapperConfig['claudeHostedWeb'],
-    codexHostedWeb: options.codexHostedWeb as WrapperConfig['codexHostedWeb'],
-    modelAliases,
-    allowedModels,
-    disallowedModels,
-    maxAiCredits,
-    defaultAiCreditsPricing: options.defaultAiCreditsPricing as WrapperConfig['defaultAiCreditsPricing'],
-    apiProxyProviders: options.apiProxyProviders as WrapperConfig['apiProxyProviders'],
-    modelPricingCatalog: options.modelPricingCatalog as WrapperConfig['modelPricingCatalog'],
-    modelCatalogue: options.modelCatalogue as WrapperConfig['modelCatalogue'],
-    modelMultipliers,
-    defaultModelMultiplier,
-    maxModelMultiplierCap,
-    maxRuns,
-    maxPermissionDenied,
-    maxCacheMisses,
+    runnerToolCachePath: options.runnerToolCachePath,
+    diagnosticLogs: options.diagnosticLogs || false,
+  } satisfies Partial<WrapperConfig>;
+}
+
+function buildModelRoutingConfig(inputs: BuildConfigInputs) {
+  const { options } = inputs;
+  return {
+    modelFallback: options.modelFallback,
+    fallbackModels: options.fallbackModels,
+    experimentalModelRouting: options.experimentalModelRouting,
+    modelRouting: options.modelRouting,
+    requestedModel: options.requestedModel,
+    modelAliases: inputs.modelAliases,
+    allowedModels: inputs.allowedModels,
+    disallowedModels: inputs.disallowedModels,
+    maxAiCredits: inputs.maxAiCredits,
+    defaultAiCreditsPricing: options.defaultAiCreditsPricing,
+    modelPricingCatalog: options.modelPricingCatalog,
+    modelCatalogue: options.modelCatalogue,
+    modelMultipliers: inputs.modelMultipliers,
+    defaultModelMultiplier: inputs.defaultModelMultiplier,
+    maxModelMultiplierCap: inputs.maxModelMultiplierCap,
+    maxRuns: inputs.maxRuns,
+    maxPermissionDenied: inputs.maxPermissionDenied,
+    maxCacheMisses: inputs.maxCacheMisses,
     enableTokenSteering: resolveSteeringBudgetOrExit(options),
+  } satisfies Partial<WrapperConfig>;
+}
+
+function buildTokenObservabilityConfig(options: ParsedCliOptions, env: NodeJS.ProcessEnv) {
+  const envCaptureMode = env.AWF_CAPTURE_BLOCKED_LLM_REQUESTS?.trim();
+  const isValidEnvCaptureMode =
+    envCaptureMode === 'summary' || envCaptureMode === 'redacted' || envCaptureMode === 'full';
+
+  if (options.captureBlockedRequests === undefined && envCaptureMode) {
+    logger.warn(
+      isValidEnvCaptureMode
+        ? 'Ignoring AWF_CAPTURE_BLOCKED_LLM_REQUESTS because blocked-request capture now requires explicit --capture-blocked-requests opt-in.'
+        : 'Ignoring invalid AWF_CAPTURE_BLOCKED_LLM_REQUESTS value. Valid values are: summary, redacted, full.',
+    );
+  }
+
+  return {
     debugTokens:
-      (options.debugTokens as boolean | undefined) ??
-      (process.env.AWF_DEBUG_TOKENS === '1' ? true : undefined),
+      options.debugTokens ?? (env.AWF_DEBUG_TOKENS === '1' ? true : undefined),
     tokenLogDir:
-      (options.tokenLogDir as string | undefined) ??
-      (process.env.AWF_TOKEN_LOG_DIR?.trim() || undefined),
-    captureBlockedRequests:
-      (options.captureBlockedRequests as boolean | 'summary' | 'redacted' | 'full' | undefined) ??
-      (process.env.AWF_CAPTURE_BLOCKED_LLM_REQUESTS
-        ? (process.env.AWF_CAPTURE_BLOCKED_LLM_REQUESTS as 'summary' | 'redacted' | 'full')
-        : undefined),
+      options.tokenLogDir ?? (env.AWF_TOKEN_LOG_DIR?.trim() || undefined),
+    captureBlockedRequests: options.captureBlockedRequests,
     maxCapturedBytes:
-      (options.maxCapturedBytes as number | undefined) ??
-      (process.env.AWF_MAX_BLOCKED_CAPTURE_BYTES
-        ? Number(process.env.AWF_MAX_BLOCKED_CAPTURE_BYTES)
+      options.maxCapturedBytes ??
+      (env.AWF_MAX_BLOCKED_CAPTURE_BYTES
+        ? Number(env.AWF_MAX_BLOCKED_CAPTURE_BYTES)
         : undefined),
-    ...apiCredentials,
-    copilotByokExtraHeaders: options.copilotByokExtraHeaders as Record<string, string> | undefined,
-    copilotByokExtraBodyFields: options.copilotByokExtraBodyFields as Record<string, string> | undefined,
-    copilotByokSessionId: options.copilotByokSessionId as string | undefined,
-    difcProxyHost: options.difcProxyHost as string | undefined,
-    difcProxyCaCert: options.difcProxyCaCert as string | undefined,
+  } satisfies Partial<WrapperConfig>;
+}
+
+function buildApiProxyConfig(inputs: BuildConfigInputs, env: NodeJS.ProcessEnv) {
+  const { options } = inputs;
+  return {
+    enableApiProxy: options.enableApiProxy,
+    apiProxyCaCert: options.apiProxyCaCert,
+    copilotTokenBroker: options.copilotTokenBroker,
+    anthropicAutoCache: options.anthropicAutoCache,
+    anthropicCacheTailTtl: options.anthropicCacheTailTtl,
+    claudeHostedWeb: options.claudeHostedWeb,
+    codexHostedWeb: options.codexHostedWeb,
+    apiProxyProviders: options.apiProxyProviders,
+    ...resolveApiCredentials(options, {
+      resolvedCopilotApiTarget: inputs.resolvedCopilotApiTarget,
+      resolvedCopilotApiBasePath: inputs.resolvedCopilotApiBasePath,
+      additionalEnv: inputs.additionalEnv,
+      envFile: options.envFile,
+    }, env),
+    copilotByokExtraBodyFields: options.copilotByokExtraBodyFields,
+    copilotByokSessionId: options.copilotByokSessionId,
+    difcProxyHost: options.difcProxyHost,
+    difcProxyCaCert: options.difcProxyCaCert,
     maxGithubApiPointsRest: options.maxGithubApiPointsRest === undefined
       ? undefined
       : Number(options.maxGithubApiPointsRest),
@@ -275,24 +305,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     maxNumToolCalls: options.maxNumToolCalls === undefined
       ? undefined
       : Number(options.maxNumToolCalls),
-    diagnosticLogs: (options.diagnosticLogs as boolean) || false,
-    awfDockerHost: options.dockerHost as string | undefined,
-    upstreamProxy,
-    dockerHostPathPrefix,
-    containerRuntime: options.containerRuntime as string | undefined,
-    runnerTopology: options.runnerTopology as 'standard' | 'arc-dind' | undefined,
-    sysrootImage: options.sysrootImage as string | undefined,
-    chrootBinariesSourcePath: options.chrootBinariesSourcePath as string | undefined,
-    chrootIdentity,
-    dind,
-    cloudHypervisor,
-    enclaveDebugPublic: options.enclaveDebugPublic as boolean | undefined,
-    nvx,
-    enclaves: normalizeEnclavesConfig(
-      options.enclaves as AwfFileConfig['enclaves'] | undefined,
-      { primaryRuntime: options.containerRuntime as string | undefined },
-    ),
-  };
+  } satisfies Partial<WrapperConfig>;
 }
 
 function parsePositiveIntegerOption(
@@ -318,13 +331,13 @@ function parsePositiveIntegerOption(
  * `src/cloud-hypervisor/runtime-validation.ts`.
  */
 function buildCloudHypervisorConfig(
-  options: Record<string, unknown>,
+  options: ParsedCliOptions,
 ): WrapperConfig['cloudHypervisor'] {
   const selected = options.containerRuntime === 'cloud-hypervisor';
   const configured = options.cloudHypervisorPreview === true
     || options.cloudHypervisorDevelopmentAllowUnattestedArtifacts === true
     || options.cloudHypervisorEnclaveDebugPublic === true
-    || [
+    || ([
       'cloudHypervisorMountPolicy',
       'cloudHypervisorBinary',
       'cloudHypervisorKernel',
@@ -342,29 +355,29 @@ function buildCloudHypervisorConfig(
       'cloudHypervisorKernelSha256',
       'cloudHypervisorRootfsSha256',
       'cloudHypervisorSupervisorSha256',
-    ].some((key) => options[key] !== undefined);
+    ] as const).some((key) => options[key] !== undefined);
   if (!selected && !configured) return undefined;
 
   const sha256 = {
-    cloudHypervisor: options.cloudHypervisorBinarySha256 as string | undefined,
-    virtiofsd: options.cloudHypervisorVirtiofsdSha256 as string | undefined,
-    kernel: options.cloudHypervisorKernelSha256 as string | undefined,
-    rootfs: options.cloudHypervisorRootfsSha256 as string | undefined,
-    supervisor: options.cloudHypervisorSupervisorSha256 as string | undefined,
+    cloudHypervisor: options.cloudHypervisorBinarySha256,
+    virtiofsd: options.cloudHypervisorVirtiofsdSha256,
+    kernel: options.cloudHypervisorKernelSha256,
+    rootfs: options.cloudHypervisorRootfsSha256,
+    supervisor: options.cloudHypervisorSupervisorSha256,
   };
 
   return {
     previewEnabled: options.cloudHypervisorPreview === true,
     mountPolicy: parseCloudHypervisorMountPolicy(options.cloudHypervisorMountPolicy),
     cloudHypervisorBinary:
-      (options.cloudHypervisorBinary as string | undefined) ?? CLOUD_HYPERVISOR_DEFAULT_BINARY,
-    kernelPath: options.cloudHypervisorKernel as string | undefined,
-    rootfsPath: options.cloudHypervisorRootfs as string | undefined,
-    supervisorPath: options.cloudHypervisorSupervisor as string | undefined,
-    artifactManifestPath: options.cloudHypervisorArtifactManifest as string | undefined,
+      options.cloudHypervisorBinary ?? CLOUD_HYPERVISOR_DEFAULT_BINARY,
+    kernelPath: options.cloudHypervisorKernel,
+    rootfsPath: options.cloudHypervisorRootfs,
+    supervisorPath: options.cloudHypervisorSupervisor,
+    artifactManifestPath: options.cloudHypervisorArtifactManifest,
     artifactManifestBundlePath:
-      options.cloudHypervisorArtifactManifestBundle as string | undefined,
-    artifactReleaseTag: options.cloudHypervisorArtifactReleaseTag as string | undefined,
+      options.cloudHypervisorArtifactManifestBundle,
+    artifactReleaseTag: options.cloudHypervisorArtifactReleaseTag,
     developmentAllowUnattestedArtifacts:
       options.cloudHypervisorDevelopmentAllowUnattestedArtifacts === true,
     ...(options.cloudHypervisorEnclaveDebugPublic !== undefined
@@ -435,11 +448,11 @@ function parseCloudHypervisorScratchMib(value: unknown): number {
  * by `assertNvxRuntimeCompatibility` in `src/nvx/runtime-validation.ts`.
  */
 function buildNvxConfig(
-  options: Record<string, unknown>,
+  options: ParsedCliOptions,
 ): WrapperConfig['nvx'] {
   const selected = options.containerRuntime === 'nvx';
   const configured = options.nvxPreview === true
-    || [
+    || ([
       'nvxMountPolicy',
       'nvxLayer',
       'nvxArtifactManifest',
@@ -452,19 +465,19 @@ function buildNvxConfig(
       'nvxMemoryMaxBytes',
       'nvxPidsMax',
       'nvxScratchBytes',
-    ].some((key) => options[key] !== undefined);
+    ] as const).some((key) => options[key] !== undefined);
   if (!selected && !configured) return undefined;
 
   return {
     previewEnabled: options.nvxPreview === true,
     mountPolicy: parseNvxMountPolicy(options.nvxMountPolicy),
-    layerPath: options.nvxLayer as string | undefined,
-    artifactManifestPath: options.nvxArtifactManifest as string | undefined,
-    artifactManifestBundlePath: options.nvxArtifactManifestBundle as string | undefined,
-    signerWorkflow: options.nvxSignerWorkflow as string | undefined,
-    openvmmPath: options.nvxOpenvmm as string | undefined,
-    kernelPath: options.nvxKernel as string | undefined,
-    initramfsPath: options.nvxInitramfs as string | undefined,
+    layerPath: options.nvxLayer,
+    artifactManifestPath: options.nvxArtifactManifest,
+    artifactManifestBundlePath: options.nvxArtifactManifestBundle,
+    signerWorkflow: options.nvxSignerWorkflow,
+    openvmmPath: options.nvxOpenvmm,
+    kernelPath: options.nvxKernel,
+    initramfsPath: options.nvxInitramfs,
     memoryMib: parsePositiveIntegerOption(
       options.nvxMemoryMib,
       '--nvx-memory-mib',
@@ -495,7 +508,7 @@ function parseScratchBytesOption(value: unknown): number {
 }
 
 function buildChrootIdentity(
-  options: Record<string, unknown>
+  options: ParsedCliOptions
 ): WrapperConfig['chrootIdentity'] {
   const uid = parseOptionalIntegerOption(options.chrootIdentityUid);
   const gid = parseOptionalIntegerOption(options.chrootIdentityGid);
@@ -510,21 +523,21 @@ function buildChrootIdentity(
   }
 
   return {
-    home: options.chrootIdentityHome as string | undefined,
-    user: options.chrootIdentityUser as string | undefined,
+    home: options.chrootIdentityHome,
+    user: options.chrootIdentityUser,
     uid,
     gid,
   };
 }
 
-function buildDindConfig(options: Record<string, unknown>): WrapperConfig['dind'] {
+function buildDindConfig(options: ParsedCliOptions): WrapperConfig['dind'] {
   const stageEngineBinary = (
     options.dindStageEngineBinaryPath !== undefined
     || options.dindStageEngineBinaryTargetPath !== undefined
   )
     ? {
-      path: options.dindStageEngineBinaryPath as string | undefined,
-      targetPath: options.dindStageEngineBinaryTargetPath as string | undefined,
+      path: options.dindStageEngineBinaryPath,
+      targetPath: options.dindStageEngineBinaryTargetPath,
     }
     : undefined;
 
@@ -538,9 +551,9 @@ function buildDindConfig(options: Record<string, unknown>): WrapperConfig['dind'
   }
 
   return {
-    preStageDirs: options.dindPreStageDirs as boolean | undefined,
-    workDir: options.dindWorkDir as string | undefined,
-    stagingImage: options.dindStagingImage as string | undefined,
+    preStageDirs: options.dindPreStageDirs,
+    workDir: options.dindWorkDir,
+    stagingImage: options.dindStagingImage,
     stageEngineBinary,
   };
 }

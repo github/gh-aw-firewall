@@ -37,6 +37,20 @@ describe('agent home override', () => {
     expect(process.env.HOME).toBe(hostHome);
   });
 
+  it('uses the injected environment for --home ownership during configuration assembly', () => {
+    const stat = fs.statSync(home);
+    jest.spyOn(process, 'getuid').mockReturnValue(0);
+    jest.spyOn(fs, 'statSync').mockReturnValue(Object.assign(stat, { uid: 2001 }));
+    process.env.SUDO_UID = '2001';
+    const inputs = buildMinimalBuildConfigInput();
+    const configInputs = { ...inputs, options: { ...inputs.options, home } };
+
+    expect(() => buildConfig(configInputs, {})).toThrow(/not owned by the invoking user/);
+    expect(() => buildConfig(configInputs, { SUDO_UID: '2002' })).toThrow(/not owned by the invoking user/);
+    expect(buildConfig(configInputs, { SUDO_UID: '2001' }).homeDir).toBe(fs.realpathSync(home));
+    expect(buildConfig(configInputs).homeDir).toBe(fs.realpathSync(home));
+  });
+
   it.each(['relative/home', '/', '/tmp/invalid:home', '/tmp/invalid\nhome'])(
     'rejects unsafe home path %j',
     (homeDir) => {

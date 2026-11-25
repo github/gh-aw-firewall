@@ -74,6 +74,71 @@ describe('resolveApiCredentials', () => {
     expect(credentials.googleApiKey).toBe('sk-google');
   });
 
+  it('resolves all credential fallbacks from an injected environment', () => {
+    const credentials = resolveApiCredentials({}, {}, Object.freeze({
+      AWF_AGENT_API_KEY: 'test-neutral',
+      AWF_AGENT_API_PROVIDER: 'vertex',
+      OPENAI_API_KEY: 'test-openai',
+      ANTHROPIC_API_KEY: 'test-anthropic',
+      COPILOT_GITHUB_TOKEN: 'test-copilot',
+      COPILOT_PROVIDER_API_KEY: 'test-provider',
+      COPILOT_PROVIDER_TYPE: 'openai',
+      COPILOT_PROVIDER_BASE_URL: 'https://provider.example.com',
+      GEMINI_API_KEY: 'test-gemini',
+      OPENAI_API_TARGET: 'https://openai.example.com',
+      OPENAI_BASE_URL_ENV: 'CUSTOM_BASE_URL',
+      OPENAI_API_BASE_PATH: '/openai',
+      ANTHROPIC_API_TARGET: 'https://anthropic.example.com',
+      ANTHROPIC_API_BASE_PATH: '/anthropic',
+      GEMINI_API_TARGET: 'https://gemini.example.com',
+      GEMINI_API_BASE_PATH: '/gemini',
+      VERTEX_API_TARGET: 'https://vertex.example.com',
+      VERTEX_API_BASE_PATH: '/vertex',
+      AWF_OPENAI_AUTH_HEADER: 'X-Openai-Auth',
+      AWF_OPENAI_AUTH_SCHEME: 'Bearer',
+      AWF_ANTHROPIC_AUTH_HEADER: 'X-Anthropic-Auth',
+      AWF_ANTHROPIC_AUTH_SCHEME: 'Basic',
+      AWF_AUTH_ANTHROPIC_TOKEN_URL: 'https://anthropic.example.com/token',
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'databricks',
+      AWF_AUTH_OIDC_AUDIENCE: 'test-audience',
+      AWF_AUTH_DATABRICKS_HOST: 'https://test.databricks.com',
+      AWF_AUTH_DATABRICKS_CLIENT_ID: 'test-client',
+      GH_TOKEN: 'test-github',
+    }));
+
+    expect(credentials).toMatchObject({
+      openaiApiKey: 'test-openai',
+      anthropicApiKey: 'test-anthropic',
+      copilotGithubToken: 'test-copilot',
+      copilotProviderApiKey: 'test-provider',
+      copilotProviderType: 'openai',
+      copilotProviderBaseUrl: 'https://provider.example.com',
+      geminiApiKey: 'test-gemini',
+      googleApiKey: 'test-neutral',
+      openaiApiTarget: 'https://openai.example.com',
+      openaiBaseUrlEnv: 'CUSTOM_BASE_URL',
+      openaiApiBasePath: '/openai',
+      anthropicApiTarget: 'https://anthropic.example.com',
+      anthropicApiBasePath: '/anthropic',
+      geminiApiTarget: 'https://gemini.example.com',
+      geminiApiBasePath: '/gemini',
+      vertexApiTarget: 'https://vertex.example.com',
+      vertexApiBasePath: '/vertex',
+      openaiApiAuthHeader: 'X-Openai-Auth',
+      openaiApiAuthScheme: 'Bearer',
+      anthropicApiAuthHeader: 'X-Anthropic-Auth',
+      anthropicApiAuthScheme: 'Basic',
+      anthropicTokenUrl: 'https://anthropic.example.com/token',
+      authType: 'github-oidc',
+      authProvider: 'databricks',
+      authOidcAudience: 'test-audience',
+      authDatabricksHost: 'https://test.databricks.com',
+      authDatabricksClientId: 'test-client',
+      githubToken: 'test-github',
+    });
+  });
+
   it('maps Databricks OIDC env values and honors explicit option precedence', () => {
     process.env.AWF_AUTH_TYPE = 'github-oidc';
     process.env.AWF_AUTH_PROVIDER = 'databricks';

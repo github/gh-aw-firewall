@@ -2,6 +2,7 @@ import { WrapperConfig } from '../../types';
 import { applyAgentTimeout } from '../../option-parsers';
 import { logger } from '../../logger';
 import { buildConfig } from '../build-config';
+import type { ParsedCliOptions } from '../parsed-cli-options';
 import { LogAndLimitsResult } from './log-and-limits';
 import { NetworkOptionsResult } from './network-options';
 import { AgentOptionsResult } from './agent-options';
@@ -62,7 +63,7 @@ export function assembleAndValidateConfig(
   agentOptions: AgentOptionsResult,
 ): WrapperConfig {
   const config = buildConfig({
-    options,
+    options: options as ParsedCliOptions,
     agentCommand,
     logLevel: logAndLimits.logLevel,
     allowedDomains: networkOptions.allowedDomains,
