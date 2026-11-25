@@ -4,6 +4,7 @@ import { testHelpers as apiProxyEnvTestHelpers } from '../services/api-proxy-env
 import { buildMinimalBuildConfigInput } from '../test-helpers/build-config.test-utils';
 import * as githubEnv from '../github-env';
 import { resolveDatabricksOidcHost } from '../api-proxy-config-validation';
+import { logger } from '../logger';
 import type { ParsedCliOptions } from './parsed-cli-options';
 
 const makeInputs = buildMinimalBuildConfigInput;
@@ -324,7 +325,7 @@ describe('buildConfig', () => {
         sessionStateDir: '/injected/state',
         debugTokens: true,
         tokenLogDir: '/injected/tokens',
-        captureBlockedRequests: 'redacted',
+        captureBlockedRequests: undefined,
         maxCapturedBytes: 2048,
       });
     });
@@ -877,11 +878,11 @@ describe('buildConfig', () => {
       expect(config.copilotApiTarget).toBe('https://copilot.example.com');
     });
 
-    it('should pass through copilotByokExtraHeaders', () => {
+    it('should not pass through copilotByokExtraHeaders', () => {
       const config = buildConfig(makeInputs({
         options: { ...makeInputs().options, copilotByokExtraHeaders: { 'x-session-id': 'run-42' } },
       }));
-      expect(config.copilotByokExtraHeaders).toEqual({ 'x-session-id': 'run-42' });
+      expect(config).not.toHaveProperty('copilotByokExtraHeaders');
     });
 
     it('should pass through copilotByokExtraBodyFields', () => {
@@ -912,10 +913,33 @@ describe('buildConfig', () => {
       expect(config.copilotProviderBaseUrl).toBe('https://config-router.example.com/v1');
     });
 
-    it('should read AWF_CAPTURE_BLOCKED_LLM_REQUESTS from process.env', () => {
-      process.env.AWF_CAPTURE_BLOCKED_LLM_REQUESTS = 'redacted';
-      const config = buildConfig(makeInputs());
-      expect(config.captureBlockedRequests).toBe('redacted');
+    it.each(['summary', 'redacted', 'full'])('should ignore and warn about environment capture mode %s', (mode) => {
+      const warn = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+      try {
+        process.env.AWF_CAPTURE_BLOCKED_LLM_REQUESTS = mode;
+        const config = buildConfig(makeInputs());
+        expect(config.captureBlockedRequests).toBeUndefined();
+        expect(warn).toHaveBeenCalledWith(
+          'Ignoring AWF_CAPTURE_BLOCKED_LLM_REQUESTS because blocked-request capture now requires explicit --capture-blocked-requests opt-in.',
+        );
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('should not log an invalid environment capture value', () => {
+      const warn = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+      try {
+        process.env.AWF_CAPTURE_BLOCKED_LLM_REQUESTS = 'sensitive-invalid-value';
+        const config = buildConfig(makeInputs());
+        expect(config.captureBlockedRequests).toBeUndefined();
+        expect(warn).toHaveBeenCalledWith(
+          'Ignoring invalid AWF_CAPTURE_BLOCKED_LLM_REQUESTS value. Valid values are: summary, redacted, full.',
+        );
+        expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('sensitive-invalid-value'));
+      } finally {
+        warn.mockRestore();
+      }
     });
 
     it('should prefer options.captureBlockedRequests over AWF_CAPTURE_BLOCKED_LLM_REQUESTS', () => {

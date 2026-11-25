@@ -40,7 +40,7 @@ exports[`buildConfig preserves the complete configured config 1`] = `
     "blocked.example.com",
   ],
   "buildLocal": true,
-  "captureBlockedRequests": "redacted",
+  "captureBlockedRequests": undefined,
   "chrootBinariesSourcePath": "/binaries",
   "chrootIdentity": {
     "gid": 1002,
@@ -66,9 +66,6 @@ exports[`buildConfig preserves the complete configured config 1`] = `
   "copilotApiTarget": "https://copilot.example.com",
   "copilotByokExtraBodyFields": {
     "session_id": "test-session",
-  },
-  "copilotByokExtraHeaders": {
-    "x-session": "test-session",
   },
   "copilotByokSessionId": "test-session",
   "copilotGithubToken": undefined,
@@ -257,7 +254,6 @@ exports[`buildConfig preserves the complete minimal config 1`] = `
   "copilotApiBasePath": undefined,
   "copilotApiTarget": undefined,
   "copilotByokExtraBodyFields": undefined,
-  "copilotByokExtraHeaders": undefined,
   "copilotByokSessionId": undefined,
   "copilotGithubToken": undefined,
   "copilotProviderApiKey": undefined,
