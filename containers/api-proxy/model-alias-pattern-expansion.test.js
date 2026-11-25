@@ -144,12 +144,13 @@ describe('_resolveAliasPatterns', () => {
     const ctx = context({
       aliasDefinition: { patterns: ['missing', 'copilot/gpt-4.1'], fallback: true },
       aliases: { missing: ['copilot/unavailable'] },
-      availableModels: { copilot: ['gpt-5.4', 'gpt-4.1', 'gpt-3.5-turbo'] },
+      availableModels: { copilot: ['gpt-5.3-codex', 'gpt-5.4', 'gpt-4.1'] },
     });
     expect(_resolveAliasPatterns(ctx)).toMatchObject({
       resolvedModel: 'gpt-4.1', candidates: ['gpt-4.1'], aliasKeys: ['coding', 'missing'],
       fallback: { activated: false },
     });
+    expect(ctx.log).toContain('[model-resolver] middle-power fallback: "missing" → "gpt-5.4"');
     expect(ctx.log).toContain(
       '[model-resolver] ignoring 1 synthesized fallback candidate(s) in favour of 1 genuine match(es)',
     );
