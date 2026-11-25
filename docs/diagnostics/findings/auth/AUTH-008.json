@@ -2,13 +2,13 @@
   "$schema": "../../schema.json",
   "id": "AUTH-008",
   "boundary": "auth",
-  "title": "Azure, AWS or GCP OIDC is configured but the API-proxy adapter does not bind it to its upstream",
+  "title": "Azure, AWS, GCP or Databricks OIDC is configured but the API-proxy adapter does not bind it to its upstream",
   "symptoms": [
-    "Provider requests fail with 404 \"OpenAI proxy not configured\" (or the equivalent not-configured response) although AWF_AUTH_TYPE=github-oidc and AWF_AUTH_PROVIDER=azure, aws or gcp are set",
+    "Provider requests fail with 404 \"OpenAI proxy not configured\" (or the equivalent not-configured response) although AWF_AUTH_TYPE=github-oidc and AWF_AUTH_PROVIDER=azure, aws, gcp or databricks are set",
     "The api-proxy logs a cloud_oidc_not_bound event (info) or a cloud_oidc_target_refused event (warn) when the adapter is created"
   ],
   "conditions": [
-    "AWF_AUTH_PROVIDER is azure, aws or gcp (native openai and anthropic workload identity are not affected)",
+    "AWF_AUTH_PROVIDER is azure, aws, gcp or databricks (native openai and anthropic workload identity are not affected)",
     "The adapter's upstream is its default, or is a first-party host (api.openai.com, api.anthropic.com, *.githubcopilot.com, copilot-api.*.ghe.com), or its origin differs from COPILOT_PROVIDER_BASE_URL or from the other explicitly configured *_API_TARGET origins",
     "This is a configuration-shape problem, not a token-exchange or Actions permission failure; do not change id-token permissions or rotate credentials for it"
   ],
@@ -23,7 +23,7 @@
     "fixed": "unknown"
   },
   "status": "workaround",
-  "rootCause": "The sidecar attaches cloud-issued OIDC credentials only to an adapter whose upstream is the explicitly configured cloud target, so a cloud token is never sent to a first-party provider host. resolveCloudOidcProviders() skips initialization when the adapter does not opt in (allowCloudOidc), when the target is a refused first-party host, or when the target origin does not match the selected origin (COPILOT_PROVIDER_BASE_URL first, otherwise all explicit *_API_TARGET values must share one origin). GCP is the exception: with no explicit target it remains available to the default Gemini and Vertex endpoints.",
+  "rootCause": "The sidecar attaches cloud-issued OIDC credentials only to an adapter whose upstream is the explicitly configured cloud target, so a cloud token is never sent to a first-party provider host. resolveCloudOidcProviders() skips initialization when the adapter does not opt in (allowCloudOidc), when the target is a refused first-party host, or when the target origin does not match the selected origin (COPILOT_PROVIDER_BASE_URL first, otherwise all explicit *_API_TARGET values must share one origin). GCP is the exception: with no explicit target it remains available to the default Gemini and Vertex endpoints. Databricks is stricter: it requires at least one explicit target and every explicit target, including COPILOT_PROVIDER_BASE_URL, must match the AWF_AUTH_DATABRICKS_HOST origin, otherwise cloud_oidc_target_refused is logged and no static-key fallback is used.",
   "probe": {
     "command": "docker logs awf-api-proxy 2>&1 | grep -E 'cloud_oidc_not_bound|cloud_oidc_target_refused'",
     "expect": "Run while the containers are kept (--keep-containers). A match names the adapter and target host and confirms the binding rule, not an authentication failure. Do not print request headers, docker inspect output or the container environment.",
