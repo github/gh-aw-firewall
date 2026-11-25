@@ -249,16 +249,24 @@ function buildModelRoutingConfig(inputs: BuildConfigInputs) {
 }
 
 function buildTokenObservabilityConfig(options: ParsedCliOptions, env: NodeJS.ProcessEnv) {
+  const envCaptureMode = env.AWF_CAPTURE_BLOCKED_LLM_REQUESTS?.trim();
+  const isValidEnvCaptureMode =
+    envCaptureMode === 'summary' || envCaptureMode === 'redacted' || envCaptureMode === 'full';
+
+  if (options.captureBlockedRequests === undefined && envCaptureMode) {
+    logger.warn(
+      isValidEnvCaptureMode
+        ? 'Ignoring AWF_CAPTURE_BLOCKED_LLM_REQUESTS because blocked-request capture now requires explicit --capture-blocked-requests opt-in.'
+        : `Ignoring invalid AWF_CAPTURE_BLOCKED_LLM_REQUESTS value "${envCaptureMode}". Valid values are: summary, redacted, full.`,
+    );
+  }
+
   return {
     debugTokens:
       options.debugTokens ?? (env.AWF_DEBUG_TOKENS === '1' ? true : undefined),
     tokenLogDir:
       options.tokenLogDir ?? (env.AWF_TOKEN_LOG_DIR?.trim() || undefined),
-    captureBlockedRequests:
-      options.captureBlockedRequests ??
-      (env.AWF_CAPTURE_BLOCKED_LLM_REQUESTS
-        ? (env.AWF_CAPTURE_BLOCKED_LLM_REQUESTS as 'summary' | 'redacted' | 'full')
-        : undefined),
+    captureBlockedRequests: options.captureBlockedRequests,
     maxCapturedBytes:
       options.maxCapturedBytes ??
       (env.AWF_MAX_BLOCKED_CAPTURE_BYTES
