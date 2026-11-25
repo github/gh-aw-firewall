@@ -23,6 +23,7 @@
 
 const { globMatch, extractVersionNumbers, compareByVersion, stripRedundantProviderPrefix } = require('./model-utils');
 const { parseModelAliases, resolveAliasDefinition } = require('./model-alias-config');
+const { _resolveAliasPatterns } = require('./model-alias-pattern-expansion');
 const { _isModelPermittedByPolicy, _isModelHarnessPermitted } = require('./model-policy');
 const { splitModelParameters, appendModelParameters, applyModelParametersToResolution } = require('./model-parameters');
 const {
@@ -121,198 +122,6 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
     requestedModel, fallbackAvailableModels, currentProvider,
     'no_alias_match_and_not_in_available_models', fallbackConfig, log, eligibilityRequest.awfRuntimePricing
   ), parameterSuffix);
-}
-
-/**
- * Expand alias patterns for a resolved alias entry and pick the best candidate.
- *
- * For each pattern:
- *   - "provider/modelpattern" — glob-match against the current provider's available models.
- *   - "aliasname" (no slash) — recursively resolve as another alias reference.
- *
- * @param {string} aliasKey - The alias key that was matched (used in log messages)
- * @param {{ patterns: string[], fallback: boolean }} aliasDefinition
- * @param {string} requestedModel - Original requested model name (for log/fallback)
- * @param {Record<string, string[]|{patterns: string[], fallback?: boolean}>} aliases
- * @param {Record<string, string[]|null>} availableModels
- * @param {string} currentProvider
- * @param {string[]} newChain - Resolution chain with the current key already appended
- * @param {{ enabled: boolean, strategy: string }} fallbackConfig
- * @param {string[]} log - Accumulator for resolution log messages (mutated in place)
- * @param {{ allowedModels?: string[]|null, disallowedModels?: string[]|null }|null} [modelPolicyConfig]
- * @returns {{ resolvedModel: string, log: string[], fallback?: object } | null}
- */
-function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliases, availableModels, currentProvider, newChain, fallbackConfig, log, modelPolicyConfig, resolutionState) {
-  const { parameterSuffix } = splitModelParameters(requestedModel);
-  const patterns = aliasDefinition.patterns;
-  log.push(`[model-resolver] alias: "${requestedModel}" → [${patterns.join(', ')}]`);
-
-  const candidates = [];
-  const automaticCandidates = new Set();
-  const genuineCandidates = new Set();
-  const aliasKeys = new Set([aliasKey]);
-  // Candidates produced by a nested alias's middle-power fallback are synthesized
-  // guesses, not genuine pattern matches. They are kept separate so they can never
-  // out-rank a sibling pattern that actually matched a model.
-  const synthesizedCandidates = [];
-
-  for (const pattern of patterns) {
-    const slashIdx = pattern.indexOf('/');
-
-    if (slashIdx === -1) {
-      // Recursive alias reference (no provider prefix)
-      const subState = { blocked: false, eligibilityRequest: resolutionState.eligibilityRequest };
-      const sub = resolveModel(
-        pattern,
-        aliases,
-        availableModels,
-        currentProvider,
-        newChain,
-        fallbackConfig,
-        modelPolicyConfig,
-        false,
-        subState
-      );
-      if (!sub && subState.blocked) {
-        resolutionState.blocked = true;
-        if (!resolutionState.harnessRejection) resolutionState.harnessRejection = subState.harnessRejection;
-      }
-      if (sub) {
-        log.push(...sub.log);
-        for (const key of sub.aliasKeys || []) aliasKeys.add(key);
-        if (sub.fallback && sub.fallback.activated) {
-          synthesizedCandidates.push(sub.resolvedModel);
-        } else {
-          candidates.push(sub.resolvedModel);
-          (sub.automaticReplacement === true ? automaticCandidates : genuineCandidates).add(sub.resolvedModel);
-        }
-      }
-    } else {
-      // "provider/modelpattern" ref — only match for the current provider
-      const patternProvider = pattern.slice(0, slashIdx).toLowerCase();
-      const modelPattern = pattern.slice(slashIdx + 1);
-
-      if (patternProvider !== currentProvider.toLowerCase()) continue;
-
-      const providerModels = (availableModels[currentProvider] || []);
-      if (currentProvider === 'copilot' &&
-          getRetiredModelBlockState(modelPattern, currentProvider, { inputMode: 'native' })) {
-        resolutionState.blocked = true;
-        log.push(`[model-resolver] ignored retired model target "${modelPattern}"`);
-        continue;
-      }
-
-      // An exact entry is an explicit choice; a wildcard only selects models
-      // that can be chosen automatically.
-      const isWildcard = modelPattern.includes('*');
-      const skipped = [];
-      for (const model of providerModels) {
-        if (!globMatch(modelPattern, model)) continue;
-        if (isWildcard && !isAutomaticModelCandidate(
-          model, currentProvider, resolutionState.eligibilityRequest.awfRuntimePricing,
-        )) {
-          resolutionState.blocked = true;
-          skipped.push(model);
-          continue;
-        }
-        candidates.push(model);
-        genuineCandidates.add(model);
-      }
-      if (skipped.length > 0) {
-        log.push(`[model-resolver] "${pattern}" skipped ${skipped.length} model(s) that cannot be selected automatically: ${skipped.slice(0, 5).join(', ')}${skipped.length > 5 ? ', …' : ''}`);
-      }
-    }
-  }
-
-  // Prefer genuine pattern matches. Synthesized fallback picks from nested
-  // aliases are only considered when no sibling pattern matched anything.
-  const effectiveCandidates = candidates.length > 0 ? candidates
-    : resolutionState.blocked ? [] : synthesizedCandidates;
-  if (candidates.length > 0 && synthesizedCandidates.length > 0) {
-    log.push(
-      `[model-resolver] ignoring ${synthesizedCandidates.length} synthesized fallback candidate(s) ` +
-      `in favour of ${candidates.length} genuine match(es)`
-    );
-  }
-
-  // Keep genuine matches visible until admission so rejected matches cannot
-  // activate the missing-model middle-power synthesis path.
-  const filteredCandidates = effectiveCandidates.filter(c =>
-    _isModelPermittedByPolicy(c, modelPolicyConfig, currentProvider) &&
-    _isModelHarnessPermitted(c, currentProvider, resolutionState));
-  if (effectiveCandidates.length > 0 && filteredCandidates.length === 0) resolutionState.blocked = true;
-
-  if (filteredCandidates.length < effectiveCandidates.length) {
-    const blocked = effectiveCandidates.filter(c => !filteredCandidates.includes(c));
-    log.push(`[model-resolver] model eligibility filtered out ${blocked.length} candidate(s): ${blocked.slice(0, 5).join(', ')}${blocked.length > 5 ? ', …' : ''}`);
-  }
-
-  if (filteredCandidates.length === 0) {
-    log.push(`[model-resolver] no candidates found for "${aliasKey}" on provider "${currentProvider}"`);
-    const hasProviderPattern = patterns.some((pattern) => pattern.includes('/'));
-    // Only fall back when this alias actually names the current provider. An alias
-    // whose patterns target *other* providers (e.g. "haiku" → copilot/*, anthropic/*
-    // evaluated on an openai proxy) has a legitimately empty candidate set.
-    //
-    // This is enforced only for *nested* alias references, where sibling patterns in
-    // the parent fan-out can still supply a genuine match. A top-level request keeps
-    // the existing graceful-degradation behaviour of substituting something rather
-    // than failing outright.
-    const isNestedReference = newChain.length > 1;
-    const targetsCurrentProvider = patterns.some((pattern) => {
-      const slashIdx = pattern.indexOf('/');
-      return slashIdx !== -1 &&
-        pattern.slice(0, slashIdx).toLowerCase() === currentProvider.toLowerCase();
-    });
-    const fallbackAllowed = !isNestedReference || targetsCurrentProvider;
-    if (aliasDefinition.fallback && fallbackAllowed && hasProviderPattern && !modelPolicyConfig &&
-        effectiveCandidates.length === 0 && !resolutionState.blocked) {
-      const fallback = applyModelParametersToResolution(tryMiddlePowerFallback(
-        requestedModel, {
-          [currentProvider]: (availableModels[currentProvider] || [])
-            .filter(model => _isModelPermittedByPolicy(model, modelPolicyConfig, currentProvider) &&
-              isModelHarnessEligible(model, currentProvider, resolutionState.eligibilityRequest, { inputMode: 'native' }) &&
-              isAutomaticModelCandidate(
-                model, currentProvider, resolutionState.eligibilityRequest.awfRuntimePricing,
-              )),
-        }, currentProvider,
-        'no_alias_match_and_not_in_available_models', fallbackConfig, log,
-        resolutionState.eligibilityRequest.awfRuntimePricing
-      ), parameterSuffix);
-      return fallback ? { ...fallback, aliasKeys: [...aliasKeys] } : null;
-    }
-    return null;
-  }
-
-  // Deduplicate, sort by version (highest first), and pick the best
-  const unique = [...new Set(filteredCandidates)];
-  unique.sort(compareByVersion);
-
-  const resolved = unique[0];
-  const resolvedViaSynthesis = candidates.length === 0 && synthesizedCandidates.length > 0;
-  log.push(
-    `[model-resolver] resolved: "${requestedModel}" → "${resolved}"` +
-    (unique.length > 1
-      ? ` (${unique.length} candidates: ${unique.slice(0, 5).join(', ')}${unique.length > 5 ? ', …' : ''})`
-      : '')
-  );
-
-  return {
-    resolvedModel: appendModelParameters(resolved, parameterSuffix),
-    candidates: unique.map(candidate => appendModelParameters(candidate, parameterSuffix)),
-    log,
-    aliasKeys: [...aliasKeys],
-    ...(automaticCandidates.has(resolved) && !genuineCandidates.has(resolved) ? { automaticReplacement: true } : {}),
-    fallback: fallbackConfig.enabled
-      ? {
-        activated: resolvedViaSynthesis,
-        selection_method: 'middle_power_median',
-        reason: resolvedViaSynthesis
-          ? 'no_alias_match_and_not_in_available_models'
-          : 'normal_resolution_succeeded',
-      }
-      : undefined,
-  };
 }
 
 /**
@@ -520,7 +329,10 @@ function _resolveModel(
 
   const [aliasKey, aliasRaw] = aliasEntry;
   const aliasDefinition = resolveAliasDefinition(aliasRaw);
-  return _resolveAliasPatterns(aliasKey, aliasDefinition, normalizedRequestedModel, aliases, availableModels, currentProvider, newChain, fallbackConfig, log, modelPolicyConfig, resolutionState);
+  return _resolveAliasPatterns({
+    aliasKey, aliasDefinition, requestedModel: normalizedRequestedModel, aliases, availableModels,
+    currentProvider, newChain, fallbackConfig, log, modelPolicyConfig, resolutionState, resolveModel,
+  });
 }
 
 function filterResolvableAliases(aliases, availableModels, configuredProviders) {
