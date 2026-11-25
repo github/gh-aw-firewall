@@ -4,6 +4,11 @@ import { getLocalDockerEnv } from './docker-host';
 import { getSafeHostGid, getSafeHostUid } from './host-identity';
 import { SQUID_CONTAINER_NAME } from './constants';
 import { stopRouterAndSaveLogs } from './routing/router-log-capture';
+import {
+  TOPOLOGY_NETWORK_NAME,
+  disconnectTopologyContainers,
+  removeEmptyTopologyNetwork,
+} from './topology';
 
 /**
  * Runs `docker compose down -v -t 1` with the standard AWF options.
@@ -84,6 +89,8 @@ export async function fixSquidLogPermissions(): Promise<void> {
 }
 
 interface StopContainersOptions {
+  networkIsolation?: boolean;
+  topologyAttach?: string[];
   /**
    * Where to save the model router's logs. Set it only when this run's compose
    * file has a router service.
@@ -97,7 +104,7 @@ interface StopContainersOptions {
 export async function stopContainers(
   workDir: string,
   keepContainers: boolean,
-  { routerLogsDir }: StopContainersOptions = {},
+  { routerLogsDir, networkIsolation, topologyAttach = [] }: StopContainersOptions = {},
 ): Promise<void> {
   if (keepContainers) {
     logger.info('Keeping containers running (--keep-containers enabled)');
@@ -115,11 +122,19 @@ export async function stopContainers(
     await stopRouterAndSaveLogs(workDir, routerLogsDir);
   }
 
+  if (networkIsolation) {
+    await disconnectTopologyContainers(TOPOLOGY_NETWORK_NAME, topologyAttach);
+  }
+
   try {
     await runComposeDown(workDir);
     logger.success('Containers stopped successfully');
   } catch (error) {
     logger.error('Failed to stop containers:', error);
     throw error;
+  } finally {
+    if (networkIsolation) {
+      await removeEmptyTopologyNetwork(TOPOLOGY_NETWORK_NAME);
+    }
   }
 }

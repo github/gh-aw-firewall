@@ -4,7 +4,7 @@
   "boundary": "auth",
   "title": "Config-file apiProxy.auth.provider rejects openai although the runtime supports OpenAI native WIF",
   "symptoms": [
-    "awf config validation reports that config.apiProxy.auth.provider must be one of azure, aws, gcp, anthropic",
+    "awf config validation reports that config.apiProxy.auth.provider must be one of azure, aws, gcp, anthropic, databricks (openai is absent from the list)",
     "OpenAI native WIF works when AWF_AUTH_PROVIDER=openai is set in the environment but fails when the same value is set through the AWF config file"
   ],
   "conditions": [
@@ -23,10 +23,10 @@
     "fixed": "unknown"
   },
   "status": "unresolved",
-  "rootCause": "The canonical config schema (docs/awf-config.schema.json) enumerates apiProxy.auth.provider as azure, aws, gcp, and anthropic only; src/awf-config-schema.json is the generated runtime-validation copy. validateAwfFileConfig() runs validateWithSchema() before any mapping, so a config file selecting openai is rejected even though the sidecar's cloud-oidc-init provider and the openai-credential-env agent routing accept AWF_AUTH_PROVIDER=openai.",
+  "rootCause": "The canonical config schema (docs/awf-config.schema.json) enumerates apiProxy.auth.provider as azure, aws, gcp, anthropic, and databricks (databricks was added later; openai is still missing); src/awf-config-schema.json is the generated runtime-validation copy. validateAwfFileConfig() runs validateWithSchema() before any mapping, so a config file selecting openai is rejected even though the sidecar's cloud-oidc-init provider and the openai-credential-env agent routing accept AWF_AUTH_PROVIDER=openai.",
   "probe": {
     "command": "node -p 'JSON.stringify(require(\"./src/awf-config-schema.json\").properties.apiProxy.properties.auth.properties.provider.enum)'",
-    "expect": "Prints [\"azure\",\"aws\",\"gcp\",\"anthropic\"] on a checkout that lacks openai in the schema enum. This reads only the bundled schema and never prints environment values, tokens, or Authorization headers.",
+    "expect": "Prints [\"azure\",\"aws\",\"gcp\",\"anthropic\",\"databricks\"] on a checkout that lacks openai in the schema enum. This reads only the bundled schema and never prints environment values, tokens, or Authorization headers.",
     "readOnly": true,
     "secretSafe": true
   },

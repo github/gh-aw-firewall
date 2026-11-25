@@ -45,7 +45,7 @@ describe('Databricks keyless routing and sidecar-only auth', () => {
   };
   const envKeys = [
     ...OIDC_AUTH_ENV_VARS,
-    'OPENAI_API_TARGET', 'ANTHROPIC_API_TARGET', 'OPENAI_ENDPOINT_OVERRIDE', 'OPENAI_BASE_URL_ENV',
+    'OPENAI_API_TARGET', 'OPENAI_API_BASE_PATH', 'ANTHROPIC_API_TARGET', 'OPENAI_ENDPOINT_OVERRIDE', 'OPENAI_BASE_URL_ENV',
     'DATABRICKS_BASE_URL_TEST', 'AWF_OPENAI_AUTH_HEADER', 'AWF_OPENAI_AUTH_SCHEME',
     'AWF_ANTHROPIC_AUTH_HEADER', 'AWF_ANTHROPIC_AUTH_SCHEME', 'AWF_AUTH_ANTHROPIC_TOKEN_URL',
     'ACTIONS_ID_TOKEN_REQUEST_URL', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
@@ -148,6 +148,18 @@ describe('Databricks keyless routing and sidecar-only auth', () => {
   it('does not reject an unused endpoint override shadowed by an explicit target', () => {
     process.env.OPENAI_ENDPOINT_OVERRIDE = 'https://other.example.com/v1';
     expect(buildProviderTargetEnv({ ...config, openaiApiTarget: workspace }).OPENAI_API_TARGET).toBe(workspace);
+  });
+
+  it('validates trusted-service targets after applying their overrides', () => {
+    const trustedConfig = {
+      ...config,
+      openaiTrustedService: { endpoint: `https://${workspace}/gateway`, secretHeaders: {} },
+    };
+    expect(buildProviderTargetEnv(trustedConfig).OPENAI_API_TARGET).toBe(workspace);
+    expect(() => buildProviderTargetEnv({
+      ...trustedConfig,
+      openaiTrustedService: { endpoint: 'https://other.example.com/gateway', secretHeaders: {} },
+    })).toThrow(/Databricks.*target/);
   });
 
   it.each([

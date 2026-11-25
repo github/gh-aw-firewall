@@ -1,0 +1,331 @@
+/**
+ * HTTP response token usage tracker for AWF API Proxy.
+ *
+ * Intercepts LLM API HTTP responses (both streaming SSE and non-streaming
+ * JSON) to extract token usage data without adding latency to the client.
+ *
+ * Architecture:
+ *   proxyRes (LLM response) → res (client)
+ *        ├─ on('data'): buffer/inspect chunks for usage extraction
+ *        └─ on('end'): finalize parsing → log to file + metrics
+ *
+ * For non-streaming responses: buffer the JSON body (up to MAX_BUFFER_SIZE),
+ * then parse it on 'end' to extract usage fields.
+ * For streaming (SSE) responses: scan each chunk for usage events as they
+ * are received, accumulate usage from message_start / message_delta / final
+ * data events, and log the aggregated result on 'end'.
+ */
+
+'use strict';
+
+const { logRequest } = require('./logging');
+const {
+  isStreamingResponse,
+  isCompressedResponse,
+  isUnsupportedEncoding,
+  createDecompressor,
+  parseSseDataLines,
+  extractUsageFromSseLine,
+  normalizeUsage,
+} = require('./token-parsers');
+const { diag, auditTrack } = require('./token-persistence');
+const {
+  finalizeHttpTracking,
+  finalizeUnsupportedEncoding,
+  notifyObserver,
+} = require('./token-tracker-http-finalize');
+
+// Max response body to buffer for non-streaming usage extraction (5 MB).
+// Responses larger than this are still forwarded but usage is not extracted.
+const MAX_BUFFER_SIZE = 5 * 1024 * 1024;
+
+/**
+ * Initialize mutable tracking state for an HTTP response.
+ *
+ * @param {object} flags
+ * @param {boolean} flags.streaming
+ * @param {boolean} flags.compressed
+ * @param {string} flags.contentType
+ * @param {string} flags.contentEncoding
+ * @returns {object}
+ */
+function initHttpState({ streaming, compressed, contentType, contentEncoding }) {
+  return {
+    streaming,
+    compressed,
+    contentType,
+    contentEncoding,
+    chunks: [],
+    totalBytes: 0,
+    bufferedBytes: 0,
+    overflow: false,
+    streamingUsage: {},
+    streamingModel: null,
+    observedCacheReadTokens: 0,
+    partialLine: '',
+  };
+}
+
+/**
+ * Create a decoded-chunk handler that accumulates SSE events or buffers JSON.
+ *
+ * Returns a function that accepts a decoded text string and mutates `state`
+ * in place — no closure over outer scope needed.
+ *
+ * @param {object} state - Mutable tracking state (returned by initHttpState)
+ * @param {object} context
+ * @param {string} context.requestId
+ * @param {string} context.provider
+ * @param {(line: string) => void} [context.onSseData] - Optional routing observer.
+ *   Contract: it must never throw. It runs inside the upstream response stream's
+ *   'data' event, so a thrown exception would escape the EventEmitter and tear down
+ *   the shared proxy. Observers record terminal routing failures through their own
+ *   fail-closed path instead of throwing here, so failures are never swallowed.
+ * @returns {(text: string) => void}
+ */
+function createChunkHandler(state, { requestId, provider, onSseData }) {
+  return function handleDecodedChunk(text) {
+    if (state.streaming) {
+      const combined = state.partialLine + text;
+      const lastNewline = combined.lastIndexOf('\n');
+      if (lastNewline >= 0) {
+        const complete = combined.slice(0, lastNewline);
+        state.partialLine = combined.slice(lastNewline + 1);
+
+        const dataLines = parseSseDataLines(complete);
+        for (const line of dataLines) {
+          if (typeof onSseData === 'function') onSseData(line);
+          const { usage, model } = extractUsageFromSseLine(line);
+          if (model && !state.streamingModel) state.streamingModel = model;
+          if (usage) {
+            const normalizedLineUsage = normalizeUsage(usage);
+            if (normalizedLineUsage && normalizedLineUsage.cache_read_tokens > state.observedCacheReadTokens) {
+              state.observedCacheReadTokens = normalizedLineUsage.cache_read_tokens;
+            }
+            for (const [k, v] of Object.entries(usage)) {
+              state.streamingUsage[k] = v;
+            }
+          }
+        }
+      } else {
+        state.partialLine = combined;
+      }
+    } else if (!state.overflow) {
+      const chunkBuffer = Buffer.from(text, 'utf8');
+      if (state.bufferedBytes + chunkBuffer.length > MAX_BUFFER_SIZE) {
+        const attemptedBytes = state.bufferedBytes + chunkBuffer.length;
+        state.overflow = true;
+        state.chunks.length = 0;
+        state.bufferedBytes = 0;
+        diag('HTTP_TRACK_BUFFER_OVERFLOW', { request_id: requestId, provider, buffered_bytes: attemptedBytes });
+        return;
+      }
+      state.chunks.push(chunkBuffer);
+      state.bufferedBytes += chunkBuffer.length;
+    }
+  };
+}
+
+/**
+ * Wire data/end event listeners onto proxyRes and optional decompressor.
+ *
+ * Finalization runs on a clean 'end' or, as a fallback, on a premature
+ * 'aborted'/'close' so streaming responses whose sockets are torn down without
+ * a clean end (common with SSE clients) still record their accumulated usage.
+ *
+ * @param {object} proxyRes - Upstream response stream
+ * @param {object|null} decompressor - Zlib decompressor stream, or null
+ * @param {object} state - Mutable tracking state
+ * @param {(text: string) => void} onChunk - Decoded-chunk callback
+ * @param {() => void} onFinalize - Finalization callback
+ * @param {object|null} [res] - Downstream client response, used to detect the
+ *   client tearing down the connection (see onPrematureClose below)
+ */
+function wireListeners(proxyRes, decompressor, state, onChunk, onFinalize, res = null) {
+  // Finalization must run at most once. Both the clean-completion path ('end')
+  // and the premature-close fallback ('aborted'/'close') route through here so
+  // usage is never written twice.
+  let finalized = false;
+  const finalizeOnce = () => {
+    if (finalized) return;
+    finalized = true;
+    onFinalize();
+  };
+
+  // Tracks whether the upstream stream completed cleanly. When true, the
+  // premature-close fallback is a no-op so we don't finalize with a
+  // still-flushing decompressor.
+  let endedCleanly = false;
+
+  if (decompressor) {
+    // Feed decompressed text to our parser
+    decompressor.on('data', (decompressedChunk) => {
+      onChunk(decompressedChunk.toString('utf8'));
+    });
+
+    // Feed raw compressed bytes into the decompressor
+    proxyRes.on('data', (chunk) => {
+      state.totalBytes += chunk.length;
+      try { decompressor.write(chunk); } catch { /* ignore write errors */ }
+    });
+
+    proxyRes.on('end', () => {
+      endedCleanly = true;
+      try { decompressor.end(); } catch { /* ignore */ }
+    });
+
+    // Finalize on decompressor end
+    decompressor.on('end', finalizeOnce);
+  } else {
+    // No compression — parse raw chunks directly
+    proxyRes.on('data', (chunk) => {
+      state.totalBytes += chunk.length;
+      onChunk(chunk.toString('utf8'));
+    });
+
+    proxyRes.on('end', () => {
+      endedCleanly = true;
+      finalizeOnce();
+    });
+  }
+
+  // Fallback for prematurely-closed connections. Streaming (SSE) clients such
+  // as Codex/OpenAI /responses frequently tear down the socket after receiving
+  // the final event, so proxyRes emits 'aborted'/'close' but never 'end'. The
+  // usage has already been accumulated per-chunk in state, so finalize it here
+  // instead of dropping the record. Skipped when the stream ended cleanly to
+  // avoid finalizing before a decompressor has flushed.
+  let prematureCloseHandled = false;
+  const onPrematureClose = () => {
+    if (endedCleanly || prematureCloseHandled) return;
+    prematureCloseHandled = true;
+    if (decompressor) {
+      decompressor.once('error', finalizeOnce);
+      try { decompressor.end(); } catch { finalizeOnce(); }
+      return;
+    }
+    finalizeOnce();
+  };
+  proxyRes.on('aborted', onPrematureClose);
+  proxyRes.on('close', onPrematureClose);
+
+  // The upstream stream (proxyRes) and the downstream client stream (res) are
+  // separate sockets bridged by `proxyRes.pipe(res)`. Codex reads until the
+  // terminal `response.completed` event then immediately tears down the
+  // DOWNSTREAM socket and ends its turn — which tears down the whole sandbox
+  // (including this proxy) before the UPSTREAM keep-alive socket emits its
+  // 'end'/'close'. A plain pipe does not propagate a downstream close back to
+  // proxyRes, so without watching `res` here finalization would never run and
+  // the already-parsed usage would be dropped. The finalizeOnce/endedCleanly
+  // guards make this a no-op on clean completions (where proxyRes 'end' runs
+  // first and res 'close' follows).
+  if (res && typeof res.on === 'function') {
+    res.on('close', () => {
+      if (!state.streaming) return;
+      if (Object.keys(state.streamingUsage).length === 0) return;
+      onPrematureClose();
+    });
+  }
+}
+
+/**
+ * Attach token usage tracking to an upstream response.
+ *
+ * This function listens on the proxyRes 'data' and 'end' events to extract
+ * token usage. It does NOT modify the response stream — the caller still
+ * does proxyRes.pipe(res) as before.
+ *
+ * If the response is gzip/deflate compressed (common with Anthropic API),
+ * we decompress a copy of the data for parsing while the compressed bytes
+ * still flow to the client unchanged.
+ *
+ * @param {http.IncomingMessage} proxyRes - Upstream response
+ * @param {object} opts
+ * @param {string} opts.requestId - Request ID for correlation
+ * @param {string} opts.provider - Provider name (openai, anthropic, copilot, gemini)
+ * @param {string} opts.path - Request path
+ * @param {number} opts.startTime - Request start time (Date.now())
+ * @param {object} opts.metrics - Metrics module reference
+ * @param {object|null} opts.billingInfo - Extracted billing/quota headers from response
+ * @param {string|null} opts.initiatorSent - X-Initiator value sent on the request
+ * @param {string|null} [opts.requestModel] - Model extracted from the request body, used as fallback when response omits model
+ * @param {object} [opts.modelFallback] - Ordered-fallback details ({ requested_model, model, attempt, reason, status }) when a fallback model served the request
+ * @param {(normalizedUsage: object, model: string|null) => Record<string, number>|void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
+ * @param {() => void} [opts.onUsageMissing] - Optional callback invoked when usage cannot be trusted for enforcement
+ * @param {(statusCode: number) => void} [opts.onSpanEnd] - Optional callback invoked at end of finalizeHttpTracking() to signal span completion
+ * @param {object} [opts.res] - Downstream client response; watched for 'close' so usage is finalized when the client (e.g. Codex) tears down the connection before the upstream stream ends cleanly
+ */
+function trackTokenUsage(proxyRes, opts) {
+  const { requestId, provider, path: reqPath, res } = opts;
+  const streaming = isStreamingResponse(proxyRes.headers);
+  const contentType = proxyRes.headers['content-type'] || '(none)';
+  const contentEncoding = proxyRes.headers['content-encoding'] || '(none)';
+  const compressed = isCompressedResponse(proxyRes.headers);
+  let sseInspectionComplete = false;
+  const completeSseInspection = () => {
+    if (sseInspectionComplete) return;
+    sseInspectionComplete = true;
+    notifyObserver(() => opts.onSseInspectionComplete?.());
+  };
+  if (streaming) {
+    notifyObserver(() => opts.onSseInspectionStart?.());
+  }
+
+  auditTrack('TRACK_START', { rid: requestId, provider, path: reqPath, streaming, ct: contentType, ce: contentEncoding, status: proxyRes.statusCode });
+
+  logRequest('debug', 'token_track_start', {
+    request_id: requestId,
+    provider,
+    path: reqPath,
+    streaming,
+    content_type: contentType,
+    content_encoding: contentEncoding,
+    status: proxyRes.statusCode,
+  });
+  diag('HTTP_TRACK_START', { request_id: requestId, provider, path: reqPath, streaming, content_type: contentType, content_encoding: contentEncoding, status: proxyRes.statusCode });
+
+  const state = initHttpState({ streaming, compressed, contentType, contentEncoding });
+
+  // If the response uses an encoding we cannot decompress (e.g. zstd), skip
+  // token tracking entirely and log a warning so the issue is visible in CI.
+  if (compressed && isUnsupportedEncoding(proxyRes.headers)) {
+    finalizeUnsupportedEncoding(state, proxyRes, opts, completeSseInspection);
+    return;
+  }
+
+  // If the response is compressed, create a decompressor.
+  // We feed raw chunks into it and listen on the decompressed output.
+  // The raw proxyRes still flows to the client unchanged via pipe().
+  let decompressor = null;
+  if (compressed) {
+    decompressor = createDecompressor(proxyRes.headers);
+    if (decompressor) {
+      decompressor.on('error', (err) => {
+        diag('DECOMPRESS_ERROR', { request_id: requestId, error: err.message });
+        completeSseInspection();
+      });
+    }
+  }
+
+  const onChunk = createChunkHandler(state, { requestId, provider, onSseData: opts.onSseData });
+  const onFinalize = () => {
+    try {
+      if (streaming && state.partialLine.trim()) {
+        for (const line of parseSseDataLines(state.partialLine)) {
+          if (typeof opts.onSseData === 'function') opts.onSseData(line);
+        }
+      }
+      finalizeHttpTracking(state, proxyRes, opts);
+    } finally {
+      completeSseInspection();
+    }
+  };
+  wireListeners(proxyRes, decompressor, state, onChunk, onFinalize, res);
+}
+
+module.exports = {
+  trackTokenUsage,
+  initHttpState,
+  createChunkHandler,
+  wireListeners,
+};
