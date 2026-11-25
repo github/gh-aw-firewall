@@ -7,7 +7,8 @@ import {
   type NvxCleanupToolPaths,
 } from './cleanup-registry';
 import { NvxCleanupStore, type NvxCleanupStoreDependencies } from './cleanup-store';
-import type { MicrovmNetworkPlan } from '../microvm/network';
+import { createMicrovmNetworkPlan, type MicrovmNetworkPlan } from '../microvm/network';
+import { bindNvxNetworkPlan } from './runtime-lifecycle';
 import { createNvxRunLayout } from './run-layout';
 
 const RUN_ID = 'c'.repeat(32);
@@ -29,6 +30,7 @@ describe('DurableNvxCleanupRegistry', () => {
   let store: NvxCleanupStore;
   let withDeviceAclLock: jest.Mock;
   let capturedFiles: Map<string, { device: number; inode: number }>;
+  let rm: jest.Mock;
 
   beforeEach(async () => {
     root = path.join(process.cwd(), `.nvx-cleanup-test-${process.pid}-${Date.now()}`);
@@ -97,6 +99,7 @@ describe('DurableNvxCleanupRegistry', () => {
       processMatches,
     } satisfies Partial<NvxCleanupStoreDependencies>, root);
     run = jest.fn(async () => ({ exitCode: 1, stdout: '', stderr: '' }));
+    rm = jest.fn().mockResolvedValue(undefined);
     withDeviceAclLock = jest.fn(async (operation: () => Promise<unknown>) => operation());
     const dependencies: NvxCleanupRegistryDependencies = {
       store,
@@ -105,7 +108,7 @@ describe('DurableNvxCleanupRegistry', () => {
       stat,
       readFile,
       readlink,
-      rm: fs.rm,
+      rm: rm as unknown as NvxCleanupRegistryDependencies['rm'],
       rmdir: fs.rmdir,
       kill: jest.fn(),
       sleep: jest.fn().mockResolvedValue(undefined),
@@ -152,6 +155,23 @@ describe('DurableNvxCleanupRegistry', () => {
     await expect(registry.reapPending(tools)).rejects.toThrow(
       /unverified pending NVX account/,
     );
+    await expect(fs.access(path.join(root, `${RUN_ID}.json`))).resolves.toBeUndefined();
+  });
+
+  it('continues teardown after an identity mismatch and retains the record with all errors', async () => {
+    const handle = await registry.createPending(RUN_ID);
+    const layout = createNvxRunLayout(RUN_ID);
+    capturedFiles.set(layout.runDirectory, { device: 8, inode: 21 });
+    await handle.captureRunDirectory();
+    await handle.prepareAccount(`awfnvx-${'d'.repeat(20)}`);
+    capturedFiles.set(layout.runDirectory, { device: 8, inode: 22 });
+    ownerAlive = false;
+    run.mockResolvedValue({ exitCode: 0, stdout: '23001\n', stderr: '' });
+
+    await expect(registry.reapPending(tools)).rejects.toThrow(
+      /resource identity changed: .*; .*unverified pending NVX account/,
+    );
+    expect(run).toHaveBeenCalledWith(tools.getent, ['passwd', `awfnvx-${'d'.repeat(20)}`]);
     await expect(fs.access(path.join(root, `${RUN_ID}.json`))).resolves.toBeUndefined();
   });
 
@@ -220,6 +240,56 @@ describe('DurableNvxCleanupRegistry', () => {
       tools.setfacl,
       ['--remove', 'user:23001', devicePath],
     );
+    const passwdValidation = run.mock.calls.findIndex(([command, args]) =>
+      command === tools.getent && args[0] === 'passwd');
+    const aclRevocation = run.mock.calls.findIndex(([command]) => command === tools.setfacl);
+    expect(run.mock.invocationCallOrder[passwdValidation])
+      .toBeLessThan(run.mock.invocationCallOrder[aclRevocation]);
+  });
+
+  it('retains the network reservation when network removal fails', async () => {
+    const resourceToken = 'e'.repeat(12);
+    const reservationPath =
+      `/run/awf-microvm-network/reservations/${resourceToken}.json`;
+    capturedFiles.set(reservationPath, { device: 8, inode: 11 });
+    const handle = await registry.createPending(RUN_ID);
+    const plan = bindNvxNetworkPlan(RUN_ID, createMicrovmNetworkPlan(
+      RUN_ID,
+      {
+        infrastructureBridge: 'awfbr0',
+        enableApiProxy: false,
+        tapOwnerUid: 1,
+        tapOwnerGid: 1,
+      },
+      {
+        resourceToken,
+        subnetIndex: 0,
+        reservationPath,
+        infrastructureIp: '172.30.0.25',
+      },
+    ));
+    await handle.captureNetworkPlan(plan);
+    ownerAlive = false;
+    run.mockImplementation(async (_command: string, args: readonly string[]) => {
+      if (args.includes('-json')) {
+        return {
+          exitCode: 1,
+          stdout: '',
+          stderr: `Device "${args[args.length - 1]}" does not exist.`,
+        };
+      }
+      if (args.includes('-C')) {
+        return { exitCode: 2, stdout: '', stderr: 'permission denied' };
+      }
+      return { exitCode: 1, stdout: '', stderr: '' };
+    });
+
+    await expect(registry.reapPending(tools)).rejects.toThrow(
+      /Could not revalidate NVX bridge rule/,
+    );
+
+    expect(rm).not.toHaveBeenCalledWith(reservationPath, expect.anything());
+    await expect(fs.access(path.join(root, `${RUN_ID}.json`))).resolves.toBeUndefined();
   });
 
   it('allows only one concurrent cleanup claimant', async () => {
@@ -234,6 +304,17 @@ describe('DurableNvxCleanupRegistry', () => {
 
   describe('cleanup handle guards', () => {
     const name = `awfnvx-${'d'.repeat(20)}`;
+
+    it('does not persist a rejected capture operation', async () => {
+      const handle = await registry.createPending(RUN_ID);
+      const update = jest.spyOn(store, 'update');
+      await expect(handle.captureIdentity({ name, uid: 1, gid: 1 })).rejects.toThrow(
+        /does not match its pending identity/,
+      );
+      expect(update).not.toHaveBeenCalled();
+      expect(handle.record.vmmIdentity).toBeUndefined();
+      expect(handle.record.stages.accountCreated).toBe(false);
+    });
 
     it('rejects an artifact snapshot outside the run layout', async () => {
       const handle = await registry.createPending(RUN_ID);
