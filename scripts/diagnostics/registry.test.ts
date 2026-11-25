@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
+import { validateDomainOrPattern } from '../../src/domain-validation';
 
 import {
   BOUNDARIES,
@@ -28,6 +29,29 @@ describe('diagnosis registry', () => {
       return rank(a) - rank(b) || a.localeCompare(b, 'en');
     }));
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it.each([
+    'example.com:8080',
+    'https://example.com/path',
+    'ftp://example.com',
+    'user@example.com',
+  ])('routes the actual preflight error for %s separately from Squid denials', (entry) => {
+    let message = '';
+    try {
+      validateDomainOrPattern(entry);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).not.toBe('');
+    const matches = searchFindings(loaded, { text: message, boundary: 'network' });
+    expect(matches[0].id).toBe('NET-010');
+    expect(matches.map(({ id }) => id)).not.toContain('NET-001');
+  });
+
+  it('continues to route Squid denials to NET-001', () => {
+    const matches = searchFindings(loaded, { text: 'TCP_DENIED:HIER_NONE', boundary: 'network' });
+    expect(matches[0].id).toBe('NET-001');
   });
 
   it('passes schema, ID, provenance and safety validation', () => {
