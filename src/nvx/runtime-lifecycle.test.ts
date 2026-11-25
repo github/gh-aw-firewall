@@ -12,6 +12,10 @@ import {
 import type { NvxFilesystemBundle } from './filesystem-builder';
 import { runtimeUsesComposeAgent } from '../container-runtime';
 import { nvxShareName } from './one-shot-adapter';
+import * as runtimeLifecycle from './runtime-lifecycle';
+import * as identity from './identity';
+import * as cgroup from './cgroup';
+import * as launchPlan from './launch-plan';
 
 const RUN_ID = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
 const tools: NvxRuntimeToolPaths = {
@@ -165,6 +169,10 @@ function filesystemBundle(): NvxFilesystemBundle {
 }
 
 describe('NVX Phase 3d runtime lifecycle', () => {
+  it('re-exports the focused modules through the compatibility barrel', () => {
+    expect(runtimeLifecycle).toEqual({ ...identity, ...cgroup, ...launchPlan });
+  });
+
   it('passes aggregate child mappings and the exact distro format token to direct OpenVMM', () => {
     const mounts = [
       {
@@ -324,6 +332,57 @@ describe('NVX Phase 3d runtime lifecycle', () => {
       ['--remove', 'user:23001', '/dev/kvm'],
     );
     await expect(manager.cleanup()).resolves.toBeUndefined();
+  });
+
+  it('preserves account-before-device lock ordering and releases locks around the protected operation', async () => {
+    const { deps } = identityDependencies();
+    const accountLock = '/run/awf-nvx/.account-lock';
+    const deviceLock = '/run/awf-nvx/.device-acl-lock';
+    const heldLocks = new Set<string>();
+    const events: string[] = [];
+    const originalMkdir = deps.mkdir;
+    const originalRm = deps.rm;
+    const originalRun = deps.run;
+    deps.mkdir = jest.fn(async (directory, options) => {
+      await originalMkdir(directory, options);
+      if (directory === accountLock || directory === deviceLock) {
+        heldLocks.add(directory);
+        events.push(`acquire ${directory}`);
+      }
+    });
+    deps.rm = jest.fn(async (directory, options) => {
+      await originalRm(directory, options);
+      if (heldLocks.delete(directory)) events.push(`release ${directory}`);
+    });
+    deps.run = jest.fn(async (command, args) => {
+      if (command === tools.useradd || command === tools.userdel) {
+        expect([...heldLocks]).toEqual([accountLock]);
+      }
+      if (command === tools.setfacl) {
+        expect([...heldLocks]).toEqual([deviceLock]);
+      }
+      return originalRun(command, args);
+    });
+    const manager = new NvxVmmIdentityManager(RUN_ID, tools, deps);
+    await manager.allocate();
+    await manager.withDeviceAccess(async () => {
+      expect(heldLocks.size).toBe(0);
+    });
+    await manager.cleanup();
+
+    expect(events).toEqual([
+      `acquire ${accountLock}`,
+      `release ${accountLock}`,
+      `acquire ${deviceLock}`,
+      `release ${deviceLock}`,
+      `acquire ${deviceLock}`,
+      `release ${deviceLock}`,
+      `acquire ${accountLock}`,
+      `acquire ${deviceLock}`,
+      `release ${deviceLock}`,
+      `release ${accountLock}`,
+    ]);
+    expect(heldLocks.size).toBe(0);
   });
 
   it('reclaims a stale lifecycle lock through an atomic quarantine rename', async () => {
