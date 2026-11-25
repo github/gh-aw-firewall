@@ -12,7 +12,7 @@ import {
 } from './manager';
 import { releaseSeedPermissions, type GitRunner } from './staging';
 import { resolveEnclavePaths } from './paths';
-import { getEnclaveStartupProgress } from './startup-progress';
+import { getEnclaveStartupProgress, initializeEnclaveStartupProgress } from './startup-progress';
 import * as cloudHypervisorLifecycle from './cloud-hypervisor-lifecycle';
 import * as dockerLifecycle from './docker-lifecycle';
 
@@ -212,7 +212,95 @@ describe('prepareEnclaves fail-closed preflight', () => {
     fs.rmSync(paths.root, { recursive: true, force: true });
     fs.rmSync(paths.ingressRoot, { recursive: true, force: true });
     fs.rmSync(workDir, { recursive: true, force: true });
+    enclaveManagerTestHelpers.neverLaunchedStaging.delete(paths.root);
   });
+
+  it('does not prepare or consume handoffs when enclaves are disabled', async () => {
+    const wrapperConfig = { workDir } as WrapperConfig;
+    const env = enclaveEnv({ AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY: 'unused' });
+    const runtime = jest.fn();
+    await prepareEnclaves(wrapperConfig, {
+      env, assertPrimaryAvailable: runtime, assertScriptRuntimeAvailable: runtime,
+    });
+    expect(env.AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY).toBe('unused');
+    expect(runtime).not.toHaveBeenCalled();
+    expect(getEnclaveStartupProgress(wrapperConfig)).toBeUndefined();
+    expect(fs.existsSync(resolveEnclavePaths(workDir).root)).toBe(false);
+  });
+
+  it('preserves phase order and transfers staging ownership only when Docker launches', async () => {
+    const wrapperConfig = agentConfig(workDir, [
+      { script: {}, repos: [repository] },
+      { agent: { model: 'gpt-test' }, repos: [repository] },
+    ]);
+    const paths = resolveEnclavePaths(workDir);
+    const env = enclaveEnv({
+      AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY: 'd'.repeat(64),
+    });
+    const stages: string[] = [];
+    initializeEnclaveStartupProgress(wrapperConfig, ({ stage }) => {
+      if (stages[stages.length - 1] !== stage) stages.push(stage);
+    });
+    const events: string[] = [];
+    const preflight = (phase: string) => {
+      events.push(phase);
+      expect(fs.existsSync(paths.root)).toBe(false);
+      expect(env.AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY).toBeUndefined();
+    };
+    const clone = jest.fn<ReturnType<GitRunner>, Parameters<GitRunner>>(async (args, options) => {
+      expect(events).toEqual(['host', 'primary', 'script', 'agent']);
+      expect(enclaveManagerTestHelpers.neverLaunchedStaging.get(paths.root)?.runId)
+        .toBe(fs.readFileSync(paths.runIdPath, 'utf8').trim());
+      return gitRunner(args, options);
+    });
+    jest.mocked(dockerLifecycle.startDockerEnclaveLifecycle).mockImplementationOnce(async (_config, _env, onLaunch) => {
+      expect(clone).toHaveBeenCalled();
+      expect(fs.existsSync(paths.seedMapPath)).toBe(true);
+      expect(fs.existsSync(paths.capabilityPath)).toBe(true);
+      expect(enclaveManagerTestHelpers.neverLaunchedStaging.has(paths.root)).toBe(true);
+      onLaunch?.();
+      expect(enclaveManagerTestHelpers.neverLaunchedStaging.has(paths.root)).toBe(false);
+    });
+    await prepareEnclaves(wrapperConfig, {
+      env,
+      gitRunner: clone,
+      assertDockerHostPrerequisites: () => preflight('host'),
+      assertPrimaryAvailable: async () => preflight('primary'),
+      assertScriptRuntimeAvailable: async () => preflight('script'),
+      assertAgentRuntimeAvailable: async () => preflight('agent'),
+    });
+    expect(stages).toEqual([
+      'host-bootstrap', 'configuration', 'host-preflight', 'runtime-preflight', 'seed-staging', 'host-service',
+    ]);
+    await teardownEnclaves(wrapperConfig);
+    expect(fs.existsSync(paths.root)).toBe(false);
+    expect(enclaveManagerTestHelpers.neverLaunchedStaging.has(paths.root)).toBe(false);
+  });
+
+  it.each(['primary', 'script', 'agent'] as const)(
+    'does not create private state or launch services if the %s runtime preflight fails', async (phase) => {
+      const wrapperConfig = agentConfig(workDir, [
+        { script: {}, repos: [repository] },
+        { agent: { model: 'gpt-test' }, repos: [repository] },
+      ]);
+      const clone = jest.fn();
+      const preflight = async (runtime: string) => {
+        if (phase === runtime) throw new Error(`${runtime} unavailable`);
+      };
+      await expect(prepareEnclaves(wrapperConfig, {
+        env: enclaveEnv(),
+        gitRunner: clone,
+        assertPrimaryAvailable: () => preflight('primary'),
+        assertScriptRuntimeAvailable: () => preflight('script'),
+        assertAgentRuntimeAvailable: () => preflight('agent'),
+      })).rejects.toThrow(`${phase} unavailable`);
+      const paths = resolveEnclavePaths(workDir);
+      expect(clone).not.toHaveBeenCalled();
+      expect(fs.existsSync(paths.root)).toBe(false);
+      expect(enclaveManagerTestHelpers.neverLaunchedStaging.has(paths.root)).toBe(false);
+      expect(dockerLifecycle.startDockerEnclaveLifecycle).not.toHaveBeenCalled();
+    },
+  );
 
   it('rejects a network Docker daemon before staging', async () => {
     await expect(prepareEnclaves(config(workDir), {
@@ -262,8 +350,9 @@ describe('prepareEnclaves fail-closed preflight', () => {
     expect(fs.existsSync(resolveEnclavePaths(workDir).root)).toBe(false);
   });
 
-  it('cleans current-process private staging after a seed clone fails before Docker launch', async () => {
+  it.each([false, true])('cleans never-launched staging after a clone fails with keepContainers=%s', async (keepContainers) => {
     const wrapperConfig = config(workDir);
+    wrapperConfig.keepContainers = keepContainers;
     const gitRunner: GitRunner = async () => { throw new Error('fixture clone failure'); };
     await expect(prepareEnclaves(wrapperConfig, {
       env: enclaveEnv(),
@@ -272,9 +361,33 @@ describe('prepareEnclaves fail-closed preflight', () => {
       assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
       assertScriptRuntimeAvailable: jest.fn().mockResolvedValue(undefined),
     })).rejects.toThrow(/fixture clone failure/);
-    expect(fs.existsSync(resolveEnclavePaths(workDir).root)).toBe(true);
+    const paths = resolveEnclavePaths(workDir);
+    expect(fs.existsSync(paths.root)).toBe(true);
+    expect(enclaveManagerTestHelpers.neverLaunchedStaging.get(paths.root)?.runId)
+      .toBe(fs.readFileSync(paths.runIdPath, 'utf8').trim());
     await teardownEnclaves(wrapperConfig);
-    expect(fs.existsSync(resolveEnclavePaths(workDir).root)).toBe(false);
+    expect(fs.existsSync(paths.root)).toBe(false);
+    expect(enclaveManagerTestHelpers.neverLaunchedStaging.has(paths.root)).toBe(false);
+  });
+
+  it('preserves never-launched private state when its run identity changes before teardown', async () => {
+    const wrapperConfig = config(workDir);
+    await expect(prepareEnclaves(wrapperConfig, {
+      env: enclaveEnv(),
+      gitRunner: async () => { throw new Error('fixture clone failure'); },
+      assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
+      assertScriptRuntimeAvailable: jest.fn().mockResolvedValue(undefined),
+    })).rejects.toThrow('fixture clone failure');
+    const paths = resolveEnclavePaths(workDir);
+    const staging = enclaveManagerTestHelpers.neverLaunchedStaging.get(paths.root);
+    fs.writeFileSync(paths.runIdPath, `${'f'.repeat(32)}\n`);
+    await expect(teardownEnclaves(wrapperConfig)).rejects.toThrow(
+      'Never-launched enclave staging identity changed; private state is preserved',
+    );
+    expect(fs.existsSync(paths.root)).toBe(true);
+    expect(enclaveManagerTestHelpers.neverLaunchedStaging.get(paths.root)).toBe(staging);
+    const [, canRemoveNeverLaunched] = jest.mocked(dockerLifecycle.stopDockerEnclaveLifecycle).mock.calls[0];
+    expect(canRemoveNeverLaunched?.()).toBe(false);
   });
 
   it.each(['script', 'agent', 'both'] as const)('fails %s closed on missing hard-bounded storage before probes, seeds, or host effects', role => withCloudHypervisorConformanceContext(async () => {
