@@ -155,6 +155,23 @@ describe('DurableNvxCleanupRegistry', () => {
     await expect(fs.access(path.join(root, `${RUN_ID}.json`))).resolves.toBeUndefined();
   });
 
+  it('continues teardown after an identity mismatch and retains the record with all errors', async () => {
+    const handle = await registry.createPending(RUN_ID);
+    const layout = createNvxRunLayout(RUN_ID);
+    capturedFiles.set(layout.runDirectory, { device: 8, inode: 21 });
+    await handle.captureRunDirectory();
+    await handle.prepareAccount(`awfnvx-${'d'.repeat(20)}`);
+    capturedFiles.set(layout.runDirectory, { device: 8, inode: 22 });
+    ownerAlive = false;
+    run.mockResolvedValue({ exitCode: 0, stdout: '23001\n', stderr: '' });
+
+    await expect(registry.reapPending(tools)).rejects.toThrow(
+      /resource identity changed: .*; .*unverified pending NVX account/,
+    );
+    expect(run).toHaveBeenCalledWith(tools.getent, ['passwd', `awfnvx-${'d'.repeat(20)}`]);
+    await expect(fs.access(path.join(root, `${RUN_ID}.json`))).resolves.toBeUndefined();
+  });
+
   it('reaps an exactly validated account left pending after useradd', async () => {
     const name = `awfnvx-${'d'.repeat(20)}`;
     const handle = await registry.createPending(RUN_ID);
@@ -234,6 +251,17 @@ describe('DurableNvxCleanupRegistry', () => {
 
   describe('cleanup handle guards', () => {
     const name = `awfnvx-${'d'.repeat(20)}`;
+
+    it('does not persist a rejected capture operation', async () => {
+      const handle = await registry.createPending(RUN_ID);
+      const update = jest.spyOn(store, 'update');
+      await expect(handle.captureIdentity({ name, uid: 1, gid: 1 })).rejects.toThrow(
+        /does not match its pending identity/,
+      );
+      expect(update).not.toHaveBeenCalled();
+      expect(handle.record.vmmIdentity).toBeUndefined();
+      expect(handle.record.stages.accountCreated).toBe(false);
+    });
 
     it('rejects an artifact snapshot outside the run layout', async () => {
       const handle = await registry.createPending(RUN_ID);
