@@ -368,7 +368,7 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | awf config validation reports that config.apiProxy.auth.provider must be one of azure, aws, gcp, anthropic, databricks (openai is absent from the list) | AUTH-007 | auth | unresolved |
 | OpenAI native WIF works when AWF_AUTH_PROVIDER=openai is set in the environment but fails when the same value is set through the AWF config file | AUTH-007 | auth | unresolved |
 | Provider requests fail with 404 "OpenAI proxy not configured" (or the equivalent not-configured response) although AWF_AUTH_TYPE=github-oidc and AWF_AUTH_PROVIDER=azure, aws, gcp or databricks are set | AUTH-008 | auth | workaround |
-| The api-proxy logs a cloud_oidc_not_bound event (info) or a cloud_oidc_target_refused event (warn) when the adapter is created | AUTH-008 | auth | workaround |
+| The api-proxy logs cloud_oidc_not_bound (info) for an unselected adapter or a target that does not match the selected origin, or cloud_oidc_target_refused (warn) for a selected target refused by first-party or Databricks workspace-origin checks | AUTH-008 | auth | workaround |
 | safe output validation failed in the workflow run | CI-001 | ci | workaround |
 | The agent job succeeds but the safe-output collection step exits non-zero | CI-001 | ci | workaround |
 | create-pull-request rejected: file not in allowed-files | CI-001 | ci | workaround |
