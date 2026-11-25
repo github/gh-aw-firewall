@@ -257,7 +257,7 @@ function buildTokenObservabilityConfig(options: ParsedCliOptions, env: NodeJS.Pr
     logger.warn(
       isValidEnvCaptureMode
         ? 'Ignoring AWF_CAPTURE_BLOCKED_LLM_REQUESTS because blocked-request capture now requires explicit --capture-blocked-requests opt-in.'
-        : `Ignoring invalid AWF_CAPTURE_BLOCKED_LLM_REQUESTS value "${envCaptureMode}". Valid values are: summary, redacted, full.`,
+        : 'Ignoring invalid AWF_CAPTURE_BLOCKED_LLM_REQUESTS value. Valid values are: summary, redacted, full.',
     );
   }
 
