@@ -47,9 +47,13 @@ jobs:
           echo "=== Building local containers ==="
           echo "## Image build cache diagnostics" >> "$GITHUB_STEP_SUMMARY"
           for image in squid agent api-proxy; do
+            cache_mode=max
+            if [ "$image" = api-proxy ]; then
+              cache_mode=min
+            fi
             cache_args=(--cache-from "type=gha,version=2,scope=it-${image}")
             if [ "$EXPORT_BUILD_CACHE" = true ]; then
-              cache_args+=(--cache-to "type=gha,version=2,scope=it-${image},mode=max,ignore-error=true")
+              cache_args+=(--cache-to "type=gha,version=2,scope=it-${image},mode=${cache_mode},ignore-error=true")
             fi
             for attempt in 1 2 3; do
               started=$SECONDS
@@ -73,7 +77,7 @@ jobs:
                 echo "- Cached steps: $(grep -c ' CACHED$' "$log_file" || true)"
                 echo "- Cache imports: $(grep -cE 'importing cache' "$log_file" || true)"
                 echo "- Cache exports: $(grep -ciE 'preparing build cache for export|exporting.*cache' "$log_file" || true)"
-                echo "- Cache scope: it-${image}; mode: max (retains intermediate build stages)"
+                echo "- Cache scope: it-${image}; mode: ${cache_mode}"
                 echo '```text'
                 grep -im 100 -E '^#[0-9]+ (preparing build cache for export|exporting.*cache|writing (layer|config))' "$log_file" || true
                 echo '```'
@@ -140,9 +144,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build project
-        run: npm run build
-
       - name: Download integration images
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -167,7 +168,7 @@ jobs:
         run: |
           echo "=== Running domain tests ==="
           npm run test:integration -- \
-            --testPathPatterns="(blocked-domains|dns-servers|empty-domains|wildcard-patterns|no-docker|skip-pull|sudo-secure-path|git-operations)" \
+            --testPathPatterns="(blocked-domains|dns-servers|wildcard-patterns|no-docker|skip-pull|sudo-secure-path|git-operations)" \
             --verbose --json --outputFile=/tmp/awf-jest-domain.json
         env:
           JEST_TIMEOUT: 180000
@@ -245,9 +246,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build project
-        run: npm run build
-
       - name: Download integration images
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -272,7 +270,7 @@ jobs:
         run: |
           echo "=== Running network tests ==="
           npm run test:integration -- \
-            --testPathPatterns="(ipv6|localhost-access|network-security)" \
+            --testPathPatterns="(ipv6|localhost-access|network-security|empty-domains)" \
             --verbose --json --outputFile=/tmp/awf-jest-network.json
         env:
           JEST_TIMEOUT: 180000
@@ -332,9 +330,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Build project
-        run: npm run build
 
       - name: Download integration images
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -421,9 +416,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build project
-        run: npm run build
-
       - name: Download integration images
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -508,9 +500,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Build project
-        run: npm run build
 
       - name: Download integration images
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
