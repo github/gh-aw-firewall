@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 
 const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const smokeCodexSourcePath = path.join(workflowsDir, 'smoke-codex.md');
@@ -21,6 +22,38 @@ describe('smoke codex token-usage verification', () => {
 });
 
 describe('smoke codex workflow output requirements', () => {
+  it('gates every trigger on browser evidence before permission-blocked output relaxation', () => {
+    for (const workflowPath of [smokeCodexSourcePath, smokeCodexLockPath]) {
+      const workflow = fs.readFileSync(workflowPath, 'utf-8');
+      type Step = { name: string; if?: string; run?: string; env?: Record<string, string>; 'continue-on-error'?: boolean };
+      const parsed = yaml.load(workflowPath.endsWith('.md') ? workflow.split('---')[1] : workflow) as {
+        steps?: Step[]; 'post-steps'?: Step[]; jobs?: { agent: { steps: Step[] } };
+      };
+      const steps = parsed.jobs?.agent?.steps ?? [...(parsed.steps ?? []), ...(parsed['post-steps'] ?? [])];
+      expect(steps.find(step => step.name === 'Reset Playwright title check')?.run)
+        .toMatch(/^rm -f \/tmp\/gh-aw\/agent\/codex-playwright-.+\/result.json$/);
+      expect(steps.find(step => step.name === 'Validate Playwright title check')).toMatchObject({
+        if: 'always()',
+        env: { RESULT_FILE: '/tmp/gh-aw/agent/codex-playwright-${{ github.run_id }}/result.json' },
+      });
+      const validator = steps.find(step => step.name === 'Validate Playwright title check')!.run!;
+      expect(validator).toContain("node <<'NODE'");
+      expect(validator).toContain("JSON.parse(fs.readFileSync(process.env.RESULT_FILE, 'utf8'))");
+      expect(validator).not.toContain('scripts/ci/');
+      expect(validator).not.toContain('require(process.');
+      expect(steps.find(step => step.name === 'Validate Playwright title check')?.['continue-on-error']).not.toBe(true);
+      expect(workflow.indexOf('name: Validate Playwright title check'))
+        .toBeLessThan(workflow.indexOf('name: Validate safe outputs were invoked'));
+    }
+    const source = fs.readFileSync(smokeCodexSourcePath, 'utf-8');
+    expect(source).toContain('node .github/workflows/shared/check-codex-playwright.cjs run /tmp/gh-aw/agent/codex-playwright-');
+    const lock = fs.readFileSync(smokeCodexLockPath, 'utf-8');
+    expect(lock).toContain('GH_AW_AGENT_FOLDERS: ".agents .codex .github"');
+    expect(lock.indexOf('name: Restore agent config folders from base branch'))
+      .toBeLessThan(lock.indexOf('name: Execute Codex'));
+    expect(source).toContain('If any required check fails, report overall FAIL and call `report_incomplete`');
+  });
+
   it('pins Playwright CLI to a version available outside the npm release cooldown', () => {
     const source = fs.readFileSync(smokeCodexSourcePath, 'utf-8');
     const lock = fs.readFileSync(smokeCodexLockPath, 'utf-8');
