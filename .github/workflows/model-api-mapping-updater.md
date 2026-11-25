@@ -189,7 +189,7 @@ steps:
       mkdir -p /tmp/gh-aw/model-maintenance
       tools=/tmp/gh-aw/model-maintenance-tools
       mkdir -p "$tools"
-      git archive "$REVIEW_BASE" scripts/model-information shared/model-information containers/api-proxy/catalogue-contract | tar -x -C "$tools"
+      git archive "$REVIEW_BASE" scripts/model-information shared/model-information containers/api-proxy/catalogue-contract containers/api-proxy/ai-credits-pricing.js | tar -x -C "$tools"
       ln -s "$GITHUB_WORKSPACE/node_modules" "$tools/node_modules"
       ln -s "$tools/scripts/model-information/maintenance-command.cjs" /tmp/gh-aw/model-maintenance-command.cjs
       printf '%s\n' "$REVIEW_BASE" > /tmp/gh-aw/model-maintenance/review-base-revision

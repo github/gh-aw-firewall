@@ -120,12 +120,36 @@ describe('offline scheduled source maintenance', () => {
         { patterns: ['fixture-decisions'], endpoints: ['decisions'] },
       ] }, anthropic: { models: [] },
     } } }));
-    write(cwd, copilotFiles[0], json({ models: [{ identity: { lookupId: 'new-copilot' }, modelType: 'completion',
+    write(cwd, copilotFiles[0], json({ models: [{ identity: { provider: 'copilot', lookupId: 'new-copilot' }, modelType: 'completion',
       lifecycle: { status: 'active' }, availability: [{ scope: { provider: 'copilot', channel: 'copilot-cli' },
         fact: { state: 'supported' } }] }] }));
     expect(tiers.coverage(cwd, evidence, documentText)).toEqual([
       { lookupId: 'fixture-1-0', missing: ['codingTier', 'releaseDate'] },
       { lookupId: 'new-copilot', missing: ['codingTier', 'releaseDate'] },
+    ]);
+  });
+
+  it('drops retired Copilot gaps, retains native survivors and discovers exact supported protocol records', () => {
+    const seeded = JSON.parse(fs.readFileSync(path.join(cwd, tiers.file), 'utf8'));
+    seeded.entries.push(undatedKimi, { ...undatedKimi, lookupId: 'native-survivor' });
+    write(cwd, tiers.file, json(seeded));
+    const record = (provider: string, lookupId: string, status: string, protocol: string, state = 'supported') => ({
+      identity: { provider, lookupId }, modelType: 'completion', lifecycle: { status }, provenance: { authority: 'maintained' },
+      protocols: [{ protocol, support: { state } }],
+    });
+    write(cwd, 'shared/model-information/sources/decisions.json', json({ models: [
+      record('openai', 'exact-native', 'active', 'responses'),
+      record('openai', 'only-decisions', 'active', 'decisions'),
+      record('openai', 'unconfirmed', 'active', 'responses', 'unknown'),
+      record('openai', 'native-*', 'active', 'responses'),
+      { ...record('openai', 'imported', 'active', 'responses'), provenance: { authority: 'imported' } },
+      record('copilot', 'kimi-k3', 'retired', 'chat_completions'),
+      record('copilot', 'native-survivor', 'removed', 'chat_completions'),
+      record('anthropic', 'native-survivor', 'active', 'messages'),
+    ] }));
+    expect(tiers.coverage(cwd, evidence, documentText)).toEqual([
+      { lookupId: 'exact-native', missing: ['codingTier', 'releaseDate'] },
+      { lookupId: 'native-survivor', missing: ['releaseDate'] },
     ]);
   });
 

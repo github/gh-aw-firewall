@@ -6,6 +6,7 @@ const { runMaintenanceCommand } = require('./maintenance-command.cjs') as {
 };
 const root = path.resolve(__dirname, '../..');
 const maintain = path.join(__dirname, 'maintain.cjs');
+const compile = path.join(__dirname, 'compile.cjs');
 
 describe('unattended model maintenance command boundary', () => {
   it.each([
@@ -13,8 +14,8 @@ describe('unattended model maintenance command boundary', () => {
     ['refresh-copilot-pricing', process.execPath, [maintain, 'refresh-copilot-pricing']],
     ['report', process.execPath, [maintain, 'report']],
     ['verify', process.execPath, [maintain, 'verify']],
-    ['generate', 'npm', ['run', 'models:generate']],
-    ['check', 'npm', ['run', 'models:check']],
+    ['generate', process.execPath, [compile, '--maintenance-workspace']],
+    ['check', process.execPath, [compile, '--maintenance-workspace', '--check']],
     ['test', 'npm', ['test', '--', '--runInBand', 'scripts/model-information/',
       'scripts/ci/model-api-mapping-updater-workflow.test.ts',
       'src/copilot-model-catalog-sync.test.ts', 'src/model-information-contract.test.ts']],

@@ -6,13 +6,14 @@ const { spawnSync } = require('node:child_process');
 
 const root = process.env.GITHUB_WORKSPACE || path.resolve(__dirname, '../..');
 const maintain = path.join(__dirname, 'maintain.cjs');
+const compile = path.join(__dirname, 'compile.cjs');
 const commands = {
   'refresh-import': [process.execPath, maintain, 'refresh-import'],
   'refresh-copilot-pricing': [process.execPath, maintain, 'refresh-copilot-pricing'],
   report: [process.execPath, maintain, 'report'],
   verify: [process.execPath, maintain, 'verify'],
-  generate: ['npm', 'run', 'models:generate'],
-  check: ['npm', 'run', 'models:check'],
+  generate: [process.execPath, compile, '--maintenance-workspace'],
+  check: [process.execPath, compile, '--maintenance-workspace', '--check'],
   test: ['npm', 'test', '--', '--runInBand', 'scripts/model-information/',
     'scripts/ci/model-api-mapping-updater-workflow.test.ts',
     'src/copilot-model-catalog-sync.test.ts', 'src/model-information-contract.test.ts'],

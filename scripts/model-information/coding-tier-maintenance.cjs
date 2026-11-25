@@ -3,10 +3,12 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { normalizeId } = require('../../containers/api-proxy/catalogue-contract/identity');
-const { sourceFiles, supportedModelTables, supportedModelNames } = require('./copilot-pricing.cjs');
+const { supportedModelTables, supportedModelNames } = require('./copilot-pricing.cjs');
 
 const file = 'shared/model-information/sources/coding-tiers.json';
 const fields = ['codingTier', 'releaseDate'];
+const agentProtocols = new Set(['responses', 'chat_completions', 'messages']);
+const exactId = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/i;
 const evidenceSources = new Set(['copilot-models', 'copilot-model-comparison', 'copilot-changelog', 'copilot-pricing',
   'openai-models', 'anthropic-models', 'gemini-models', 'xai-models']);
 const entriesById = doc => new Map(doc.entries.map(entry => [entry.lookupId, entry]));
@@ -20,11 +22,25 @@ function coverage(cwd, directory, text) {
   const ids = new Set(entries.keys());
   const copilot = new Set(entries.keys());
   const excluded = new Set();
-  for (const name of sourceFiles) {
-    for (const model of read(name).models) {
-      const id = model.identity.lookupId;
-      if (model.modelType !== 'completion' || ['removed', 'retired'].includes(model.lifecycle.status)) {
+  const native = new Set();
+  const retired = new Set();
+  const sources = 'shared/model-information/sources';
+  for (const name of fs.readdirSync(path.join(cwd, sources)).filter(name => name.endsWith('.json'))) {
+    for (const model of read(path.join(sources, name)).models || []) {
+      const { lookupId: id, provider } = model.identity;
+      const inactive = ['removed', 'retired'].includes(model.lifecycle.status);
+      if (inactive) retired.add(`${provider}/${id}`);
+      if (provider === 'openai' || provider === 'anthropic') {
+        if (!inactive && exactId.test(id) && model.provenance.authority === 'maintained' &&
+            model.protocols?.some(p => p.support.state === 'supported' && agentProtocols.has(p.protocol))) {
+          native.add(id);
+        }
+        continue;
+      }
+      if (provider !== 'copilot') continue;
+      if (model.modelType !== 'completion' || inactive) {
         excluded.add(id);
+        ids.delete(id);
         continue;
       }
       copilot.add(id);
@@ -45,13 +61,13 @@ function coverage(cwd, directory, text) {
   const { providers } = read('shared/model-information/sources/mapping.json').mapping;
   for (const provider of ['openai', 'anthropic']) {
     for (const model of providers[provider].models) {
-      if (!model.endpoints.some(endpoint => ['messages', 'responses', 'chat_completions'].includes(endpoint))) continue;
+      if (!model.endpoints.some(endpoint => agentProtocols.has(endpoint))) continue;
       for (const id of [...model.patterns, ...(model.routingPatterns || [])]) {
-        if (/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/i.test(id)) ids.add(lookup(id));
+        if (exactId.test(id) && !retired.has(`${provider}/${lookup(id)}`)) native.add(lookup(id));
       }
     }
   }
-  for (const lookupId of [...ids].sort()) {
+  for (const lookupId of [...new Set([...ids, ...native])].sort()) {
     const missing = fields.filter(field => !entries.get(lookupId)?.[field]);
     if (missing.length) gaps.push({ lookupId, missing });
   }

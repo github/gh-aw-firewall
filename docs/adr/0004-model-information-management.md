@@ -289,6 +289,10 @@ approved capture; adding a release date must preserve the original tier evidence
 An unresolved fact appears in the run's incomplete report without a data-only
 PR for the gap. A change to an existing tier is flagged for human review for
 as long as it is pending, even if a later run also updates unrelated prices.
+Retirement on Copilot stops reminders for that route without deleting its
+historical facts. An exact Responses or Messages route on another provider can
+still keep the same model in scope. When updating an open PR, the workflow
+generates and checks projections from that PR's data with the current compiler.
 
 ### Harness version constraints
 

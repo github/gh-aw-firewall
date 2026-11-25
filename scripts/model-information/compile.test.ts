@@ -23,6 +23,30 @@ const copyLegacyPricingProjections = (directory: string) => {
 };
 
 describe('maintained model compilation', () => {
+  it('generates and checks selected-branch data without using a compiler or package scripts from that branch', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-tier-workspace-'));
+    try {
+      for (const file of ['shared/model-information/sources', 'containers/api-proxy/models.dev.catalog.json',
+        'shared/model-information/imported/legacy-models-dev.metadata.json']) {
+        fs.mkdirSync(path.dirname(path.join(cwd, file)), { recursive: true });
+        fs.cpSync(path.join(root, file), path.join(cwd, file), { recursive: true });
+      }
+      const tierSource = path.join(cwd, 'shared/model-information/sources/coding-tiers.json');
+      const tiers = JSON.parse(fs.readFileSync(tierSource, 'utf8'));
+      tiers.entries = [{ lookupId: 'selected-only', codingTier: 'standard',
+        evidence: [{ url: 'https://example.invalid/model', quote: 'A reviewed model tier in the selected workspace.' }] }];
+      fs.writeFileSync(tierSource, JSON.stringify(tiers));
+      const wrapper = path.join(__dirname, 'maintenance-command.cjs');
+      for (const command of ['generate', 'check']) {
+        execFileSync(process.execPath, [wrapper, command], { cwd: root, env: { ...process.env, GITHUB_WORKSPACE: cwd } });
+      }
+      const file = 'containers/api-proxy/model-information.coding-tiers.generated.json';
+      expect(JSON.parse(fs.readFileSync(path.join(cwd, file), 'utf8'))).toEqual({ 'selected-only': { tier: 'standard' } });
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('checks repeatable generated outputs without refreshing timestamps', () => {
     expect(run('--check')).toMatch(/Checked model catalogue/);
     expect(run('--check', `--root=${root}`)).toMatch(/Checked model catalogue/);
