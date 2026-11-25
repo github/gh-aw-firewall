@@ -85,9 +85,18 @@ function createRoutingProviderExecutor({
     throw createRoutingError('routing_configuration_error', 'The routing provider executor is incomplete');
   }
   return Object.freeze({
-    checkBeforePrimary({ selection, awfEligibility, awfEligibilityScope }) {
+    checkBeforePrimary(request) {
+      const { selection, awfEligibility, awfEligibilityScope } = request;
       const provider = selection.provider || 'copilot';
-      for (const guard of getGuardChecks(selection.wire_model, provider)) {
+      const hasPricingCatalogue = Object.hasOwn(request, 'awfCatalogue');
+      const hasPricingCache = request.awfPricingCache instanceof Map;
+      const pricingOptions = hasPricingCatalogue || hasPricingCache
+        ? {
+          ...(hasPricingCatalogue ? { catalogue: request.awfCatalogue } : {}),
+          ...(hasPricingCache ? { pricingCache: request.awfPricingCache } : {}),
+        }
+        : undefined;
+      for (const guard of getGuardChecks(selection.wire_model, provider, pricingOptions)) {
         if (!guard.isBlocked(guard.block)) continue;
         const envelope = guard.buildError(guard.block);
         const error = envelope?.error || envelope;
@@ -98,7 +107,9 @@ function createRoutingProviderExecutor({
           parsePositiveNumber(process.env.AWF_MAX_AI_CREDITS) !== null) {
         let priceable = false;
         try {
-          priceable = isModelPriceable(selection.wire_model, provider, { allowMedianEstimate: false });
+          priceable = isModelPriceable(selection.wire_model, provider, {
+            ...pricingOptions, allowMedianEstimate: false,
+          });
         } catch (error) {
           if (error?.code !== 'pricing_resolution_error') throw error;
         }

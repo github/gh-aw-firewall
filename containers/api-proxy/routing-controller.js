@@ -1,6 +1,7 @@
 'use strict';
 
 const { PRICE, selectAdaptive, validSummary } = require('./adaptive-select');
+const { getCatalogueLoader } = require('./catalogue-loader');
 const { getModelMultiplierCapBlockState } = require('./guards/max-model-multiplier-guard');
 const { resolvePrimaryRank, routingPairName, shortlistPrimaryOptions } = require('./routing-candidates');
 const { pinRequestEligibility, proxyEligibilityStore } = require('./model-eligibility');
@@ -239,28 +240,56 @@ function createRoutingController(dependencies) {
         return !getModelMultiplierCapBlockState(wireModel, provider);
       };
 
-      const triedIds = new Set();
+      const ROUTER_METADATA = Object.freeze({ selectionSource: 'router', fallbackReason: null, fallbackTier: null });
+      const checkedChoices = new Map();
+      const pricingCache = new Map();
       let firstChoiceError = null;
+      let pinnedPricingCatalogue;
+      let hasPinnedPricingCatalogue = false;
+      const getPinnedPricingCatalogue = () => {
+        if (!hasPinnedPricingCatalogue) {
+          pinnedPricingCatalogue = getCatalogueLoader().capture();
+          hasPinnedPricingCatalogue = true;
+        }
+        return pinnedPricingCatalogue;
+      };
+      const assertActive = () => {
+        if (signal?.aborted) throw createRoutingError('routing_cancelled', 'Model routing was cancelled');
+        if (clock.now() >= deadline) throw createRoutingError('routing_timeout', 'Model routing exceeded its deadline');
+      };
+
+      async function checkChoice(choice, metadata) {
+        if (checkedChoices.has(choice.id)) {
+          return checkedChoices.get(choice.id);
+        }
+        const candidateSelection = createSelection(choice, pool.byId[choice.id], metadata);
+        const awfCatalogue = getPinnedPricingCatalogue();
+        try {
+          await runPhase(({ signal: phaseSignal }) =>
+            executor.checkBeforePrimary({
+              selection: candidateSelection, signal: phaseSignal, awfEligibility: eligibilityRequest.awfEligibility,
+              awfEligibilityScope: eligibilityRequest.awfEligibilityScope, awfCatalogue, awfPricingCache: pricingCache,
+            }));
+          const passed = { ok: true, choice, selection: candidateSelection };
+          checkedChoices.set(choice.id, passed);
+          return passed;
+        } catch (error) {
+          if (error instanceof RoutingError && SKIPPABLE_CHOICE_GUARD_CODES.has(error.code)) {
+            assertActive();
+            firstChoiceError ||= error;
+            const rejected = { ok: false, error };
+            checkedChoices.set(choice.id, rejected);
+            return rejected;
+          }
+          throw error;
+        }
+      }
 
       async function selectFirstPassing(candidates) {
         for (const { choice, metadata } of candidates) {
-          if (triedIds.has(choice.id)) continue;
-          triedIds.add(choice.id);
-          const candidateSelection = createSelection(choice, pool.byId[choice.id], metadata);
-          try {
-            await runPhase(({ signal: phaseSignal }) =>
-              executor.checkBeforePrimary({
-                selection: candidateSelection, signal: phaseSignal, awfEligibility: eligibilityRequest.awfEligibility,
-                awfEligibilityScope: eligibilityRequest.awfEligibilityScope,
-              }));
-            return { choice, selection: candidateSelection };
-          } catch (error) {
-            if (error instanceof RoutingError && SKIPPABLE_CHOICE_GUARD_CODES.has(error.code)) {
-              firstChoiceError ||= error;
-              continue;
-            }
-            throw error;
-          }
+          if (checkedChoices.has(choice.id)) continue;
+          const result = await checkChoice(choice, metadata);
+          if (result.ok) return { choice: result.choice, selection: result.selection };
         }
         return null;
       }
@@ -271,38 +300,45 @@ function createRoutingController(dependencies) {
       const hasValidSummary = Boolean(adaptive) && validSummary(adaptive.summary, adaptive.job, adaptiveLevel);
       let winner = null;
       let adaptiveReceipt = null;
+      let adaptiveOrdinaryChoice = null;
       if (route && hasValidSummary) {
-        // The workflow's evidence chooses among the eligible pairs; the ordinary pick stays the router's.
-        // A pair the router ranks twice is one candidate, which its first choice stands for.
-        const ordinaryPick = route.ranked_choices[0];
+        // The workflow's evidence chooses among guard-passing pairs; the ordinary pick is the first
+        // router choice that passes the same per-model guards used without a summary.
+        // A pair the router ranks twice is one candidate, which its first passing choice stands for.
         const byPair = new Map();
         for (const { id } of route.ranked_choices) {
-          const choice = pool.byId[id].choice;
-          const pair = routingPairName(pool.byId[id]);
-          if (!byPair.has(pair) && withinModelCap(choice)) byPair.set(pair, choice);
+          const entry = pool.byId[id];
+          const pair = routingPairName(entry);
+          if (byPair.has(pair)) continue;
+          const result = await checkChoice(entry.choice, ROUTER_METADATA);
+          if (result.ok) byPair.set(pair, result);
         }
-        const candidateReceipt = selectAdaptive({
-          summary: adaptive.summary,
-          rank: [...byPair.keys()],
-          ordinary: routingPairName(pool.byId[ordinaryPick.id]),
-          job: adaptive.job,
-          price: (pair, tokens) => (byPair.has(pair) ? priceRoute(pool.byId[byPair.get(pair).id], tokens) : null),
-          level: adaptiveLevel,
-        });
-        const adaptiveChoice = byPair.get(candidateReceipt.selected) ?? ordinaryPick;
-        winner = await selectFirstPassing([{
-          choice: adaptiveChoice,
-          metadata: { selectionSource: 'router', fallbackReason: null, fallbackTier: null },
-        }]);
-        if (winner) {
-          adaptiveReceipt = candidateReceipt;
+        if (byPair.size > 0) {
+          assertActive();
+          const [ordinaryPair, ordinaryWinner] = byPair.entries().next().value;
+          adaptiveOrdinaryChoice = ordinaryWinner.choice;
+          const candidateReceipt = selectAdaptive({
+            summary: adaptive.summary,
+            rank: [...byPair.keys()],
+            ordinary: ordinaryPair,
+            job: adaptive.job,
+            price: (pair, tokens) => (byPair.has(pair)
+              ? priceRoute(pool.byId[byPair.get(pair).choice.id], tokens, { catalogue: getPinnedPricingCatalogue() })
+              : null),
+            level: adaptiveLevel,
+          });
+          const adaptiveWinner = byPair.get(candidateReceipt.selected);
+          if (adaptiveWinner) {
+            winner = { choice: adaptiveWinner.choice, selection: adaptiveWinner.selection };
+            adaptiveReceipt = candidateReceipt;
+          }
         }
       }
 
       if (!winner && route) {
         winner = await selectFirstPassing(route.ranked_choices.map(choice => ({
           choice,
-          metadata: { selectionSource: 'router', fallbackReason: null, fallbackTier: null },
+          metadata: ROUTER_METADATA,
         })));
       }
 
@@ -326,6 +362,7 @@ function createRoutingController(dependencies) {
         throw firstChoiceError || createRoutingError('no_route', 'No eligible model passed selection guards');
       }
 
+      assertActive();
       const { choice: selectedChoice, selection } = winner;
       if (adaptive) {
         if (!adaptiveReceipt) {
@@ -358,10 +395,12 @@ function createRoutingController(dependencies) {
           ? 0
           : resolvedTopKRank.findIndex(choice => choice.id === selectedChoice.id);
         const remainingRank = startIndex >= 0 ? resolvedTopKRank.slice(startIndex) : resolvedTopKRank;
-        const withinCap = remainingRank.filter(withinModelCap);
+        const permitted = useAdaptiveRouteOptions
+          ? remainingRank.filter(choice => checkedChoices.get(choice.id)?.ok === true)
+          : remainingRank.filter(choice => checkedChoices.get(choice.id)?.ok !== false && withinModelCap(choice));
         routeOptions = deepFreezeJson({
-          ordinaryPick: modelEffortPair(useAdaptiveRouteOptions ? route.ranked_choices[0] : selectedChoice),
-          options: shortlistPrimaryOptions(withinCap, config.topK).map(modelEffortPair),
+          ordinaryPick: modelEffortPair(useAdaptiveRouteOptions ? adaptiveOrdinaryChoice : selectedChoice),
+          options: shortlistPrimaryOptions(permitted, config.topK).map(modelEffortPair),
         });
       }
       recordSelection(observer, {

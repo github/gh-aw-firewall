@@ -2983,9 +2983,11 @@ rejected as `invalid_evidence`.
 
 Pairs are named `<provider>/<wire model>@<effort>`, with the Copilot provider
 written `github-copilot` and `none` for a route without an effort. The selector
-works on the full validated rank after the multiplier cap, where a pair the
-router ranks twice counts once, at its first position (only `topK` requires the
-router's pairs to be unique):
+works on the full validated rank permitted by per-model guards (such as the
+multiplier cap, retired or disallowed models, pricing resolution, or harness
+eligibility), where a pair the router ranks twice counts once at its first
+passing choice (only `topK` requires the router's pairs to be unique), and the
+**ordinary pick** is the first guard-permitted choice in that rank:
 
 - **Incumbent.** It keeps the summary's incumbent while it is eligible and its
   base model is not suspended. Otherwise it chooses the eligible pair with the
@@ -3011,8 +3013,8 @@ router's pairs to be unique):
 - **All suspended.** When every eligible base is suspended, the run serves the
   eligible pair with a record and the highest expected rate (ties by rank), or the
   ordinary pick without one.
-- **Observe mode.** The run keeps the ordinary pick and reports in `would` what a
-  live run would have chosen.
+- **Observe mode.** The run keeps the guard-permitted ordinary pick and reports
+  in `would` what a live run would have chosen among guard-permitted pairs.
 
 Each cost the decision uses is `measured` (the pair's average AWF-priced cost on
 this workflow) or `estimated`. An estimate prices the incumbent's average tokens
@@ -3027,11 +3029,14 @@ estimate, including one that fills a component the estimate uses when the
 model's own tariff is partial, and a pair without a cost is never chosen on cost.
 
 An evidence summary changes only which permitted pair runs, never whether a run
-starts. When a per-model guard (such as a retired or disallowed model, the
-multiplier cap, or harness eligibility) rejects the pair the selector chose, AWF
-falls back to ordinary routing: it tries the router's next passing choice and
-then the eligible fallback pool (never trying the rejected pick twice), and
-records an `ordinary` receipt with reason `selection_rejected`. When the router
+starts. Router-ranked choices rejected by a per-model guard (such as a retired
+or disallowed model, the multiplier cap, pricing resolution, or harness
+eligibility) are excluded before selection, so `ordinary`, live choices
+(including `all_suspended`), observe-mode `would`, and adaptive `topK`
+`routeOptions` only reflect guard-permitted pairs. When per-model guards reject
+every router-ranked choice, AWF falls back to ordinary routing's eligible
+fallback pool (never trying a rejected choice twice) and records an `ordinary`
+receipt with reason `selection_rejected`. When the router
 cannot choose, AWF serves a fallback pair as ordinary routing does (§13a.1) and
 records an `ordinary` receipt with reason `router_fallback`. On both receipts,
 `generation`, `mode`, `scope`, `explore_allowed`, and `concurrency` (`turn` and
@@ -3065,7 +3070,7 @@ agent, already is.
 | `generation`, `mode`, `scope` | Copied from the summary (`null` without a valid one) |
 | `role` | `serve`, `test`, `probe`, `observe` or `ordinary` |
 | `explore_allowed` | Whether the summary allowed exploration on attempt 1 |
-| `selected`, `ordinary`, `would` | The pair AWF asked the harness to run, the router's pick (or the pair that runs on an `ordinary` receipt), and in observe mode what live mode would have run |
+| `selected`, `ordinary`, `would` | The pair AWF asked the harness to run, the first guard-permitted router pick (or the pair that runs on an `ordinary` receipt), and in observe mode what live mode would have run among guard-permitted pairs |
 | `incumbent.before`, `incumbent.after` | The summary's incumbent and the incumbent after this decision; they differ only when the rule chose or switched one, and stay equal on `selection_rejected` and `router_fallback` receipts (`null` as a whole without a valid summary) |
 | `costs` | For the incumbent and each pair compared: `credits` and `basis` (`measured` or `estimated`), or `{}` on an `ordinary` receipt |
 | `concurrency` | `turn` and `in_flight` from the summary, and the `capacity` computed for the challenger or probe considered (or `null`); `null` as a whole without a valid summary |

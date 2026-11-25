@@ -209,6 +209,9 @@ function createAiCreditsPricing({ getState, getAiCreditsConfig }) {
 
   function checkModelPricing(model, provider = undefined, options = {}) {
     if (getState().pricingFailure) return buildPricingResolutionError();
+    const cache = model && options.pricingCache instanceof Map ? options.pricingCache : null;
+    const cacheKey = cache ? `${provider || ''}\u0000${model}` : null;
+    if (cache && cache.has(cacheKey)) return cache.get(cacheKey);
     try {
       getAiCreditsConfig();
       if (model) {
@@ -218,8 +221,11 @@ function createAiCreditsPricing({ getState, getAiCreditsConfig }) {
       }
     } catch (error) {
       if (error.code !== 'pricing_resolution_error') throw error;
-      return buildPricingResolutionError();
+      const failure = buildPricingResolutionError();
+      if (cache) cache.set(cacheKey, failure);
+      return failure;
     }
+    if (cache) cache.set(cacheKey, null);
     return null;
   }
 
