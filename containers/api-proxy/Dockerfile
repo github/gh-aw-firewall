@@ -64,6 +64,7 @@ COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
      token-tracker.js token-persistence.js token-parsers.js \
      token-tracker-http.js token-tracker-ws.js token-tracker-shared.js \
      model-alias-config.js model-policy.js model-parameters.js model-provider-filter.js \
+     model-alias-pattern-expansion.js model-candidate-selection.js model-middle-power-synthesis.js \
      model-resolver.js model-identity.js model-fallback.js model-fallback-chain.js model-utils.js model-body-rewriter.js proxy-utils.js oidc-adapter-utils.js adapter-factory.js anthropic-transforms.js claude-hosted-web.js codex-hosted-web.js hosted-web-policy.js \
      model-config.js model-recovery.js model-selector.js model-eligibility.js automatic-model-eligibility.js model-reasoning.js harness-observation.js scoped-auto-model.js key-validation.js server-factory.js startup.js \
      model-config.js model-recovery.js model-selector.js model-eligibility.js automatic-model-eligibility.js automatic-selection.js model-reasoning.js harness-observation.js scoped-auto-model.js key-validation.js server-factory.js startup.js \
