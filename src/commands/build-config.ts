@@ -292,7 +292,6 @@ function buildApiProxyConfig(inputs: BuildConfigInputs, env: NodeJS.ProcessEnv) 
       additionalEnv: inputs.additionalEnv,
       envFile: options.envFile,
     }, env),
-    copilotByokExtraHeaders: options.copilotByokExtraHeaders,
     copilotByokExtraBodyFields: options.copilotByokExtraBodyFields,
     copilotByokSessionId: options.copilotByokSessionId,
     difcProxyHost: options.difcProxyHost,
