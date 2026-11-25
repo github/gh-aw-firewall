@@ -168,7 +168,11 @@ async function runCleanup(
         logger.warn('Failed to write the incomplete enclave audit marker.', error);
       }
     }
-    await stopContainers(config.workDir, config.keepContainers, { routerLogsDir: resolveRouterLogsDir(config) });
+    await stopContainers(config.workDir, config.keepContainers, {
+      routerLogsDir: resolveRouterLogsDir(config),
+      networkIsolation: config.networkIsolation,
+      topologyAttach: config.topologyAttach,
+    });
   }
 
   if (getHostIptablesSetup() && !config.keepContainers) {

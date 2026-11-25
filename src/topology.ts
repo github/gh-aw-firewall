@@ -137,6 +137,61 @@ export async function connectTopologyContainers(
   }
 }
 
+/**
+ * Detaches externally-owned peers before Compose removes the topology network.
+ * Best-effort so missing peers or partial startup cannot prevent teardown.
+ */
+export async function disconnectTopologyContainers(
+  networkName: string,
+  containerNames: string[],
+  log: TopologyLogger = logger,
+): Promise<void> {
+  for (const name of containerNames) {
+    try {
+      const result = await execa(
+        'docker',
+        ['network', 'disconnect', '-f', networkName, name],
+        { env: getLocalDockerEnv(), reject: false },
+      );
+      if (result.exitCode !== 0) {
+        log.warn(`Could not disconnect topology peer "${name}" from "${networkName}": ${result.stderr || result.exitCode}`);
+      }
+    } catch (error) {
+      log.warn(`Failed to disconnect topology peer "${name}" from "${networkName}": ${error}`);
+    }
+  }
+}
+
+/**
+ * Reclaims an empty topology network left behind by Compose. Never disconnects
+ * remaining endpoints; Docker also refuses removal if an endpoint races us.
+ */
+export async function removeEmptyTopologyNetwork(
+  networkName: string,
+  log: TopologyLogger = logger,
+): Promise<void> {
+  try {
+    const inspection = await execa(
+      'docker',
+      ['network', 'inspect', networkName, '--format', '{{len .Containers}}'],
+      { env: getLocalDockerEnv(), reject: false },
+    );
+    if (inspection.exitCode !== 0 || inspection.stdout.trim() !== '0') {
+      return;
+    }
+    const removal = await execa(
+      'docker',
+      ['network', 'rm', networkName],
+      { env: getLocalDockerEnv(), reject: false },
+    );
+    if (removal.exitCode !== 0) {
+      log.warn(`Could not remove empty topology network "${networkName}": ${removal.stderr || removal.exitCode}`);
+    }
+  } catch (error) {
+    log.warn(`Failed to clean up topology network "${networkName}": ${error}`);
+  }
+}
+
 const IPV4_REGEX = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 
 interface ComposeServiceWithHosts {
