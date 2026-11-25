@@ -25,10 +25,12 @@ import {
 import * as cloudHypervisorManager from './manager';
 import { readHostExecutorInvocationDiagnostics } from '../enclave/host-executor-diagnostics';
 import {
+  PRIMARY_BOOT_STAGES,
   PRIMARY_READINESS_DIRECTORY,
   PRIMARY_READINESS_FILENAME,
   createPrimaryReadinessReporter,
 } from './primary-readiness';
+import * as primaryReadiness from './primary-readiness';
 import { preserveCleanupArtifacts } from '../artifact-preservation';
 import { CloudHypervisorRetryableReadinessError } from './preflight';
 
@@ -228,6 +230,96 @@ describe('unified Cloud Hypervisor primary boot and enclave lifecycle', () => {
     const file = path.join(directory, 'proxy-logs', PRIMARY_READINESS_DIRECTORY, PRIMARY_READINESS_FILENAME);
     return readPrimaryProgress(file);
   }
+
+  it('runs every boot stage in order and enforces isolation before creating a manager', async () => {
+    await startCloudHypervisorEnclaveLifecycle(options.config, provider, {});
+    let publish!: jest.SpyInstance;
+    let close!: jest.SpyInstance;
+    const createReporter = primaryReadiness.createPrimaryReadinessReporter;
+    jest.spyOn(primaryReadiness, 'createPrimaryReadinessReporter').mockImplementation((directory) => {
+      const reporter = createReporter(directory);
+      publish = jest.spyOn(reporter, 'publish');
+      close = jest.spyOn(reporter, 'close');
+      return reporter;
+    });
+    const infrastructure = {
+      ...createCloudHypervisorInfrastructureSnapshot(),
+      topologyPeerIps: { 'compiler-mcpg': '172.30.0.40' },
+    };
+    jest.mocked(infrastructure.revalidate).mockImplementation(async () => {
+      expect(primaryProgress()).toMatchObject({ stage: 'topology-revalidation', bootAttempt: 0 });
+      expect(fs.existsSync(path.join(directory, 'audit', 'sensitive-paths.json'))).toBe(true);
+      expect(dependencies.createManager).not.toHaveBeenCalled();
+    });
+    jest.mocked(dependencies.resolveInfrastructure).mockResolvedValue(infrastructure);
+
+    const boot = await runCloudHypervisorBootLoop(options);
+
+    expect(publish.mock.calls.map(([stage]) => stage)).toEqual(PRIMARY_BOOT_STAGES);
+    expect(publish.mock.calls.map(([, state, attempt]) => [state, attempt])).toEqual([
+      ...Array.from({ length: 5 }, () => ['starting', 0]),
+      ...Array.from({ length: 4 }, () => ['starting', 1]),
+      ['ready', 1],
+    ]);
+    expect(infrastructure.revalidate).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(boot).toMatchObject({ manager, identity: { uid: 1000, gid: 1000 }, diagnosticsCollected: false });
+  });
+
+  it.each(PRIMARY_BOOT_STAGES.filter((stage) => stage !== 'ready'))(
+    'retains the failing %s stage through cleanup', async (stage) => {
+      await startCloudHypervisorEnclaveLifecycle(options.config, provider, {});
+      const failure = new Error('PRIVATE_STAGE_FAILURE_SENTINEL');
+      options.agentExecutionStarted = () => true;
+      switch (stage) {
+        case 'preflight':
+          options.ensurePreflight = jest.fn().mockRejectedValue(failure);
+          break;
+        case 'compose-infrastructure':
+          jest.mocked(dependencies.startInfrastructure).mockRejectedValue(failure);
+          break;
+        case 'infrastructure-discovery':
+          jest.mocked(dependencies.resolveInfrastructure).mockRejectedValue(failure);
+          break;
+        case 'filesystem-write-policy':
+          jest.mocked(dependencies.resolveExports).mockRejectedValue(failure);
+          break;
+        case 'topology-revalidation':
+          jest.mocked(dependencies.resolveInfrastructure).mockResolvedValue({
+            ...createCloudHypervisorInfrastructureSnapshot(),
+            revalidate: jest.fn().mockRejectedValue(failure),
+          });
+          break;
+        case 'vmm-configuration':
+          manager.start.mockRejectedValue(failure);
+          break;
+        case 'guest-boot':
+          manager.startInstance.mockRejectedValue(failure);
+          break;
+        case 'guest-network-readiness':
+          manager.execute.mockRejectedValue(failure);
+          break;
+        case 'guest-connectivity':
+          manager.execute.mockResolvedValueOnce({
+            requestId: 'probe', exitCode: 0, signal: null, timedOut: false,
+          }).mockRejectedValueOnce(failure);
+          break;
+      }
+      const bootAttempt = PRIMARY_BOOT_STAGES.indexOf(stage)
+        < PRIMARY_BOOT_STAGES.indexOf('vmm-configuration') ? 0 : 1;
+      options.cleanupArtifactSnapshot = jest.fn(async () => {
+        expect(primaryProgress()).toMatchObject({ stage, state: 'failed', bootAttempt });
+        if (bootAttempt > 0) expect(manager.stop).toHaveBeenCalledTimes(1);
+        else expect(dependencies.createManager).not.toHaveBeenCalled();
+      });
+
+      await expect(runCloudHypervisorBootLoop(options)).rejects.toThrow(failure.message);
+
+      expect(options.cleanupArtifactSnapshot).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(primaryProgress())).not.toContain(failure.message);
+      expect(dependencies.sleep).not.toHaveBeenCalled();
+    },
+  );
 
   it('keeps readiness private across cleanup and relaunch with persistent proxy logs', () => {
     const proxyLogsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-persistent-proxy-logs-'));
