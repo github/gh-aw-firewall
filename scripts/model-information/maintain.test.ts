@@ -132,6 +132,7 @@ describe('offline scheduled source maintenance', () => {
   it('drops retired Copilot gaps, retains native survivors and discovers exact supported protocol records', () => {
     const seeded = JSON.parse(fs.readFileSync(path.join(cwd, tiers.file), 'utf8'));
     seeded.entries.push(undatedKimi, { ...undatedKimi, lookupId: 'native-survivor' });
+    seeded.entries.push({ ...undatedKimi, lookupId: 'native-retired' });
     write(cwd, tiers.file, json(seeded));
     const record = (provider: string, lookupId: string, status: string, protocol: string, state = 'supported') => ({
       identity: { provider, lookupId }, modelType: 'completion', lifecycle: { status }, provenance: { authority: 'maintained' },
@@ -140,6 +141,7 @@ describe('offline scheduled source maintenance', () => {
     write(cwd, 'shared/model-information/sources/decisions.json', json({ models: [
       record('openai', 'exact-native', 'active', 'responses'),
       record('openai', 'only-decisions', 'active', 'decisions'),
+      record('openai', 'native-retired', 'retired', 'responses'),
       record('openai', 'unconfirmed', 'active', 'responses', 'unknown'),
       record('openai', 'native-*', 'active', 'responses'),
       { ...record('openai', 'imported', 'active', 'responses'), provenance: { authority: 'imported' } },

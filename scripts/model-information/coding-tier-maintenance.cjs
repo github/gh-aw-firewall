@@ -19,10 +19,10 @@ const sameField = (a, b) => a.lookupId === b.lookupId && a.field === b.field && 
 function coverage(cwd, directory, text) {
   const read = name => JSON.parse(fs.readFileSync(path.join(cwd, name), 'utf8'));
   const entries = entriesById(read(file));
-  const ids = new Set(entries.keys());
+  const seed = new Set(entries.keys());
+  const ids = new Set();
   const copilot = new Set(entries.keys());
   const excluded = new Set();
-  const native = new Set();
   const retired = new Set();
   const sources = 'shared/model-information/sources';
   for (const name of fs.readdirSync(path.join(cwd, sources)).filter(name => name.endsWith('.json'))) {
@@ -31,16 +31,17 @@ function coverage(cwd, directory, text) {
       const inactive = ['removed', 'retired'].includes(model.lifecycle.status);
       if (inactive) retired.add(`${provider}/${id}`);
       if (provider === 'openai' || provider === 'anthropic') {
+        if (inactive) seed.delete(id);
         if (!inactive && exactId.test(id) && model.provenance.authority === 'maintained' &&
             model.protocols?.some(p => p.support.state === 'supported' && agentProtocols.has(p.protocol))) {
-          native.add(id);
+          ids.add(id);
         }
         continue;
       }
       if (provider !== 'copilot') continue;
       if (model.modelType !== 'completion' || inactive) {
         excluded.add(id);
-        ids.delete(id);
+        seed.delete(id);
         continue;
       }
       copilot.add(id);
@@ -63,11 +64,11 @@ function coverage(cwd, directory, text) {
     for (const model of providers[provider].models) {
       if (!model.endpoints.some(endpoint => agentProtocols.has(endpoint))) continue;
       for (const id of [...model.patterns, ...(model.routingPatterns || [])]) {
-        if (exactId.test(id) && !retired.has(`${provider}/${lookup(id)}`)) native.add(lookup(id));
+        if (exactId.test(id) && !retired.has(`${provider}/${lookup(id)}`)) ids.add(lookup(id));
       }
     }
   }
-  for (const lookupId of [...new Set([...ids, ...native])].sort()) {
+  for (const lookupId of [...new Set([...seed, ...ids])].sort()) {
     const missing = fields.filter(field => !entries.get(lookupId)?.[field]);
     if (missing.length) gaps.push({ lookupId, missing });
   }

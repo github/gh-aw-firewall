@@ -36,12 +36,17 @@ describe('maintained model compilation', () => {
       tiers.entries = [{ lookupId: 'selected-only', codingTier: 'standard',
         evidence: [{ url: 'https://example.invalid/model', quote: 'A reviewed model tier in the selected workspace.' }] }];
       fs.writeFileSync(tierSource, JSON.stringify(tiers));
+      const olderContract = path.join(cwd, 'src/model-information-contract/pricing-resolution.js');
+      fs.mkdirSync(path.dirname(olderContract), { recursive: true });
+      fs.writeFileSync(olderContract, '// contract from the pending branch\n');
       const wrapper = path.join(__dirname, 'maintenance-command.cjs');
       for (const command of ['generate', 'check']) {
         execFileSync(process.execPath, [wrapper, command], { cwd: root, env: { ...process.env, GITHUB_WORKSPACE: cwd } });
       }
       const file = 'containers/api-proxy/model-information.coding-tiers.generated.json';
       expect(JSON.parse(fs.readFileSync(path.join(cwd, file), 'utf8'))).toEqual({ 'selected-only': { tier: 'standard' } });
+      expect(fs.readFileSync(olderContract, 'utf8')).toBe('// contract from the pending branch\n');
+      expect(fs.existsSync(path.join(cwd, 'containers/api-proxy/catalogue-contract'))).toBe(false);
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true });
     }

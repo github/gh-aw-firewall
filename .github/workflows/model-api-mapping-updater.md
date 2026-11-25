@@ -174,9 +174,7 @@ jobs:
           npm --prefix containers/api-proxy test -- --runInBand models-dev-catalog.test.js ai-credits-pricing-reference.test.js catalogue-pricing.test.js guards/ai-credits-tariff.test.js guards/ai-credits-notices.test.js guards/ai-credits-promotions.test.js guards/ai-credits-pricing-fallback.test.js model-api-mapping.test.js runtime-model-catalog.test.js routing-catalogue.test.js wire-api-compat.test.js server.decisions.test.js
 steps:
   - name: Install pinned model validation dependencies
-    run: |
-      npm ci --ignore-scripts
-      npm --prefix containers/api-proxy ci --ignore-scripts
+    run: npm ci --ignore-scripts
   - name: Check out the selected maintenance PR
     env:
       SELECTED_PR_NUMBER: ${{ needs.select_maintenance_pr.outputs.number }}
@@ -381,8 +379,7 @@ Grok corrections. Prices do not establish host-side or Copilot CLI eligibility.
 ## Propose and regenerate
 
 Use `/tmp/gh-aw/model-maintenance-command.cjs` with exactly one of
-`refresh-import`, `refresh-copilot-pricing`, `report`, `verify`, `generate`, `check`,
-`test` or `test-api-proxy`.
+`refresh-import`, `refresh-copilot-pricing`, `report`, `verify`, `generate` or `check`.
 This fixed-command entrypoint is preapproved for unattended execution; full
 `node ...` and `npm ...` invocation allow rules do not match Copilot's command
 names. Do not invoke interpreters/package runners directly, add arguments, or
@@ -431,13 +428,14 @@ Before invoking any PR safe output run, in order:
 ```bash
 /tmp/gh-aw/model-maintenance-command.cjs generate
 /tmp/gh-aw/model-maintenance-command.cjs report
-/tmp/gh-aw/model-maintenance-command.cjs test
-/tmp/gh-aw/model-maintenance-command.cjs test-api-proxy
 /tmp/gh-aw/model-maintenance-command.cjs check
 /tmp/gh-aw/model-maintenance-command.cjs verify
 ```
 
-Generation owns **every** projection including both API mapping copies and the
+The independent validation job runs the offline model and API proxy tests and
+the full projection check against the proposed data before any PR write. It
+uses the current tests and contracts, not those from a pending branch.
+Generation owns **every data projection allowed in a maintenance PR**, including both API mapping copies and the
 governed normalized import. Never author projections independently or omit an
 affected generated file. `maintenance-report.json` contains exact before/after
 field changes, source evidence and explicit human-review gates. Backend-scoped

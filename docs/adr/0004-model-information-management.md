@@ -292,7 +292,9 @@ as long as it is pending, even if a later run also updates unrelated prices.
 Retirement on Copilot stops reminders for that route without deleting its
 historical facts. An exact Responses or Messages route on another provider can
 still keep the same model in scope. When updating an open PR, the workflow
-generates and checks projections from that PR's data with the current compiler.
+generates only the permitted data files using the current compiler. The required
+tests and full projection check run against that data on the trusted checkout;
+the workflow neither runs stale tests nor copies new code into the pending PR.
 
 ### Harness version constraints
 

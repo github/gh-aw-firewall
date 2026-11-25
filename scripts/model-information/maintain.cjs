@@ -825,8 +825,8 @@ async function main() {
     const report = buildReport(cwd, directory);
     if (report && json(read(path.join(cwd, reportFile))) !== json(report)) throw new Error('Missing or stale maintenance impact report');
     execFileSync(process.execPath, [
-      path.join(root, 'scripts/model-information/compile.cjs'), '--check', `--root=${cwd}`,
-    ], { cwd: root, stdio: 'inherit' });
+      path.join(root, 'scripts/model-information/compile.cjs'), '--maintenance-workspace', '--check',
+    ], { cwd, stdio: 'inherit' });
   } else if (command === 'select-pr') {
     console.log(json(selectPullRequest(read(directory))));
   } else {

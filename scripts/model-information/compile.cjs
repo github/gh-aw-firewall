@@ -17,8 +17,10 @@ if (rootArgument && !process.argv.includes('--check')) {
   throw new Error('--root is only available in check mode');
 }
 const toolRoot = path.resolve(__dirname, '../..');
+const maintenanceProjections = process.argv.includes('--maintenance-workspace')
+  ? new Set(require('./maintain.cjs').projections) : null;
 const root = rootArgument ? path.resolve(rootArgument.slice('--root='.length))
-  : process.argv.includes('--maintenance-workspace') ? process.cwd() : toolRoot;
+  : maintenanceProjections ? process.cwd() : toolRoot;
 const legacyPricing = require('../../containers/api-proxy/ai-credits-pricing.js');
 const sourceArgument = process.argv.find(arg => arg.startsWith('--source-dir='));
 if (sourceArgument && !process.argv.includes('--check')) {
@@ -672,6 +674,7 @@ function compile() {
   }
   if (errors.length) throw new Error(errors.join('\n'));
   for (const [file, content] of Object.entries(output)) {
+    if (maintenanceProjections && !maintenanceProjections.has(file)) continue;
     const filename = path.join(root, file);
     if (process.argv.includes('--check')) {
       if (!fs.existsSync(filename) || fs.readFileSync(filename, 'utf8') !== content) {

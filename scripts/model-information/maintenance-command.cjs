@@ -14,15 +14,6 @@ const commands = {
   verify: [process.execPath, maintain, 'verify'],
   generate: [process.execPath, compile, '--maintenance-workspace'],
   check: [process.execPath, compile, '--maintenance-workspace', '--check'],
-  test: ['npm', 'test', '--', '--runInBand', 'scripts/model-information/',
-    'scripts/ci/model-api-mapping-updater-workflow.test.ts',
-    'src/copilot-model-catalog-sync.test.ts', 'src/model-information-contract.test.ts'],
-  'test-api-proxy': ['npm', '--prefix', 'containers/api-proxy', 'test', '--',
-    '--runInBand', 'models-dev-catalog.test.js', 'ai-credits-pricing-reference.test.js',
-    'catalogue-pricing.test.js', 'guards/ai-credits-tariff.test.js', 'guards/ai-credits-notices.test.js',
-    'guards/ai-credits-promotions.test.js', 'guards/ai-credits-pricing-fallback.test.js',
-    'model-api-mapping.test.js', 'runtime-model-catalog.test.js', 'routing-catalogue.test.js',
-    'wire-api-compat.test.js', 'server.decisions.test.js'],
 };
 
 function runMaintenanceCommand(args, spawn = spawnSync) {

@@ -207,9 +207,10 @@ describe('scheduled canonical model source maintenance', () => {
     expect(source).toContain('do not chain or pipe publishing');
     const entrypoint = path.resolve(__dirname, '../model-information/maintenance-command.cjs');
     expect(fs.statSync(entrypoint).mode & 0o111).not.toBe(0);
-    for (const command of ['refresh-copilot-pricing', 'generate', 'report', 'test', 'test-api-proxy', 'check', 'verify']) {
+    for (const command of ['refresh-copilot-pricing', 'generate', 'report', 'check', 'verify']) {
       expect(source).toContain(`/tmp/gh-aw/model-maintenance-command.cjs ${command}`);
     }
+    expect(source).not.toContain('/tmp/gh-aw/model-maintenance-command.cjs test');
     expect(source).toContain('exactly one of');
     expect(source).toContain('not inline scripts or unlisted helpers');
   });
