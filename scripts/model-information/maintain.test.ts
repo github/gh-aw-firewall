@@ -138,21 +138,6 @@ describe('offline scheduled source maintenance', () => {
       identity: { provider, lookupId }, modelType: 'completion', lifecycle: { status }, provenance: { authority: 'maintained' },
       protocols: [{ protocol, support: { state } }],
     });
-
-    it('does not promote a pricing-only, picker-hidden or CLI-unsupported model from the Copilot table', () => {
-      const ids = ['gpt-6-1-sol', 'gpt-6-1-terra', 'gemini-4-argon'];
-      const source = JSON.parse(fs.readFileSync(path.join(cwd, tiers.file), 'utf8'));
-      source.entries = source.entries.filter((item: { lookupId: string }) => item.lookupId !== ids[0]);
-      for (const item of source.entries) if (ids.includes(item.lookupId)) delete item.releaseDate;
-      write(cwd, tiers.file, json(source));
-      const scope = { provider: 'copilot', channel: 'copilot-cli' };
-      write(cwd, copilotFiles[0], json({ models: ids.map((lookupId, i) => ({
-        identity: { provider: 'copilot', lookupId }, modelType: 'completion', lifecycle: { status: 'active' },
-        availability: i === 0 ? [] : [{ scope, fact: { state: i === 1 ? 'supported' : 'unsupported' },
-          ...(i === 1 ? { picker: { state: 'unsupported' } } : {}) }],
-      })) }));
-      expect(tiers.coverage(cwd, evidence, documentText)).toEqual([]);
-    });
     write(cwd, 'shared/model-information/sources/decisions.json', json({ models: [
       record('openai', 'exact-native', 'active', 'responses'),
       record('openai', 'only-decisions', 'active', 'decisions'),
@@ -168,6 +153,21 @@ describe('offline scheduled source maintenance', () => {
       { lookupId: 'exact-native', missing: ['codingTier', 'releaseDate'] },
       { lookupId: 'native-survivor', missing: ['releaseDate'] },
     ]);
+  });
+
+  it('does not promote a pricing-only, picker-hidden or CLI-unsupported model from the Copilot table', () => {
+    const ids = ['gpt-6-1-sol', 'gpt-6-1-terra', 'gemini-4-argon'];
+    const source = JSON.parse(fs.readFileSync(path.join(cwd, tiers.file), 'utf8'));
+    source.entries = source.entries.filter((item: { lookupId: string }) => item.lookupId !== ids[0]);
+    for (const item of source.entries) if (ids.includes(item.lookupId)) delete item.releaseDate;
+    write(cwd, tiers.file, json(source));
+    const scope = { provider: 'copilot', channel: 'copilot-cli' };
+    write(cwd, copilotFiles[0], json({ models: ids.map((lookupId, i) => ({
+      identity: { provider: 'copilot', lookupId }, modelType: 'completion', lifecycle: { status: 'active' },
+      availability: i === 0 ? [] : [{ scope, fact: { state: i === 1 ? 'supported' : 'unsupported' },
+        ...(i === 1 ? { picker: { state: 'unsupported' } } : {}) }],
+    })) }));
+    expect(tiers.coverage(cwd, evidence, documentText)).toEqual([]);
   });
 
   it('validates a field-specific receipt and preserves old citations when filling only an unknown date', async () => {
