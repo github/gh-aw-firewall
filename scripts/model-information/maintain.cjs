@@ -7,6 +7,7 @@ const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const approvedSources = require('./maintenance-sources.json');
 const copilotPricing = require('./copilot-pricing.cjs');
+const codingTiers = require('./coding-tier-maintenance.cjs');
 
 const root = path.resolve(__dirname, '../..');
 const reportFile = 'shared/model-information/maintenance-report.json';
@@ -67,6 +68,7 @@ const projections = [
   'src/model-information.naming.generated.json',
   'src/model-information.compat.generated.json',
   'containers/api-proxy/model-information.naming.generated.json',
+  'containers/api-proxy/model-information.coding-tiers.generated.json',
   'containers/api-proxy/model-information.pricing.generated.json',
   'containers/api-proxy/model-information.fallback-pricing.generated.json',
   'containers/api-proxy/model-information.retired.generated.json',
@@ -120,8 +122,8 @@ function facts(value, field) {
 
 function differences(before, after, pointer = '') {
   if (JSON.stringify(before) === JSON.stringify(after)) return [];
-  if (Array.isArray(before) && Array.isArray(after) && /\/(data|models)$/.test(pointer)) {
-    const key = item => item?.identity?.key || item?.id;
+  if (Array.isArray(before) && Array.isArray(after) && /\/(data|models|entries)$/.test(pointer)) {
+    const key = item => pointer.endsWith('/entries') ? item?.lookupId : item?.identity?.key || item?.id;
     if ([...before, ...after].every(item => typeof key(item) === 'string') &&
         new Set(before.map(key)).size === before.length && new Set(after.map(key)).size === after.length) {
       const left = new Map(before.map(item => [key(item), item]));
@@ -634,6 +636,7 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
   const claimsPath = path.join(directory, 'proposal.json');
   const claims = fs.existsSync(claimsPath) ? read(claimsPath).changes : [];
   let verifiedCopilotPlan;
+  let tierEdits = [];
   const changes = [];
   for (const file of changed.filter(file => canonical(file) && !ignoredRestored.has(file))) {
     // Canonical inputs must already exist: adding a new source format needs a separate review.
@@ -676,6 +679,9 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
         if (!capture || typeof evidence.quote !== 'string' || evidence.quote.trim().length < 20 ||
             !fs.readFileSync(path.join(directory, `${capture.id}.txt`), 'utf8').includes(evidence.quote)) {
           throw new Error(`${file}: unsupported evidence quote from ${evidence.source}`);
+        }
+        if (file === codingTiers.file) {
+          tierEdits = codingTiers.verifyChanges(before, after, claim.evidence, captures);
         }
       }
       if (claim.generator === 'copilot-pricing-v1') {
@@ -739,11 +745,20 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
               afterBytes ? JSON.parse(afterBytes) : null),
         };
       });
+  let pendingCodingTierFacts = [];
+  if (tierEdits.length || pendingSourceChanges?.some(change => change.file === codingTiers.file)) {
+    const original = JSON.parse(git(cwd, 'show', `${mergeBase}:${codingTiers.file}`));
+    const previous = mergeBase !== base && hasGitObject(cwd, `${base}:${reportFile}`)
+      ? JSON.parse(git(cwd, 'show', `${base}:${reportFile}`)).pendingCodingTierFacts || [] : [];
+    pendingCodingTierFacts = codingTiers.pendingChanges(original, read(path.join(cwd, codingTiers.file)), tierEdits, previous);
+  }
   return {
     schemaVersion: 1, status: 'proposed-awaiting-human-review', baseRevision: git(cwd, 'rev-parse', base).trim(),
     reviewBaseRevision: git(cwd, 'rev-parse', reviewBase).trim(),
     ...(pendingSourceChanges ? { pendingSourceChangesBaseRevision: mergeBase } : {}),
     ...(pendingSourceChanges ? { pendingSourceChanges } : {}),
+    codingTierGaps: codingTiers.coverage(cwd, directory, documentText),
+    ...(pendingCodingTierFacts.length ? { pendingCodingTierFacts } : {}),
     runtimeConsumerEffects: runtimeConsumerEffects(cwd, base),
     backendScopedFallbackEffects: backendScopedFallbackConsumerEffects(cwd, base),
     importedMedianEstimateEffects: importImpactEffects(cwd, base, importedMedianEffects),
@@ -802,6 +817,7 @@ async function main() {
   } else if (command === 'report') {
     const report = buildReport(root, directory);
     if (report) fs.writeFileSync(path.join(root, reportFile), json(report));
+    console.log(json({ codingTierGaps: report?.codingTierGaps ?? codingTiers.coverage(root, directory, documentText) }));
     console.log(report ? `Review required: ${reportFile}` : 'No material source changes');
   } else if (command === 'verify' || command === 'verify-committed') {
     const cwd = path.resolve(targetRoot);

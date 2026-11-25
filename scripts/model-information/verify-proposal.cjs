@@ -5,7 +5,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { allowed, buildReport, loadCaptures, json } = require('./maintain.cjs');
+const { allowed, buildReport, loadCaptures, json, documentText } = require('./maintain.cjs');
+const codingTiers = require('./coding-tier-maintenance.cjs');
 
 const reportFile = 'shared/model-information/maintenance-report.json';
 const maxBytes = 16 * 1024 * 1024;
@@ -85,7 +86,12 @@ function verifyProposal(cwd, artifact, evidence, options) {
     if (Boolean(expected) !== Boolean(writes.length) || (expected && json(expected) !== json(report))) {
       throw new Error('Missing or stale maintenance impact report for the published bundle');
     }
-    if (!expected) return { head, changed: false };
+    const codingTierGaps = expected?.codingTierGaps ?? codingTiers.coverage(candidate, evidence, documentText);
+    if (codingTierGaps.length && (output.items.some(item => item.type === 'noop') ||
+        !output.items.some(item => item.type === 'report_incomplete' && typeof item.reason === 'string' && item.reason.trim()))) {
+      throw new Error(`Report incomplete coding tier coverage: ${JSON.stringify(codingTierGaps)}`);
+    }
+    if (!expected) return { head, changed: false, codingTierGaps };
     // Overlay only verified JSON data; scripts, tests, schemas and npm/Jest configuration stay trusted.
     const names = new Set(data.map(entry => entry.file));
     for (const entry of filesAt(cwd, 'HEAD').filter(entry => allowed(entry.file) && !names.has(entry.file))) {

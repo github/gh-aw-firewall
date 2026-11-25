@@ -240,6 +240,7 @@ safe-outputs:
       - containers/api-proxy/ai-credits-pricing-reference.json
       - containers/api-proxy/model-information.pricing.generated.json
       - containers/api-proxy/model-information.naming.generated.json
+      - containers/api-proxy/model-information.coding-tiers.generated.json
       - containers/api-proxy/model-information.fallback-pricing.generated.json
       - containers/api-proxy/model-information.retired.generated.json
       - docs/model-api-mapping.json
@@ -253,7 +254,7 @@ safe-outputs:
     github-token-for-extra-empty-commit: none
     max-patch-size: 10240
     patch-format: bundle
-    allowed-files: ["shared/model-information/sources/*.json", "shared/model-information/imported/legacy-models-dev.metadata.json", "shared/model-information/imported/legacy-models-dev.snapshot.v1.json", "shared/model-information/*.generated.json", "shared/model-information/maintenance-report.json", "containers/api-proxy/models.dev.catalog.json", "containers/api-proxy/model-api-mapping.json", "containers/api-proxy/ai-credits-pricing-reference.json", "containers/api-proxy/model-information.pricing.generated.json", "containers/api-proxy/model-information.naming.generated.json", "containers/api-proxy/model-information.fallback-pricing.generated.json", "containers/api-proxy/model-information.retired.generated.json", "docs/model-api-mapping.json", "src/model-information.compat.generated.json", "src/model-information.naming.generated.json"]
+    allowed-files: *model-files
   report-failed-jobs: false
   report-failure-as-issue: false
   report-incomplete:
@@ -299,6 +300,30 @@ do not prove retirement. An announcement is not retirement before its effective
 date. Marketing prose/family names do not verify capabilities, effort sets or
 compatibility. Preserve unknown states, scope and authority. Never invent prices,
 model licenses, source timestamps, deployment mappings or harness floors.
+
+Maintain `shared/model-information/sources/coding-tiers.json` using ADR 0004,
+“Coding tier and release date”. Run the existing `report` command before editing:
+`codingTierGaps` lists missing facts for reviewed IDs and supported Copilot names
+without a confirmed ID. Also check the approved Copilot, OpenAI and Anthropic
+captures for newly documented exact agent-capable IDs. Do not invent a wire ID
+from a display name, wildcard or OpenRouter listing. Decisions-only, hidden and
+embedding models need no label. These facts order eligible models, not eligibility.
+
+Propose a missing tier or first official announcement date independently. Use
+vendor line positioning or `copilot-model-comparison` for tiers, never benchmark
+scores or prices. Preview announcements count; a capture date or later rollout
+is not a launch date. Preserve existing facts and their citations. Change a tier
+only for a documented repositioning, covering the entire affected product line
+and calling it out for review. In the tier file's proposal receipt, give each
+changed fact an `evidence` item with its `lookupId`, `field` (`codingTier` or
+`releaseDate`), `after` value, captured `source` ID, `url` and verbatim `quote`.
+The URL and quote must also appear in that model's entry. The human reviewer
+judges whether the passage supports this model, field and value.
+
+For unresolved IDs or facts, emit `report_incomplete` naming what remains and
+why, even if there are other valid changes to publish. With only unresolved
+gaps, do not open or update a PR or emit `noop`. For example, retain Kimi K3's
+reviewed tier when its first announcement cannot be dated.
 
 Check `openai-decisions`, `openai-decisions-sdk`, `copilot-decisions` and
 `copilot-decisions-auth` for new supported **exact** model IDs, endpoint/protocol

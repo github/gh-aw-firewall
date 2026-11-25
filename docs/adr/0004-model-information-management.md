@@ -283,6 +283,13 @@ For cases the table does not settle:
 - Models that can never enter an automatic pool, such as Decisions-only,
   embedding or picker-hidden models, need no entry.
 
+The twice-daily Model source maintenance workflow proposes missing facts in its
+existing reviewed PR. Each changed field cites a specific passage from an
+approved capture; adding a release date must preserve the original tier evidence.
+An unresolved fact appears in the run's incomplete report without a data-only
+PR for the gap. A change to an existing tier is flagged for human review for
+as long as it is pending, even if a later run also updates unrelated prices.
+
 ### Harness version constraints
 
 Model records can declare channel-specific harness requirements:

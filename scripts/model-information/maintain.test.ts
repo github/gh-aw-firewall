@@ -23,6 +23,8 @@ const rawFile = 'containers/api-proxy/models.dev.catalog.json';
 const metadataFile = 'shared/model-information/imported/legacy-models-dev.metadata.json';
 const snapshotFile = 'shared/model-information/imported/legacy-models-dev.snapshot.v1.json';
 const targetFile = 'shared/model-information/sources/target.json';
+const tiers = require('./coding-tier-maintenance.cjs');
+const seedTiers = JSON.parse(fs.readFileSync(path.join(root, tiers.file), 'utf8'));
 const quote = 'Exact model fixture supports low and high effort with a context limit of 128000 tokens.';
 const priced = (id = 'openai/fixture', prompt = '0.000001') => ({
   id, pricing: { prompt, completion: '0.000002' },
@@ -69,6 +71,13 @@ describe('offline scheduled source maintenance', () => {
     write(cwd, metadataFile, json(metadata));
     write(cwd, snapshotFile, json(snapshot));
     write(cwd, targetFile, json({ provenance: { confidence: 'verified', at: '2026-10-01T00:00:00Z' }, routing: [{ id: 'fixture', efforts: ['low'], context: 64000 }] }));
+    for (const file of copilotFiles) write(cwd, file, json({ models: [] }));
+    write(cwd, 'shared/model-information/sources/mapping.json', json({
+      mapping: { providers: { openai: { models: [] }, anthropic: { models: [] } } },
+    }));
+    write(cwd, tiers.file, json({ ...seedTiers, entries: seedTiers.entries.filter(
+      (entry: { lookupId: string }) => ['gpt-6-1-sol', 'gpt-6-1-terra', 'gemini-3-8-flash',
+        'gemini-4-argon', 'mai-code-1-1-flash'].includes(entry.lookupId)) }));
     git(cwd, 'init', '--quiet');
     git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'add', '.');
     git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'fixture');
@@ -93,6 +102,96 @@ describe('offline scheduled source maintenance', () => {
       evidence: [{ source: 'openai-models', quote }],
     }] }));
   };
+
+  const commitBaseline = () => {
+    git(cwd, 'add', '.');
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'tier fixtures');
+    for (const name of ['base-revision', 'review-base-revision']) {
+      fs.writeFileSync(path.join(evidence, name), git(cwd, 'rev-parse', 'HEAD'));
+    }
+  };
+
+  it('discovers exact native and supported Copilot IDs outside the seed, not wildcard or Decisions-only choices', () => {
+    write(cwd, 'shared/model-information/sources/mapping.json', json({ mapping: { providers: {
+      openai: { models: [
+        { patterns: ['fixture-*'], routingPatterns: ['fixture-1.0'], endpoints: ['responses'] },
+        { patterns: ['fixture-decisions'], endpoints: ['decisions'] },
+      ] }, anthropic: { models: [] },
+    } } }));
+    write(cwd, copilotFiles[0], json({ models: [{ identity: { lookupId: 'new-copilot' }, modelType: 'completion',
+      lifecycle: { status: 'active' }, availability: [{ scope: { provider: 'copilot', channel: 'copilot-cli' },
+        fact: { state: 'supported' } }] }] }));
+    expect(tiers.coverage(cwd, evidence, documentText)).toEqual([
+      { lookupId: 'fixture-1-0', missing: ['codingTier', 'releaseDate'] },
+      { lookupId: 'new-copilot', missing: ['codingTier', 'releaseDate'] },
+    ]);
+  });
+
+  it('validates a field-specific receipt and preserves old citations when filling only an unknown date', async () => {
+    const kimi = seedTiers.entries.find((entry: { lookupId: string }) => entry.lookupId === 'kimi-k3');
+    const current = JSON.parse(fs.readFileSync(path.join(cwd, tiers.file), 'utf8'));
+    current.entries.push(kimi);
+    current.entries.sort((a: { lookupId: string }, b: { lookupId: string }) => a.lookupId.localeCompare(b.lookupId));
+    write(cwd, tiers.file, json(current));
+    commitBaseline();
+    const source = 'copilot-changelog';
+    const url = sources.find((item: { id: string }) => item.id === source).urls[0];
+    const passage = 'Offline fixture: the first official announcement of Kimi K3 was published on November 1, 2026.';
+    await captureSources(evidence, async (address: string) => address === url
+      ? new Response(`<html><body>${passage}</body></html>`) : fakeFetch()(address));
+    const before = fs.readFileSync(path.join(cwd, tiers.file));
+    const after = JSON.parse(before.toString());
+    const entry = after.entries.find((item: { lookupId: string }) => item.lookupId === 'kimi-k3');
+    const citation = { url, quote: passage };
+    entry.releaseDate = '2026-11-01';
+    entry.evidence.push(citation);
+    const receipt = { ...citation, source, lookupId: 'kimi-k3', field: 'releaseDate', after: entry.releaseDate };
+    const install = (r: typeof receipt) => {
+      write(cwd, tiers.file, json(after));
+      write(evidence, 'proposal.json', json({ changes: [{ file: tiers.file, scope: 'kimi-k3',
+        summary: 'Add first announcement date', beforeSha256: hash(before), afterSha256: hash(json(after)), evidence: [r] }] }));
+    };
+    install({ ...receipt, field: 'codingTier' });
+    expect(() => buildReport(cwd, evidence)).toThrow('bind a changed model field');
+    install({ ...receipt, url: 'https://example.invalid/unfetched' });
+    expect(() => buildReport(cwd, evidence)).toThrow('without a field receipt');
+    install(receipt);
+    const report = buildReport(cwd, evidence);
+    expect(report.pendingCodingTierFacts).toEqual([{ lookupId: 'kimi-k3', field: 'releaseDate', before: null,
+      after: '2026-11-01', evidence: [{ ...citation, source, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }] }]);
+    expect(report.codingTierGaps).toEqual([]);
+    entry.evidence = [citation];
+    install(receipt);
+    expect(() => buildReport(cwd, evidence)).toThrow('preserve previously reviewed');
+  });
+
+  it('preserves an outstanding tier review and its original receipt across unrelated PR updates', () => {
+    const current = JSON.parse(fs.readFileSync(path.join(cwd, tiers.file), 'utf8'));
+    const entry = current.entries[0];
+    const prior = entry.codingTier;
+    const source = 'copilot-model-comparison';
+    const url = sources.find((item: { id: string }) => item.id === source).urls[0];
+    const before = fs.readFileSync(path.join(cwd, tiers.file));
+    entry.codingTier = 'standard';
+    expect(prior).not.toBe(entry.codingTier);
+    entry.evidence.push({ url, quote });
+    write(cwd, tiers.file, json(current));
+    write(evidence, 'proposal.json', json({ changes: [{ file: tiers.file, scope: entry.lookupId,
+      summary: 'Official line repositioning', beforeSha256: hash(before), afterSha256: hash(json(current)),
+      evidence: [{ url, quote, source, lookupId: entry.lookupId, field: 'codingTier', after: 'standard' }] }] }));
+    const report = buildReport(cwd, evidence);
+    expect(report.pendingCodingTierFacts[0]).toMatchObject({ before: prior, after: 'standard',
+      reviewRequired: 'coding-tier-reclassification' });
+    write(cwd, 'shared/model-information/maintenance-report.json', json(report));
+    git(cwd, 'add', '.');
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'tier edit');
+    write(evidence, 'base-revision', git(cwd, 'rev-parse', 'HEAD'));
+    const data = JSON.parse(fs.readFileSync(path.join(cwd, targetFile), 'utf8'));
+    data.routing[0].context = 128000;
+    write(cwd, targetFile, json(data));
+    propose(cwd, evidence);
+    expect(buildReport(cwd, evidence).pendingCodingTierFacts).toEqual(report.pendingCodingTierFacts);
+  });
 
   it('reports failed or missing Decisions evidence as incomplete without changing existing facts', async () => {
     const before = fs.readFileSync(path.join(cwd, targetFile));
@@ -1248,10 +1347,12 @@ describe('offline scheduled source maintenance', () => {
   });
 
   it('selects the trusted PR without loading import tooling or requiring installed dependencies', () => {
-    for (const file of ['maintain.cjs', 'copilot-pricing.cjs', 'maintenance-sources.json']) {
+    for (const file of ['maintain.cjs', 'copilot-pricing.cjs', 'coding-tier-maintenance.cjs', 'maintenance-sources.json']) {
       write(cwd, `scripts/model-information/${file}`,
         fs.readFileSync(path.join(root, 'scripts/model-information', file)));
     }
+    const identityFile = 'containers/api-proxy/catalogue-contract/identity.js';
+    write(cwd, identityFile, fs.readFileSync(path.join(root, identityFile)));
     const pulls = path.join(evidence, 'pulls.json');
     const selected = {
       number: 42, title: 'chore: refresh canonical model sources',
@@ -1306,6 +1407,29 @@ describe('offline scheduled source maintenance', () => {
       git(cwd, 'checkout', '--quiet', '--detach', options().baseRevision);
     };
 
+    it.each([0, 42])('validates a tier source and bundled projection on the selected PR path (%i)', selectedNumber => {
+      const current = JSON.parse(fs.readFileSync(path.join(cwd, tiers.file), 'utf8'));
+      const before = fs.readFileSync(path.join(cwd, tiers.file));
+      const source = 'copilot-model-comparison';
+      const url = sources.find((item: { id: string }) => item.id === source).urls[0];
+      const entry = current.entries[0];
+      entry.codingTier = 'standard';
+      entry.evidence.push({ url, quote });
+      write(cwd, tiers.file, json(current));
+      const projection = 'containers/api-proxy/model-information.coding-tiers.generated.json';
+      const map = Object.fromEntries(current.entries.map((e: { lookupId: string; codingTier: string; releaseDate: string }) =>
+        [e.lookupId, { tier: e.codingTier, releaseDate: e.releaseDate }]));
+      write(cwd, projection, json(map));
+      write(evidence, 'proposal.json', json({ changes: [{ file: tiers.file, scope: entry.lookupId,
+        summary: 'Updated product line positioning', beforeSha256: hash(before), afterSha256: hash(json(current)),
+        evidence: [{ lookupId: entry.lookupId, field: 'codingTier', after: 'standard', source, url, quote }] }] }));
+      write(cwd, 'shared/model-information/maintenance-report.json', json(buildReport(cwd, evidence)));
+      bundle();
+      if (selectedNumber) output('push_to_pull_request_branch');
+      expect(verifyProposal(cwd, artifact(), evidence, { ...options(), selectedNumber }).changed).toBe(true);
+      expect(JSON.parse(fs.readFileSync(path.join(cwd, projection), 'utf8'))).toEqual(map);
+    });
+
     it('validates the exact bundle, reconstructs receipts from its report and overlays only JSON data', () => {
       prepare();
       bundle();
@@ -1324,6 +1448,20 @@ describe('offline scheduled source maintenance', () => {
       const before = fs.readFileSync(path.join(cwd, targetFile));
       expect(verifyProposal(cwd, artifact(), evidence, options()).changed).toBe(false);
       expect(fs.readFileSync(path.join(cwd, targetFile))).toEqual(before);
+      expect(git(cwd, 'status', '--porcelain')).toBe('');
+    });
+
+    it('reports an undated model on a no-write run and rejects a clean no-op for that same baseline', () => {
+      const current = JSON.parse(fs.readFileSync(path.join(cwd, tiers.file), 'utf8'));
+      current.entries.push(seedTiers.entries.find((entry: { lookupId: string }) => entry.lookupId === 'kimi-k3'));
+      write(cwd, tiers.file, json(current));
+      commitBaseline();
+      output('noop');
+      expect(() => verifyProposal(cwd, artifact(), evidence, options())).toThrow('kimi-k3');
+      write(artifact(), 'agent_output.json', json({ items: [{ type: 'report_incomplete',
+        reason: 'No verified first-announcement date for kimi-k3' }] }));
+      expect(verifyProposal(cwd, artifact(), evidence, options())).toMatchObject({ changed: false,
+        codingTierGaps: [{ lookupId: 'kimi-k3', missing: ['releaseDate'] }] });
       expect(git(cwd, 'status', '--porcelain')).toBe('');
     });
 

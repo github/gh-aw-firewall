@@ -196,14 +196,21 @@ function semanticTariff(tariff) {
   };
 }
 
+const modelColumn = table => table.headers.includes('Model name') ? 'Model name' : 'Model';
+function supportedModelTables(modelsBytes, text) {
+  return tables(modelsBytes, text).filter(table =>
+    table.headers.includes(modelColumn(table)) && table.headers.includes('Release status'));
+}
+function supportedModelNames(supported, gaOnly = false) {
+  return new Set(supported.flatMap(table => table.rows
+    .filter(row => !gaOnly || row.cells[table.headers.indexOf('Release status')] === 'GA')
+    .map(row => row.cells[table.headers.indexOf(modelColumn(table))])));
+}
+
 function planCopilotPricing(documents, pricingCapture, modelsCapture, pricingBytes, modelsBytes, text) {
   const extracted = extractPricingTables(pricingBytes, text);
-  const modelColumn = table => table.headers.includes('Model name') ? 'Model name' : 'Model';
-  const supported = tables(modelsBytes, text).filter(table =>
-    table.headers.includes(modelColumn(table)) && table.headers.includes('Release status'));
-  const supportedNames = new Set(supported.flatMap(table => table.rows
-    .filter(row => row.cells[table.headers.indexOf('Release status')] === 'GA')
-    .map(row => row.cells[table.headers.indexOf(modelColumn(table))])));
+  const supported = supportedModelTables(modelsBytes, text);
+  const supportedNames = supportedModelNames(supported, true);
   if (!supportedNames.size) throw new Error('Copilot GA model coverage missing; prior facts retained');
   const updates = new Map();
   const diagnostics = [];
@@ -430,4 +437,5 @@ function planCopilotPricing(documents, pricingCapture, modelsCapture, pricingByt
 
 module.exports = {
   sourceFiles, targetFile, copilotTariff, extractPricingTables, planCopilotPricing, semanticTariff,
+  supportedModelTables, supportedModelNames,
 };
