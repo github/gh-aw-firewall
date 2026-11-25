@@ -59,6 +59,7 @@ describe('integration suite workflow', () => {
       'Domain Tests', 'Network Tests', 'Protocol & Security Tests',
       'Container & Ops Tests', 'API Proxy Tests',
     ]);
+    expect(workflow.jobs['build-images'].name).toBe('Build integration images');
     expect(workflow.jobs['build-images'].needs).toBeUndefined();
     for (const [id, job] of Object.entries(workflow.jobs)) {
       if (id !== 'build-images') {
@@ -164,6 +165,21 @@ describe('integration suite workflow', () => {
     expect(step(job, 'Collect logs on failure').run).toContain('docker logs awf-agent');
   });
 
+  it('builds the project only through the integration test command in each test job', () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+    expect(pkg.scripts['test:integration']).toMatch(/^npm run build && jest\b/);
+    for (const job of Object.keys(originalPatterns)) {
+      const steps = workflow.jobs[job].steps;
+      const test = steps.find(entry => entry.run?.includes('--testPathPatterns'))!;
+      expect(step(job, 'Install dependencies').run).toBe('npm ci');
+      expect(steps.indexOf(step(job, 'Install dependencies'))).toBeLessThan(steps.indexOf(test));
+      expect(test.run).toContain('npm run test:integration --');
+      expect(steps.some(entry => entry.name === 'Build project' || entry.run?.includes('npm run build'))).toBe(false);
+    }
+    const cleanup = fs.readFileSync(path.join(root, 'scripts/ci/cleanup.sh'), 'utf8');
+    expect(cleanup).not.toContain('dist/');
+  });
+
   it('keeps every previously selected test file in exactly one job', () => {
     const files = fs.readdirSync(path.join(root, 'tests/integration'))
       .filter(file => file.endsWith('.test.ts'));
@@ -180,16 +196,19 @@ describe('integration suite workflow', () => {
     expect(new Set(selected).size).toBe(selected.length);
   });
 
-  it('only moves the measured Network files to lighter jobs', () => {
+  it('only moves the measured Network and Domain files to lighter jobs', () => {
     const files = fs.readdirSync(path.join(root, 'tests/integration'))
       .filter(file => file.endsWith('.test.ts'));
     for (const job of Object.keys(originalPatterns)) {
       const run = workflow.jobs[job].steps.find(entry => entry.run?.includes('--testPathPatterns'))!.run!;
       const pattern = run.match(/--testPathPatterns="([^"]+)"/)![1];
       const expected = files.filter(file => new RegExp(originalPatterns[job]).test(file));
+      // Main runs 45683472007, 45689264631, 45689349458: empty-domains averages 159s.
+      if (job === 'test-domain') expected.splice(expected.indexOf('empty-domains.test.ts'), 1);
       if (job === 'test-network') {
         expected.splice(expected.indexOf('host-tcp-services.test.ts'), 1);
         expected.splice(expected.indexOf('topology-compose.test.ts'), 1);
+        expected.push('empty-domains.test.ts');
       }
       if (job === 'test-api-proxy') expected.push('host-tcp-services.test.ts');
       if (job === 'test-container-ops') expected.push('topology-compose.test.ts');
@@ -316,7 +335,8 @@ describe('integration suite workflow', () => {
         expect(build).toContain(`--cache-from type=gha,version=2,scope=it-${image}`);
         expect(build).toContain(`-t ghcr.io/github/gh-aw-firewall/${image}:latest containers/${image}/`);
         if (scenario.exportCache === 'true') {
-          expect(build).toContain(`--cache-to type=gha,version=2,scope=it-${image},mode=max,ignore-error=true`);
+          const mode = image === 'api-proxy' ? 'min' : 'max';
+          expect(build).toContain(`--cache-to type=gha,version=2,scope=it-${image},mode=${mode},ignore-error=true`);
         } else {
           expect(build).not.toContain('--cache-to');
         }
@@ -375,6 +395,8 @@ describe('integration suite workflow', () => {
       expect(result.stdout.includes('::warning::')).toBe(scenario.warning);
       const summary = fs.readFileSync(path.join(dir, 'summary'), 'utf8');
       expect(summary).toContain('Cache scope: it-agent; mode: max');
+      expect(summary).toContain('Cache scope: it-squid; mode: max');
+      expect(summary).toContain('Cache scope: it-api-proxy; mode: min');
       if (scenario.log.includes('12.34MB')) expect(summary).toContain('12.34MB');
       if (scenario.log.includes('layer-104')) {
         expect(summary.match(/writing layer/g)).toHaveLength(300);
