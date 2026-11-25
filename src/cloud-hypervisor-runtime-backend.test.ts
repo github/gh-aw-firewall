@@ -1155,6 +1155,49 @@ describe('Cloud Hypervisor runtime backend', () => {
       expect(manager.stop).toHaveBeenCalledTimes(1);
     });
 
+    it.each(['stop', 'preserve'] as const)(
+      'launches the guest before a queued %s can start teardown',
+      async (operation) => {
+        const { manager, deps, order } = harness();
+        const backend = createBackend(config(), deps);
+        let releaseShutdown!: () => void;
+        let shutdownStarted!: () => void;
+        const started = new Promise<void>((resolve) => { shutdownStarted = resolve; });
+        const pendingShutdown = new Promise<void>((resolve) => { releaseShutdown = resolve; });
+        let shutdown: Promise<void> | undefined;
+        Object.defineProperty(manager, 'guestInterfaceName', {
+          get: () => {
+            queueMicrotask(() => {
+              shutdown = operation === 'stop' ? backend.stop() : backend.preserve();
+              shutdownStarted();
+            });
+            return 'eth0';
+          },
+        });
+        manager.startInstance.mockImplementationOnce(async () => {
+          order.push('vm-start');
+          if (shutdown) throw new Error('guest launched during teardown');
+        });
+        manager.stop.mockImplementation(async () => {
+          order.push('vm-stop');
+          await pendingShutdown;
+        });
+
+        const startup = backend.start('/tmp/awf', ['github.com']);
+        const result = startup.then(() => undefined, (error: unknown) => error);
+        await started;
+        expect(order).toEqual(expect.arrayContaining(['vm-start', 'vm-stop']));
+        expect(order.indexOf('vm-start')).toBeLessThan(order.indexOf('vm-stop'));
+        releaseShutdown();
+        await shutdown;
+        expect(await result).toEqual(expect.objectContaining({
+          message: expect.stringMatching(/aborted by shutdown/),
+        }));
+        expect(manager.stop).toHaveBeenCalledTimes(1);
+        expect(manager.stop).toHaveBeenCalledWith({ preserve: operation === 'preserve' });
+      },
+    );
+
     it('cancels an active guest command before stopping', async () => {
       const { manager, deps } = harness();
       const resolveExecution = mockNetworkReadyProbeSequence(manager);
