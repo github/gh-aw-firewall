@@ -7,6 +7,7 @@ const {
   captureSources, loadCaptures, refreshImport, proposeCopilotPricing, buildReport, selectPullRequest,
   reviewReasons, differences, inspectCatalogue, documentText, hash, json, facts,
   catalogueFacts, runtimeResolutionFacts, backendScopedFallbackFacts, backendScopedFallbackEffects,
+  importedMedianFacts, importedMedianEffects,
   verifyCommittedTree,
   projections,
 } = require('./maintain.cjs');
@@ -760,11 +761,18 @@ describe('offline scheduled source maintenance', () => {
     expect(report.backendScopedFallbackEffects).toEqual([
       expect.objectContaining({ file: rawFile, changes: expect.any(Array) }),
     ]);
+    expect(report.importedMedianEstimateEffects).toEqual([{
+      file: rawFile, changes: expect.arrayContaining([
+        { pointer: '/importedOnlyBackendMedian/pricing/input', before: '1', after: '0.5' },
+        { pointer: '/importedOnlyBackendMedian/pricing/cachedInput', before: '0.1', after: '0.05' },
+      ]),
+    }]);
     expect(report.historicalLookupEffects).toEqual([
       expect.objectContaining({ file: rawFile, changes: expect.any(Array) }),
     ]);
     expect(report.impactInterpretation).toMatchObject({
       backendScopedFallbackEffects: expect.stringContaining('only when this fallback is selected'),
+      importedMedianEstimateEffects: expect.stringContaining('affect accounting and budgets'),
       historicalLookupEffects: expect.stringContaining('not budget-active tariff changes'),
     });
     expect(report.changes.find((item: { file: string }) => item.file === rawFile)).toMatchObject({
@@ -778,6 +786,40 @@ describe('offline scheduled source maintenance', () => {
     expect(report.reviewRequired).toEqual(['All model-fact changes require human review; no auto-merge or publication.']);
     expect(report.roundingTolerance).toMatch(/Zero/);
     expect(fs.readFileSync(path.join(cwd, snapshotFile), 'utf8')).not.toContain('retired');
+  });
+
+  it('reports exact imported-only component medians and donor changes without inventing cache-write prices', () => {
+    const before = catalog([priced('openai/a', '0'), priced('openai/b', '0.00000000000000000001')]);
+    const after = catalog([priced('openai/a', '0'), priced('openai/b', '0.00000000000000000003')]);
+    expect(importedMedianFacts(before)).toEqual({
+      pricing: { input: '0.000000000000005', cachedInput: '0.0000000000000005',
+        cacheWrite: null, output: '2', reasoning: '2' },
+      donorCount: 2,
+      componentDonors: { input: 2, cachedInput: 2, cacheWrite: 0, output: 2, reasoning: 2 },
+    });
+    expect(importedMedianEffects(before, after)).toEqual(expect.arrayContaining([
+      { pointer: '/importedOnlyBackendMedian/pricing/input',
+        before: '0.000000000000005', after: '0.000000000000015' },
+    ]));
+    expect(importedMedianFacts(catalog([]))).toBeNull();
+    expect(importedMedianEffects(before, before)).toEqual([]);
+    expect(importedMedianEffects(catalog([]), before)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ pointer: '/importedOnlyBackendMedian', before: null }),
+    ]));
+    const mixed = catalog([
+      { ...priced('openai/a', '0'), pricing: {
+        prompt: '0', completion: '0', input_cache_read: '0', input_cache_write: '0.000004',
+      } },
+      priced('openai/b', '0.000002'),
+      { ...priced('openai/c', '0.000003'), pricing: {
+        ...priced().pricing, overrides: [{ min_prompt_tokens: 64000, prompt: '0.000002' }],
+      } },
+    ]);
+    expect(importedMedianFacts(mixed)).toEqual({
+      pricing: { input: '1', cachedInput: '0.1', cacheWrite: '4', output: '1', reasoning: '1' },
+      donorCount: 2,
+      componentDonors: { input: 2, cachedInput: 2, cacheWrite: 1, output: 2, reasoning: 2 },
+    });
   });
 
   it('detects raw effort/context and threshold drift even when projected base token prices are unchanged', async () => {

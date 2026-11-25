@@ -275,7 +275,7 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | AUTH-005 | auth | API-proxy refuses an upstream response it cannot safely inspect for credential echoes | workaround | [`findings/auth/AUTH-005.json`](./findings/auth/AUTH-005.json) |
 | AUTH-006 | auth | Copilot /v1/decisions rejects a personal access token with a plain-text HTTP 400 | workaround | [`findings/auth/AUTH-006.json`](./findings/auth/AUTH-006.json) |
 | AUTH-007 | auth | Config-file apiProxy.auth.provider rejects openai although the runtime supports OpenAI native WIF | unresolved | [`findings/auth/AUTH-007.json`](./findings/auth/AUTH-007.json) |
-| AUTH-008 | auth | Azure, AWS or GCP OIDC is configured but the API-proxy adapter does not bind it to its upstream | workaround | [`findings/auth/AUTH-008.json`](./findings/auth/AUTH-008.json) |
+| AUTH-008 | auth | Azure, AWS, GCP or Databricks OIDC is configured but the API-proxy adapter does not bind it to its upstream | workaround | [`findings/auth/AUTH-008.json`](./findings/auth/AUTH-008.json) |
 | CI-001 | ci | gh-aw safe-output step fails because the emitted payload violates the declared contract | workaround | [`findings/ci/CI-001.json`](./findings/ci/CI-001.json) |
 | CI-002 | ci | Compiler-owned enclave gateway is unavailable or violates the handoff contract | workaround | [`findings/ci/CI-002.json`](./findings/ci/CI-002.json) |
 | CI-003 | ci | Cloud Hypervisor regression admission rejects a regional Actions OIDC endpoint | fixed | [`findings/ci/CI-003.json`](./findings/ci/CI-003.json) |
@@ -365,10 +365,10 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | Copilot Decisions (evals) request using the reported fine-grained PAT returns HTTP 400 with a plain-text body containing "Personal Access Tokens are not supported for this endpoint" | AUTH-006 | auth | workaround |
 | A standalone gh-aw evals judge fails as an opaque "Decisions request failed (HTTP 400)" and the run stays green | AUTH-006 | auth | workaround |
 | The same 400 occurs for every model name, including invalid ones, because the token is rejected before model validation | AUTH-006 | auth | workaround |
-| awf config validation reports that config.apiProxy.auth.provider must be one of azure, aws, gcp, anthropic | AUTH-007 | auth | unresolved |
+| awf config validation reports that config.apiProxy.auth.provider must be one of azure, aws, gcp, anthropic, databricks (openai is absent from the list) | AUTH-007 | auth | unresolved |
 | OpenAI native WIF works when AWF_AUTH_PROVIDER=openai is set in the environment but fails when the same value is set through the AWF config file | AUTH-007 | auth | unresolved |
-| Provider requests fail with 404 "OpenAI proxy not configured" (or the equivalent not-configured response) although AWF_AUTH_TYPE=github-oidc and AWF_AUTH_PROVIDER=azure, aws or gcp are set | AUTH-008 | auth | workaround |
-| The api-proxy logs a cloud_oidc_not_bound event (info) or a cloud_oidc_target_refused event (warn) when the adapter is created | AUTH-008 | auth | workaround |
+| Provider requests fail with 404 "OpenAI proxy not configured" (or the equivalent not-configured response) although AWF_AUTH_TYPE=github-oidc and AWF_AUTH_PROVIDER=azure, aws, gcp or databricks are set | AUTH-008 | auth | workaround |
+| The api-proxy logs cloud_oidc_not_bound (info) for an unselected adapter or a target that does not match the selected origin, or cloud_oidc_target_refused (warn) for a selected target refused by first-party or Databricks workspace-origin checks | AUTH-008 | auth | workaround |
 | safe output validation failed in the workflow run | CI-001 | ci | workaround |
 | The agent job succeeds but the safe-output collection step exits non-zero | CI-001 | ci | workaround |
 | create-pull-request rejected: file not in allowed-files | CI-001 | ci | workaround |

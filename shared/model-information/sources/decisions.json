@@ -148,6 +148,28 @@
                 "at": "2026-11-22T12:30:39.390Z",
                 "confidence": "verified"
               }
+            },
+            "endpoint_pricing": {
+              "state": "conditional",
+              "condition": "For native gpt-6-luna requests to /v1/decisions only, uncached input costs USD 0.10 per 1M tokens and output tokens are not charged. Cache reads and writes follow the standard gpt-6-luna prompt-caching rates; regional processing premiums and long-context input pricing multipliers apply. Other gpt-6-luna requests use their applicable model and processing-tier pricing. This protocol-scoped observation does not establish numeric cache rates, thresholds, Copilot tariffs or a general model-level zero-output tariff, and does not activate runtime accounting.",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/guides/decisions",
+                "revision": "d3b65b4a1fc72fe1f0b56a5375de6df7881af5e75623dce545cfa93badefd2bf",
+                "at": "2026-11-25T12:34:05.105Z",
+                "confidence": "verified"
+              }
+            },
+            "data_controls": {
+              "state": "conditional",
+              "condition": "Native gpt-6-luna Decisions supports Zero Data Retention and HIPAA use for eligible customers, subject to the required agreements and data-control limitations. Data residency is available in all supported API regions; regional processing is supported in the United States and Europe (EEA + Switzerland). This does not establish Copilot data controls, credential eligibility, deployment mappings or AWF networking behavior.",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/guides/decisions",
+                "revision": "d3b65b4a1fc72fe1f0b56a5375de6df7881af5e75623dce545cfa93badefd2bf",
+                "at": "2026-11-25T12:34:05.105Z",
+                "confidence": "verified"
+              }
             }
           }
         }

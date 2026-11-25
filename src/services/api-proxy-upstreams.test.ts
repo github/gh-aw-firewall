@@ -55,6 +55,38 @@ describe('effective API proxy upstreams', () => {
       .toEqual([{ hostname: 'ignored.example', port: 8443 }]);
   });
 
+  it.each(['', '/private/v1/'])('does not inherit another OpenAI base path for secret URL path %j', path => {
+    process.env.PRIVATE_ENDPOINT = `https://secret.example${path}`;
+    process.env.OPENAI_API_TARGET = 'host.example';
+    process.env.OPENAI_API_BASE_PATH = '/host';
+    process.env.OPENAI_ENDPOINT_OVERRIDE = 'https://override.example/override';
+    const config = {
+      ...baseConfig,
+      openaiBaseUrlEnv: 'PRIVATE_ENDPOINT',
+      openaiApiTarget: 'config.example',
+      openaiApiBasePath: '/config',
+      additionalEnv: { OPENAI_API_TARGET: 'extra.example', OPENAI_API_BASE_PATH: '/extra' },
+      copilotProviderType: 'Azure',
+      copilotProviderBaseUrl: 'https://azure.example/azure',
+    };
+    const env = buildProviderTargetEnv(config);
+    expect(env.OPENAI_API_TARGET).toBe('secret.example');
+    expect(env.OPENAI_API_BASE_PATH).toBe(path ? '/private/v1' : undefined);
+    expect(env.AWF_SENSITIVE_OPENAI_TARGET).toBe('secret.example');
+    expect(env.PRIVATE_ENDPOINT).toBeUndefined();
+  });
+
+  it('uses the OpenAI endpoint override only after target environment fallbacks', () => {
+    process.env.OPENAI_API_TARGET = 'host.example';
+    process.env.OPENAI_ENDPOINT_OVERRIDE = 'host-override.example';
+    const config = {
+      ...baseConfig, additionalEnv: { OPENAI_ENDPOINT_OVERRIDE: 'config-override.example' },
+    };
+    expect(buildProviderTargetEnv(config).OPENAI_API_TARGET).toBe('host.example');
+    delete process.env.OPENAI_API_TARGET;
+    expect(buildProviderTargetEnv(config).OPENAI_API_TARGET).toBe('config-override.example');
+  });
+
   it('preserves Copilot provider scheme, custom port and base path', () => {
     const providerUrl = 'http://copilot.example:11434/v1/';
     expect(resolveCopilotApiRouting({}, { COPILOT_PROVIDER_BASE_URL: providerUrl })).toEqual({
