@@ -18,6 +18,45 @@ function invokeWriteCallback(callback: unknown, error?: Error): void {
   if (typeof callback === 'function') (callback as (error?: Error | null) => void)(error);
 }
 
+function createLogsProcessHarness() {
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  let endedStreams = 0;
+  let resolveLogs: ((value: { stdout: Buffer; stderr: Buffer; exitCode: number }) => void) | undefined;
+  const logsProcess = Object.assign(
+    new Promise<{ stdout: Buffer; stderr: Buffer; exitCode: number }>(resolve => { resolveLogs = resolve; }),
+    { stdout, stderr },
+  );
+  const finishLogs = (): void => {
+    if (++endedStreams === 2) resolveLogs?.({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0 });
+  };
+  stdout.on('end', finishLogs);
+  stderr.on('end', finishLogs);
+  return { stdout, stderr, logsProcess };
+}
+
+describe('createLogsProcessHarness', () => {
+  it.each(['stdout', 'stderr'] as const)('waits for both streams when %s ends first', async firstStream => {
+    const { stdout, stderr, logsProcess } = createLogsProcessHarness();
+    const completed = jest.fn();
+    void logsProcess.then(completed);
+    stdout.resume();
+    stderr.resume();
+    const first = firstStream === 'stdout' ? stdout : stderr;
+    const second = firstStream === 'stdout' ? stderr : stdout;
+    const firstEnded = new Promise<void>(resolve => { first.on('end', resolve); });
+
+    first.end();
+    await firstEnded;
+    expect(completed).not.toHaveBeenCalled();
+
+    second.end();
+    await expect(logsProcess).resolves.toEqual({
+      stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0,
+    });
+  });
+});
+
 describe('runAgentCommand', () => {
   const { getDir } = useTempDir();
 
@@ -149,20 +188,7 @@ describe('runAgentCommand', () => {
   });
 
   it('captures raw streams and drains them if a runner-facing output stream fails', async () => {
-    const stdout = new PassThrough();
-    const stderr = new PassThrough();
-    let endedStreams = 0;
-    let resolveLogs: ((value: { stdout: Buffer; stderr: Buffer; exitCode: number }) => void) | undefined;
-    const logsProcess = Object.assign(
-      new Promise<{ stdout: Buffer; stderr: Buffer; exitCode: number }>(resolve => { resolveLogs = resolve; }),
-      { stdout, stderr },
-    );
-    stdout.on('end', () => {
-      if (++endedStreams === 2) resolveLogs?.({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0 });
-    });
-    stderr.on('end', () => {
-      if (++endedStreams === 2) resolveLogs?.({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0 });
-    });
+    const { stdout, stderr, logsProcess } = createLogsProcessHarness();
     mockExecaFn
       .mockReturnValueOnce(logsProcess as any)
       .mockResolvedValueOnce({ stdout: '7', stderr: '', exitCode: 0 } as any);
@@ -235,19 +261,7 @@ describe('runAgentCommand', () => {
   });
 
   it('redacts captured credentials and stops the agent', async () => {
-    const stdout = new PassThrough();
-    const stderr = new PassThrough();
-    let endedStreams = 0;
-    let resolveLogs: ((value: { stdout: Buffer; stderr: Buffer; exitCode: number }) => void) | undefined;
-    const logsProcess = Object.assign(
-      new Promise<{ stdout: Buffer; stderr: Buffer; exitCode: number }>(resolve => { resolveLogs = resolve; }),
-      { stdout, stderr },
-    );
-    const finishLogs = (): void => {
-      if (++endedStreams === 2) resolveLogs?.({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0 });
-    };
-    stdout.on('end', finishLogs);
-    stderr.on('end', finishLogs);
+    const { stdout, stderr, logsProcess } = createLogsProcessHarness();
     mockExecaFn
       .mockReturnValueOnce(logsProcess as any)
       .mockResolvedValueOnce({ stdout: '0', stderr: '', exitCode: 0 } as any);
@@ -300,19 +314,7 @@ describe('runAgentCommand', () => {
   });
 
   it('continues capturing output independently after console backpressure', async () => {
-    const stdout = new PassThrough();
-    const stderr = new PassThrough();
-    let endedStreams = 0;
-    let resolveLogs: ((value: { stdout: Buffer; stderr: Buffer; exitCode: number }) => void) | undefined;
-    const logsProcess = Object.assign(
-      new Promise<{ stdout: Buffer; stderr: Buffer; exitCode: number }>(resolve => { resolveLogs = resolve; }),
-      { stdout, stderr },
-    );
-    const finishLogs = (): void => {
-      if (++endedStreams === 2) resolveLogs?.({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0 });
-    };
-    stdout.on('end', finishLogs);
-    stderr.on('end', finishLogs);
+    const { stdout, stderr, logsProcess } = createLogsProcessHarness();
     mockExecaFn
       .mockReturnValueOnce(logsProcess as any)
       .mockResolvedValueOnce({ stdout: '0', stderr: '', exitCode: 0 } as any);
@@ -358,19 +360,7 @@ describe('runAgentCommand', () => {
   });
 
   it('resumes uncaptured output forwarding after console backpressure drains', async () => {
-    const stdout = new PassThrough();
-    const stderr = new PassThrough();
-    let endedStreams = 0;
-    let resolveLogs: ((value: { stdout: Buffer; stderr: Buffer; exitCode: number }) => void) | undefined;
-    const logsProcess = Object.assign(
-      new Promise<{ stdout: Buffer; stderr: Buffer; exitCode: number }>(resolve => { resolveLogs = resolve; }),
-      { stdout, stderr },
-    );
-    const finishLogs = (): void => {
-      if (++endedStreams === 2) resolveLogs?.({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0 });
-    };
-    stdout.on('end', finishLogs);
-    stderr.on('end', finishLogs);
+    const { stdout, stderr, logsProcess } = createLogsProcessHarness();
     mockExecaFn
       .mockReturnValueOnce(logsProcess as any)
       .mockResolvedValueOnce({ stdout: '0', stderr: '', exitCode: 0 } as any);
@@ -441,19 +431,7 @@ describe('runAgentCommand', () => {
   });
 
   it('does not retry a gVisor startup exit after external cancellation', async () => {
-    const stdout = new PassThrough();
-    const stderr = new PassThrough();
-    let endedStreams = 0;
-    let resolveLogs: ((value: { stdout: Buffer; stderr: Buffer; exitCode: number }) => void) | undefined;
-    const logsProcess = Object.assign(
-      new Promise<{ stdout: Buffer; stderr: Buffer; exitCode: number }>(resolve => { resolveLogs = resolve; }),
-      { stdout, stderr },
-    );
-    const finishLogs = (): void => {
-      if (++endedStreams === 2) resolveLogs?.({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0 });
-    };
-    stdout.on('end', finishLogs);
-    stderr.on('end', finishLogs);
+    const { stdout, stderr, logsProcess } = createLogsProcessHarness();
     mockExecaFn
       .mockReturnValueOnce(logsProcess as any)
       .mockResolvedValueOnce({ stdout: '139', stderr: '', exitCode: 0 } as any);
@@ -486,19 +464,7 @@ describe('runAgentCommand', () => {
 
   it('collects a retried gVisor attempt when cancellation arrives during docker start', async () => {
     const createLogsProcess = (stdoutBytes: Buffer) => {
-      const stdout = new PassThrough();
-      const stderr = new PassThrough();
-      let endedStreams = 0;
-      let resolveLogs: ((value: { stdout: Buffer; stderr: Buffer; exitCode: number }) => void) | undefined;
-      const logsProcess = Object.assign(
-        new Promise<{ stdout: Buffer; stderr: Buffer; exitCode: number }>(resolve => { resolveLogs = resolve; }),
-        { stdout, stderr },
-      );
-      const finishLogs = (): void => {
-        if (++endedStreams === 2) resolveLogs?.({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0 });
-      };
-      stdout.on('end', finishLogs);
-      stderr.on('end', finishLogs);
+      const { stdout, stderr, logsProcess } = createLogsProcessHarness();
       setImmediate(() => {
         stdout.end(stdoutBytes);
         stderr.end();
