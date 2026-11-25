@@ -520,6 +520,47 @@ describe('direct OpenVMM launch executor', () => {
     expect(value.dependencies.kill).toHaveBeenCalledWith(-4100, 'SIGKILL');
   });
 
+  it.each([false, true])('installs the exact seccomp filter with allowCallerMount=%s', async (allowCallerMount) => {
+    const value = harness({ status: '{"child-pid":4200}\n' });
+    const launchPlan = plan();
+    const execution = value.executor.execute({
+      plan: { ...launchPlan, launchCommand: { ...launchPlan.launchCommand, allowCallerMount } },
+      request: value.executionRequest,
+      hooks: value.hooks,
+    });
+    await expect(execution).resolves.toMatchObject({ category: 'success' });
+    expect(value.child.stdio[5].read()).toEqual(
+      testHelpers.buildOpenvmmSeccompFilter(allowCallerMount),
+    );
+    expect(value.child.stdio[5].writableEnded).toBe(true);
+  });
+
+  it('fails closed before readiness when the mount namespace identity is malformed', async () => {
+    const value = harness({ status: '{"child-pid":4200}\n' });
+    value.dependencies.readlink = jest.fn(async () => 'mnt:invalid');
+    await expect(value.executor.execute({
+      plan: plan(), request: value.executionRequest, hooks: value.hooks,
+    })).rejects.toThrow(/Malformed NVX mount namespace identity/);
+    expect(value.hooks.openvmmReady).not.toHaveBeenCalled();
+    expect(value.order).not.toContain('stdin:ctrl-q');
+    expect(value.order).not.toContain('stdin:resume\n');
+    expect(value.dependencies.kill).toHaveBeenCalledWith(-4100, 'SIGKILL');
+  });
+
+  it('removes cancellation supervision after a successful launch', async () => {
+    const controller = new AbortController();
+    const removeListener = jest.spyOn(controller.signal, 'removeEventListener');
+    const value = harness({ status: '{"child-pid":4200}\n' });
+    await expect(value.executor.execute({
+      plan: plan(),
+      request: { ...value.executionRequest, abortSignal: controller.signal },
+      hooks: value.hooks,
+    })).resolves.toMatchObject({ category: 'success' });
+    expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
+    controller.abort();
+    expect(value.dependencies.kill).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['missing', ''],
     ['malformed', '{not-json}\n'],

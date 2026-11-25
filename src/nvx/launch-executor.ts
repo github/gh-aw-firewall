@@ -11,61 +11,18 @@ import {
 } from './one-shot-adapter';
 import type { NvxLaunchExecutor, NvxLaunchHooks } from './manager';
 import type { NvxPhase3dLaunchPlan } from './runtime-lifecycle';
+import {
+  buildOpenvmmSeccompFilter,
+  DENIED_X86_64_SYSCALLS,
+  X32_SYSCALL_BIT,
+} from './openvmm-seccomp';
+import { createOpenvmmStdoutGate, endStream, pump, writeStream } from './openvmm-streams';
+import { readSandboxStatus } from './sandbox-status';
 
-const STATUS_MAX_BYTES = 64 * 1024;
 const OPENVMM_DISCOVERY_TIMEOUT_MS = 5_000;
 const PROCESS_POLL_MS = 20;
 const TERMINATION_GRACE_MS = 2_000;
-const OPENVMM_REPL_PROMPT = Buffer.from('openvmm> ');
 const OPENVMM_REPL_PROMPT_TIMEOUT_MS = 5_000;
-const AUDIT_ARCH_X86_64 = 0xc000003e;
-const X32_SYSCALL_BIT = 0x40000000;
-const SECCOMP_RET_KILL_PROCESS = 0x80000000;
-const SECCOMP_RET_ERRNO_EPERM = 0x00050001;
-const SECCOMP_RET_ALLOW = 0x7fff0000;
-const DENIED_X86_64_SYSCALLS = [
-  105, // setuid
-  106, // setgid
-  113, // setreuid
-  114, // setregid
-  116, // setgroups
-  117, // setresuid
-  119, // setresgid
-  101, // ptrace
-  155, // pivot_root
-  163, // acct
-  165, // mount
-  166, // umount2
-  167, // swapon
-  168, // swapoff
-  169, // reboot
-  172, // iopl
-  173, // ioperm
-  175, // init_module
-  176, // delete_module
-  179, // quotactl
-  246, // kexec_load
-  248, // add_key
-  249, // request_key
-  250, // keyctl
-  272, // unshare
-  298, // perf_event_open
-  303, // name_to_handle_at
-  304, // open_by_handle_at
-  308, // setns
-  310, // process_vm_readv
-  311, // process_vm_writev
-  313, // finit_module
-  320, // kexec_file_load
-  321, // bpf
-  323, // userfaultfd
-  429, // move_mount
-  430, // fsopen
-  431, // fsconfig
-  432, // fsmount
-  433, // fspick
-  442, // mount_setattr
-] as const;
 
 type NvxLaunchChild = Omit<ChildProcess, 'stdio'> & {
   stdin: Writable | null;
@@ -82,6 +39,30 @@ type NvxLaunchChild = Omit<ChildProcess, 'stdio'> & {
     null,
   ];
 };
+
+interface NvxLaunchOptions {
+  readonly plan: NvxPhase3dLaunchPlan;
+  readonly request: NvxOneShotExecutionRequest;
+  readonly hooks: NvxLaunchHooks;
+}
+
+interface OpenvmmLaunch {
+  readonly pid: number;
+  readonly stdin: Writable;
+  readonly stdout: Readable | null;
+  readonly stderr: Readable | null;
+  readonly sandboxGate: Writable;
+  readonly sandboxStatus: Readable;
+  readonly exit: ReturnType<typeof waitForExit>;
+  hasExited(): boolean;
+}
+
+interface LaunchSupervision {
+  readonly timedOut: boolean;
+  readonly cancelled: boolean;
+  interrupted(): boolean;
+  dispose(): void;
+}
 
 export interface NvxLaunchExecutorDependencies {
   spawn(
@@ -130,16 +111,54 @@ export class DirectOpenvmmLaunchExecutor implements NvxLaunchExecutor {
     private readonly dependencies: NvxLaunchExecutorDependencies = defaultDependencies,
   ) {}
 
-  async execute(options: {
-    readonly plan: NvxPhase3dLaunchPlan;
-    readonly request: NvxOneShotExecutionRequest;
-    readonly hooks: NvxLaunchHooks;
-  }): Promise<NvxOneShotExecutionResult> {
+  async execute(options: NvxLaunchOptions): Promise<NvxOneShotExecutionResult> {
     if (this.child) throw new Error('NVX direct executor already has an active launch');
     const prepared = await this.dependencies.prepareExecution(
       options.request,
       options.plan.outcomePath,
     );
+    const launch = await this.startLaunch(options);
+    const stdoutGate = createOpenvmmStdoutGate(
+      launch.stdout,
+      (chunk) => prepared.onStdout(chunk),
+    );
+    const stderrPump = pump(launch.stderr, (chunk) => prepared.onStderr(chunk));
+    const sandboxStatus = readSandboxStatus(launch.sandboxStatus);
+    const supervision = this.supervise(options.request);
+
+    try {
+      await this.waitForReadiness(options, launch, sandboxStatus.pid, supervision);
+      if (supervision.interrupted()) {
+        await this.terminate();
+      } else {
+        stdoutGate.arm();
+        await writeStream(launch.stdin, Buffer.from([0x11]));
+        await stdoutGate.waitForPrompt(OPENVMM_REPL_PROMPT_TIMEOUT_MS);
+        await writeStream(launch.stdin, Buffer.from('resume\n'));
+      }
+
+      const processResult = await this.finishLaunch(launch.exit, supervision, [
+        stdoutGate.completed, stderrPump, sandboxStatus.completed,
+      ]);
+      return await prepared.finish(processResult);
+    } catch (error) {
+      await this.terminate();
+      if (supervision.interrupted()) {
+        const processResult = await this.finishLaunch(launch.exit, supervision, [
+          stdoutGate.completed,
+          stderrPump,
+          sandboxStatus.completed.catch(() => undefined),
+        ]);
+        return prepared.finish(processResult);
+      }
+      throw error;
+    } finally {
+      supervision.dispose();
+      this.resetLaunch();
+    }
+  }
+
+  private async startLaunch(options: NvxLaunchOptions): Promise<OpenvmmLaunch> {
     const images = await openCheckedImages(options.request, this.dependencies);
     this.cgroupPath = options.plan.layout.cgroupPath;
     let child: NvxLaunchChild;
@@ -185,23 +204,55 @@ export class DirectOpenvmmLaunchExecutor implements NvxLaunchExecutor {
         child.stdio[5],
         buildOpenvmmSeccompFilter(options.plan.launchCommand.allowCallerMount),
       );
+      return {
+        pid: child.pid,
+        stdin: child.stdin,
+        stdout: child.stdout,
+        stderr: child.stderr,
+        sandboxGate: child.stdio[3],
+        sandboxStatus: child.stdio[4],
+        exit,
+        hasExited: () => launcherExited,
+      };
     } catch (error) {
       try {
         await this.terminate();
       } finally {
-        this.child = undefined;
-        this.cgroupPath = undefined;
-        this.terminating = undefined;
+        this.resetLaunch();
       }
       throw error;
     }
+  }
 
-    const stdoutGate = createOpenvmmStdoutGate(
-      child.stdout,
-      (chunk) => prepared.onStdout(chunk),
-    );
-    const stderrPump = pump(child.stderr, (chunk) => prepared.onStderr(chunk));
-    const sandboxStatus = readSandboxStatus(child.stdio[4]);
+  private async waitForReadiness(
+    options: NvxLaunchOptions,
+    launch: OpenvmmLaunch,
+    sandboxPidReported: Promise<number>,
+    supervision: LaunchSupervision,
+  ): Promise<void> {
+    await options.hooks.launcherStarted(launch.pid);
+    const sandboxPid = await Promise.race([
+      sandboxPidReported,
+      rejectOnExit(launch.exit, 'before Bubblewrap reported its sandbox PID'),
+    ]);
+    await options.hooks.sandboxStarted(sandboxPid);
+    launch.sandboxGate.end();
+
+    const openvmmPid = await Promise.race([
+      discoverOpenvmmPid(
+        options.plan.layout.cgroupPath,
+        options.request.nvxRoot + '/openvmm',
+        this.dependencies,
+        () => supervision.interrupted() || launch.hasExited(),
+      ),
+      rejectOnExit(launch.exit, 'before AWF discovered the OpenVMM process'),
+    ]);
+    const mountNamespace = await this.dependencies.readlink(`/proc/${openvmmPid}/ns/mnt`);
+    const mountNamespaceInode = parseMountNamespaceInode(mountNamespace);
+    await options.hooks.openvmmReady(openvmmPid, mountNamespaceInode);
+  }
+
+  private supervise(request: NvxOneShotExecutionRequest): LaunchSupervision {
     let timedOut = false;
     let cancelled = false;
     let timeout: NodeJS.Timeout | undefined;
@@ -211,77 +262,44 @@ export class DirectOpenvmmLaunchExecutor implements NvxLaunchExecutor {
       cancelled = reason === 'cancelled';
       void this.terminate().catch(() => undefined);
     };
-    if (options.request.timeoutMs !== undefined) {
-      timeout = setTimeout(() => terminateFor('timeout'), options.request.timeoutMs);
+    if (request.timeoutMs !== undefined) {
+      timeout = setTimeout(() => terminateFor('timeout'), request.timeoutMs);
     }
     const onAbort = (): void => terminateFor('cancelled');
-    options.request.abortSignal?.addEventListener('abort', onAbort, { once: true });
-    if (options.request.abortSignal?.aborted) onAbort();
+    request.abortSignal?.addEventListener('abort', onAbort, { once: true });
+    if (request.abortSignal?.aborted) onAbort();
 
-    try {
-      await options.hooks.launcherStarted(child.pid);
-      const sandboxPid = await Promise.race([
-        sandboxStatus.pid,
-        rejectOnExit(exit, 'before Bubblewrap reported its sandbox PID'),
-      ]);
-      await options.hooks.sandboxStarted(sandboxPid);
-      child.stdio[3].end();
+    return {
+      get timedOut() { return timedOut; },
+      get cancelled() { return cancelled; },
+      interrupted: () => timedOut || cancelled,
+      dispose: () => {
+        clearTimeout(timeout);
+        request.abortSignal?.removeEventListener('abort', onAbort);
+      },
+    };
+  }
 
-      const openvmmPid = await Promise.race([
-        discoverOpenvmmPid(
-          options.plan.layout.cgroupPath,
-          options.request.nvxRoot + '/openvmm',
-          this.dependencies,
-          () => timedOut || cancelled || launcherExited,
-        ),
-        rejectOnExit(exit, 'before AWF discovered the OpenVMM process'),
-      ]);
-      const mountNamespace = await this.dependencies.readlink(`/proc/${openvmmPid}/ns/mnt`);
-      const mountNamespaceInode = parseMountNamespaceInode(mountNamespace);
-      await options.hooks.openvmmReady(openvmmPid, mountNamespaceInode);
-      if (timedOut || cancelled) {
-        await this.terminate();
-      } else {
-        stdoutGate.arm();
-        await writeStream(child.stdin, Buffer.from([0x11]));
-        await stdoutGate.waitForPrompt(OPENVMM_REPL_PROMPT_TIMEOUT_MS);
-        await writeStream(child.stdin, Buffer.from('resume\n'));
-      }
+  private async finishLaunch(
+    exit: ReturnType<typeof waitForExit>,
+    supervision: LaunchSupervision,
+    completed: readonly Promise<void>[],
+  ): Promise<NvxProcessResult> {
+    const processExit = await exit;
+    if (supervision.interrupted()) await this.terminate();
+    await Promise.all(completed);
+    return {
+      exitCode: processExit.exitCode,
+      signal: processExit.signal,
+      timedOut: supervision.timedOut,
+      cancelled: supervision.cancelled,
+    };
+  }
 
-      const processExit = await exit;
-      if (timedOut || cancelled) await this.terminate();
-      await Promise.all([stdoutGate.completed, stderrPump, sandboxStatus.completed]);
-      const processResult: NvxProcessResult = {
-        exitCode: processExit.exitCode,
-        signal: processExit.signal,
-        timedOut,
-        cancelled,
-      };
-      return await prepared.finish(processResult);
-    } catch (error) {
-      await this.terminate();
-      if (timedOut || cancelled) {
-        const processExit = await exit;
-        await Promise.all([
-          stdoutGate.completed,
-          stderrPump,
-          sandboxStatus.completed.catch(() => undefined),
-        ]);
-        return prepared.finish({
-          exitCode: processExit.exitCode,
-          signal: processExit.signal,
-          timedOut,
-          cancelled,
-        });
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeout);
-      options.request.abortSignal?.removeEventListener('abort', onAbort);
-      this.child = undefined;
-      this.cgroupPath = undefined;
-      this.terminating = undefined;
-    }
+  private resetLaunch(): void {
+    this.child = undefined;
+    this.cgroupPath = undefined;
+    this.terminating = undefined;
   }
 
   async terminate(): Promise<void> {
@@ -390,66 +408,6 @@ async function openCheckedImages(
   }
 }
 
-function readSandboxStatus(stream: Readable): {
-  readonly pid: Promise<number>;
-  readonly completed: Promise<void>;
-} {
-  let resolvePid: ((pid: number) => void) | undefined;
-  let rejectPid: ((error: Error) => void) | undefined;
-  const pid = new Promise<number>((resolve, reject) => {
-    resolvePid = resolve;
-    rejectPid = reject;
-  });
-  void pid.catch(() => undefined);
-  const completed = (async () => {
-    let contents = Buffer.alloc(0);
-    let totalBytes = 0;
-    let foundPid = false;
-    try {
-      for await (const chunk of stream) {
-        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-        totalBytes += buffer.length;
-        if (totalBytes > STATUS_MAX_BYTES) {
-          throw new Error('Bubblewrap JSON status exceeded the bounded size limit');
-        }
-        if (foundPid) continue;
-        contents = Buffer.concat([contents, buffer]);
-        const newline = contents.indexOf(0x0a);
-        if (newline < 0) continue;
-        const status = parseSandboxStatus(contents.subarray(0, newline));
-        foundPid = true;
-        resolvePid?.(status);
-      }
-      if (!foundPid) {
-        if (contents.length === 0) {
-          throw new Error('Bubblewrap did not report JSON status');
-        }
-        resolvePid?.(parseSandboxStatus(contents));
-      }
-    } catch (error) {
-      const parsed = error instanceof Error ? error : new Error(String(error));
-      rejectPid?.(parsed);
-      throw parsed;
-    }
-  })();
-  void completed.catch(() => undefined);
-  return { pid, completed };
-}
-
-function parseSandboxStatus(contents: Buffer): number {
-  let status: unknown;
-  try {
-    status = JSON.parse(contents.toString('utf8').trim());
-  } catch (error) {
-    throw new Error(`Bubblewrap JSON status is malformed: ${formatError(error)}`);
-  }
-  const pid = (status as { ['child-pid']?: unknown })?.['child-pid'];
-  if (!Number.isSafeInteger(pid) || (pid as number) <= 0) {
-    throw new Error('Bubblewrap JSON status has no valid child-pid');
-  }
-  return pid as number;
-}
-
 async function discoverOpenvmmPid(
   cgroupPath: string,
   expectedExecutable: string,
@@ -511,142 +469,6 @@ async function rejectOnExit(
   throw new Error(
     `NVX launcher exited ${context}: code=${String(result.exitCode)} signal=${String(result.signal)}`,
   );
-}
-
-async function pump(
-  source: Readable | null,
-  destination: (chunk: Buffer) => Promise<void>,
-): Promise<void> {
-  if (!source) return;
-  for await (const chunk of source) {
-    await destination(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-}
-
-function createOpenvmmStdoutGate(
-  source: Readable | null,
-  destination: (chunk: Buffer) => Promise<void>,
-): {
-  readonly completed: Promise<void>;
-  arm(): void;
-  waitForPrompt(timeoutMs: number): Promise<void>;
-} {
-  if (!source) throw new Error('OpenVMM stdout pipe is unavailable');
-  let armed = false;
-  let foundPrompt = false;
-  let pending = Buffer.alloc(0);
-  let resolvePrompt: (() => void) | undefined;
-  let rejectPrompt: ((error: Error) => void) | undefined;
-  const prompt = new Promise<void>((resolve, reject) => {
-    resolvePrompt = resolve;
-    rejectPrompt = reject;
-  });
-  void prompt.catch(() => undefined);
-  const completed = (async () => {
-    try {
-      for await (const chunk of source) {
-        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-        if (!armed || foundPrompt) {
-          await destination(buffer);
-          continue;
-        }
-        pending = Buffer.concat([pending, buffer]);
-        const promptIndex = pending.indexOf(OPENVMM_REPL_PROMPT);
-        if (promptIndex >= 0) {
-          const before = pending.subarray(0, promptIndex);
-          const after = pending.subarray(promptIndex + OPENVMM_REPL_PROMPT.length);
-          pending = Buffer.alloc(0);
-          foundPrompt = true;
-          if (before.length > 0) await destination(before);
-          if (after.length > 0) await destination(after);
-          resolvePrompt?.();
-          continue;
-        }
-        const safeLength = Math.max(0, pending.length - OPENVMM_REPL_PROMPT.length + 1);
-        if (safeLength > 0) {
-          await destination(pending.subarray(0, safeLength));
-          pending = pending.subarray(safeLength);
-        }
-      }
-      if (pending.length > 0) await destination(pending);
-      if (armed && !foundPrompt) {
-        rejectPrompt?.(new Error('OpenVMM stdout closed before the REPL prompt'));
-      }
-    } catch (error) {
-      rejectPrompt?.(error instanceof Error ? error : new Error(String(error)));
-      throw error;
-    }
-  })();
-  return {
-    completed,
-    arm: () => {
-      if (armed) throw new Error('OpenVMM REPL prompt gate is already armed');
-      armed = true;
-    },
-    waitForPrompt: async (timeoutMs) => {
-      let timeout: NodeJS.Timeout | undefined;
-      try {
-        await Promise.race([
-          prompt,
-          new Promise<never>((_, reject) => {
-            timeout = setTimeout(
-              () => reject(new Error('Timed out waiting for the OpenVMM REPL prompt')),
-              timeoutMs,
-            );
-            timeout.unref?.();
-          }),
-        ]);
-      } finally {
-        if (timeout) clearTimeout(timeout);
-      }
-    },
-  };
-}
-
-function writeStream(stream: Writable, contents: Buffer): Promise<void> {
-  return new Promise((resolve, reject) => {
-    stream.write(contents, (error) => error ? reject(error) : resolve());
-  });
-}
-
-function endStream(stream: Writable, contents: Buffer): Promise<void> {
-  return new Promise((resolve, reject) => {
-    stream.end(contents, (error?: Error | null) => error ? reject(error) : resolve());
-  });
-}
-
-function buildOpenvmmSeccompFilter(allowCallerMount = false): Buffer {
-  const instructions: Array<readonly [number, number, number, number]> = [
-    [0x20, 0, 0, 4],
-    [0x15, 1, 0, AUDIT_ARCH_X86_64],
-    [0x06, 0, 0, SECCOMP_RET_KILL_PROCESS],
-    [0x20, 0, 0, 0],
-    [0x45, 0, 1, X32_SYSCALL_BIT],
-    [0x06, 0, 0, SECCOMP_RET_ERRNO_EPERM],
-  ];
-  const deniedSyscalls = allowCallerMount
-    ? DENIED_X86_64_SYSCALLS
-    : [...DENIED_X86_64_SYSCALLS, 122, 123];
-  for (const syscall of deniedSyscalls) {
-    instructions.push(
-      [0x15, 0, 1, syscall],
-      [0x06, 0, 0, SECCOMP_RET_ERRNO_EPERM],
-    );
-  }
-  instructions.push([0x06, 0, 0, SECCOMP_RET_ALLOW]);
-  const filter = Buffer.alloc(instructions.length * 8);
-  instructions.forEach(([code, jumpTrue, jumpFalse, value], index) => {
-    const offset = index * 8;
-    filter.writeUInt16LE(code, offset);
-    filter.writeUInt8(jumpTrue, offset + 2);
-    filter.writeUInt8(jumpFalse, offset + 3);
-    filter.writeUInt32LE(value, offset + 4);
-  });
-  return filter;
-}
-
-function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /** @internal Exposed only for focused policy and descriptor tests. */
