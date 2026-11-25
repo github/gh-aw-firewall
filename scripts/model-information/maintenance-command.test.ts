@@ -59,7 +59,7 @@ describe('unattended model maintenance command boundary', () => {
         require('./maintenance-command.cjs').runMaintenanceCommand(['refresh-import'], spawn);
       });
       expect(spawn).toHaveBeenCalledWith(process.execPath, [
-        path.join(workspace, 'scripts/model-information/maintain.cjs'), 'refresh-import',
+        maintain, 'refresh-import',
       ], { cwd: workspace, stdio: 'inherit' });
     } finally {
       if (previous === undefined) delete process.env.GITHUB_WORKSPACE;

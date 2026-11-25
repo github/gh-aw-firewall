@@ -12,7 +12,7 @@ const {
   projections,
 } = require('./maintain.cjs');
 const sources = require('./maintenance-sources.json');
-const { verifyProposal } = require('./verify-proposal.cjs');
+const { verifyProposal, writeTierSummary } = require('./verify-proposal.cjs');
 const { sourceFiles: copilotFiles, extractPricingTables } = require('./copilot-pricing.cjs');
 const root = path.resolve(__dirname, '../..');
 const fixtureDirectory = path.join(__dirname, 'fixtures');
@@ -160,9 +160,30 @@ describe('offline scheduled source maintenance', () => {
     expect(report.pendingCodingTierFacts).toEqual([{ lookupId: 'kimi-k3', field: 'releaseDate', before: null,
       after: '2026-11-01', evidence: [{ ...citation, source, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }] }]);
     expect(report.codingTierGaps).toEqual([]);
+    // An open maintenance branch can predate both the validator and its approved sources.
+    expect(fs.existsSync(path.join(cwd, 'scripts/model-information/maintain.cjs'))).toBe(false);
+    execFileSync(process.execPath, [path.join(__dirname, 'maintain.cjs'), 'report', evidence],
+      { cwd, env: { ...process.env, GITHUB_WORKSPACE: cwd }, stdio: 'pipe' });
+    expect(JSON.parse(fs.readFileSync(path.join(cwd, 'shared/model-information/maintenance-report.json'), 'utf8'))).toEqual(report);
     entry.evidence = [citation];
     install(receipt);
     expect(() => buildReport(cwd, evidence)).toThrow('preserve previously reviewed');
+  });
+
+  it('captures a reviewed announcement page itself as release-date evidence rather than trusting a link to it', async () => {
+    const source = sources.find((item: { kind: string }) => item.kind === 'announcement');
+    const passage = 'Fixture announcement on March 17, 2026: today we are introducing GPT-5.4 mini and nano.';
+    await captureSources(evidence, async (url: string) => source.urls.includes(url)
+      ? new Response(`<html><body>${passage}</body></html>`) : fakeFetch()(url));
+    const capture = loadCaptures(evidence).find((item: { id: string }) => item.id === source.id);
+    const receipt = { lookupId: 'gpt-5-4-mini', field: 'releaseDate', after: '2026-03-17',
+      source: source.id, url: capture.url, quote: passage };
+    const next = { entries: [{ lookupId: receipt.lookupId, releaseDate: receipt.after,
+      evidence: [{ url: capture.url, quote: passage }] }] };
+    expect(tiers.verifyChanges({ entries: [] }, next, [receipt], [capture])[0]).toMatchObject({
+      after: '2026-03-17', evidence: [{ url: source.urls[0], sha256: capture.sha256 }],
+    });
+    expect(tiers.verifyChanges.bind(null, { entries: [] }, next, [receipt], [])).toThrow('captured citation');
   });
 
   it('preserves an outstanding tier review and its original receipt across unrelated PR updates', () => {
@@ -1460,8 +1481,12 @@ describe('offline scheduled source maintenance', () => {
       expect(() => verifyProposal(cwd, artifact(), evidence, options())).toThrow('kimi-k3');
       write(artifact(), 'agent_output.json', json({ items: [{ type: 'report_incomplete',
         reason: 'No verified first-announcement date for kimi-k3' }] }));
-      expect(verifyProposal(cwd, artifact(), evidence, options())).toMatchObject({ changed: false,
+      const verified = verifyProposal(cwd, artifact(), evidence, options());
+      expect(verified).toMatchObject({ changed: false,
         codingTierGaps: [{ lookupId: 'kimi-k3', missing: ['releaseDate'] }] });
+      const summary = path.join(evidence, 'step-summary');
+      writeTierSummary(summary, verified.codingTierGaps);
+      expect(fs.readFileSync(summary, 'utf8')).toContain('kimi-k3: releaseDate');
       expect(git(cwd, 'status', '--porcelain')).toBe('');
     });
 

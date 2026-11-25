@@ -102,11 +102,18 @@ function verifyProposal(cwd, artifact, evidence, options) {
       fs.mkdirSync(path.dirname(destination), { recursive: true });
       fs.writeFileSync(destination, git(cwd, 'show', `${head}:${file}`));
     }
-    return { head, changed: Boolean(expected) };
+    return { head, changed: true, codingTierGaps };
   } finally {
     if (added) git(cwd, 'worktree', 'remove', '--force', candidate);
     fs.rmSync(candidate, { recursive: true, force: true });
   }
+}
+
+function writeTierSummary(filename, gaps) {
+  if (!gaps.length) return;
+  const lines = gaps.map(gap => `${gap.lookupId || gap.displayName || gap.source}: ${gap.missing.join(', ')}`);
+  const text = lines.join('\n').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  fs.appendFileSync(filename, `\n### Missing coding tier catalogue facts\n\n<pre>${text}</pre>\n`);
 }
 
 if (require.main === module) {
@@ -118,6 +125,7 @@ if (require.main === module) {
       captureSha256: process.env.AWF_MODEL_CAPTURE_SHA256,
       selectedNumber: Number(process.env.AWF_MODEL_SELECTED_PR),
     });
+    if (process.env.GITHUB_STEP_SUMMARY) writeTierSummary(process.env.GITHUB_STEP_SUMMARY, result.codingTierGaps);
     console.log(json(result));
   } catch (error) {
     console.error(error.message);
@@ -125,4 +133,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { verifyProposal };
+module.exports = { verifyProposal, writeTierSummary };

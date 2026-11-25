@@ -805,19 +805,19 @@ function verifyCommittedTree(cwd) {
 }
 
 async function main() {
-  const [command, directory = '/tmp/gh-aw/model-maintenance', targetRoot = root] = process.argv.slice(2);
+  const [command, directory = '/tmp/gh-aw/model-maintenance', targetRoot = process.env.GITHUB_WORKSPACE || root] = process.argv.slice(2);
   if (command === 'capture') {
     const captures = await captureSources(directory);
     console.log(json(captures));
     if (captures.some(item => item.status !== 'ok')) throw new Error('Source retrieval failed; see captures.json for affected sources');
   } else if (command === 'refresh-import') {
-    console.log(refreshImport(root, directory) ? 'Import source changed; regenerate before review' : 'Import facts unchanged');
+    console.log(refreshImport(targetRoot, directory) ? 'Import source changed; regenerate before review' : 'Import facts unchanged');
   } else if (command === 'refresh-copilot-pricing') {
-    console.log(json(proposeCopilotPricing(root, directory)));
+    console.log(json(proposeCopilotPricing(targetRoot, directory)));
   } else if (command === 'report') {
-    const report = buildReport(root, directory);
-    if (report) fs.writeFileSync(path.join(root, reportFile), json(report));
-    console.log(json({ codingTierGaps: report?.codingTierGaps ?? codingTiers.coverage(root, directory, documentText) }));
+    const report = buildReport(targetRoot, directory);
+    if (report) fs.writeFileSync(path.join(targetRoot, reportFile), json(report));
+    console.log(json({ codingTierGaps: report?.codingTierGaps ?? codingTiers.coverage(targetRoot, directory, documentText) }));
     console.log(report ? `Review required: ${reportFile}` : 'No material source changes');
   } else if (command === 'verify' || command === 'verify-committed') {
     const cwd = path.resolve(targetRoot);

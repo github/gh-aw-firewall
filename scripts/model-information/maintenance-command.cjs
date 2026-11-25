@@ -5,7 +5,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const root = process.env.GITHUB_WORKSPACE || path.resolve(__dirname, '../..');
-const maintain = path.join(root, 'scripts/model-information/maintain.cjs');
+const maintain = path.join(__dirname, 'maintain.cjs');
 const commands = {
   'refresh-import': [process.execPath, maintain, 'refresh-import'],
   'refresh-copilot-pricing': [process.execPath, maintain, 'refresh-copilot-pricing'],

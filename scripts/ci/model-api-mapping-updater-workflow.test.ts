@@ -90,8 +90,9 @@ describe('scheduled canonical model source maintenance', () => {
     expect(prepare).toContain('git checkout -B "$SELECTED_PR_HEAD" "refs/remotes/origin/$SELECTED_PR_HEAD"');
     expect(prepare).toContain('= "$SELECTED_PR_BASE"');
     expect(prepare).toContain('git rev-parse HEAD');
-    const stageCommand = 'install -m 0555 scripts/model-information/maintenance-command.cjs /tmp/gh-aw/model-maintenance-command.cjs';
+    const stageCommand = 'git archive "$REVIEW_BASE" scripts/model-information shared/model-information containers/api-proxy/catalogue-contract';
     expect(prepare).toContain(stageCommand);
+    expect(prepare).toContain('ln -s "$tools/scripts/model-information/maintenance-command.cjs" /tmp/gh-aw/model-maintenance-command.cjs');
     expect(prepare.indexOf(stageCommand)).toBeLessThan(prepare.indexOf('git checkout -B'));
     expect(steps.some(step => step.run?.includes('maintain.cjs capture'))).toBe(false);
     expect(frontmatter['post-steps']).toBeUndefined();

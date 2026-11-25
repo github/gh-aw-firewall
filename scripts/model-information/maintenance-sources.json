@@ -36,6 +36,12 @@
     "kind": "documentation"
   },
   {
+    "id": "openai-mini-nano-announcement",
+    "scope": "Official first announcement and positioning of GPT-5.4 mini and nano; no provider eligibility inference",
+    "urls": ["https://openai.com/index/introducing-gpt-5-4-mini-and-nano/"],
+    "kind": "announcement"
+  },
+  {
     "id": "openai-pricing",
     "scope": "OpenAI native API published tariffs only, not Copilot or OpenRouter billing",
     "urls": ["https://developers.openai.com/api/docs/pricing"],

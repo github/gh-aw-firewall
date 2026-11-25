@@ -182,7 +182,11 @@ steps:
       set -euo pipefail
       test "$GITHUB_REF" = refs/heads/main
       mkdir -p /tmp/gh-aw/model-maintenance
-      install -m 0555 scripts/model-information/maintenance-command.cjs /tmp/gh-aw/model-maintenance-command.cjs
+      tools=/tmp/gh-aw/model-maintenance-tools
+      mkdir -p "$tools"
+      git archive "$REVIEW_BASE" scripts/model-information shared/model-information containers/api-proxy/catalogue-contract | tar -x -C "$tools"
+      ln -s "$GITHUB_WORKSPACE/node_modules" "$tools/node_modules"
+      ln -s "$tools/scripts/model-information/maintenance-command.cjs" /tmp/gh-aw/model-maintenance-command.cjs
       printf '%s\n' "$REVIEW_BASE" > /tmp/gh-aw/model-maintenance/review-base-revision
       jq -n --argjson number "$SELECTED_PR_NUMBER" --arg head "$SELECTED_PR_HEAD" \
         'if $number == 0 then null else {number: $number, headRefName: $head} end' \
@@ -314,7 +318,9 @@ vendor line positioning or `copilot-model-comparison` for tiers, never benchmark
 scores or prices. Preview announcements count; a capture date or later rollout
 is not a launch date. Preserve existing facts and their citations. Change a tier
 only for a documented repositioning, covering the entire affected product line
-and calling it out for review. In the tier file's proposal receipt, give each
+and calling it out for review. Approved announcement captures may establish an
+earlier date than the latest Copilot rollout. A link to an uncaptured page is
+not evidence. In the tier file's proposal receipt, give each
 changed fact an `evidence` item with its `lookupId`, `field` (`codingTier` or
 `releaseDate`), `after` value, captured `source` ID, `url` and verbatim `quote`.
 The URL and quote must also appear in that model's entry. The human reviewer

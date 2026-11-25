@@ -90,8 +90,8 @@ function verifyChanges(before, after, receipts, captures) {
   }
   for (const receipt of receipts) {
     const capture = captures.find(item => item.id === receipt.source);
-    if (!delta.some(change => sameField(change, receipt)) || !evidenceSources.has(receipt.source) ||
-        !capture || receipt.url !== capture.url ||
+    if (!delta.some(change => sameField(change, receipt)) || !capture ||
+        (!evidenceSources.has(receipt.source) && capture.kind !== 'announcement') || receipt.url !== capture.url ||
         !next.get(receipt.lookupId)?.evidence.some(citation => sameQuote(citation, receipt))) {
       throw new Error('Coding tier receipt must bind a changed model field and value to its captured citation');
     }
