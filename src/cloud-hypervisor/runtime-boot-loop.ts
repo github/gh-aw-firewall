@@ -234,7 +234,7 @@ async function revalidateTopology(
 async function startVmm(
   context: BootContext,
   manager: CloudHypervisorManagerAdapter,
-  { infrastructure }: BootInfrastructure,
+  discovered: BootInfrastructure,
   { exports }: ReturnType<typeof planCloudHypervisorFilesystemWriteEnforcement>,
 ): Promise<Record<string, string>> {
   context.stage = 'vmm-configuration';
@@ -256,12 +256,14 @@ async function startVmm(
       'Cloud Hypervisor manager did not expose the configured guest network plan',
     );
   }
-  return buildCloudHypervisorGuestEnvironment(
+  const environment = buildCloudHypervisorGuestEnvironment(
     context.options.config,
-    infrastructure,
+    discovered.infrastructure,
     guestIp,
     exports,
   );
+  await bootGuest(context, manager, environment, discovered);
+  return environment;
 }
 
 async function bootGuest(
@@ -352,7 +354,6 @@ async function runBootAttempts(
     publishManager(manager);
     try {
       const environment = await startVmm(context, manager, discovered, filesystem);
-      await bootGuest(context, manager, environment, discovered);
       return {
         manager,
         environment,
