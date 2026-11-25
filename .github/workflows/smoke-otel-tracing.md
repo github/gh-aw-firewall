@@ -111,12 +111,12 @@ steps:
     run: |
       cd containers/api-proxy
       node -e "
-        // Verify token-tracker-http.js has onUsage callback support (OTEL hook point)
-        const src = require('fs').readFileSync('./token-tracker-http.js', 'utf8');
+        // Verify token-tracker-http-finalize.js has onUsage callback support (OTEL hook point)
+        const src = require('fs').readFileSync('./token-tracker-http-finalize.js', 'utf8');
         if (src.includes('onUsage')) {
-          console.log('✅ token-tracker-http.js has onUsage callback (OTEL integration point)');
+          console.log('✅ token-tracker-http-finalize.js has onUsage callback (OTEL integration point)');
         } else {
-          console.log('❌ token-tracker-http.js missing onUsage callback');
+          console.log('❌ token-tracker-http-finalize.js missing onUsage callback');
           process.exit(1);
         }
       "
@@ -199,7 +199,7 @@ api-proxy container.
 ### Scenario 4: Token Tracker Integration
 
 Check the output from "Validate token-tracker OTEL integration" step. Confirm the
-`onUsage` callback exists in `token-tracker-http.js` as the OTEL hook point.
+`onUsage` callback exists in `token-tracker-http-finalize.js` as the OTEL hook point.
 
 ### Scenario 5: OTEL Diagnostics
 

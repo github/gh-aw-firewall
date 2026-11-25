@@ -5,7 +5,7 @@ import {
   resolveCopilotBrokerRuntime, resolveCopilotBrokerUpstreams,
 } from './copilot-token-broker';
 import { OIDC_AUTH_ENV_VARS } from './api-proxy-env-constants';
-import { buildApiProxyBaseEnv } from './services/api-proxy-env-config';
+import { buildApiProxyBaseEnv, buildProviderTargetEnv } from './services/api-proxy-env-config';
 import { buildAgentEnvironment } from './services/agent-environment/environment-builder';
 import { buildCopilotCredentialEnv } from './services/credentials/copilot-credential-env';
 import { generateSquidConfig, generatePolicyManifest } from './squid-config';
@@ -88,6 +88,14 @@ it('preserves exact runtime URL and immutable host bootstrap/context', () => {
   process.env.GH_AW_TOKEN_BROKER_URL = 'https://changed.example.com';
   expect(buildApiProxyBaseEnv(config, network)).toEqual(first);
   expect(Object.isFrozen(resolveCopilotBrokerRuntime(config)?.environment)).toBe(true);
+});
+
+it('defaults the broker target without adding private bootstrap values to target routing', () => {
+  const targets = buildProviderTargetEnv(makeConfig());
+  expect(targets.COPILOT_API_TARGET).toBe('api.githubcopilot.com');
+  for (const name of [...COPILOT_BROKER_PRIVATE_ENV, ...COPILOT_BROKER_CONTEXT_ENV]) {
+    expect(targets[name]).toBeUndefined();
+  }
 });
 
 it.each(Object.keys(runtime))('requires host runtime %s even with explicit sandbox env', name => {

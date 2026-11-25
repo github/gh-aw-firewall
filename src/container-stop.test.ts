@@ -82,6 +82,86 @@ describe('stopContainers', () => {
   });
 });
 
+describe('stopContainers with topology peers', () => {
+  const { getDir } = useTempDir();
+  const options = { networkIsolation: true, topologyAttach: ['awmg-mcpg', 'difc-proxy'] };
+  const ok = { stdout: '', stderr: '', exitCode: 0 };
+  const commands = () => mockExecaFn.mock.calls.map(([, args]) => args);
+
+  beforeEach(() => {
+    mockExecaFn.mockReset();
+    mockExecaFn.mockResolvedValue(ok as any);
+  });
+  afterEach(() => mockExecaFn.mockReset());
+
+  it('disconnects peers before compose down and reclaims an empty leftover network afterwards', async () => {
+    mockExecaFn.mockImplementation((_command: string, args: string[]) =>
+      Promise.resolve({ ...ok, stdout: args[1] === 'inspect' ? '0\n' : '' }));
+
+    await stopContainers(getDir(), false, options);
+
+    expect(commands().slice(1)).toEqual([
+      ['network', 'disconnect', '-f', 'awf-net', 'awmg-mcpg'],
+      ['network', 'disconnect', '-f', 'awf-net', 'difc-proxy'],
+      ['compose', 'down', '-v', '-t', '1'],
+      ['network', 'inspect', 'awf-net', '--format', '{{len .Containers}}'],
+      ['network', 'rm', 'awf-net'],
+    ]);
+  });
+
+  it('continues teardown after a missing peer and leaves unrelated endpoints attached', async () => {
+    mockExecaFn.mockImplementation((_command: string, args: string[]) => {
+      if (args[1] === 'disconnect' && args[4] === 'awmg-mcpg') {
+        return Promise.resolve({ ...ok, exitCode: 1, stderr: 'No such container: awmg-mcpg' });
+      }
+      return Promise.resolve({ ...ok, stdout: args[1] === 'inspect' ? '1' : '' });
+    });
+
+    await expect(stopContainers(getDir(), false, options)).resolves.toBeUndefined();
+
+    expect(commands().slice(1)).toEqual([
+      ['network', 'disconnect', '-f', 'awf-net', 'awmg-mcpg'],
+      ['network', 'disconnect', '-f', 'awf-net', 'difc-proxy'],
+      ['compose', 'down', '-v', '-t', '1'],
+      ['network', 'inspect', 'awf-net', '--format', '{{len .Containers}}'],
+    ]);
+  });
+
+  it('attempts empty-network cleanup even if compose down fails and preserves its error', async () => {
+    const composeError = new Error('compose down failed');
+    mockExecaFn.mockImplementation((_command: string, args: string[]) => {
+      if (args[0] === 'compose') return Promise.reject(composeError);
+      if (args[1] === 'rm') return Promise.reject(new Error('network removal failed'));
+      return Promise.resolve({ ...ok, stdout: args[1] === 'inspect' ? '0' : '' });
+    });
+
+    await expect(stopContainers(getDir(), false, options)).rejects.toBe(composeError);
+
+    expect(commands()).toContainEqual(['network', 'rm', 'awf-net']);
+  });
+
+  it('checks for an empty network even without topology peers', async () => {
+    await stopContainers(getDir(), false, { networkIsolation: true });
+
+    expect(commands().slice(1)).toEqual([
+      ['compose', 'down', '-v', '-t', '1'],
+      ['network', 'inspect', 'awf-net', '--format', '{{len .Containers}}'],
+    ]);
+  });
+
+  it('preserves peers and the network when containers are kept', async () => {
+    await stopContainers(getDir(), true, options);
+
+    expect(mockExecaFn).not.toHaveBeenCalled();
+  });
+
+  it('does not alter topology peers or the external network in legacy mode', async () => {
+    await stopContainers(getDir(), false, { ...options, networkIsolation: false });
+
+    expect(commands().slice(1)).toEqual([['compose', 'down', '-v', '-t', '1']]);
+  });
+});
+
 describe('stopContainers with model routing', () => {
   const { getDir } = useTempDir();
   const linuxIt = process.platform === 'linux' ? it : it.skip;
