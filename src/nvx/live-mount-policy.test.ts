@@ -36,6 +36,44 @@ async function fixture(): Promise<{
   };
 }
 
+function lstatWithInvalidType(
+  targetPath: string,
+  when: () => boolean = () => true,
+): NvxLiveMountPolicyDependencies['lstat'] {
+  return async (candidate) => {
+    const stats = await fs.lstat(candidate);
+    if (candidate !== targetPath || !when()) return stats;
+    return {
+      dev: stats.dev,
+      ino: stats.ino,
+      uid: stats.uid,
+      gid: stats.gid,
+      nlink: stats.nlink,
+      isDirectory: () => false,
+      isFile: () => false,
+      isSymbolicLink: () => false,
+    };
+  };
+}
+
+async function withSensitivePolicyFixture(
+  run: (context: {
+    value: Awaited<ReturnType<typeof fixture>>;
+    source: string;
+    mcpLogs: string;
+  }) => Promise<void>,
+): Promise<void> {
+  const value = await fixture();
+  const source = path.join(value.root, 'gh-aw');
+  const mcpLogs = path.join(source, 'mcp-logs');
+  try {
+    await fs.mkdir(source);
+    await run({ value, source, mcpLogs });
+  } finally {
+    await fs.rm(value.root, { recursive: true, force: true });
+  }
+}
+
 describe('planNvxLiveMounts', () => {
   it('plans a live mount with the production filesystem dependencies', async () => {
     const root = await fs.mkdtemp(path.join(process.cwd(), '.awf-nvx-policy-defaults-'));
@@ -159,20 +197,7 @@ describe('planNvxLiveMounts', () => {
       await expect(planNvxLiveMounts([value.workspace], undefined, {
         ...value.dependencies,
         homePath: value.workspace.source,
-        lstat: async (candidate) => {
-          const stats = await fs.lstat(candidate);
-          if (candidate !== npmrc) return stats;
-          return {
-            dev: stats.dev,
-            ino: stats.ino,
-            uid: stats.uid,
-            gid: stats.gid,
-            nlink: stats.nlink,
-            isDirectory: () => false,
-            isFile: () => false,
-            isSymbolicLink: () => false,
-          };
-        },
+        lstat: lstatWithInvalidType(npmrc),
       })).rejects.toThrow(/must be a regular file or directory/);
     } finally {
       await fs.rm(value.root, { recursive: true, force: true });
@@ -275,11 +300,7 @@ describe('planNvxLiveMounts', () => {
   });
 
   it('rejects a noncanonical sensitive policy directory', async () => {
-    const value = await fixture();
-    const source = path.join(value.root, 'gh-aw');
-    const mcpLogs = path.join(source, 'mcp-logs');
-    await fs.mkdir(source);
-    try {
+    await withSensitivePolicyFixture(async ({ value, source, mcpLogs }) => {
       await expect(planNvxLiveMounts([
         value.workspace,
         {
@@ -294,17 +315,11 @@ describe('planNvxLiveMounts', () => {
           candidate === mcpLogs ? `${candidate}-alias` : fs.realpath(candidate)
         ),
       })).rejects.toThrow(/must be canonical/);
-    } finally {
-      await fs.rm(value.root, { recursive: true, force: true });
-    }
+    });
   });
 
   it('propagates sensitive-path filesystem errors', async () => {
-    const value = await fixture();
-    const source = path.join(value.root, 'gh-aw');
-    const mcpLogs = path.join(source, 'mcp-logs');
-    await fs.mkdir(source);
-    try {
+    await withSensitivePolicyFixture(async ({ value, source, mcpLogs }) => {
       await expect(planNvxLiveMounts([
         value.workspace,
         {
@@ -324,18 +339,12 @@ describe('planNvxLiveMounts', () => {
           return fs.lstat(candidate);
         },
       })).rejects.toMatchObject({ code: 'EACCES' });
-    } finally {
-      await fs.rm(value.root, { recursive: true, force: true });
-    }
+    });
   });
 
   it('rejects a sensitive policy entry that is neither a file nor directory', async () => {
-    const value = await fixture();
-    const source = path.join(value.root, 'gh-aw');
-    const mcpLogs = path.join(source, 'mcp-logs');
-    let mcpLogsStats = 0;
-    await fs.mkdir(source);
-    try {
+    await withSensitivePolicyFixture(async ({ value, source, mcpLogs }) => {
+      let mcpLogsStats = 0;
       await expect(planNvxLiveMounts([
         value.workspace,
         {
@@ -346,24 +355,10 @@ describe('planNvxLiveMounts', () => {
         },
       ], undefined, {
         ...value.dependencies,
-        lstat: async (candidate) => {
-          const stats = await fs.lstat(candidate);
-          if (candidate !== mcpLogs || ++mcpLogsStats < 3) return stats;
-          return {
-            dev: stats.dev,
-            ino: stats.ino,
-            uid: stats.uid,
-            gid: stats.gid,
-            nlink: stats.nlink,
-            isDirectory: () => false,
-            isFile: () => false,
-            isSymbolicLink: () => false,
-          };
-        },
+        lstat: lstatWithInvalidType(mcpLogs, () => ++mcpLogsStats >= 3),
       })).rejects.toThrow(/must be a regular file or directory/);
-    } finally {
-      await fs.rm(value.root, { recursive: true, force: true });
-    }
+      expect(mcpLogsStats).toBe(3);
+    });
   });
 
   it('rejects a writable path that overlaps a sensitive read denial', async () => {
