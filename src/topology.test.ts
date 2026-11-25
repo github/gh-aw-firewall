@@ -7,6 +7,8 @@ import {
   TOPOLOGY_NETWORK_NAME,
   assertTopologySupported,
   connectTopologyContainers,
+  disconnectTopologyContainers,
+  removeEmptyTopologyNetwork,
   getTopologyContainerIps,
   patchComposeWithTopologyHosts,
 } from './topology';
@@ -151,6 +153,108 @@ describe('topology', () => {
       await expect(
         connectTopologyContainers(TOPOLOGY_NETWORK_NAME, ['ghost']),
       ).rejects.toThrow(/exited with code 1/);
+    });
+  });
+
+  describe('disconnectTopologyContainers', () => {
+    const log = { info: jest.fn(), warn: jest.fn() };
+
+    it('force-disconnects each configured peer without removing containers', async () => {
+      mockedExeca.mockResolvedValue({ exitCode: 0 } as any);
+
+      await disconnectTopologyContainers('awf-net', ['awmg-mcpg', 'difc-proxy'], log);
+
+      expect(mockedExeca.mock.calls.map(([, args]) => args)).toEqual([
+        ['network', 'disconnect', '-f', 'awf-net', 'awmg-mcpg'],
+        ['network', 'disconnect', '-f', 'awf-net', 'difc-proxy'],
+      ]);
+      expect(mockedExeca).toHaveBeenCalledWith(
+        'docker', expect.any(Array), expect.objectContaining({ env: expect.any(Object), reject: false }),
+      );
+    });
+
+    it.each([
+      'No such container: missing',
+      'container missing is not connected to network awf-net',
+      'network awf-net not found',
+    ])('continues past a failed disconnect: %s', async stderr => {
+      mockedExeca
+        .mockResolvedValueOnce({ exitCode: 1, stderr } as any)
+        .mockResolvedValueOnce({ exitCode: 0 } as any);
+
+      await expect(disconnectTopologyContainers('awf-net', ['missing', 'awmg-mcpg'], log))
+        .resolves.toBeUndefined();
+
+      expect(mockedExeca).toHaveBeenCalledTimes(2);
+    });
+
+    it('continues past a thrown error', async () => {
+      mockedExeca
+        .mockRejectedValueOnce(new Error('spawn docker ENOENT'))
+        .mockResolvedValueOnce({ exitCode: 0 } as any);
+
+      await expect(disconnectTopologyContainers('awf-net', ['missing', 'awmg-mcpg'], log))
+        .resolves.toBeUndefined();
+
+      expect(mockedExeca).toHaveBeenCalledTimes(2);
+      expect(log.warn).toHaveBeenCalled();
+    });
+
+    it('does nothing without peers', async () => {
+      await disconnectTopologyContainers('awf-net', [], log);
+
+      expect(mockedExeca).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('removeEmptyTopologyNetwork', () => {
+    const log = { info: jest.fn(), warn: jest.fn() };
+
+    it('removes a network only after verifying that it has no endpoints', async () => {
+      mockedExeca
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '0\n' } as any)
+        .mockResolvedValueOnce({ exitCode: 0 } as any);
+
+      await removeEmptyTopologyNetwork('awf-net', log);
+
+      expect(mockedExeca.mock.calls.map(([, args]) => args)).toEqual([
+        ['network', 'inspect', 'awf-net', '--format', '{{len .Containers}}'],
+        ['network', 'rm', 'awf-net'],
+      ]);
+    });
+
+    it.each([
+      [0, '1'],
+      [0, ''],
+      [0, 'invalid'],
+      [1, '0'],
+    ])('does not remove an occupied, unknown or missing network (%s, %s)', async (exitCode, stdout) => {
+      mockedExeca.mockResolvedValueOnce({ exitCode, stdout } as any);
+
+      await removeEmptyTopologyNetwork('awf-net', log);
+
+      expect(mockedExeca).toHaveBeenCalledTimes(1);
+    });
+
+    it('tolerates inspection errors', async () => {
+      mockedExeca.mockRejectedValueOnce(new Error('daemon unavailable'));
+
+      await expect(removeEmptyTopologyNetwork('awf-net', log)).resolves.toBeUndefined();
+
+      expect(mockedExeca).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not force removal when an endpoint appears after inspection', async () => {
+      mockedExeca
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '0' } as any)
+        .mockResolvedValueOnce({ exitCode: 1, stderr: 'network has active endpoints' } as any);
+
+      await expect(removeEmptyTopologyNetwork('awf-net', log)).resolves.toBeUndefined();
+
+      expect(mockedExeca).toHaveBeenLastCalledWith(
+        'docker', ['network', 'rm', 'awf-net'], expect.objectContaining({ reject: false }),
+      );
+      expect(log.warn).toHaveBeenCalled();
     });
   });
 
