@@ -405,25 +405,26 @@ describe('Dangerous ports blocklist in generateSquidConfig', () => {
     }).toThrow('Port 3306 is blocked for security reasons');
   });
 
-  it('should accept safe ports not in blocklist', () => {
-    expect(() => {
-      generateSquidConfig({
-        domains: ['github.com'],
-        port: 3128,
-        enableHostAccess: true,
-        allowHostPorts: '3000,8080,9000',
-      });
-    }).not.toThrow();
+  it('should emit a Safe_ports ACL for each safe port not in blocklist', () => {
+    const config = generateSquidConfig({
+      domains: ['github.com'],
+      port: 3128,
+      enableHostAccess: true,
+      allowHostPorts: '3000,8080,9000',
+    });
+    expect(config).toContain('acl Safe_ports port 3000 ');
+    expect(config).toContain('acl Safe_ports port 8080 ');
+    expect(config).toContain('acl Safe_ports port 9000 ');
   });
 
-  it('should accept safe port range not overlapping with dangerous ports', () => {
-    expect(() => {
-      generateSquidConfig({
-        domains: ['github.com'],
-        port: 3128,
-        enableHostAccess: true,
-        allowHostPorts: '7000-7100',
-      });
-    }).not.toThrow();
+  it('should emit a Safe_ports range ACL for a safe port range not overlapping with dangerous ports', () => {
+    const config = generateSquidConfig({
+      domains: ['github.com'],
+      port: 3128,
+      enableHostAccess: true,
+      allowHostPorts: '7000-7100',
+    });
+    expect(config).toContain('acl Safe_ports port 7000-7100 ');
+    expect(config).not.toContain('acl Safe_ports port 7000 ');
   });
 });
