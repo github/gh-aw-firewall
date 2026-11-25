@@ -545,7 +545,11 @@ describe('maintained model compilation', () => {
     try {
       fs.cpSync(path.join(root, 'shared/model-information/sources'), temp, { recursive: true });
       const file = path.join(temp, 'coding-tiers.json');
-      const source = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const source = { schemaVersion: 1, provenance: { authority: 'maintained', source: 'offline test fixture',
+        at: '2026-11-23T00:00:00Z', confidence: 'verified' }, entries: [{
+        lookupId: 'gpt-5-3-codex', codingTier: 'standard', releaseDate: '2026-11-01',
+        evidence: [{ url: 'https://github.blog/changelog/', quote: 'Reviewed announcement in an offline compiler fixture.' }],
+      }] };
       mutate(source);
       fs.writeFileSync(file, JSON.stringify(source));
       expect(() => run('--check', `--source-dir=${temp}`)).toThrow(diagnostic);

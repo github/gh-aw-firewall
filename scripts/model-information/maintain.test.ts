@@ -24,7 +24,8 @@ const metadataFile = 'shared/model-information/imported/legacy-models-dev.metada
 const snapshotFile = 'shared/model-information/imported/legacy-models-dev.snapshot.v1.json';
 const targetFile = 'shared/model-information/sources/target.json';
 const tiers = require('./coding-tier-maintenance.cjs');
-const seedTiers = JSON.parse(fs.readFileSync(path.join(root, tiers.file), 'utf8'));
+const fixtureEvidence = [{ url: 'https://github.blog/changelog/', quote: 'Previously reviewed fixture evidence for the product line.' }];
+const undatedKimi = { lookupId: 'kimi-k3', codingTier: 'standard', evidence: fixtureEvidence };
 const quote = 'Exact model fixture supports low and high effort with a context limit of 128000 tokens.';
 const priced = (id = 'openai/fixture', prompt = '0.000001') => ({
   id, pricing: { prompt, completion: '0.000002' },
@@ -75,9 +76,10 @@ describe('offline scheduled source maintenance', () => {
     write(cwd, 'shared/model-information/sources/mapping.json', json({
       mapping: { providers: { openai: { models: [] }, anthropic: { models: [] } } },
     }));
-    write(cwd, tiers.file, json({ ...seedTiers, entries: seedTiers.entries.filter(
-      (entry: { lookupId: string }) => ['gpt-6-1-sol', 'gpt-6-1-terra', 'gemini-3-8-flash',
-        'gemini-4-argon', 'mai-code-1-1-flash'].includes(entry.lookupId)) }));
+    write(cwd, tiers.file, json({ schemaVersion: 1, provenance: { authority: 'maintained', source: 'offline fixture',
+      at: '2026-11-10T00:00:00Z', confidence: 'verified' }, entries: [
+      'gemini-3-8-flash', 'gemini-4-argon', 'gpt-6-1-sol', 'gpt-6-1-terra', 'mai-code-1-1-flash',
+    ].map(lookupId => ({ lookupId, codingTier: 'lightweight', releaseDate: '2026-11-01', evidence: fixtureEvidence })) }));
     git(cwd, 'init', '--quiet');
     git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'add', '.');
     git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'fixture');
@@ -128,9 +130,8 @@ describe('offline scheduled source maintenance', () => {
   });
 
   it('validates a field-specific receipt and preserves old citations when filling only an unknown date', async () => {
-    const kimi = seedTiers.entries.find((entry: { lookupId: string }) => entry.lookupId === 'kimi-k3');
     const current = JSON.parse(fs.readFileSync(path.join(cwd, tiers.file), 'utf8'));
-    current.entries.push(kimi);
+    current.entries.push(undatedKimi);
     current.entries.sort((a: { lookupId: string }, b: { lookupId: string }) => a.lookupId.localeCompare(b.lookupId));
     write(cwd, tiers.file, json(current));
     commitBaseline();
@@ -1474,7 +1475,7 @@ describe('offline scheduled source maintenance', () => {
 
     it('reports an undated model on a no-write run and rejects a clean no-op for that same baseline', () => {
       const current = JSON.parse(fs.readFileSync(path.join(cwd, tiers.file), 'utf8'));
-      current.entries.push(seedTiers.entries.find((entry: { lookupId: string }) => entry.lookupId === 'kimi-k3'));
+      current.entries.push(undatedKimi);
       write(cwd, tiers.file, json(current));
       commitBaseline();
       output('noop');

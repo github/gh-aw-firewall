@@ -90,6 +90,11 @@ jobs:
           if [ -n "$head" ]; then
             git fetch --no-tags origin "$head"
             base=$(git rev-parse FETCH_HEAD)
+            if ! git cat-file -e "$base:shared/model-information/sources/coding-tiers.json"; then
+              number=$(jq -r '.number' "$RUNNER_TEMP/existing-pr.json")
+              echo "Maintenance PR #$number predates the coding tier catalogue. Merge main into it or finish reviewing it before the next refresh. No PR was changed." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
           fi
           echo "base_revision=$base" >> "$GITHUB_OUTPUT"
           echo "review_base_revision=$review_base" >> "$GITHUB_OUTPUT"
