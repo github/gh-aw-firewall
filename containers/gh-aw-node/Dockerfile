@@ -6,7 +6,7 @@
 #
 # Security patches applied in this build:
 #
-#   libcrypto3/libssl3 >= 3.5.7: resolved by using node:26.11.1-alpine3.24
+#   libcrypto3/libssl3 >= 3.5.7: resolved by using node:26.13.1-alpine3.24
 #     and running `apk upgrade --no-cache` to pull in the latest Alpine 3.24
 #     security-patched builds of openssl.
 #
@@ -20,7 +20,7 @@
 #   curl >= 8.23.0-r0: Alpine 3.24's stable repository still ships curl
 #     8.22.0-r0, affected by CVE-2026-92392, so the fixed package is installed
 #     from edge.
-FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a
+FROM node:26.13.1-alpine3.24@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5
 
 ARG NPM_CONFIG_REGISTRY=https://packagefeedproxy.microsoft.io/npm/
 
@@ -46,7 +46,7 @@ RUN set -eux; \
              /usr/local/lib/node_modules/npm/bin/npx-cli.js; \
     ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm; \
     ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx; \
-    node --version | grep -qE '^v26\.11\.1' || (echo "ERROR: expected Node.js v26.11.1" && exit 1); \
+    node --version | grep -qE '^v26\.13\.1' || (echo "ERROR: expected Node.js v26.13.1" && exit 1); \
     npm --version | grep -qE '^12\.2\.1' || (echo "ERROR: expected npm 12.2.1" && exit 1); \
     npm_dir=/usr/local/lib/node_modules/npm/node_modules; \
     curl -fsSL --retry 3 --retry-all-errors --retry-max-time 120 --connect-timeout 15 --max-time 60 https://packagefeedproxy.microsoft.io/npm/undici/-/undici-6.29.1.tgz -o /tmp/undici-6.29.1.tgz; \
