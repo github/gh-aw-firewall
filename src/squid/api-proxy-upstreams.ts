@@ -5,7 +5,7 @@ import { validateApiProxyPort } from './validation';
 function destinationAcl(name: string, hostname: string, allowIp: boolean): string {
   const address = hostname.replace(/^\[|\]$/g, '');
   const family = isIP(address);
-  if (allowIp && family) return `acl ${name} dst ${address}/${family === 4 ? 32 : 128}`;
+  if (allowIp && family) return `acl ${name} dst -n ${address}/${family === 4 ? 32 : 128}`;
   if (family || hostname.length > 253 || !hostname.split('.').every(label =>
     label.length > 0 && label.length <= 63 && !/[^a-z\d-]/i.test(label) &&
     !label.startsWith('-') && !label.endsWith('-')

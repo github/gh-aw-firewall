@@ -200,7 +200,7 @@ describe('buildConfigSections', () => {
           both: ['192.0.2.10'],
         },
       });
-      expect(sslBumpSection).toContain('acl tls_sni_guard_allowed_ip dst 192.0.2.10');
+      expect(sslBumpSection).toContain('acl tls_sni_guard_allowed_ip dst -n 192.0.2.10');
       expect(sslBumpSection).not.toContain(
         'ssl::server_name --client-requested .192.0.2.10'
       );

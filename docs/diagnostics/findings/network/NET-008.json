@@ -17,8 +17,8 @@
   "status": "fixed",
   "rootCause": "A Squid dst ACL without -n resolves a hostname destination before matching it against an IP, so evaluating the exception ahead of the domain deny issued a DNS query for an unlisted name even though HTTP access was then refused. dst -n matches literal IPs only, so a hostname is never resolved and does not inherit the IP exception. Only the API-proxy and explicit-IP http_access exceptions were verified; other dst ACLs were not reviewed for this finding.",
   "probe": {
-    "command": "grep -nE '^acl (allow_api_proxy_ip|allow_ip_[0-9_]+) dst' path/to/squid.conf",
-    "expect": "Every matched ACL line carries -n (for example 'dst -n 172.30.0.30'). A line without -n indicates a build that predates the fix; no traffic is sent and no credentials or environment are read.",
+    "command": "grep -nE '^acl [A-Za-z0-9_]+ dst ' path/to/squid.conf",
+    "expect": "Every matched ACL line carries -n (for example 'dst -n 172.30.0.30'), including TLS SNI guard and broker access, splice and logging ACLs. A line without -n identifies an unscoped destination-IP ACL. This checks emitted configuration only, not runtime lookup behavior; no traffic is sent and no credentials or environment are read. Redact paths before sharing.",
     "readOnly": true,
     "secretSafe": true
   },

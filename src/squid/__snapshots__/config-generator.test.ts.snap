@@ -251,7 +251,7 @@ acl api_broker_log_0_destination dstdom_regex -i -n ^broker\\.example\\.com$
 acl api_broker_log_0_port port 443
 acl api_broker_log_0_private all-of api_broker_log_0_source api_broker_log_0_destination api_broker_log_0_port
 acl api_broker_log_1_source src 172.30.0.30/32
-acl api_broker_log_1_destination dst 192.0.2.2/32
+acl api_broker_log_1_destination dst -n 192.0.2.2/32
 acl api_broker_log_1_port port 8443
 acl api_broker_log_1_private all-of api_broker_log_1_source api_broker_log_1_destination api_broker_log_1_port
 access_log /var/log/squid/access.log firewall_detailed !healthcheck_localhost !sensitive_log_domains !api_broker_log_0_private !api_broker_log_1_private
@@ -326,7 +326,7 @@ acl tls_sni_guard_allowed ssl::server_name --client-requested .secure.example.co
 acl tls_sni_guard_allowed_regex ssl::server_name_regex --client-requested -i ^[a-zA-Z0-9.-]*\\.example\\.org$
 acl tls_sni_guard_blocked ssl::server_name --client-requested .blocked.example.com
 acl tls_sni_guard_blocked_regex ssl::server_name_regex --client-requested -i ^[a-zA-Z0-9.-]*\\.blocked\\.example\\.org$
-acl tls_sni_guard_allowed_ip dst 172.30.0.1
+acl tls_sni_guard_allowed_ip dst -n 172.30.0.1
 acl tls_sni_guard_api_proxy src 172.30.0.30/32
 acl tls_sni_guard_cli_proxy src 172.30.0.50/32
 
@@ -378,7 +378,7 @@ http_access deny api_upstream_source api_upstream_1_host api_upstream_1_port blo
 http_access deny api_upstream_source api_upstream_1_host api_upstream_1_port blocked_domains_regex
 http_access deny api_upstream_source api_upstream_1_host api_upstream_1_port dlp_blocked
 http_access allow api_upstream_source api_broker_connect api_upstream_1_host api_upstream_1_port !blocked_domains !blocked_domains_regex !dlp_blocked
-acl api_upstream_2_host dst 192.0.2.2/32
+acl api_upstream_2_host dst -n 192.0.2.2/32
 acl api_upstream_2_port port 8443
 http_access deny api_upstream_source api_upstream_2_host api_upstream_2_port blocked_domains
 http_access deny api_upstream_source api_upstream_2_host api_upstream_2_port blocked_domains_regex

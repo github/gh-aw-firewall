@@ -65,7 +65,7 @@ describe('generateSslBumpSection', () => {
       expect(blockedRule).toBeLessThan(allowedRule);
     });
 
-    it('splices explicitly allowlisted IP destinations before requiring SNI', () => {
+    it('splices literal allowlisted IP destinations without resolving hostnames before requiring SNI', () => {
       const result = generateTlsSniGuardSection({
         port: 3128,
         plainDomains: [],
@@ -73,9 +73,11 @@ describe('generateSslBumpSection', () => {
         allowedIps: ['192.0.2.10'],
       });
 
-      expect(result).toContain('acl tls_sni_guard_allowed_ip dst 192.0.2.10');
-      expect(result).toContain(
-        'ssl_bump splice tls_sni_guard_step1 tls_sni_guard_allowed_ip'
+      expect(result).toContain('acl tls_sni_guard_allowed_ip dst -n 192.0.2.10');
+      const spliceRule = 'ssl_bump splice tls_sni_guard_step1 tls_sni_guard_allowed_ip';
+      expect(result).toContain(spliceRule);
+      expect(result.indexOf(spliceRule)).toBeLessThan(
+        result.indexOf('ssl_bump peek tls_sni_guard_step1')
       );
     });
 

@@ -68,7 +68,7 @@ export function generateTlsSniGuardSection(options: TlsSniGuardOptions): string 
       : []),
   ];
   const allowedIpAcls = allowedIps.map(
-    ip => `acl tls_sni_guard_allowed_ip dst ${assertSafeForSquidConfig(ip)}`
+    ip => `acl tls_sni_guard_allowed_ip dst -n ${assertSafeForSquidConfig(ip)}`
   );
   const trustedSourceAcls = [
     ...(apiProxyIp
