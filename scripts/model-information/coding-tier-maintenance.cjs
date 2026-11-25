@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { normalizeId } = require('../../containers/api-proxy/catalogue-contract/identity');
 const { supportedModelTables, supportedModelNames } = require('./copilot-pricing.cjs');
+const approvedSources = require('./maintenance-sources.json');
 
 const file = 'shared/model-information/sources/coding-tiers.json';
 const fields = ['codingTier', 'releaseDate'];
@@ -11,6 +12,8 @@ const agentProtocols = new Set(['responses', 'chat_completions', 'messages']);
 const exactId = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/i;
 const evidenceSources = new Set(['copilot-models', 'copilot-model-comparison', 'copilot-changelog', 'copilot-pricing',
   'openai-models', 'anthropic-models', 'gemini-models', 'xai-models']);
+const tierSources = new Map(approvedSources.filter(source => evidenceSources.has(source.id) || source.kind === 'announcement')
+  .map(source => [source.id, source.urls]));
 const entriesById = doc => new Map(doc.entries.map(entry => [entry.lookupId, entry]));
 const lookup = id => normalizeId(id, { caseInsensitive: true, separators: true });
 const sameQuote = (a, b) => a.url === b.url && a.quote === b.quote;
@@ -58,7 +61,8 @@ function coverage(cwd, directory, text) {
     // A normalized display name may match a reviewed ID, but cannot establish a new wire ID.
     const id = lookup(name.replaceAll(' ', '-'));
     if (excluded.has(id)) continue;
-    if (!copilot.has(id)) gaps.push({ displayName: name, missing: ['confirmed routable ID'] });
+    if (entries.has(id)) ids.add(id);
+    else if (!copilot.has(id)) gaps.push({ displayName: name, missing: ['confirmed routable ID'] });
   }
   const { providers } = read('shared/model-information/sources/mapping.json').mapping;
   for (const provider of ['openai', 'anthropic']) {
@@ -90,16 +94,23 @@ function changes(before, after) {
   return result;
 }
 
+function preserveCitations(before, next) {
+  for (const entry of before.entries) {
+    const remaining = next.get(entry.lookupId)?.evidence;
+    if (!remaining || entry.evidence.some(prior => !remaining.some(item => sameQuote(item, prior)))) {
+      throw new Error(`${entry.lookupId}: preserve previously reviewed coding tier and release date evidence`);
+    }
+  }
+}
+
 function verifyChanges(before, after, receipts, captures) {
   const delta = changes(before, after);
   if (!delta.length) throw new Error('Coding tier source has no changed model facts');
   const old = entriesById(before);
   const next = entriesById(after);
+  preserveCitations(before, next);
   for (const entry of after.entries) {
     const prior = old.get(entry.lookupId)?.evidence || [];
-    if (prior.some(citation => !entry.evidence.some(item => sameQuote(item, citation)))) {
-      throw new Error(`${entry.lookupId}: preserve previously reviewed coding tier and release date evidence`);
-    }
     for (const citation of entry.evidence.filter(item => !prior.some(prev => sameQuote(item, prev)))) {
       if (!receipts.some(r => r.lookupId === entry.lookupId && sameQuote(r, citation))) {
         throw new Error(`${entry.lookupId}: added citation without a field receipt`);
@@ -109,7 +120,7 @@ function verifyChanges(before, after, receipts, captures) {
   for (const receipt of receipts) {
     const capture = captures.find(item => item.id === receipt.source);
     if (!delta.some(change => sameField(change, receipt)) || !capture ||
-        (!evidenceSources.has(receipt.source) && capture.kind !== 'announcement') || receipt.url !== capture.url ||
+        !tierSources.get(receipt.source)?.includes(receipt.url) || receipt.url !== capture.url ||
         !next.get(receipt.lookupId)?.evidence.some(citation => sameQuote(citation, receipt))) {
       throw new Error('Coding tier receipt must bind a changed model field and value to its captured citation');
     }
@@ -127,9 +138,17 @@ function verifyChanges(before, after, receipts, captures) {
 }
 
 function pendingChanges(before, after, current, previous) {
+  const next = entriesById(after);
+  preserveCitations(before, next);
   return changes(before, after).map(change => {
     const fact = [...current, ...previous].find(item => sameField(change, item));
-    if (!fact?.evidence?.length) throw new Error(`${change.lookupId}: missing evidence for pending ${change.field}`);
+    if (change.after === null || !Array.isArray(fact?.evidence) || !fact.evidence.length ||
+        fact.evidence.some(item => !item || !tierSources.get(item.source)?.includes(item.url) ||
+          typeof item.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(item.sha256) ||
+          typeof item.quote !== 'string' || item.quote.trim().length < 20 ||
+          !next.get(change.lookupId).evidence.some(citation => sameQuote(citation, item)))) {
+      throw new Error(`${change.lookupId}: missing evidence for pending ${change.field}`);
+    }
     return { ...change, evidence: fact.evidence,
       ...(change.field === 'codingTier' && change.before !== null ? { reviewRequired: 'coding-tier-reclassification' } : {}) };
   });

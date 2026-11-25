@@ -133,6 +133,7 @@ describe('offline scheduled source maintenance', () => {
     const seeded = JSON.parse(fs.readFileSync(path.join(cwd, tiers.file), 'utf8'));
     seeded.entries.push(undatedKimi, { ...undatedKimi, lookupId: 'native-survivor' });
     seeded.entries.push({ ...undatedKimi, lookupId: 'native-retired' });
+    delete seeded.entries.find((item: { lookupId: string }) => item.lookupId === 'gpt-6-1-sol').releaseDate;
     write(cwd, tiers.file, json(seeded));
     const record = (provider: string, lookupId: string, status: string, protocol: string, state = 'supported') => ({
       identity: { provider, lookupId }, modelType: 'completion', lifecycle: { status }, provenance: { authority: 'maintained' },
@@ -142,6 +143,7 @@ describe('offline scheduled source maintenance', () => {
       record('openai', 'exact-native', 'active', 'responses'),
       record('openai', 'only-decisions', 'active', 'decisions'),
       record('openai', 'native-retired', 'retired', 'responses'),
+      record('openai', 'gpt-6-1-sol', 'retired', 'responses'),
       record('openai', 'unconfirmed', 'active', 'responses', 'unknown'),
       record('openai', 'native-*', 'active', 'responses'),
       { ...record('openai', 'imported', 'active', 'responses'), provenance: { authority: 'imported' } },
@@ -151,6 +153,7 @@ describe('offline scheduled source maintenance', () => {
     ] }));
     expect(tiers.coverage(cwd, evidence, documentText)).toEqual([
       { lookupId: 'exact-native', missing: ['codingTier', 'releaseDate'] },
+      { lookupId: 'gpt-6-1-sol', missing: ['releaseDate'] },
       { lookupId: 'native-survivor', missing: ['releaseDate'] },
     ]);
   });
@@ -260,6 +263,26 @@ describe('offline scheduled source maintenance', () => {
     git(cwd, 'add', 'shared/model-information/maintenance-report.json');
     git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'legacy report');
     expect(() => checkPendingTierFacts(cwd, 'HEAD', reviewBase)).toThrow('missing evidence for pending codingTier');
+  });
+
+  it('rejects malformed or detached carried receipts and lost merge-base citations for unchanged facts', () => {
+    const source = 'copilot-changelog';
+    const url = sources.find((item: { id: string }) => item.id === source).urls[0];
+    const citation = { url, quote: 'An official announcement dated November 1 for the offline fixture.' };
+    const previous = { lookupId: 'kimi-k3', field: 'releaseDate', before: null, after: '2026-11-01',
+      evidence: [{ ...citation, source, sha256: 'a'.repeat(64) }] };
+    const base = { entries: [undatedKimi] };
+    const entry = { ...undatedKimi, releaseDate: previous.after, evidence: [...fixtureEvidence, citation] };
+    const selected = { entries: [entry] };
+    expect(tiers.pendingChanges(base, selected, [], [previous])).toEqual([previous]);
+    for (const evidence of [[{}], [{ ...previous.evidence[0], sha256: 'invalid' }],
+      [{ ...previous.evidence[0], source: 'openrouter-models' }]]) {
+      expect(() => tiers.pendingChanges(base, selected, [], [{ ...previous, evidence }])).toThrow('missing evidence');
+    }
+    expect(() => tiers.pendingChanges(base, { entries: [{ ...entry, evidence: fixtureEvidence }] }, [], [previous]))
+      .toThrow('missing evidence');
+    expect(() => tiers.pendingChanges(selected, { entries: [{ ...entry, evidence: [citation] }] }, [], []))
+      .toThrow('preserve previously reviewed');
   });
 
   it('reports failed or missing Decisions evidence as incomplete without changing existing facts', async () => {
