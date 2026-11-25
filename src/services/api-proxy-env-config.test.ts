@@ -150,6 +150,18 @@ describe('Databricks keyless routing and sidecar-only auth', () => {
     expect(buildProviderTargetEnv({ ...config, openaiApiTarget: workspace }).OPENAI_API_TARGET).toBe(workspace);
   });
 
+  it('validates trusted-service targets after applying their overrides', () => {
+    const trustedConfig = {
+      ...config,
+      openaiTrustedService: { endpoint: `https://${workspace}/gateway`, secretHeaders: {} },
+    };
+    expect(buildProviderTargetEnv(trustedConfig).OPENAI_API_TARGET).toBe(workspace);
+    expect(() => buildProviderTargetEnv({
+      ...trustedConfig,
+      openaiTrustedService: { endpoint: 'https://other.example.com/gateway', secretHeaders: {} },
+    })).toThrow(/Databricks.*target/);
+  });
+
   it.each([
     'COPILOT_PROVIDER_BASE_URL', 'COPILOT_API_TARGET', 'GEMINI_API_TARGET', 'VERTEX_API_TARGET',
   ])('rejects a conflicting selected target %s', (name) => {
