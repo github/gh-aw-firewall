@@ -4,6 +4,11 @@ import * as path from 'path';
 import execa from 'execa';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import type { WrapperConfig } from '../types';
+import { typedDynamicEnclavePolicyFixture } from './dynamic-policy.test-utils';
+import * as githubGateway from './github-gateway';
+import * as githubGatewayContract from './github-gateway-contract';
+import * as githubGatewayMcpClient from './github-gateway-mcp-client';
+import * as githubGatewayNetwork from './github-gateway-network';
 import {
   ENCLAVE_GITHUB_MCP_AGENT_ID_ENV,
   assertEnclaveGithubGatewayReady,
@@ -36,6 +41,16 @@ function enabledConfig(): WrapperConfig {
         github: { cli: 'issues-read-v1' },
       },
       repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+    }]),
+  } as WrapperConfig;
+}
+
+function dynamicConfig(): WrapperConfig {
+  return {
+    workDir: '/tmp/awf-test',
+    enclaves: normalizeEnclavesConfig([{
+      agent: { model: 'gpt-test' },
+      dynamic: typedDynamicEnclavePolicyFixture(),
     }]),
   } as WrapperConfig;
 }
@@ -132,6 +147,51 @@ function githubGatewayHandler(
 describe('direct enclave GitHub MCP handoff', () => {
   beforeEach(() => {
     mockExeca.mockReset();
+  });
+
+  it('preserves the facade exports and extracted function and helper identities', () => {
+    expect(Object.keys(githubGateway).sort()).toEqual([
+      'ENCLAVE_GITHUB_MCP_AGENT_ID_ENV',
+      'ENCLAVE_GITHUB_MCP_INTERNAL_URL',
+      'ENCLAVE_GITHUB_MCP_PORT',
+      'ENCLAVE_GITHUB_MCP_SERVER_NAME',
+      'assertEnclaveGithubGatewayReady',
+      'connectEnclaveGithubGateway',
+      'disconnectEnclaveGithubGateway',
+      'enclaveGithubGatewayTestHelpers',
+      'resolveEnclaveGithubGatewayContract',
+    ].sort());
+    expect(resolveEnclaveGithubGatewayContract)
+      .toBe(githubGatewayContract.resolveEnclaveGithubGatewayContract);
+    expect(githubGateway.ENCLAVE_GITHUB_MCP_INTERNAL_URL)
+      .toBe(githubGatewayContract.ENCLAVE_GITHUB_MCP_INTERNAL_URL);
+    expect(githubGateway.ENCLAVE_GITHUB_MCP_SERVER_NAME).toBe('github');
+    expect(githubGateway.ENCLAVE_GITHUB_MCP_PORT).toBe(8080);
+    expect(enclaveGithubGatewayTestHelpers).toEqual({
+      assertAgentNetworkMembership: githubGatewayNetwork.assertAgentNetworkMembership,
+      assertSharedGatewayAttachment: githubGatewayNetwork.assertSharedGatewayAttachment,
+      inspectSharedGateway: githubGatewayNetwork.inspectSharedGateway,
+      postJsonRpc: githubGatewayMcpClient.postJsonRpc,
+    });
+  });
+
+  it('uses the MCP transport independently of Docker inspections', async () => {
+    await withGatewayServer((request, response) => {
+      expect(request.headers.authorization).toBe(AGENT_ID);
+      expect(request.headers['mcp-session-id']).toBe('session-client');
+      response.setHeader('content-type', 'text/event-stream');
+      response.end('data: {"jsonrpc":"2.0","id":2,"result":{"tools":[]}}\n\ndata: [DONE]\n\n');
+    }, async endpoint => {
+      await expect(githubGatewayMcpClient.postJsonRpc(new URL(endpoint), AGENT_ID, {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/list',
+      }, 'session-client')).resolves.toEqual({
+        body: { jsonrpc: '2.0', id: 2, result: { tools: [] } },
+        sessionId: 'session-client',
+      });
+    });
+    expect(mockExeca).not.toHaveBeenCalled();
   });
 
   it('derives the GitHub route from the shared gateway contract', () => {
@@ -338,6 +398,53 @@ describe('direct enclave GitHub MCP handoff', () => {
     expect(methods).toEqual(['initialize', 'notifications/initialized', 'tools/list']);
   });
 
+  it.each([
+    ['static', enabledConfig],
+    ['dynamic', dynamicConfig],
+  ])('fails closed before MCP traffic for invalid %s topology or attachment', async (_mode, config) => {
+    for (const stage of ['membership', 'attachment']) {
+      mockExeca.mockReset();
+      if (stage === 'membership') {
+        mockExeca.mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: network(['awf-enclave-agent-api-proxy', 'awmg-mcpg', 'unexpected']),
+          stderr: '',
+        });
+      } else {
+        mockExeca
+          .mockResolvedValueOnce({ exitCode: 0, stdout: network(), stderr: '' })
+          .mockResolvedValueOnce({ exitCode: 0, stdout: attachedGateway([]), stderr: '' });
+      }
+      const handler = jest.fn(githubGatewayHandler());
+      await withGatewayServer(handler, async endpoint => {
+        await expect(assertEnclaveGithubGatewayReady(config(), {
+          ...handoff(),
+          AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: endpoint,
+        }, 2_000)).rejects.toThrow(/unexpected steady-state member|fixed enclave attachment/);
+      });
+      expect(handler).not.toHaveBeenCalled();
+      expect(mockExeca).toHaveBeenCalledTimes(stage === 'membership' ? 1 : 2);
+    }
+  });
+
+  it('proves dynamic-only readiness through topology without a static identity or MCP session', async () => {
+    const config = dynamicConfig();
+    const env = { ...handoff(), [ENCLAVE_GITHUB_MCP_AGENT_ID_ENV]: undefined };
+    const contract = resolveEnclaveGithubGatewayContract(config, env);
+    expect(contract.mode).toBe('dynamic');
+    expect(contract).not.toHaveProperty('agentId');
+    mockGatewayNetworkChecks();
+    const handler = jest.fn(githubGatewayHandler());
+    await withGatewayServer(handler, async endpoint => {
+      await expect(assertEnclaveGithubGatewayReady(config, {
+        ...env,
+        AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: endpoint,
+      }, 2_000)).resolves.toBeUndefined();
+    });
+    expect(handler).not.toHaveBeenCalled();
+    expect(mockExeca).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects an identity failure before listing tools', async () => {
     mockExeca
       .mockResolvedValueOnce({ exitCode: 0, stdout: network(), stderr: '' })
@@ -537,6 +644,29 @@ describe('direct enclave GitHub MCP handoff', () => {
     });
     expect(initializeAttempts).toBe(2);
     expect(mockExeca).toHaveBeenCalledTimes(4);
+  });
+
+  it('rechecks network membership before retrying MCP readiness', async () => {
+    mockGatewayNetworkChecks();
+    mockExeca.mockResolvedValueOnce({
+      exitCode: 0,
+      stdout: network(['awf-enclave-agent-api-proxy', 'awmg-mcpg', 'unexpected']),
+      stderr: '',
+    });
+    let initializeAttempts = 0;
+    await withGatewayServer(githubGatewayHandler(response => {
+      initializeAttempts += 1;
+      response.statusCode = 503;
+      response.end(JSON.stringify({ error: 'backend_unavailable' }));
+      return true;
+    }), async endpoint => {
+      await expect(assertEnclaveGithubGatewayReady(enabledConfig(), {
+        ...handoff(),
+        AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: endpoint,
+      }, 2_000)).rejects.toThrow(/unexpected steady-state member/);
+    });
+    expect(initializeAttempts).toBe(1);
+    expect(mockExeca).toHaveBeenCalledTimes(3);
   });
 
   it.each([
