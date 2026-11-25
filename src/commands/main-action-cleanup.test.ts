@@ -479,7 +479,11 @@ describeMainAction(({
       expect(mockedDockerManager.stopContainers).toHaveBeenCalledWith(
         MAIN_ACTION_STUB_CONFIG.workDir,
         MAIN_ACTION_STUB_CONFIG.keepContainers,
-        { routerLogsDir: undefined },
+        {
+          routerLogsDir: undefined,
+          networkIsolation: MAIN_ACTION_STUB_CONFIG.networkIsolation,
+          topologyAttach: MAIN_ACTION_STUB_CONFIG.topologyAttach,
+        },
       );
       expect(mockedHostIptables.cleanupHostIptables).toHaveBeenCalled();
       expect(mockedDockerManager.cleanup).toHaveBeenCalled();
@@ -502,7 +506,29 @@ describeMainAction(({
       await testHelpers.buildCleanupFn(config, () => true, () => true)();
 
       expect(mockedDockerManager.stopContainers).toHaveBeenCalledWith(
-        config.workDir, false, { routerLogsDir },
+        config.workDir, false, {
+          routerLogsDir,
+          networkIsolation: config.networkIsolation,
+          topologyAttach: config.topologyAttach,
+        },
+      );
+    });
+
+    it('passes topology peers to teardown after partial startup', async () => {
+      const config = {
+        ...MAIN_ACTION_STUB_CONFIG,
+        networkIsolation: true,
+        topologyAttach: ['awmg-mcpg', 'missing-peer'],
+      };
+
+      await buildCleanupFn(config, () => true, () => false)();
+
+      expect(mockedDockerManager.stopContainers).toHaveBeenCalledWith(
+        config.workDir, config.keepContainers, {
+          routerLogsDir: undefined,
+          networkIsolation: true,
+          topologyAttach: ['awmg-mcpg', 'missing-peer'],
+        },
       );
     });
 

@@ -13,6 +13,7 @@ const reportFile = 'shared/model-information/maintenance-report.json';
 const rawImport = 'containers/api-proxy/models.dev.catalog.json';
 const metadataFile = 'shared/model-information/imported/legacy-models-dev.metadata.json';
 const snapshotFile = 'shared/model-information/imported/legacy-models-dev.snapshot.v1.json';
+const importedMedianInterpretation = 'Imported-only OpenRouter backend medians are conditional estimates in USD per million tokens, not tariffs. When selected for unpriced requests, they affect accounting and budgets; family donors, other pricing sources and configured defaults can change or supersede these estimates.';
 
 function toSafePricingData(value, depth = 0) {
   const MAX_DEPTH = 6;
@@ -510,6 +511,41 @@ function backendScopedFallbackEffects(beforeBytes, afterBytes) {
   );
 }
 
+function importedMedianFacts(bytes) {
+  const exact = require('../../shared/model-information/exact-pricing');
+  const { medianPricingFact } = require('../../shared/model-information/pricing-resolution');
+  const donors = Object.values(backendScopedFallbackFacts(bytes)).map(({ pricing }) => {
+    const { modelId, ...rates } = pricing;
+    return { result: { source: 'models.dev', pricing: exact.rates(rates) } };
+  });
+  const fact = medianPricingFact(donors);
+  if (!fact) return null;
+  const decimal = value => {
+    if (value === null) return null;
+    let remainder = value.n % value.d;
+    let fraction = '';
+    while (remainder) {
+      remainder *= 10n;
+      fraction += remainder / value.d;
+      remainder %= value.d;
+    }
+    return `${value.n / value.d}${fraction ? `.${fraction}` : ''}`;
+  };
+  return {
+    pricing: Object.fromEntries(Object.keys(fact.default).map(field =>
+      [field, decimal(exact.rate(fact.default, field))])),
+    donorCount: fact.metadata.estimate.donorCount,
+    componentDonors: fact.metadata.estimate.componentDonors,
+  };
+}
+
+function importedMedianEffects(beforeBytes, afterBytes) {
+  return differences(
+    { importedOnlyBackendMedian: importedMedianFacts(beforeBytes) },
+    { importedOnlyBackendMedian: importedMedianFacts(afterBytes) },
+  );
+}
+
 function reviewReasons(changes) {
   const reasons = new Set(['human-review-required']);
   for (const change of changes) {
@@ -710,9 +746,11 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
     ...(pendingSourceChanges ? { pendingSourceChanges } : {}),
     runtimeConsumerEffects: runtimeConsumerEffects(cwd, base),
     backendScopedFallbackEffects: backendScopedFallbackConsumerEffects(cwd, base),
+    importedMedianEstimateEffects: importImpactEffects(cwd, base, importedMedianEffects),
     historicalLookupEffects: historicalLookupEffects(cwd, base),
     impactInterpretation: {
       backendScopedFallbackEffects: 'Imported OpenRouter rates affect budgets only when this fallback is selected, below valid provider, central-feed and operator pricing.',
+      importedMedianEstimateEffects: importedMedianInterpretation,
       historicalLookupEffects: 'Order-sensitive bare-slug lookup observations are reported separately and are not budget-active tariff changes.',
     },
     pathFormat: 'JSON Pointer fields; data/models arrays use @id=<escaped exact ID> selectors, not positional indices. Raw import diffs cover governed observations only; exact bytes are pinned separately.',
@@ -786,5 +824,6 @@ module.exports = {
   refreshCopilotPricing: proposeCopilotPricing,
   facts, differences, reviewReasons, inspectCatalogue, documentText, hash, json, allowed, projections,
   catalogueFacts, runtimeResolutionFacts, runtimeConsumerEffects, verifyCommittedTree, maintenanceTitle,
-  backendScopedFallbackFacts, backendScopedFallbackEffects,
+  backendScopedFallbackFacts, backendScopedFallbackEffects, importedMedianFacts, importedMedianEffects,
+  importedMedianInterpretation,
 };

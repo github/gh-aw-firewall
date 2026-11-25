@@ -1,129 +1,22 @@
 import { SQUID_PORT } from '../constants';
 import { isIP } from 'net';
-import { normalizeApiTargetScheme } from '../host-env';
 import { WrapperConfig } from '../types';
 import { getConfigEnvValue, getLowerCaseProcessEnvValue, pickEnvVars } from '../env-utils';
 import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV, VERTEX_ENV, FOUNDRY_ENV, OIDC_AUTH_ENV_VARS, OIDC_AUTH_ENV_MAPPING } from '../api-proxy-env-constants';
 import { NetworkConfig } from './squid-service';
 import { buildNoProxyEnv } from './no-proxy-utils';
-import { resolveOpenAiBaseUrlFromEnv } from '../openai-base-url-env';
 import { normalizeClaudeHostedWebPolicy } from '../claude-hosted-web-policy';
 import { normalizeCodexHostedWebPolicy } from '../codex-hosted-web-policy';
-import { resolveCopilotApiRouting } from '../copilot-api-resolver';
-import { resolveCopilotBrokerRuntime, validateCopilotBrokerTarget } from '../copilot-token-broker';
-import { trustedServiceTargets } from '../trusted-service';
+import { resolveCopilotBrokerRuntime } from '../copilot-token-broker';
 import { resolveDatabricksOidcHost, validateApiAuthScheme } from '../api-proxy-config-validation';
 import { readEnvFile } from '../github-env';
+import { buildProviderTargetEnv, resolveOpenAiEndpointOverride } from './api-proxy-target-env';
+
+export { buildProviderTargetEnv } from './api-proxy-target-env';
 
 const DEFAULT_API_PROXY_SHUTDOWN_TIMEOUT_MS = 8000;
 export const API_PROXY_UPSTREAM_CA_CERT_CONTAINER_PATH = '/usr/local/share/ca-certificates/awf-upstream-ca.crt';
 export const MODEL_ROUTING_NOT_STAGED_MESSAGE = 'Model routing was configured but the routing conversation was not staged';
-
-/**
- * Builds provider API target/basePath environment variables for the api-proxy container.
- * Centralizes the repetitive per-provider target/basePath conditional env generation.
- * @internal Exported for testing
- */
-export function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
-  const routingValue = (key: string): string | undefined =>
-    getConfigEnvValue(config, key) ?? (process.env[key]?.trim() || undefined);
-  const databricksHost = resolveDatabricksOidcHost(config);
-  const openAiEndpointOverride = resolveOpenAiEndpointOverride(config);
-  const secretOpenAiBaseUrl = resolveOpenAiBaseUrlFromEnv(config.openaiBaseUrlEnv);
-  let resolvedOpenAiTarget = secretOpenAiBaseUrl?.url ?? config.openaiApiTarget
-    ?? routingValue(OPENAI_ENV.TARGET) ?? openAiEndpointOverride;
-  let resolvedOpenAiBasePath = secretOpenAiBaseUrl
-    ? (secretOpenAiBaseUrl.basePath || undefined)
-    : config.openaiApiBasePath ?? routingValue(OPENAI_ENV.BASE_PATH);
-  const copilotProviderType = config.copilotProviderType || getConfigEnvValue(config, COPILOT_ENV.PROVIDER_TYPE);
-  const copilotProviderBaseUrl = config.copilotProviderBaseUrl || routingValue(COPILOT_ENV.PROVIDER_BASE_URL);
-  if (!databricksHost && copilotProviderType?.trim().toLowerCase() === 'azure') {
-    const azureRouting = resolveCopilotApiRouting({}, { COPILOT_PROVIDER_BASE_URL: copilotProviderBaseUrl });
-    resolvedOpenAiTarget ??= azureRouting.copilotApiTarget;
-    if (!secretOpenAiBaseUrl) resolvedOpenAiBasePath ||= azureRouting.copilotApiBasePath;
-  }
-  const copilotRouting = resolveCopilotApiRouting(
-    { copilotApiTarget: config.copilotApiTarget },
-    {
-      COPILOT_API_TARGET: routingValue(COPILOT_ENV.API_TARGET),
-      COPILOT_API_BASE_PATH: config.copilotApiBasePath ?? routingValue(COPILOT_ENV.API_BASE_PATH),
-      COPILOT_PROVIDER_BASE_URL: copilotProviderBaseUrl,
-    }
-  );
-  const copilotProviderApiKey = config.copilotProviderApiKey;
-
-  const env: Record<string, string> = {};
-
-  const providers: Array<{ target?: string; basePath?: string; envTarget: string; envBasePath: string; stripTarget?: boolean }> = [
-    { target: copilotRouting.copilotApiTarget, basePath: copilotRouting.copilotApiBasePath, envTarget: COPILOT_ENV.API_TARGET, envBasePath: COPILOT_ENV.API_BASE_PATH, stripTarget: true },
-    { target: resolvedOpenAiTarget, basePath: resolvedOpenAiBasePath, envTarget: OPENAI_ENV.TARGET, envBasePath: OPENAI_ENV.BASE_PATH, stripTarget: true },
-    { target: config.anthropicApiTarget, basePath: config.anthropicApiBasePath, envTarget: ANTHROPIC_ENV.TARGET, envBasePath: ANTHROPIC_ENV.BASE_PATH, stripTarget: true },
-    { target: config.geminiApiTarget, basePath: config.geminiApiBasePath, envTarget: GEMINI_ENV.TARGET, envBasePath: GEMINI_ENV.BASE_PATH, stripTarget: true },
-    { target: config.vertexApiTarget, basePath: config.vertexApiBasePath, envTarget: VERTEX_ENV.TARGET, envBasePath: VERTEX_ENV.BASE_PATH, stripTarget: true },
-    { envTarget: FOUNDRY_ENV.TARGET, envBasePath: FOUNDRY_ENV.BASE_PATH, stripTarget: true },
-  ];
-
-  for (const { target, basePath, envTarget, envBasePath, stripTarget } of providers) {
-    const effectiveTarget = target ?? routingValue(envTarget);
-    const effectiveBasePath = basePath ?? (secretOpenAiBaseUrl && envTarget === OPENAI_ENV.TARGET ? undefined : routingValue(envBasePath));
-    if (effectiveTarget) env[envTarget] = stripTarget ? normalizeApiTargetScheme(effectiveTarget) : effectiveTarget;
-    if (effectiveBasePath) env[envBasePath] = effectiveBasePath;
-  }
-  if (secretOpenAiBaseUrl) {
-    env.AWF_SENSITIVE_OPENAI_TARGET = secretOpenAiBaseUrl.host;
-  }
-
-  // Copilot-specific provider passthrough
-  if (copilotProviderType) env[COPILOT_ENV.PROVIDER_TYPE] = copilotProviderType;
-  if (copilotProviderBaseUrl) env[COPILOT_ENV.PROVIDER_BASE_URL] = copilotProviderBaseUrl;
-  if (copilotProviderApiKey) env[COPILOT_ENV.PROVIDER_API_KEY] = copilotProviderApiKey;
-
-  // Pre-startup model validation (non-sensitive config value).
-  // Prefer explicit requestedModel, but fall back to COPILOT_MODEL when present so
-  // api-proxy can validate user-facing model aliases (apiProxy.models) at startup.
-  const requestedModel = (config.requestedModel || getConfigEnvValue(config, 'COPILOT_MODEL') || '').trim();
-  if (requestedModel) env.AWF_REQUESTED_MODEL = requestedModel;
-  if (config.copilotByokExtraHeaders !== undefined) {
-    env.AWF_BYOK_EXTRA_HEADERS = JSON.stringify(config.copilotByokExtraHeaders);
-  }
-  if (config.copilotByokExtraBodyFields !== undefined) {
-    env.AWF_BYOK_EXTRA_BODY_FIELDS = JSON.stringify(config.copilotByokExtraBodyFields);
-  }
-  const providerSessionId = resolveProviderSessionId(config);
-  if (providerSessionId) {
-    env.AWF_PROVIDER_SESSION_ID = providerSessionId;
-  }
-
-  if (config.copilotTokenBroker) {
-    resolveCopilotBrokerRuntime(config);
-    validateCopilotBrokerTarget(env[COPILOT_ENV.API_TARGET], env[COPILOT_ENV.API_BASE_PATH]);
-    env[COPILOT_ENV.API_TARGET] ??= 'api.githubcopilot.com';
-  }
-
-  const targets = { ...env, ...trustedServiceTargets(config) };
-  if (databricksHost) {
-    for (const key of [
-      OPENAI_ENV.TARGET, ANTHROPIC_ENV.TARGET, COPILOT_ENV.API_TARGET,
-      GEMINI_ENV.TARGET, VERTEX_ENV.TARGET, COPILOT_ENV.PROVIDER_BASE_URL,
-    ]) {
-      const target = targets[key];
-      if (!target) continue;
-      let url: URL;
-      try { url = new URL(target.includes('://') ? target : `https://${target}`); } catch {
-        throw new Error('Invalid Databricks API target binding');
-      }
-      const hostname = url.hostname.toLowerCase().replace(/\.$/, '');
-      if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash ||
-          ['api.openai.com', 'api.anthropic.com', 'githubcopilot.com'].includes(hostname) ||
-          hostname.endsWith('.githubcopilot.com') ||
-          (hostname.startsWith('copilot-api.') && hostname.endsWith('.ghe.com')) ||
-          url.origin !== databricksHost.origin) {
-        throw new Error('Databricks API target must match the configured HTTPS workspace origin');
-      }
-    }
-  }
-  return targets;
-}
 
 /** Uses the same effective routing values passed to the trusted sidecar. */
 export function resolveApiProxyUpstreams(config: WrapperConfig): Array<{ hostname: string; port: number; proxyOnly?: boolean }> {
@@ -154,25 +47,6 @@ export function resolveApiProxyUpstreams(config: WrapperConfig): Array<{ hostnam
     }
   }
   return upstreams;
-}
-
-function resolveProviderSessionId(config: WrapperConfig): string | undefined {
-  // Auto-derivation from GITHUB_RUN_ID was removed because the Copilot
-  // `session_id`/`x-session-id` convention causes strict OpenAI-compatible
-  // BYOK targets (e.g. Azure OpenAI) to reject every request with HTTP 400.
-  // Callers must opt in explicitly via the awf config (`apiProxy.targets.
-  // copilot.sessionId`) or by setting AWF_PROVIDER_SESSION_ID in env.
-  const value = config.copilotByokSessionId
-    ?? getConfigEnvValue(config, 'AWF_PROVIDER_SESSION_ID')
-    ?? process.env.AWF_PROVIDER_SESSION_ID;
-  const normalizedValue = value?.trim();
-  return normalizedValue || undefined;
-}
-
-function resolveOpenAiEndpointOverride(config: WrapperConfig): string | undefined {
-  return getConfigEnvValue(config, 'OPENAI_ENDPOINT_OVERRIDE')
-    ?? process.env.OPENAI_ENDPOINT_OVERRIDE?.trim()
-    ?? undefined;
 }
 
 export function resolveApiProxyShutdownTimeoutMs(config: WrapperConfig): number {

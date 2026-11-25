@@ -12,6 +12,10 @@ import {
 import type { NvxFilesystemBundle } from './filesystem-builder';
 import { runtimeUsesComposeAgent } from '../container-runtime';
 import { nvxShareName } from './one-shot-adapter';
+import * as runtimeLifecycle from './runtime-lifecycle';
+import * as identity from './identity';
+import * as cgroup from './cgroup';
+import * as launchPlan from './launch-plan';
 
 const RUN_ID = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
 const tools: NvxRuntimeToolPaths = {
@@ -165,6 +169,24 @@ function filesystemBundle(): NvxFilesystemBundle {
 }
 
 describe('NVX Phase 3d runtime lifecycle', () => {
+  it('re-exports the focused modules through the compatibility barrel', () => {
+    expect(runtimeLifecycle).toEqual({ ...identity, ...cgroup, ...launchPlan });
+  });
+
+  it('preserves the original type exports through the compatibility barrel', () => {
+    type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends
+      (<T>() => T extends B ? 1 : 2) ? true : false;
+    const typeExportsMatch: [
+      Equal<runtimeLifecycle.NvxVmmIdentity, identity.NvxVmmIdentity>,
+      Equal<runtimeLifecycle.NvxRuntimeToolPaths, identity.NvxRuntimeToolPaths>,
+      Equal<runtimeLifecycle.NvxRuntimeLifecycleDependencies, identity.NvxRuntimeLifecycleDependencies>,
+      Equal<runtimeLifecycle.NvxRuntimeLifecycleObserver, identity.NvxRuntimeLifecycleObserver>,
+      Equal<runtimeLifecycle.NvxCgroupDependencies, cgroup.NvxCgroupDependencies>,
+      Equal<runtimeLifecycle.NvxPhase3dLaunchPlan, launchPlan.NvxPhase3dLaunchPlan>,
+    ] = [true, true, true, true, true, true];
+    expect(typeExportsMatch).toEqual([true, true, true, true, true, true]);
+  });
+
   it('passes aggregate child mappings and the exact distro format token to direct OpenVMM', () => {
     const mounts = [
       {
@@ -324,6 +346,70 @@ describe('NVX Phase 3d runtime lifecycle', () => {
       ['--remove', 'user:23001', '/dev/kvm'],
     );
     await expect(manager.cleanup()).resolves.toBeUndefined();
+  });
+
+  it('preserves account-before-device lock ordering and releases locks around the protected operation', async () => {
+    const { deps } = identityDependencies();
+    const accountLock = '/run/awf-nvx/.account-lock';
+    const deviceLock = '/run/awf-nvx/.device-acl-lock';
+    const heldLocks = new Set<string>();
+    const events: string[] = [];
+    let revocations = 0;
+    const originalMkdir = deps.mkdir;
+    const originalRm = deps.rm;
+    const originalRun = deps.run;
+    deps.mkdir = jest.fn(async (directory, options) => {
+      await originalMkdir(directory, options);
+      if (directory === accountLock || directory === deviceLock) {
+        heldLocks.add(directory);
+        events.push(`acquire ${directory}`);
+      }
+    });
+    deps.rm = jest.fn(async (directory, options) => {
+      await originalRm(directory, options);
+      if (heldLocks.delete(directory)) events.push(`release ${directory}`);
+    });
+    deps.run = jest.fn(async (command, args) => {
+      if (command === tools.useradd || command === tools.userdel) {
+        expect([...heldLocks]).toEqual([accountLock]);
+        if (command === tools.userdel) events.push('delete account');
+      }
+      if (command === tools.setfacl) {
+        if (args[0] === '--remove') {
+          revocations++;
+          expect([...heldLocks]).toEqual(revocations === 1 ? [deviceLock] : [accountLock, deviceLock]);
+          events.push('remove ACL');
+          if (revocations === 1) throw new Error('first ACL removal failed');
+        } else {
+          expect([...heldLocks]).toEqual([deviceLock]);
+        }
+      }
+      return originalRun(command, args);
+    });
+    const manager = new NvxVmmIdentityManager(RUN_ID, tools, deps);
+    await manager.allocate();
+    await expect(manager.withDeviceAccess(async () => {
+      expect(heldLocks.size).toBe(0);
+    })).rejects.toThrow('first ACL removal failed');
+    await manager.cleanup();
+
+    expect(revocations).toBe(2);
+    expect(events).toEqual([
+      `acquire ${accountLock}`,
+      `release ${accountLock}`,
+      `acquire ${deviceLock}`,
+      `release ${deviceLock}`,
+      `acquire ${deviceLock}`,
+      'remove ACL',
+      `release ${deviceLock}`,
+      `acquire ${accountLock}`,
+      `acquire ${deviceLock}`,
+      'remove ACL',
+      `release ${deviceLock}`,
+      'delete account',
+      `release ${accountLock}`,
+    ]);
+    expect(heldLocks.size).toBe(0);
   });
 
   it('reclaims a stale lifecycle lock through an atomic quarantine rename', async () => {
