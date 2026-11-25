@@ -2,7 +2,7 @@ import { PassThrough, Readable, Writable } from 'stream';
 import { createOpenvmmStdoutGate, endStream, pump, writeStream } from './openvmm-streams';
 
 describe('OpenVMM stdout gate', () => {
-  it.each([1, 2, 3, 4, 5, 6, 7])('recognizes a prompt split at byte %i', async (split) => {
+  it.each([1, 2, 3, 4, 5, 6, 7, 8])('recognizes a prompt split at byte %i', async (split) => {
     const prompt = 'openvmm> ';
     const chunks: Buffer[] = [];
     const source = Readable.from([
