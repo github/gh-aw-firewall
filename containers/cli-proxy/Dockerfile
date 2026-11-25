@@ -5,7 +5,7 @@
 # externally on the host, started by the gh-aw compiler.  A TCP tunnel
 # forwards localhost traffic to the external proxy for TLS hostname matching.
 #
-FROM golang:1.27.3-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS gh-build
+FROM golang:1.27.4-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS gh-build
 ENV GOTOOLCHAIN=go1.27.3
 
 ARG GH_VERSION=2.98.0
@@ -34,7 +34,7 @@ RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz"
     && /tmp/cli-${GH_VERSION}/bin/gh --version
 
 # Pin to a specific alpine version so the curl constraint below is stable.
-FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a
+FROM node:26.13.1-alpine3.24@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5
 
 ARG NPM_CONFIG_REGISTRY=https://packagefeedproxy.microsoft.io/npm/
 
