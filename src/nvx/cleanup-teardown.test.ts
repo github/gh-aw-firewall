@@ -179,7 +179,7 @@ describe('NVX cleanup teardown helpers', () => {
       : removeExactDirectory(expected, kind === 'recursive directory', deps);
 
     it.each([{ dev: 80n, ino: 10n }, { dev: 8n, ino: 100n }])(
-      'refuses a replaced resource with identity %j',
+      'refuses a replaced resource with identity %p',
       async (current) => {
         lstat.mockResolvedValue(current);
         await expect(remove(file, dependencies)).rejects.toThrow(/resource identity changed/);
@@ -225,10 +225,37 @@ describe('NVX cleanup teardown helpers', () => {
       { device: '8', inode: '10', uid: 23003 },
     ])('does not revoke ACLs or delete accounts for a changed device identity %j', async (acl) => {
       record.resources.deviceAcls.push({ path: '/dev/kvm', permissions: 'rw-', ...acl });
+      const name = record.vmmIdentity!.name;
+      run.mockImplementation(async (_command: string, args: readonly string[]) => ({
+        exitCode: 0,
+        stdout: args[0] === 'passwd'
+          ? `${name}:x:23001:23002:AWF NVX ${record.runId}:/nonexistent:/usr/sbin/nologin\n`
+          : args[0] === 'group'
+            ? `${name}:x:23002:\n`
+            : '23002\n',
+        stderr: '',
+      }));
       await expect(removeIdentity(record, tools, dependencies)).rejects.toThrow(
         /device identity changed/,
       );
-      expect(run).not.toHaveBeenCalled();
+      expect(run).not.toHaveBeenCalledWith(tools.setfacl, expect.anything());
+      expect(run).not.toHaveBeenCalledWith(tools.userdel, expect.anything());
+      expect(run).not.toHaveBeenCalledWith(tools.groupdel, expect.anything());
+    });
+
+    it('does not revoke device ACLs when the recorded account is absent', async () => {
+      record.resources.deviceAcls.push({
+        path: '/dev/kvm',
+        device: '8',
+        inode: '10',
+        permissions: 'rw-',
+        uid: 23001,
+      });
+      run.mockResolvedValue({ exitCode: 2, stdout: '', stderr: '' });
+
+      await removeIdentity(record, tools, dependencies);
+
+      expect(run).not.toHaveBeenCalledWith(tools.setfacl, expect.anything());
     });
 
     it.each([[23003, 23002], [23001, 23004]])(

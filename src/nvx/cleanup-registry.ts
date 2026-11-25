@@ -207,8 +207,10 @@ export class DurableNvxCleanupRegistry implements NvxCleanupRegistry {
       try { await operation(); } catch (error) { errors.push(error); }
     };
     await attempt(() => stopRecordedProcesses(record, this.dependencies));
-    await attempt(() => removeNetwork(record, tools.ip, tools.iptables, this.dependencies));
-    await attempt(() => removeExactFile(record.resources.networkReservation, this.dependencies));
+    await attempt(async () => {
+      await removeNetwork(record, tools.ip, tools.iptables, this.dependencies);
+      await removeExactFile(record.resources.networkReservation, this.dependencies);
+    });
     await attempt(() => removeExactDirectory(record.resources.cgroup, false, this.dependencies));
     await attempt(() => removeExactDirectory(record.resources.runDirectory, true, this.dependencies));
     await attempt(() =>

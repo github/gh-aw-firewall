@@ -37,10 +37,25 @@ describe('NVX cleanup capture helpers', () => {
   );
 
   it('returns no identity when the interface is absent', async () => {
-    const run = jest.fn().mockResolvedValue({ exitCode: 1, stdout: '', stderr: '' });
+    const run = jest.fn().mockResolvedValue({
+      exitCode: 1,
+      stdout: '',
+      stderr: 'Device "tap0" does not exist.',
+    });
     await expect(
       tryCaptureInterface('tap0', undefined, '/custom/ip', { run }),
     ).resolves.toBeUndefined();
+  });
+
+  it('propagates interface inspection errors', async () => {
+    const run = jest.fn().mockResolvedValue({
+      exitCode: 2,
+      stdout: '',
+      stderr: 'RTNETLINK answers: Operation not permitted',
+    });
+    await expect(
+      tryCaptureInterface('tap0', undefined, '/custom/ip', { run }),
+    ).rejects.toThrow(/Could not inspect NVX interface tap0/);
   });
 
   it.each([

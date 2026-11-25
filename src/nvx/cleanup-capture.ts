@@ -172,7 +172,14 @@ export async function tryCaptureInterface(
     ? ['netns', 'exec', namespace, ipPath, '-json', 'link', 'show', 'dev', name]
     : ['-json', 'link', 'show', 'dev', name];
   const result = await dependencies.run(ipPath, args);
-  if (result.exitCode !== 0) return undefined;
+  if (result.exitCode !== 0) {
+    if (result.exitCode === 1 && result.stderr.trim() === `Device "${name}" does not exist.`) {
+      return undefined;
+    }
+    throw new Error(
+      `Could not inspect NVX interface ${name}: ${result.stderr || result.stdout}`,
+    );
+  }
   const parsed = JSON.parse(result.stdout) as Array<{ ifname?: string; ifindex?: number }>;
   if (parsed.length !== 1 || parsed[0].ifname !== name || !Number.isSafeInteger(parsed[0].ifindex)) {
     throw new Error(`Invalid NVX interface identity for ${name}`);

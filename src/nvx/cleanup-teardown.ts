@@ -106,18 +106,6 @@ export async function removeIdentity(
 ): Promise<void> {
   const identity = record.vmmIdentity;
   if (!identity) return;
-  if (identity.state === 'live' && identity.uid !== undefined && identity.gid !== undefined) {
-    await dependencies.withDeviceAclLock(async () => {
-      for (const acl of record.resources.deviceAcls) {
-        const current = await captureFile(acl.path, dependencies);
-        if (current.device !== acl.device || current.inode !== acl.inode || acl.uid !== identity.uid) {
-          throw new Error(`NVX device identity changed for ${acl.path}`);
-        }
-        await runChecked(tools.setfacl, ['--remove', `user:${identity.uid}`, acl.path], dependencies);
-      }
-    });
-  }
-
   const passwd = await dependencies.run(tools.getent, ['passwd', identity.name]);
   const group = await dependencies.run(tools.getent, ['group', identity.name]);
   const expected = identity.state === 'live'
@@ -150,6 +138,22 @@ export async function removeIdentity(
     );
   } else if (group.stderr.trim()) {
     throw new Error(`Could not validate NVX group ${identity.name}: ${group.stderr}`);
+  }
+  if (
+    passwd.exitCode === 0 &&
+    identity.state === 'live' &&
+    identity.uid !== undefined &&
+    identity.gid !== undefined
+  ) {
+    await dependencies.withDeviceAclLock(async () => {
+      for (const acl of record.resources.deviceAcls) {
+        const current = await captureFile(acl.path, dependencies);
+        if (current.device !== acl.device || current.inode !== acl.inode || acl.uid !== identity.uid) {
+          throw new Error(`NVX device identity changed for ${acl.path}`);
+        }
+        await runChecked(tools.setfacl, ['--remove', `user:${identity.uid}`, acl.path], dependencies);
+      }
+    });
   }
   if (passwd.exitCode === 0) {
     await runChecked(tools.userdel, [identity.name], dependencies);
