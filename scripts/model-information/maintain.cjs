@@ -777,6 +777,17 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
   };
 }
 
+function checkPendingTierFacts(cwd, base, reviewBase) {
+  const mergeBase = git(cwd, 'merge-base', base, reviewBase).trim();
+  if (![base, mergeBase].every(rev => hasGitObject(cwd, `${rev}:${codingTiers.file}`))) {
+    throw new Error('The pending branch or its merge base predates the coding tier catalogue');
+  }
+  const sourceAt = rev => JSON.parse(git(cwd, 'show', `${rev}:${codingTiers.file}`));
+  const previous = hasGitObject(cwd, `${base}:${reportFile}`)
+    ? JSON.parse(git(cwd, 'show', `${base}:${reportFile}`)).pendingCodingTierFacts || [] : [];
+  codingTiers.pendingChanges(sourceAt(mergeBase), sourceAt(base), [], previous);
+}
+
 function selectPullRequest(pulls) {
   if (pulls.length >= 1000) throw new Error('Incomplete PR coverage: selection reached the 1000-PR retrieval limit');
   const matches = pulls.filter(pr => pr.headRefName.startsWith('automation/model-source-maintenance-') &&
@@ -827,16 +838,18 @@ async function main() {
     execFileSync(process.execPath, [
       path.join(root, 'scripts/model-information/compile.cjs'), '--maintenance-workspace', '--check',
     ], { cwd, stdio: 'inherit' });
+  } else if (command === 'check-pending-tiers') {
+    checkPendingTierFacts(root, directory, targetRoot);
   } else if (command === 'select-pr') {
     console.log(json(selectPullRequest(read(directory))));
   } else {
-    throw new Error('Expected capture, refresh-import, refresh-copilot-pricing, report, verify, verify-committed or select-pr');
+    throw new Error('Expected capture, refresh-import, refresh-copilot-pricing, report, verify, verify-committed, check-pending-tiers or select-pr');
   }
 }
 
 if (require.main === module) main().catch(error => { console.error(error.message); process.exitCode = 1; });
 module.exports = {
-  captureSources, loadCaptures, refreshImport, proposeCopilotPricing, buildReport, selectPullRequest,
+  captureSources, loadCaptures, refreshImport, proposeCopilotPricing, buildReport, selectPullRequest, checkPendingTierFacts,
   refreshCopilotPricing: proposeCopilotPricing,
   facts, differences, reviewReasons, inspectCatalogue, documentText, hash, json, allowed, projections,
   catalogueFacts, runtimeResolutionFacts, runtimeConsumerEffects, verifyCommittedTree, maintenanceTitle,

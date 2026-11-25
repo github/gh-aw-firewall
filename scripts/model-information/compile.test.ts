@@ -266,6 +266,8 @@ describe('maintained model compilation', () => {
       fs.mkdirSync(path.dirname(rawPath), { recursive: true });
       fs.copyFileSync(path.join(root, 'containers/api-proxy/models.dev.catalog.json'), rawPath);
       copyLegacyPricingProjections(temp);
+      const contractFile = path.join(temp, 'shared/model-information/pricing-resolution.js');
+      fs.appendFileSync(contractFile, '\n// target-specific contract revision\n');
       const sourcePath = path.join(temp, 'shared/model-information/sources/copilot-main.json');
       const source = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
       const model = source.models.find((entry: { identity: { rawId: string } }) =>
@@ -278,6 +280,7 @@ describe('maintained model compilation', () => {
       fs.writeFileSync(sourcePath, JSON.stringify(source));
       const tempCompiler = path.join(temp, 'scripts/model-information/compile.cjs');
       execFileSync(process.execPath, [tempCompiler], { cwd: temp });
+      expect(run('--check', `--root=${temp}`)).toMatch(/Checked model catalogue/);
       const staged = JSON.parse(fs.readFileSync(
         path.join(temp, 'containers/api-proxy/model-information.pricing.generated.json'), 'utf8',
       ));

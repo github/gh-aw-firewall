@@ -295,6 +295,10 @@ still keep the same model in scope. When updating an open PR, the workflow
 generates only the permitted data files using the current compiler. The required
 tests and full projection check run against that data on the trusted checkout;
 the workflow neither runs stale tests nor copies new code into the pending PR.
+The agent reads the compiler and its dependencies from a read-only mount. If an
+older PR contains tier edits without field-level evidence receipts, selection
+stops before the agent runs so a reviewer can finish that PR without losing
+its edits.
 
 ### Harness version constraints
 

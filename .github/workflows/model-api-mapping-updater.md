@@ -24,6 +24,8 @@ concurrency:
 sandbox:
   agent:
     id: awf
+    mounts:
+      - "/opt/gh-aw/model-maintenance:/opt/gh-aw/model-maintenance:ro"
 tools:
   github:
     toolsets: [repos, pull_requests]
@@ -35,7 +37,7 @@ tools:
     - "git diff:*"
     - "git status:*"
     - "git log:*"
-    - "/tmp/gh-aw/model-maintenance-command.cjs"
+    - "/opt/gh-aw/model-maintenance/run"
   edit:
 network:
   allowed:
@@ -90,9 +92,9 @@ jobs:
           if [ -n "$head" ]; then
             git fetch --no-tags origin "$head"
             base=$(git rev-parse FETCH_HEAD)
-            if ! git cat-file -e "$base:shared/model-information/sources/coding-tiers.json"; then
+            if ! reason=$(node scripts/model-information/maintain.cjs check-pending-tiers "$base" "$review_base" 2>&1); then
               number=$(jq -r '.number' "$RUNNER_TEMP/existing-pr.json")
-              echo "Maintenance PR #$number predates the coding tier catalogue. Merge main into it or finish reviewing it before the next refresh. No PR was changed." | tee -a "$GITHUB_STEP_SUMMARY"
+              printf 'Maintenance PR #%s: %s. Merge main if the catalogue is missing, or finish reviewing pending tier edits and their evidence before the next refresh. No PR was changed.\n' "$number" "$reason" | tee -a "$GITHUB_STEP_SUMMARY"
               exit 1
             fi
           fi
@@ -173,8 +175,6 @@ jobs:
           npm --prefix containers/api-proxy ci --ignore-scripts
           npm --prefix containers/api-proxy test -- --runInBand models-dev-catalog.test.js ai-credits-pricing-reference.test.js catalogue-pricing.test.js guards/ai-credits-tariff.test.js guards/ai-credits-notices.test.js guards/ai-credits-promotions.test.js guards/ai-credits-pricing-fallback.test.js model-api-mapping.test.js runtime-model-catalog.test.js routing-catalogue.test.js wire-api-compat.test.js server.decisions.test.js
 steps:
-  - name: Install pinned model validation dependencies
-    run: npm ci --ignore-scripts
   - name: Check out the selected maintenance PR
     env:
       SELECTED_PR_NUMBER: ${{ needs.select_maintenance_pr.outputs.number }}
@@ -185,11 +185,11 @@ steps:
       set -euo pipefail
       test "$GITHUB_REF" = refs/heads/main
       mkdir -p /tmp/gh-aw/model-maintenance
-      tools=/tmp/gh-aw/model-maintenance-tools
-      mkdir -p "$tools"
-      git archive "$REVIEW_BASE" scripts/model-information shared/model-information containers/api-proxy/catalogue-contract containers/api-proxy/ai-credits-pricing.js | tar -x -C "$tools"
-      ln -s "$GITHUB_WORKSPACE/node_modules" "$tools/node_modules"
-      ln -s "$tools/scripts/model-information/maintenance-command.cjs" /tmp/gh-aw/model-maintenance-command.cjs
+      tools=/opt/gh-aw/model-maintenance
+      sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" "$tools"
+      git archive "$REVIEW_BASE" scripts/model-information shared/model-information containers/api-proxy/catalogue-contract containers/api-proxy/ai-credits-pricing.js package.json package-lock.json | tar -x -C "$tools"
+      npm ci --prefix "$tools" --ignore-scripts
+      ln -s scripts/model-information/maintenance-command.cjs "$tools/run"
       printf '%s\n' "$REVIEW_BASE" > /tmp/gh-aw/model-maintenance/review-base-revision
       jq -n --argjson number "$SELECTED_PR_NUMBER" --arg head "$SELECTED_PR_HEAD" \
         'if $number == 0 then null else {number: $number, headRefName: $head} end' \
@@ -359,7 +359,7 @@ retain prior facts instead of inferring fresh support from those fallbacks.
 Compare `copilot-pricing` (GitHub's models-and-pricing tables and their attached
 footnotes) with exact GA Copilot completion records, using only Copilot /
 `copilot-api` billing scope. Native-provider and OpenRouter prices cannot verify
-these tariffs. Run `/tmp/gh-aw/model-maintenance-command.cjs refresh-copilot-pricing`
+these tariffs. Run `/opt/gh-aw/model-maintenance/run refresh-copilot-pricing`
 before other source edits to propose evidence-backed default/long-context prices
 and exact thresholds, with model/tariff/component provenance and ordinary receipts.
 Review its diagnostics and retained prior facts; report missing required components,
@@ -378,15 +378,15 @@ Grok corrections. Prices do not establish host-side or Copilot CLI eligibility.
 
 ## Propose and regenerate
 
-Use `/tmp/gh-aw/model-maintenance-command.cjs` with exactly one of
+Use `/opt/gh-aw/model-maintenance/run` with exactly one of
 `refresh-import`, `refresh-copilot-pricing`, `report`, `verify`, `generate` or `check`.
 This fixed-command entrypoint is preapproved for unattended execution; full
 `node ...` and `npm ...` invocation allow rules do not match Copilot's command
 names. Do not invoke interpreters/package runners directly, add arguments, or
 request interactive approval. Inspect local evidence with the read tools,
 `cat` or `jq`, not inline scripts or unlisted helpers such as `paste` or `xargs`.
-The host stages this entrypoint before selecting an existing PR branch, so it
-also works when that branch predates the entrypoint.
+The host stages this entrypoint and its dependencies in a read-only mount before
+selecting an existing PR branch. They do not come from the branch being updated.
 
 Edit only canonical `shared/model-information/sources/*.json` records supported
 by actually fetched evidence. Update provenance only for changed facts: record
@@ -398,7 +398,7 @@ Keep `lifecycle-compatibility.json` suggestion ordering consistent when a
 documented CLI availability change requires it. Do not broaden endpoint family
 patterns based on a single model. Schema/compiler changes need a separate PR.
 
-Run `/tmp/gh-aw/model-maintenance-command.cjs refresh-import` to compare
+Run `/opt/gh-aw/model-maintenance/run refresh-import` to compare
 governed imported facts and, only when they change, pin the exact API response
 and its real retrieval metadata. Never hand-edit import bytes, metadata or the
 normalized snapshot. The historical `models.dev.catalog.json` filename denotes
@@ -426,10 +426,10 @@ without changed model facts is a genuine no-op.
 Before invoking any PR safe output run, in order:
 
 ```bash
-/tmp/gh-aw/model-maintenance-command.cjs generate
-/tmp/gh-aw/model-maintenance-command.cjs report
-/tmp/gh-aw/model-maintenance-command.cjs check
-/tmp/gh-aw/model-maintenance-command.cjs verify
+/opt/gh-aw/model-maintenance/run generate
+/opt/gh-aw/model-maintenance/run report
+/opt/gh-aw/model-maintenance/run check
+/opt/gh-aw/model-maintenance/run verify
 ```
 
 The independent validation job runs the offline model and API proxy tests and

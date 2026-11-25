@@ -39,14 +39,16 @@ function coverage(cwd, directory, text) {
         continue;
       }
       if (provider !== 'copilot') continue;
-      if (model.modelType !== 'completion' || inactive) {
+      const cli = (model.availability || []).filter(item => item.scope.provider === 'copilot' &&
+        item.scope.channel === 'copilot-cli' && !item.scope.deployment);
+      if (model.modelType !== 'completion' || inactive ||
+          cli.some(item => item.fact.state === 'unsupported' || item.picker?.state === 'unsupported')) {
         excluded.add(id);
         seed.delete(id);
         continue;
       }
       copilot.add(id);
-      if (model.availability?.some(item => item.scope.provider === 'copilot' &&
-          item.scope.channel === 'copilot-cli' && !item.scope.deployment && item.fact.state === 'supported')) ids.add(id);
+      if (cli.some(item => item.fact.state === 'supported')) ids.add(id);
     }
   }
   const gaps = [];
@@ -56,8 +58,7 @@ function coverage(cwd, directory, text) {
     // A normalized display name may match a reviewed ID, but cannot establish a new wire ID.
     const id = lookup(name.replaceAll(' ', '-'));
     if (excluded.has(id)) continue;
-    if (copilot.has(id)) ids.add(id);
-    else gaps.push({ displayName: name, missing: ['confirmed routable ID'] });
+    if (!copilot.has(id)) gaps.push({ displayName: name, missing: ['confirmed routable ID'] });
   }
   const { providers } = read('shared/model-information/sources/mapping.json').mapping;
   for (const provider of ['openai', 'anthropic']) {

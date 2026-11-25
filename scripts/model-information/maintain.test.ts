@@ -4,7 +4,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 const {
-  captureSources, loadCaptures, refreshImport, proposeCopilotPricing, buildReport, selectPullRequest,
+  captureSources, loadCaptures, refreshImport, proposeCopilotPricing, buildReport, selectPullRequest, checkPendingTierFacts,
   reviewReasons, differences, inspectCatalogue, documentText, hash, json, facts,
   catalogueFacts, runtimeResolutionFacts, backendScopedFallbackFacts, backendScopedFallbackEffects,
   importedMedianFacts, importedMedianEffects,
@@ -138,6 +138,21 @@ describe('offline scheduled source maintenance', () => {
       identity: { provider, lookupId }, modelType: 'completion', lifecycle: { status }, provenance: { authority: 'maintained' },
       protocols: [{ protocol, support: { state } }],
     });
+
+    it('does not promote a pricing-only, picker-hidden or CLI-unsupported model from the Copilot table', () => {
+      const ids = ['gpt-6-1-sol', 'gpt-6-1-terra', 'gemini-4-argon'];
+      const source = JSON.parse(fs.readFileSync(path.join(cwd, tiers.file), 'utf8'));
+      source.entries = source.entries.filter((item: { lookupId: string }) => item.lookupId !== ids[0]);
+      for (const item of source.entries) if (ids.includes(item.lookupId)) delete item.releaseDate;
+      write(cwd, tiers.file, json(source));
+      const scope = { provider: 'copilot', channel: 'copilot-cli' };
+      write(cwd, copilotFiles[0], json({ models: ids.map((lookupId, i) => ({
+        identity: { provider: 'copilot', lookupId }, modelType: 'completion', lifecycle: { status: 'active' },
+        availability: i === 0 ? [] : [{ scope, fact: { state: i === 1 ? 'supported' : 'unsupported' },
+          ...(i === 1 ? { picker: { state: 'unsupported' } } : {}) }],
+      })) }));
+      expect(tiers.coverage(cwd, evidence, documentText)).toEqual([]);
+    });
     write(cwd, 'shared/model-information/sources/decisions.json', json({ models: [
       record('openai', 'exact-native', 'active', 'responses'),
       record('openai', 'only-decisions', 'active', 'decisions'),
@@ -239,6 +254,12 @@ describe('offline scheduled source maintenance', () => {
     write(cwd, targetFile, json(data));
     propose(cwd, evidence);
     expect(buildReport(cwd, evidence).pendingCodingTierFacts).toEqual(report.pendingCodingTierFacts);
+    const reviewBase = git(cwd, 'rev-parse', 'HEAD^').trim();
+    expect(() => checkPendingTierFacts(cwd, 'HEAD', reviewBase)).not.toThrow();
+    write(cwd, 'shared/model-information/maintenance-report.json', json({ changes: [] }));
+    git(cwd, 'add', 'shared/model-information/maintenance-report.json');
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'legacy report');
+    expect(() => checkPendingTierFacts(cwd, 'HEAD', reviewBase)).toThrow('missing evidence for pending codingTier');
   });
 
   it('reports failed or missing Decisions evidence as incomplete without changing existing facts', async () => {
