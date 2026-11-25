@@ -98,10 +98,75 @@ it('retains component-specific central evidence, scoped selection, units and rev
   expect(selected.componentSources.input).toMatchObject({
     observedAt: componentEvidence.at, pricingCatalogVersion: 'r1',
   });
+  expect(selected.componentSources.input.unavailable).toBeUndefined();
   expect(selected.componentSources.output.observedAt).toBe(provenance.at);
+  expect(selected.componentSources.cacheWrite).toMatchObject({
+    source: 'central_feed', tier: 'default', observedAt: provenance.at, unavailable: true,
+  });
   expect(resolvePricing({ ...input, scope: { ...scope, deployment: 'different' } }).result).toBeNull();
   record.tariffs[0].components.input.provenance = { at: '2026-10-01T00:00:00Z' };
   expect(resolvePricing(input).result).toBeNull();
+});
+
+it('preserves unavailable component provenance per tier and across partial-runtime merges', () => {
+  const curatedFact: PricingFact = {
+    source: 'curated',
+    default: { input: 2, output: 10, cachedInput: 0.1, cacheWrite: null },
+    defaultMetadata: { unavailableComponents: ['cacheWrite'] },
+    longContext: { input: 4, output: 20, cachedInput: 0.2, cacheWrite: 5 },
+    threshold: 100,
+    longMetadata: {},
+  };
+  const base = resolvePricing(capture({ ...absent, curated: curatedFact }, 50));
+  expect(base.componentSources.cacheWrite.unavailable).toBe(true);
+  expect(base.componentSources.input.unavailable).toBeUndefined();
+
+  const long = resolvePricing(capture({ ...absent, curated: curatedFact }, 101));
+  expect(long.componentSources.cacheWrite.unavailable).toBeUndefined();
+
+  const merged = resolvePricing(capture({
+    ...absent,
+    runtime: { source: 'provider', default: { input: 2, output: 10, cachedInput: 0.1 } },
+    curated: curatedFact,
+  }, 50));
+  expect(merged.componentSources.input).toMatchObject({ source: 'provider', tier: 'default' });
+  expect(merged.componentSources.cacheWrite).toMatchObject({
+    source: 'curated', tier: 'default', unavailable: true,
+  });
+});
+
+it('clears central unavailable cacheWrite only for an exact tariff-scoped no-separate-charge match', () => {
+  const provenance = { at: '2026-11-01T00:00:00Z' };
+  const record = {
+    identity: identity('copilot', 'fixture'), provenance,
+    tariffs: [{
+      scope, tier: 'default', unit: 'USD_PER_1M_TOKENS' as const, provenance,
+      components: {
+        input: { price: '1.5', provenance },
+        output: { price: '7.5', provenance },
+        cachedInput: { price: '0.075', provenance },
+        cacheWrite: { price: { unavailable: true }, provenance },
+      },
+    }],
+  };
+  const matching = resolvePricing(capture({
+    ...absent,
+    central: {
+      record, source: 'fixture-feed', revision: 'r1',
+      noSeparateCacheWrite: [{ tier: 'default', pricing: { input: 1.5, cachedInput: 0.075, cacheWrite: null, output: 7.5 } }],
+    },
+  }));
+  expect(matching.result?.pricing.cacheWrite).toBeNull();
+  expect(matching.componentSources.cacheWrite.unavailable).toBeUndefined();
+
+  const changedRate = resolvePricing(capture({
+    ...absent,
+    central: {
+      record, source: 'fixture-feed', revision: 'r1',
+      noSeparateCacheWrite: [{ tier: 'default', pricing: { input: 2, cachedInput: 0.075, cacheWrite: null, output: 7.5 } }],
+    },
+  }));
+  expect(changedRate.componentSources.cacheWrite.unavailable).toBe(true);
 });
 
 it.each([null, 0])('preserves explicit cache-write %s and genuine zero reasoning prices', cacheWrite => {

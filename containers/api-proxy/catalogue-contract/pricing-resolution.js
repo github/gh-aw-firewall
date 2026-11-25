@@ -60,20 +60,48 @@ function resolveCentralTariff(capture, fact) {
       : tariff.tier !== 'long_context'));
   if (eligible.length !== 1) return null;
   const tariff = eligible[0];
+  const converted = Object.fromEntries(Object.entries(tariff.components).map(([field, item]) => [
+    field, typeof item.price === 'object' ? null :
+      exact.multiply(exact.decimal(item.price),
+        exact.decimal(tariff.unit === 'USD_PER_TOKEN' ? 1_000_000 : 1)),
+  ]));
+  const matchingNoSeparateCacheWrite = tariff.scope.deployment === undefined &&
+    Array.isArray(fact.noSeparateCacheWrite) &&
+    fact.noSeparateCacheWrite.some(entry => {
+      if (entry.tier !== tariff.tier) return false;
+      if (tariff.tier === 'long_context' && entry.threshold !== tariff.promptTokensAbove) return false;
+      for (const field of ['input', 'cachedInput', 'output']) {
+        const expected = converted[field];
+        const actual = entry.pricing[field] == null ? null : exact.rate(entry.pricing, field);
+        if (expected === null || actual === null || exact.compare(expected, actual) !== 0) return false;
+      }
+      const hasTariffReasoning = Object.hasOwn(converted, 'reasoning');
+      const hasEntryReasoning = Object.hasOwn(entry.pricing, 'reasoning');
+      if (hasTariffReasoning !== hasEntryReasoning) return false;
+      if (hasTariffReasoning) {
+        const expected = converted.reasoning;
+        const actual = entry.pricing.reasoning == null ? null : exact.rate(entry.pricing, 'reasoning');
+        if (expected === null || actual === null || exact.compare(expected, actual) !== 0) return false;
+      }
+      return true;
+    });
+  const isUnavailable = (field, item) =>
+    item.price?.unavailable === true && !(field === 'cacheWrite' && matchingNoSeparateCacheWrite);
+  const unavailableComponents = Object.entries(tariff.components)
+    .filter(([field, item]) => isUnavailable(field, item))
+    .map(([field]) => field);
   return {
     result: {
       source: 'central_feed', tier: tariff.tier,
       pricingCatalogId: source, pricingCatalogVersion: revision,
       observedAt: tariff.provenance.at,
-      pricing: exact.fromExact(Object.fromEntries(Object.entries(tariff.components).map(([field, item]) => [
-        field, typeof item.price === 'object' ? null :
-          exact.multiply(exact.decimal(item.price),
-            exact.decimal(tariff.unit === 'USD_PER_TOKEN' ? 1_000_000 : 1)),
-      ]))),
+      ...(unavailableComponents.length ? { unavailableComponents } : {}),
+      pricing: exact.fromExact(converted),
     },
     componentSources: Object.fromEntries(Object.entries(tariff.components).map(([field, item]) => [
       field, { source: 'central_feed', tier: tariff.tier, observedAt: item.provenance.at,
-        pricingCatalogId: source, pricingCatalogVersion: revision },
+        pricingCatalogId: source, pricingCatalogVersion: revision,
+        ...(isUnavailable(field, item) ? { unavailable: true } : {}) },
     ])),
   };
 }
@@ -130,7 +158,7 @@ function resolvePricing(capture) {
               return outcome(capture, null, undefined, missingModelPricing);
             }
             pricing[field] = exact.rate(selected.pricing, field);
-            componentSources[field] = componentProvenance(selected);
+            componentSources[field] = componentProvenance(selected, field);
           }
           if (result?.estimate) {
             const hasRuntimeReasoning = Object.hasOwn(runtime.pricing, 'reasoning') ||
@@ -138,7 +166,7 @@ function resolvePricing(capture) {
             const selected = hasRuntimeReasoning ? runtime : result;
             const field = Object.hasOwn(runtime.pricing, 'reasoning') ? 'reasoning' : 'output';
             pricing.reasoning = exact.rate(selected.pricing, hasRuntimeReasoning ? field : 'reasoning');
-            componentSources.reasoning = componentProvenance(selected);
+            componentSources.reasoning = componentProvenance(selected, hasRuntimeReasoning ? field : 'reasoning');
           }
           // Keep the historical four-component merge for non-estimate fallbacks.
           result = { ...runtime, pricing: exact.fromExact(pricing),
@@ -196,10 +224,13 @@ function medianPricingFact(donors, family) {
   };
 }
 
-function componentProvenance(result) {
+function componentProvenance(result, field) {
   const provenance = { source: result.source, tier: result.tier };
-  for (const field of ['observedAt', 'apiVersion', 'pricingCatalogId', 'pricingCatalogVersion', 'estimate']) {
-    if (result[field] !== undefined) provenance[field] = result[field];
+  for (const key of ['observedAt', 'apiVersion', 'pricingCatalogId', 'pricingCatalogVersion', 'estimate']) {
+    if (result[key] !== undefined) provenance[key] = result[key];
+  }
+  if (field !== undefined && result.unavailableComponents?.includes(field)) {
+    provenance.unavailable = true;
   }
   return provenance;
 }
@@ -223,7 +254,7 @@ function outcome(capture, result, componentSources, missingModelPricing) {
     missingModelPricing,
     componentSources: componentSources || Object.fromEntries(
       Object.keys(result?.pricing || {}).filter(field => field !== 'threshold').map(field => [
-        field, componentProvenance(result),
+        field, componentProvenance(result, field),
       ]),
     ),
   };
