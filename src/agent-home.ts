@@ -32,7 +32,7 @@ function rejectUnmaskableCredentialDirectories(home: string): void {
   }
 }
 
-export function resolveAgentHome(config: AgentHomeConfig): string {
+export function resolveAgentHome(config: AgentHomeConfig, env: NodeJS.ProcessEnv = process.env): string {
   if (config.homeDir === undefined) return getRealUserHome();
   if (!runtimeUsesComposeAgent(config.containerRuntime) || config.runnerTopology === 'arc-dind') {
     throw new Error('--home is supported only for Compose agents without ARC/DinD sysroot staging');
@@ -55,8 +55,8 @@ export function resolveAgentHome(config: AgentHomeConfig): string {
     throw new Error('--home must name a non-root directory without colons or control characters');
   }
   const effectiveUid = process.getuid?.();
-  const sudoUid = process.env.SUDO_UID !== undefined
-    ? Number.parseInt(process.env.SUDO_UID, 10)
+  const sudoUid = env.SUDO_UID !== undefined
+    ? Number.parseInt(env.SUDO_UID, 10)
     : undefined;
   const trustedOwners = new Set<number>();
   if (effectiveUid !== undefined) trustedOwners.add(effectiveUid);

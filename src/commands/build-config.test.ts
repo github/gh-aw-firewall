@@ -4,6 +4,7 @@ import { testHelpers as apiProxyEnvTestHelpers } from '../services/api-proxy-env
 import { buildMinimalBuildConfigInput } from '../test-helpers/build-config.test-utils';
 import * as githubEnv from '../github-env';
 import { resolveDatabricksOidcHost } from '../api-proxy-config-validation';
+import type { ParsedCliOptions } from './parsed-cli-options';
 
 const makeInputs = buildMinimalBuildConfigInput;
 
@@ -40,6 +41,53 @@ const ENV_KEYS = [
 ] as const;
 
 describe('buildConfig', () => {
+  it('accepts raw CLI and mapped numeric options while using separately validated values', () => {
+    const options: ParsedCliOptions = {
+      ...makeInputs().options,
+      dnsServers: '1.1.1.1,8.8.8.8',
+      dnsOverHttps: true,
+      upstreamProxy: 'http://proxy.example.com:3128',
+      pidsLimit: '1000',
+      agentTimeout: '30',
+      maxAiCredits: '20K',
+      defaultModelMultiplier: '1.5',
+      maxModelMultiplierCap: 2,
+      maxRuns: '3',
+      maxPermissionDenied: 4,
+      maxCacheMisses: '5',
+      maxGithubApiPointsRest: '100',
+      maxGithubApiPointsGraphql: 200,
+      maxNumToolCalls: '300',
+    };
+    const config = buildConfig(makeInputs({
+      options,
+      dnsServers: ['1.1.1.1', '8.8.8.8'],
+      dnsOverHttps: 'https://dns.example.com/dns-query',
+      pidsLimit: 1000,
+      maxAiCredits: 20000,
+      defaultModelMultiplier: 1.5,
+      maxModelMultiplierCap: 2,
+      maxRuns: 3,
+      maxPermissionDenied: 4,
+      maxCacheMisses: 5,
+    }), {});
+
+    expect(config).toMatchObject({
+      dnsServers: ['1.1.1.1', '8.8.8.8'],
+      dnsOverHttps: 'https://dns.example.com/dns-query',
+      pidsLimit: 1000,
+      maxAiCredits: 20000,
+      defaultModelMultiplier: 1.5,
+      maxModelMultiplierCap: 2,
+      maxRuns: 3,
+      maxPermissionDenied: 4,
+      maxCacheMisses: 5,
+      maxGithubApiPointsRest: 100,
+      maxGithubApiPointsGraphql: 200,
+      maxNumToolCalls: 300,
+    });
+  });
+
   it('preserves declared guest input directories without changing the engine command', () => {
     const config = buildConfig(makeInputs({
       options: { ...makeInputs().options, inputDir: ['/guest/inputs', '/guest/prompts'] },

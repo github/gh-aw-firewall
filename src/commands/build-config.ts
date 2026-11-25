@@ -196,7 +196,7 @@ function buildEnvironmentAndVolumeConfig(
     containerRuntime: options.containerRuntime,
     runnerTopology: options.runnerTopology,
     chrootIdentity,
-  });
+  }, env);
   return {
     workDir: options.workDir,
     homeDir,
