@@ -187,7 +187,7 @@ steps:
       mkdir -p /tmp/gh-aw/model-maintenance
       tools=/opt/gh-aw/model-maintenance
       sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" "$tools"
-      git archive "$REVIEW_BASE" scripts/model-information shared/model-information containers/api-proxy/catalogue-contract containers/api-proxy/ai-credits-pricing.js package.json package-lock.json | tar -x -C "$tools"
+      git archive "$REVIEW_BASE" scripts/model-information shared/model-information containers/api-proxy/catalogue-contract containers/api-proxy/ai-credits-pricing.js package.json package-lock.json .npmrc | tar -x -C "$tools"
       npm ci --prefix "$tools" --ignore-scripts
       ln -s scripts/model-information/maintenance-command.cjs "$tools/run"
       printf '%s\n' "$REVIEW_BASE" > /tmp/gh-aw/model-maintenance/review-base-revision
