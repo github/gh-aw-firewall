@@ -79,6 +79,14 @@
     "tier": "standard",
     "releaseDate": "2026-02-05"
   },
+  "gpt-5-4-mini": {
+    "tier": "lightweight",
+    "releaseDate": "2026-03-17"
+  },
+  "gpt-5-4-mini-2026-03-17": {
+    "tier": "lightweight",
+    "releaseDate": "2026-03-17"
+  },
   "gpt-5-4-nano": {
     "tier": "lightweight",
     "releaseDate": "2026-03-17"

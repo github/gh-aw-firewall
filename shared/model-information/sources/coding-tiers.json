@@ -2,8 +2,9 @@
   "schemaVersion": 1,
   "provenance": {
     "authority": "maintained",
-    "source": "reviewed vendor and GitHub model announcements, cited per entry",
-    "at": "2026-11-23T00:00:00Z",
+    "source": "reviewed vendor and GitHub model announcements, cited per entry; latest additions: https://openai.com/index/introducing-gpt-5-4-mini-and-nano/",
+    "revision": "1c98eca122af0fde02c4c2e32d5f482cb8e594fcf43048c538fa47718459b3c5",
+    "at": "2026-11-26T00:44:10.291Z",
     "confidence": "verified"
   },
   "entries": [
@@ -280,6 +281,36 @@
         {
           "url": "https://github.blog/changelog/2026-02-09-gpt-5-3-codex-is-now-generally-available-for-github-copilot/",
           "quote": "GPT-5.3-Codex, OpenAI’s latest agentic coding model, is now rolling out in GitHub Copilot."
+        }
+      ]
+    },
+    {
+      "lookupId": "gpt-5-4-mini",
+      "codingTier": "lightweight",
+      "releaseDate": "2026-03-17",
+      "evidence": [
+        {
+          "url": "https://openai.com/index/introducing-gpt-5-4-mini-and-nano/",
+          "quote": "Today we’re releasing GPT‑5.4 mini and nano, our most capable small models yet. They bring many of the strengths of GPT‑5.4 to faster, more efficient models designed for high-volume workloads."
+        },
+        {
+          "url": "https://openai.com/index/introducing-gpt-5-4-mini-and-nano/",
+          "quote": "OpenAI March 17, 2026 Company Product Introducing GPT‑5.4 mini and nano Fast and efficient models optimized for coding and subagents"
+        }
+      ]
+    },
+    {
+      "lookupId": "gpt-5-4-mini-2026-03-17",
+      "codingTier": "lightweight",
+      "releaseDate": "2026-03-17",
+      "evidence": [
+        {
+          "url": "https://openai.com/index/introducing-gpt-5-4-mini-and-nano/",
+          "quote": "Today we’re releasing GPT‑5.4 mini and nano, our most capable small models yet. They bring many of the strengths of GPT‑5.4 to faster, more efficient models designed for high-volume workloads."
+        },
+        {
+          "url": "https://openai.com/index/introducing-gpt-5-4-mini-and-nano/",
+          "quote": "OpenAI March 17, 2026 Company Product Introducing GPT‑5.4 mini and nano Fast and efficient models optimized for coding and subagents"
         }
       ]
     },
