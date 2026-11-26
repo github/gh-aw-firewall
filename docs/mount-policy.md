@@ -86,8 +86,10 @@ host PID/IPC/network namespaces and ambiguous stacked host mounts are rejected.
 Host procfs binds are also rejected: PID-root magic links would bypass a
 directory-only mount comparison. Container-scoped procfs created during setup
 remains supported.
-Overlay backing paths must be inspectable inside verified Docker storage; only
-the container-root overlay and its same-superblock bind aliases are accepted.
+Overlay backing paths must be inspectable inside Docker storage or, for Docker's
+containerd overlayfs snapshotter, the standard `/var/lib/containerd` storage.
+Custom containerd storage outside these roots is unsupported. Only the
+container-root overlay and its same-superblock bind aliases are accepted.
 Loader, shell and Node startup hooks are rejected when supplied and cleared
 for bootstrap image defaults. Exported Bash functions are stripped before
 the privileged entrypoint. In chroot mode the final gate runs before the

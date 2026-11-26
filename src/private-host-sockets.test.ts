@@ -16,6 +16,7 @@ const realReadFileSync = fs.readFileSync;
 const {
   readPrivateDirectories, assertDisjoint, coordinate, ENTRYPOINT, CONTROL_DIR,
   wrapPrivateHostSocketCommand, assertAgentMountsIsolated, assertRootOverlayBackingsIsolated, inspectHostSource,
+  dockerStoragePaths,
 } = privateSocketTestHelpers;
 
 const linuxTests = process.platform === 'linux' ? describe : describe.skip;
@@ -213,11 +214,38 @@ linuxTests('trusted host socket isolation', () => {
     expect(() => assertAgentMountsIsolated(roots, [root, safe], root)).not.toThrow();
     expect(() => assertAgentMountsIsolated(roots, [root, { ...safe, device: '0:789' }], root)).toThrow('unsupported');
     expect(() => assertRootOverlayBackingsIsolated(
-      roots, { ...root, superOptions: ['rw', `lowerdir=${privateDir}`] }, mounts, visibleDir,
+      roots, { ...root, superOptions: ['rw', `lowerdir=${privateDir}`] }, mounts, [visibleDir],
     )).toThrow('outside verified Docker storage');
     expect(() => assertRootOverlayBackingsIsolated(
-      roots, { ...root, superOptions: ['rw'] }, mounts, visibleDir,
+      roots, { ...root, superOptions: ['rw'] }, mounts, [visibleDir],
     )).toThrow('uninspectable');
+  });
+
+  test('accepts verified containerd snapshotter backings without accepting arbitrary paths', () => {
+    const mounts = parseSocketMountInfo(hostMountInfo);
+    const roots = readPrivateDirectories(config, mounts);
+    const dockerRoot = path.join(visibleDir, 'docker');
+    const containerdRoot = path.join(visibleDir, 'containerd');
+    const backing = path.join(containerdRoot, 'snapshots', '1', 'fs');
+    fs.mkdirSync(dockerRoot);
+    fs.mkdirSync(backing, { recursive: true });
+    const root = parseSocketMountInfo(`1 0 0:456 / / rw - overlay overlay rw,lowerdir=${backing}`)[0];
+    expect(dockerStoragePaths({
+      DockerRootDir: '/var/lib/docker', Driver: 'overlayfs',
+      DriverStatus: [['driver-type', 'io.containerd.snapshotter.v1']],
+    })).toEqual(['/var/lib/docker', '/var/lib/containerd']);
+    expect(dockerStoragePaths({ DockerRootDir: '/var/lib/docker', Driver: 'overlay2' }))
+      .toEqual(['/var/lib/docker']);
+    expect(dockerStoragePaths({ DockerRootDir: '/var/lib/docker', Driver: 'overlayfs', DriverStatus: [] }))
+      .toEqual(['/var/lib/docker']);
+    expect(() => dockerStoragePaths(null)).toThrow('uninspectable Docker storage');
+    expect(() => assertRootOverlayBackingsIsolated(roots, root, mounts, [dockerRoot])).toThrow('outside verified');
+    expect(() => assertRootOverlayBackingsIsolated(roots, root, mounts, [dockerRoot, containerdRoot])).not.toThrow();
+    const privateBacking = { ...root, superOptions: [`lowerdir=${privateDir}`] };
+    expect(() => assertRootOverlayBackingsIsolated(roots, privateBacking, mounts, [dockerRoot, containerdRoot]))
+      .toThrow('outside verified');
+    expect(() => assertRootOverlayBackingsIsolated(roots, privateBacking, mounts, [dockerRoot, directory]))
+      .toThrow('overlaps');
   });
 
   test('refuses linked endpoints without changing authorized host access', async () => {
@@ -288,6 +316,7 @@ linuxTests('trusted host socket isolation', () => {
       const work = path.join(storage, 'work');
       const control = path.join(directory, 'control');
       for (const dir of [lower, upper, work, path.join(control, 'probe')]) fs.mkdirSync(dir, { recursive: true });
+      fs.chmodSync(control, 0o711);
       fs.writeFileSync(path.join(control, 'probe', 'ready'), '');
 
       const procRoot = '/proc/123/root';
@@ -358,7 +387,7 @@ linuxTests('trusted host socket isolation', () => {
           scenario === 'private-mount' ? [{ Type: 'bind', Source: privateDir }] :
           [{ Type: 'tmpfs' }, { Type: 'bind', Source: visibleDir }],
       }]) } as never)
-        .mockResolvedValueOnce({ stdout: scenario === 'bad-storage' ? 'relative' : storage } as never)
+        .mockResolvedValueOnce({ stdout: JSON.stringify({ DockerRootDir: scenario === 'bad-storage' ? 'relative' : storage }) } as never)
         .mockImplementationOnce(() => Promise.resolve({
           stdout: scenario === 'bad-challenge' ? 'wrong' : readFile(path.join(control, 'challenge'), 'utf8'),
         }) as never)

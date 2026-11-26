@@ -187,10 +187,10 @@ function assertAgentMountsIsolated(roots: PrivateDirectory[], mounts: MountIdent
 }
 
 function assertRootOverlayBackingsIsolated(
-  roots: PrivateDirectory[], rootMount: MountIdentity, hostMounts: MountIdentity[], storagePath: string,
+  roots: PrivateDirectory[], rootMount: MountIdentity, hostMounts: MountIdentity[], storagePaths: string[],
 ): void {
   if (rootMount.filesystem !== 'overlay') return;
-  const storage = coordinate(storagePath, hostMounts);
+  const storage = storagePaths.map(storagePath => coordinate(storagePath, hostMounts));
   const backings = rootMount.superOptions.flatMap(option => {
     if (option.startsWith('lowerdir=')) return option.slice('lowerdir='.length).split(':');
     if (option.startsWith('upperdir=') || option.startsWith('workdir=')) return [option.slice(option.indexOf('=') + 1)];
@@ -203,11 +203,24 @@ function assertRootOverlayBackingsIsolated(
     const resolved = fs.realpathSync.native(decodeMountPath(backing));
     if (!path.isAbsolute(resolved) || !fs.statSync(resolved).isDirectory()) throw failure('invalid overlay backing path');
     const identity = coordinate(resolved, hostMounts);
-    if (identity.device !== storage.device || !contains(storage.root, identity.root)) {
+    if (!storage.some(candidate => identity.device === candidate.device && contains(candidate.root, identity.root))) {
       throw failure('overlay backing outside verified Docker storage');
     }
     assertDisjoint(roots, inspectHostSource(resolved, hostMounts));
   }
+}
+
+function dockerStoragePaths(info: { DockerRootDir?: unknown; Driver?: unknown; DriverStatus?: unknown } | null): string[] {
+  if (!info || typeof info.DockerRootDir !== 'string' || !path.isAbsolute(info.DockerRootDir)) {
+    throw failure('uninspectable Docker storage');
+  }
+  const paths = [info.DockerRootDir];
+  if (info.Driver === 'overlayfs' && Array.isArray(info.DriverStatus)
+    && info.DriverStatus.some(entry => Array.isArray(entry)
+      && entry[0] === 'driver-type' && entry[1] === 'io.containerd.snapshotter.v1')) {
+    paths.push('/var/lib/containerd');
+  }
+  return paths;
 }
 
 function assertDockerSocketDisjoint(config: WrapperConfig, hostMounts: MountIdentity[], agentMounts: MountIdentity[]): void {
@@ -449,10 +462,10 @@ export function preparePrivateHostSocketIsolation(config: WrapperConfig): (() =>
 
     // Docker storage can be an overlay backing directory, an alias not represented
     // by its overlay device number. Private sockets may never live in that storage.
-    const info = await execa('docker', ['info', '--format', '{{.DockerRootDir}}'], dockerOptions);
-    if (!path.isAbsolute(info.stdout.trim())) throw failure('uninspectable Docker storage');
-    assertDisjoint(roots, [coordinate(info.stdout.trim(), hostMounts)]);
-    assertRootOverlayBackingsIsolated(roots, rootMount, hostMounts, info.stdout.trim());
+    const info = await execa('docker', ['info', '--format', '{{json .}}'], dockerOptions);
+    const storagePaths = dockerStoragePaths(JSON.parse(info.stdout));
+    for (const storagePath of storagePaths) assertDisjoint(roots, [coordinate(storagePath, hostMounts)]);
+    assertRootOverlayBackingsIsolated(roots, rootMount, hostMounts, storagePaths);
 
     const control = path.join(procRoot, CONTROL_DIR);
     const gateMounts = agentMounts.filter(mount => mount.mountPoint === CONTROL_DIR);
@@ -492,7 +505,7 @@ export function preparePrivateHostSocketIsolation(config: WrapperConfig): (() =>
     const finalMounts = parseSocketMountInfo(fs.readFileSync(`/proc/${container.State.Pid}/mountinfo`, 'utf8'));
     assertAgentMountsIsolated(roots, finalMounts, rootMount);
     assertRootOverlayBackingsIsolated(
-      roots, rootMount, parseSocketMountInfo(fs.readFileSync('/proc/self/mountinfo', 'utf8')), info.stdout.trim(),
+      roots, rootMount, parseSocketMountInfo(fs.readFileSync('/proc/self/mountinfo', 'utf8')), storagePaths,
     );
     assertDockerSocketDisjoint(config, parseSocketMountInfo(fs.readFileSync('/proc/self/mountinfo', 'utf8')), finalMounts);
     const gateTarget = commandControl === control ? CONTROL_DIR : '/host' + CONTROL_DIR;
@@ -513,6 +526,6 @@ export function preparePrivateHostSocketIsolation(config: WrapperConfig): (() =>
 // ts-prune-ignore-next
 export const privateSocketTestHelpers = {
   readPrivateDirectories, assertDisjoint, coordinate, inspectHostSource,
-  assertAgentMountsIsolated, assertRootOverlayBackingsIsolated,
+  assertAgentMountsIsolated, assertRootOverlayBackingsIsolated, dockerStoragePaths,
   ENTRYPOINT, COMMAND_GATE, CONTROL_DIR, wrapPrivateHostSocketCommand,
 };

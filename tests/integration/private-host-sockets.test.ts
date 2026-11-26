@@ -261,7 +261,10 @@ PY`);
     const control = `/proc/${pid}/root/run/awf-private-host-sockets`;
     while (!fs.existsSync(path.join(control, 'allow-setup'))) {
       if (Date.now() >= deadline) throw new Error('Initial socket gate was not released');
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await Promise.race([
+        released.then(() => { throw new Error('Socket gate released before entrypoint setup'); }),
+        new Promise(resolve => setTimeout(resolve, 50)),
+      ]);
     }
     await execa('docker', ['exec', 'awf-agent', '/bin/mount', '--make-shared', '/run/awf-init']);
     fs.writeFileSync(path.join(initDir, 'ready'), '');
