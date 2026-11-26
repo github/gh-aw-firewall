@@ -23,6 +23,35 @@ const copyLegacyPricingProjections = (directory: string) => {
 };
 
 describe('maintained model compilation', () => {
+  it('generates and checks selected-branch data without using a compiler or package scripts from that branch', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-tier-workspace-'));
+    try {
+      for (const file of ['shared/model-information/sources', 'containers/api-proxy/models.dev.catalog.json',
+        'shared/model-information/imported/legacy-models-dev.metadata.json']) {
+        fs.mkdirSync(path.dirname(path.join(cwd, file)), { recursive: true });
+        fs.cpSync(path.join(root, file), path.join(cwd, file), { recursive: true });
+      }
+      const tierSource = path.join(cwd, 'shared/model-information/sources/coding-tiers.json');
+      const tiers = JSON.parse(fs.readFileSync(tierSource, 'utf8'));
+      tiers.entries = [{ lookupId: 'selected-only', codingTier: 'standard',
+        evidence: [{ url: 'https://example.invalid/model', quote: 'A reviewed model tier in the selected workspace.' }] }];
+      fs.writeFileSync(tierSource, JSON.stringify(tiers));
+      const olderContract = path.join(cwd, 'src/model-information-contract/pricing-resolution.js');
+      fs.mkdirSync(path.dirname(olderContract), { recursive: true });
+      fs.writeFileSync(olderContract, '// contract from the pending branch\n');
+      const wrapper = path.join(__dirname, 'maintenance-command.cjs');
+      for (const command of ['generate', 'check']) {
+        execFileSync(process.execPath, [wrapper, command], { cwd: root, env: { ...process.env, GITHUB_WORKSPACE: cwd } });
+      }
+      const file = 'containers/api-proxy/model-information.coding-tiers.generated.json';
+      expect(JSON.parse(fs.readFileSync(path.join(cwd, file), 'utf8'))).toEqual({ 'selected-only': { tier: 'standard' } });
+      expect(fs.readFileSync(olderContract, 'utf8')).toBe('// contract from the pending branch\n');
+      expect(fs.existsSync(path.join(cwd, 'containers/api-proxy/catalogue-contract'))).toBe(false);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('checks repeatable generated outputs without refreshing timestamps', () => {
     expect(run('--check')).toMatch(/Checked model catalogue/);
     expect(run('--check', `--root=${root}`)).toMatch(/Checked model catalogue/);
@@ -237,6 +266,8 @@ describe('maintained model compilation', () => {
       fs.mkdirSync(path.dirname(rawPath), { recursive: true });
       fs.copyFileSync(path.join(root, 'containers/api-proxy/models.dev.catalog.json'), rawPath);
       copyLegacyPricingProjections(temp);
+      const contractFile = path.join(temp, 'shared/model-information/pricing-resolution.js');
+      fs.appendFileSync(contractFile, '\n// target-specific contract revision\n');
       const sourcePath = path.join(temp, 'shared/model-information/sources/copilot-main.json');
       const source = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
       const model = source.models.find((entry: { identity: { rawId: string } }) =>
@@ -249,6 +280,7 @@ describe('maintained model compilation', () => {
       fs.writeFileSync(sourcePath, JSON.stringify(source));
       const tempCompiler = path.join(temp, 'scripts/model-information/compile.cjs');
       execFileSync(process.execPath, [tempCompiler], { cwd: temp });
+      expect(run('--check', `--root=${temp}`)).toMatch(/Checked model catalogue/);
       const staged = JSON.parse(fs.readFileSync(
         path.join(temp, 'containers/api-proxy/model-information.pricing.generated.json'), 'utf8',
       ));
@@ -545,7 +577,11 @@ describe('maintained model compilation', () => {
     try {
       fs.cpSync(path.join(root, 'shared/model-information/sources'), temp, { recursive: true });
       const file = path.join(temp, 'coding-tiers.json');
-      const source = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const source = { schemaVersion: 1, provenance: { authority: 'maintained', source: 'offline test fixture',
+        at: '2026-11-23T00:00:00Z', confidence: 'verified' }, entries: [{
+        lookupId: 'gpt-5-3-codex', codingTier: 'standard', releaseDate: '2026-11-01',
+        evidence: [{ url: 'https://github.blog/changelog/', quote: 'Reviewed announcement in an offline compiler fixture.' }],
+      }] };
       mutate(source);
       fs.writeFileSync(file, JSON.stringify(source));
       expect(() => run('--check', `--source-dir=${temp}`)).toThrow(diagnostic);

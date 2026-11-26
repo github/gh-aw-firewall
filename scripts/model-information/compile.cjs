@@ -16,8 +16,13 @@ const rootArgument = process.argv.find(arg => arg.startsWith('--root='));
 if (rootArgument && !process.argv.includes('--check')) {
   throw new Error('--root is only available in check mode');
 }
-const root = rootArgument ? path.resolve(rootArgument.slice('--root='.length)) : path.resolve(__dirname, '../..');
-const legacyPricing = require(path.join(root, 'containers/api-proxy/ai-credits-pricing.js'));
+const toolRoot = path.resolve(__dirname, '../..');
+const maintenanceProjections = process.argv.includes('--maintenance-workspace')
+  ? new Set(require('./maintain.cjs').projections) : null;
+const root = rootArgument ? path.resolve(rootArgument.slice('--root='.length))
+  : maintenanceProjections ? process.cwd() : toolRoot;
+const contractRoot = maintenanceProjections ? toolRoot : root;
+const legacyPricing = require(path.join(contractRoot, 'containers/api-proxy/ai-credits-pricing.js'));
 const sourceArgument = process.argv.find(arg => arg.startsWith('--source-dir='));
 if (sourceArgument && !process.argv.includes('--check')) {
   throw new Error('--source-dir is only available in check mode');
@@ -659,17 +664,18 @@ function compile() {
     'publication.v1.schema.json', 'publication-contract.cjs', 'publication.cjs',
     'publication.v2.schema.json', 'publication.v2.cjs']) {
     output[`containers/api-proxy/catalogue-contract/${file}`] =
-      fs.readFileSync(path.join(root, 'shared/model-information', file), 'utf8');
+      fs.readFileSync(path.join(contractRoot, 'shared/model-information', file), 'utf8');
   }
   for (const file of ['identity.js', 'identity.d.ts', 'resolution.js', 'resolution.d.ts', 'eligibility.js', 'eligibility.d.ts',
     'reasoning.js', 'reasoning.d.ts',
     'harness-observation.js', 'harness-observation.d.ts', 'pricing-resolution.js', 'pricing-resolution.d.ts',
     'exact-pricing.js']) {
     output[`src/model-information-contract/${file}`] =
-      fs.readFileSync(path.join(root, 'shared/model-information', file), 'utf8');
+      fs.readFileSync(path.join(contractRoot, 'shared/model-information', file), 'utf8');
   }
   if (errors.length) throw new Error(errors.join('\n'));
   for (const [file, content] of Object.entries(output)) {
+    if (maintenanceProjections && !maintenanceProjections.has(file)) continue;
     const filename = path.join(root, file);
     if (process.argv.includes('--check')) {
       if (!fs.existsSync(filename) || fs.readFileSync(filename, 'utf8') !== content) {

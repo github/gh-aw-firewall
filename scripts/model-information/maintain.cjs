@@ -7,6 +7,7 @@ const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const approvedSources = require('./maintenance-sources.json');
 const copilotPricing = require('./copilot-pricing.cjs');
+const codingTiers = require('./coding-tier-maintenance.cjs');
 
 const root = path.resolve(__dirname, '../..');
 const reportFile = 'shared/model-information/maintenance-report.json';
@@ -67,6 +68,7 @@ const projections = [
   'src/model-information.naming.generated.json',
   'src/model-information.compat.generated.json',
   'containers/api-proxy/model-information.naming.generated.json',
+  'containers/api-proxy/model-information.coding-tiers.generated.json',
   'containers/api-proxy/model-information.pricing.generated.json',
   'containers/api-proxy/model-information.fallback-pricing.generated.json',
   'containers/api-proxy/model-information.retired.generated.json',
@@ -120,8 +122,8 @@ function facts(value, field) {
 
 function differences(before, after, pointer = '') {
   if (JSON.stringify(before) === JSON.stringify(after)) return [];
-  if (Array.isArray(before) && Array.isArray(after) && /\/(data|models)$/.test(pointer)) {
-    const key = item => item?.identity?.key || item?.id;
+  if (Array.isArray(before) && Array.isArray(after) && /\/(data|models|entries)$/.test(pointer)) {
+    const key = item => pointer.endsWith('/entries') ? item?.lookupId : item?.identity?.key || item?.id;
     if ([...before, ...after].every(item => typeof key(item) === 'string') &&
         new Set(before.map(key)).size === before.length && new Set(after.map(key)).size === after.length) {
       const left = new Map(before.map(item => [key(item), item]));
@@ -634,6 +636,7 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
   const claimsPath = path.join(directory, 'proposal.json');
   const claims = fs.existsSync(claimsPath) ? read(claimsPath).changes : [];
   let verifiedCopilotPlan;
+  let tierEdits = [];
   const changes = [];
   for (const file of changed.filter(file => canonical(file) && !ignoredRestored.has(file))) {
     // Canonical inputs must already exist: adding a new source format needs a separate review.
@@ -676,6 +679,9 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
         if (!capture || typeof evidence.quote !== 'string' || evidence.quote.trim().length < 20 ||
             !fs.readFileSync(path.join(directory, `${capture.id}.txt`), 'utf8').includes(evidence.quote)) {
           throw new Error(`${file}: unsupported evidence quote from ${evidence.source}`);
+        }
+        if (file === codingTiers.file) {
+          tierEdits = codingTiers.verifyChanges(before, after, claim.evidence, captures);
         }
       }
       if (claim.generator === 'copilot-pricing-v1') {
@@ -739,11 +745,20 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
               afterBytes ? JSON.parse(afterBytes) : null),
         };
       });
+  let pendingCodingTierFacts = [];
+  if (tierEdits.length || pendingSourceChanges?.some(change => change.file === codingTiers.file)) {
+    const original = JSON.parse(git(cwd, 'show', `${mergeBase}:${codingTiers.file}`));
+    const previous = mergeBase !== base && hasGitObject(cwd, `${base}:${reportFile}`)
+      ? JSON.parse(git(cwd, 'show', `${base}:${reportFile}`)).pendingCodingTierFacts || [] : [];
+    pendingCodingTierFacts = codingTiers.pendingChanges(original, read(path.join(cwd, codingTiers.file)), tierEdits, previous);
+  }
   return {
     schemaVersion: 1, status: 'proposed-awaiting-human-review', baseRevision: git(cwd, 'rev-parse', base).trim(),
     reviewBaseRevision: git(cwd, 'rev-parse', reviewBase).trim(),
     ...(pendingSourceChanges ? { pendingSourceChangesBaseRevision: mergeBase } : {}),
     ...(pendingSourceChanges ? { pendingSourceChanges } : {}),
+    codingTierGaps: codingTiers.coverage(cwd, directory, documentText),
+    ...(pendingCodingTierFacts.length ? { pendingCodingTierFacts } : {}),
     runtimeConsumerEffects: runtimeConsumerEffects(cwd, base),
     backendScopedFallbackEffects: backendScopedFallbackConsumerEffects(cwd, base),
     importedMedianEstimateEffects: importImpactEffects(cwd, base, importedMedianEffects),
@@ -760,6 +775,17 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
     generatedFiles: projections,
     reviewRequired: ['All model-fact changes require human review; no auto-merge or publication.'],
   };
+}
+
+function checkPendingTierFacts(cwd, base, reviewBase) {
+  const mergeBase = git(cwd, 'merge-base', base, reviewBase).trim();
+  if (![base, mergeBase].every(rev => hasGitObject(cwd, `${rev}:${codingTiers.file}`))) {
+    throw new Error('The pending branch or its merge base predates the coding tier catalogue');
+  }
+  const sourceAt = rev => JSON.parse(git(cwd, 'show', `${rev}:${codingTiers.file}`));
+  const previous = hasGitObject(cwd, `${base}:${reportFile}`)
+    ? JSON.parse(git(cwd, 'show', `${base}:${reportFile}`)).pendingCodingTierFacts || [] : [];
+  codingTiers.pendingChanges(sourceAt(mergeBase), sourceAt(base), [], previous);
 }
 
 function selectPullRequest(pulls) {
@@ -790,18 +816,19 @@ function verifyCommittedTree(cwd) {
 }
 
 async function main() {
-  const [command, directory = '/tmp/gh-aw/model-maintenance', targetRoot = root] = process.argv.slice(2);
+  const [command, directory = '/tmp/gh-aw/model-maintenance', targetRoot = process.env.GITHUB_WORKSPACE || root] = process.argv.slice(2);
   if (command === 'capture') {
     const captures = await captureSources(directory);
     console.log(json(captures));
     if (captures.some(item => item.status !== 'ok')) throw new Error('Source retrieval failed; see captures.json for affected sources');
   } else if (command === 'refresh-import') {
-    console.log(refreshImport(root, directory) ? 'Import source changed; regenerate before review' : 'Import facts unchanged');
+    console.log(refreshImport(targetRoot, directory) ? 'Import source changed; regenerate before review' : 'Import facts unchanged');
   } else if (command === 'refresh-copilot-pricing') {
-    console.log(json(proposeCopilotPricing(root, directory)));
+    console.log(json(proposeCopilotPricing(targetRoot, directory)));
   } else if (command === 'report') {
-    const report = buildReport(root, directory);
-    if (report) fs.writeFileSync(path.join(root, reportFile), json(report));
+    const report = buildReport(targetRoot, directory);
+    if (report) fs.writeFileSync(path.join(targetRoot, reportFile), json(report));
+    console.log(json({ codingTierGaps: report?.codingTierGaps ?? codingTiers.coverage(targetRoot, directory, documentText) }));
     console.log(report ? `Review required: ${reportFile}` : 'No material source changes');
   } else if (command === 'verify' || command === 'verify-committed') {
     const cwd = path.resolve(targetRoot);
@@ -809,18 +836,20 @@ async function main() {
     const report = buildReport(cwd, directory);
     if (report && json(read(path.join(cwd, reportFile))) !== json(report)) throw new Error('Missing or stale maintenance impact report');
     execFileSync(process.execPath, [
-      path.join(root, 'scripts/model-information/compile.cjs'), '--check', `--root=${cwd}`,
-    ], { cwd: root, stdio: 'inherit' });
+      path.join(root, 'scripts/model-information/compile.cjs'), '--maintenance-workspace', '--check',
+    ], { cwd, stdio: 'inherit' });
+  } else if (command === 'check-pending-tiers') {
+    checkPendingTierFacts(root, directory, targetRoot);
   } else if (command === 'select-pr') {
     console.log(json(selectPullRequest(read(directory))));
   } else {
-    throw new Error('Expected capture, refresh-import, refresh-copilot-pricing, report, verify, verify-committed or select-pr');
+    throw new Error('Expected capture, refresh-import, refresh-copilot-pricing, report, verify, verify-committed, check-pending-tiers or select-pr');
   }
 }
 
 if (require.main === module) main().catch(error => { console.error(error.message); process.exitCode = 1; });
 module.exports = {
-  captureSources, loadCaptures, refreshImport, proposeCopilotPricing, buildReport, selectPullRequest,
+  captureSources, loadCaptures, refreshImport, proposeCopilotPricing, buildReport, selectPullRequest, checkPendingTierFacts,
   refreshCopilotPricing: proposeCopilotPricing,
   facts, differences, reviewReasons, inspectCatalogue, documentText, hash, json, allowed, projections,
   catalogueFacts, runtimeResolutionFacts, runtimeConsumerEffects, verifyCommittedTree, maintenanceTitle,

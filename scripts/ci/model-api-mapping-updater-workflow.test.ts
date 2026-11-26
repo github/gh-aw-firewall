@@ -7,6 +7,7 @@ const source = fs.readFileSync(path.join(workflowsDir, 'model-api-mapping-update
 const lockText = fs.readFileSync(path.join(workflowsDir, 'model-api-mapping-updater.lock.yml'), 'utf8');
 const frontmatter = yaml.load(source.split('---')[1]) as Record<string, any>;
 const lock = yaml.load(lockText) as Record<string, any>;
+const tools = '/opt/gh-aw/model-maintenance';
 
 describe('scheduled canonical model source maintenance', () => {
   it('pins reviewed Copilot downloads in source and both installer jobs, independent of cache availability', () => {
@@ -90,8 +91,13 @@ describe('scheduled canonical model source maintenance', () => {
     expect(prepare).toContain('git checkout -B "$SELECTED_PR_HEAD" "refs/remotes/origin/$SELECTED_PR_HEAD"');
     expect(prepare).toContain('= "$SELECTED_PR_BASE"');
     expect(prepare).toContain('git rev-parse HEAD');
-    const stageCommand = 'install -m 0555 scripts/model-information/maintenance-command.cjs /tmp/gh-aw/model-maintenance-command.cjs';
+    const stageCommand = 'git archive "$REVIEW_BASE" scripts/model-information shared/model-information containers/api-proxy/catalogue-contract';
     expect(prepare).toContain(stageCommand);
+    expect(frontmatter.sandbox.agent.mounts).toContain(`${tools}:${tools}:ro`);
+    expect(prepare).toContain(`tools=${tools}`);
+    expect(prepare).toContain('npm ci --prefix "$tools" --ignore-scripts');
+    expect(prepare).not.toContain('$GITHUB_WORKSPACE/node_modules');
+    expect(prepare).toContain('ln -s scripts/model-information/maintenance-command.cjs "$tools/run"');
     expect(prepare.indexOf(stageCommand)).toBeLessThan(prepare.indexOf('git checkout -B'));
     expect(steps.some(step => step.run?.includes('maintain.cjs capture'))).toBe(false);
     expect(frontmatter['post-steps']).toBeUndefined();
@@ -112,8 +118,8 @@ describe('scheduled canonical model source maintenance', () => {
       },
     });
     expect(outputSteps[processorIndex].if).toBeUndefined();
-    expect(source).toContain('model-maintenance-command.cjs verify');
-    expect(source).toContain('/tmp/gh-aw/model-maintenance-command.cjs generate');
+    expect(source).toContain(`${tools}/run verify`);
+    expect(source).toContain(`${tools}/run generate`);
     expect(source).toContain('npm run models:check');
     expect(source).toContain('npm test -- --runInBand');
     expect(source).toContain('report_incomplete');
@@ -132,6 +138,7 @@ describe('scheduled canonical model source maintenance', () => {
     expect(select.run).toContain('test "$GITHUB_REF" = refs/heads/main');
     expect(select.run).not.toContain('--base main');
     expect(select.run).toContain('maintain.cjs select-pr');
+    expect(select.run).toContain('check-pending-tiers "$base" "$review_base"');
     expect(select.run).toContain('.number // 0');
     expect(select.run).toContain('>> "$GITHUB_OUTPUT"');
     expect(frontmatter.jobs.agent.needs).toContain('select_maintenance_pr');
@@ -189,14 +196,14 @@ describe('scheduled canonical model source maintenance', () => {
   it('grants only required script invocations, not unrestricted interpreters or package runners', () => {
     expect(frontmatter.tools.bash).toEqual([
       'cat', 'jq', 'sha256sum', 'git show:*', 'git diff:*', 'git status:*', 'git log:*',
-      '/tmp/gh-aw/model-maintenance-command.cjs',
+      `${tools}/run`,
     ]);
     for (const tool of ['shell(node', 'shell(npm', 'shell(npx', 'shell(git:*)']) {
       expect(lockText).not.toContain(tool);
     }
     const launch = lock.jobs.agent.steps.find((step: { run?: string }) =>
       step.run?.includes('copilot_harness.cjs'))!.run;
-    expect(launch).toContain('shell(/tmp/gh-aw/model-maintenance-command.cjs)');
+    expect(launch).toContain(`shell(${tools}/run)`);
     // Run 44968178263 lost its proposal when `git status --short` and
     // `git --no-pager log` segments of a chained commit were denied unattended.
     for (const tool of ['shell(git status:*)', 'shell(git log:*)', 'shell(git add:*)', 'shell(git commit:*)']) {
@@ -206,9 +213,10 @@ describe('scheduled canonical model source maintenance', () => {
     expect(source).toContain('do not chain or pipe publishing');
     const entrypoint = path.resolve(__dirname, '../model-information/maintenance-command.cjs');
     expect(fs.statSync(entrypoint).mode & 0o111).not.toBe(0);
-    for (const command of ['refresh-copilot-pricing', 'generate', 'report', 'test', 'test-api-proxy', 'check', 'verify']) {
-      expect(source).toContain(`/tmp/gh-aw/model-maintenance-command.cjs ${command}`);
+    for (const command of ['refresh-copilot-pricing', 'generate', 'report', 'check', 'verify']) {
+      expect(source).toContain(`${tools}/run ${command}`);
     }
+    expect(source).not.toContain(`${tools}/run test`);
     expect(source).toContain('exactly one of');
     expect(source).toContain('not inline scripts or unlisted helpers');
   });

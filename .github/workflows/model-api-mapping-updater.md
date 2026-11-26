@@ -24,6 +24,8 @@ concurrency:
 sandbox:
   agent:
     id: awf
+    mounts:
+      - "/opt/gh-aw/model-maintenance:/opt/gh-aw/model-maintenance:ro"
 tools:
   github:
     toolsets: [repos, pull_requests]
@@ -35,7 +37,7 @@ tools:
     - "git diff:*"
     - "git status:*"
     - "git log:*"
-    - "/tmp/gh-aw/model-maintenance-command.cjs"
+    - "/opt/gh-aw/model-maintenance/run"
   edit:
 network:
   allowed:
@@ -90,6 +92,11 @@ jobs:
           if [ -n "$head" ]; then
             git fetch --no-tags origin "$head"
             base=$(git rev-parse FETCH_HEAD)
+            if ! reason=$(node scripts/model-information/maintain.cjs check-pending-tiers "$base" "$review_base" 2>&1); then
+              number=$(jq -r '.number' "$RUNNER_TEMP/existing-pr.json")
+              printf 'Maintenance PR #%s: %s. Merge main if the catalogue is missing, or finish reviewing pending tier edits and their evidence before the next refresh. No PR was changed.\n' "$number" "$reason" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
           fi
           echo "base_revision=$base" >> "$GITHUB_OUTPUT"
           echo "review_base_revision=$review_base" >> "$GITHUB_OUTPUT"
@@ -168,10 +175,6 @@ jobs:
           npm --prefix containers/api-proxy ci --ignore-scripts
           npm --prefix containers/api-proxy test -- --runInBand models-dev-catalog.test.js ai-credits-pricing-reference.test.js catalogue-pricing.test.js guards/ai-credits-tariff.test.js guards/ai-credits-notices.test.js guards/ai-credits-promotions.test.js guards/ai-credits-pricing-fallback.test.js model-api-mapping.test.js runtime-model-catalog.test.js routing-catalogue.test.js wire-api-compat.test.js server.decisions.test.js
 steps:
-  - name: Install pinned model validation dependencies
-    run: |
-      npm ci --ignore-scripts
-      npm --prefix containers/api-proxy ci --ignore-scripts
   - name: Check out the selected maintenance PR
     env:
       SELECTED_PR_NUMBER: ${{ needs.select_maintenance_pr.outputs.number }}
@@ -182,7 +185,11 @@ steps:
       set -euo pipefail
       test "$GITHUB_REF" = refs/heads/main
       mkdir -p /tmp/gh-aw/model-maintenance
-      install -m 0555 scripts/model-information/maintenance-command.cjs /tmp/gh-aw/model-maintenance-command.cjs
+      tools=/opt/gh-aw/model-maintenance
+      sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" "$tools"
+      git archive "$REVIEW_BASE" scripts/model-information shared/model-information containers/api-proxy/catalogue-contract containers/api-proxy/ai-credits-pricing.js package.json package-lock.json .npmrc | tar -x -C "$tools"
+      npm ci --prefix "$tools" --ignore-scripts
+      ln -s scripts/model-information/maintenance-command.cjs "$tools/run"
       printf '%s\n' "$REVIEW_BASE" > /tmp/gh-aw/model-maintenance/review-base-revision
       jq -n --argjson number "$SELECTED_PR_NUMBER" --arg head "$SELECTED_PR_HEAD" \
         'if $number == 0 then null else {number: $number, headRefName: $head} end' \
@@ -240,6 +247,7 @@ safe-outputs:
       - containers/api-proxy/ai-credits-pricing-reference.json
       - containers/api-proxy/model-information.pricing.generated.json
       - containers/api-proxy/model-information.naming.generated.json
+      - containers/api-proxy/model-information.coding-tiers.generated.json
       - containers/api-proxy/model-information.fallback-pricing.generated.json
       - containers/api-proxy/model-information.retired.generated.json
       - docs/model-api-mapping.json
@@ -253,7 +261,7 @@ safe-outputs:
     github-token-for-extra-empty-commit: none
     max-patch-size: 10240
     patch-format: bundle
-    allowed-files: ["shared/model-information/sources/*.json", "shared/model-information/imported/legacy-models-dev.metadata.json", "shared/model-information/imported/legacy-models-dev.snapshot.v1.json", "shared/model-information/*.generated.json", "shared/model-information/maintenance-report.json", "containers/api-proxy/models.dev.catalog.json", "containers/api-proxy/model-api-mapping.json", "containers/api-proxy/ai-credits-pricing-reference.json", "containers/api-proxy/model-information.pricing.generated.json", "containers/api-proxy/model-information.naming.generated.json", "containers/api-proxy/model-information.fallback-pricing.generated.json", "containers/api-proxy/model-information.retired.generated.json", "docs/model-api-mapping.json", "src/model-information.compat.generated.json", "src/model-information.naming.generated.json"]
+    allowed-files: *model-files
   report-failed-jobs: false
   report-failure-as-issue: false
   report-incomplete:
@@ -300,6 +308,32 @@ date. Marketing prose/family names do not verify capabilities, effort sets or
 compatibility. Preserve unknown states, scope and authority. Never invent prices,
 model licenses, source timestamps, deployment mappings or harness floors.
 
+Maintain `shared/model-information/sources/coding-tiers.json` using ADR 0004,
+“Coding tier and release date”. Run the existing `report` command before editing:
+`codingTierGaps` lists missing facts for reviewed IDs and supported Copilot names
+without a confirmed ID. Also check the approved Copilot, OpenAI and Anthropic
+captures for newly documented exact agent-capable IDs. Do not invent a wire ID
+from a display name, wildcard or OpenRouter listing. Decisions-only, hidden and
+embedding models need no label. These facts order eligible models, not eligibility.
+
+Propose a missing tier or first official announcement date independently. Use
+vendor line positioning or `copilot-model-comparison` for tiers, never benchmark
+scores or prices. Preview announcements count; a capture date or later rollout
+is not a launch date. Preserve existing facts and their citations. Change a tier
+only for a documented repositioning, covering the entire affected product line
+and calling it out for review. Approved announcement captures may establish an
+earlier date than the latest Copilot rollout. A link to an uncaptured page is
+not evidence. In the tier file's proposal receipt, give each
+changed fact an `evidence` item with its `lookupId`, `field` (`codingTier` or
+`releaseDate`), `after` value, captured `source` ID, `url` and verbatim `quote`.
+The URL and quote must also appear in that model's entry. The human reviewer
+judges whether the passage supports this model, field and value.
+
+For unresolved IDs or facts, emit `report_incomplete` naming what remains and
+why, even if there are other valid changes to publish. With only unresolved
+gaps, do not open or update a PR or emit `noop`. For example, retain Kimi K3's
+reviewed tier when its first announcement cannot be dated.
+
 Check `openai-decisions`, `openai-decisions-sdk`, `copilot-decisions` and
 `copilot-decisions-auth` for new supported **exact** model IDs, endpoint/protocol
 changes (`/decisions` relative to a `/v1` base versus full `/v1/decisions`),
@@ -325,7 +359,7 @@ retain prior facts instead of inferring fresh support from those fallbacks.
 Compare `copilot-pricing` (GitHub's models-and-pricing tables and their attached
 footnotes) with exact GA Copilot completion records, using only Copilot /
 `copilot-api` billing scope. Native-provider and OpenRouter prices cannot verify
-these tariffs. Run `/tmp/gh-aw/model-maintenance-command.cjs refresh-copilot-pricing`
+these tariffs. Run `/opt/gh-aw/model-maintenance/run refresh-copilot-pricing`
 before other source edits to propose evidence-backed default/long-context prices
 and exact thresholds, with model/tariff/component provenance and ordinary receipts.
 Review its diagnostics and retained prior facts; report missing required components,
@@ -344,16 +378,15 @@ Grok corrections. Prices do not establish host-side or Copilot CLI eligibility.
 
 ## Propose and regenerate
 
-Use `/tmp/gh-aw/model-maintenance-command.cjs` with exactly one of
-`refresh-import`, `refresh-copilot-pricing`, `report`, `verify`, `generate`, `check`,
-`test` or `test-api-proxy`.
+Use `/opt/gh-aw/model-maintenance/run` with exactly one of
+`refresh-import`, `refresh-copilot-pricing`, `report`, `verify`, `generate` or `check`.
 This fixed-command entrypoint is preapproved for unattended execution; full
 `node ...` and `npm ...` invocation allow rules do not match Copilot's command
 names. Do not invoke interpreters/package runners directly, add arguments, or
 request interactive approval. Inspect local evidence with the read tools,
 `cat` or `jq`, not inline scripts or unlisted helpers such as `paste` or `xargs`.
-The host stages this entrypoint before selecting an existing PR branch, so it
-also works when that branch predates the entrypoint.
+The host stages this entrypoint and its dependencies in a read-only mount before
+selecting an existing PR branch. They do not come from the branch being updated.
 
 Edit only canonical `shared/model-information/sources/*.json` records supported
 by actually fetched evidence. Update provenance only for changed facts: record
@@ -365,7 +398,7 @@ Keep `lifecycle-compatibility.json` suggestion ordering consistent when a
 documented CLI availability change requires it. Do not broaden endpoint family
 patterns based on a single model. Schema/compiler changes need a separate PR.
 
-Run `/tmp/gh-aw/model-maintenance-command.cjs refresh-import` to compare
+Run `/opt/gh-aw/model-maintenance/run refresh-import` to compare
 governed imported facts and, only when they change, pin the exact API response
 and its real retrieval metadata. Never hand-edit import bytes, metadata or the
 normalized snapshot. The historical `models.dev.catalog.json` filename denotes
@@ -393,15 +426,16 @@ without changed model facts is a genuine no-op.
 Before invoking any PR safe output run, in order:
 
 ```bash
-/tmp/gh-aw/model-maintenance-command.cjs generate
-/tmp/gh-aw/model-maintenance-command.cjs report
-/tmp/gh-aw/model-maintenance-command.cjs test
-/tmp/gh-aw/model-maintenance-command.cjs test-api-proxy
-/tmp/gh-aw/model-maintenance-command.cjs check
-/tmp/gh-aw/model-maintenance-command.cjs verify
+/opt/gh-aw/model-maintenance/run generate
+/opt/gh-aw/model-maintenance/run report
+/opt/gh-aw/model-maintenance/run check
+/opt/gh-aw/model-maintenance/run verify
 ```
 
-Generation owns **every** projection including both API mapping copies and the
+The independent validation job runs the offline model and API proxy tests and
+the full projection check against the proposed data before any PR write. It
+uses the current tests and contracts, not those from a pending branch.
+Generation owns **every data projection allowed in a maintenance PR**, including both API mapping copies and the
 governed normalized import. Never author projections independently or omit an
 affected generated file. `maintenance-report.json` contains exact before/after
 field changes, source evidence and explicit human-review gates. Backend-scoped

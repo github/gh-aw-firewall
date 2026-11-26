@@ -283,6 +283,23 @@ For cases the table does not settle:
 - Models that can never enter an automatic pool, such as Decisions-only,
   embedding or picker-hidden models, need no entry.
 
+The twice-daily Model source maintenance workflow proposes missing facts in its
+existing reviewed PR. Each changed field cites a specific passage from an
+approved capture; adding a release date must preserve the original tier evidence.
+An unresolved fact appears in the run's incomplete report without a data-only
+PR for the gap. A change to an existing tier is flagged for human review for
+as long as it is pending, even if a later run also updates unrelated prices.
+Retirement on Copilot stops reminders for that route without deleting its
+historical facts. An exact Responses or Messages route on another provider can
+still keep the same model in scope. When updating an open PR, the workflow
+generates only the permitted data files using the current compiler. The required
+tests and full projection check run against that data on the trusted checkout;
+the workflow neither runs stale tests nor copies new code into the pending PR.
+The agent reads the compiler and its dependencies from a read-only mount. If an
+older PR contains tier edits without field-level evidence receipts, selection
+stops before the agent runs so a reviewer can finish that PR without losing
+its edits.
+
 ### Harness version constraints
 
 Model records can declare channel-specific harness requirements:

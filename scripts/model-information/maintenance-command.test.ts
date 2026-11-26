@@ -6,6 +6,7 @@ const { runMaintenanceCommand } = require('./maintenance-command.cjs') as {
 };
 const root = path.resolve(__dirname, '../..');
 const maintain = path.join(__dirname, 'maintain.cjs');
+const compile = path.join(__dirname, 'compile.cjs');
 
 describe('unattended model maintenance command boundary', () => {
   it.each([
@@ -13,17 +14,8 @@ describe('unattended model maintenance command boundary', () => {
     ['refresh-copilot-pricing', process.execPath, [maintain, 'refresh-copilot-pricing']],
     ['report', process.execPath, [maintain, 'report']],
     ['verify', process.execPath, [maintain, 'verify']],
-    ['generate', 'npm', ['run', 'models:generate']],
-    ['check', 'npm', ['run', 'models:check']],
-    ['test', 'npm', ['test', '--', '--runInBand', 'scripts/model-information/',
-      'scripts/ci/model-api-mapping-updater-workflow.test.ts',
-      'src/copilot-model-catalog-sync.test.ts', 'src/model-information-contract.test.ts']],
-    ['test-api-proxy', 'npm', ['--prefix', 'containers/api-proxy', 'test', '--',
-      '--runInBand', 'models-dev-catalog.test.js', 'ai-credits-pricing-reference.test.js',
-      'catalogue-pricing.test.js', 'guards/ai-credits-tariff.test.js', 'guards/ai-credits-notices.test.js',
-      'guards/ai-credits-promotions.test.js', 'guards/ai-credits-pricing-fallback.test.js',
-      'model-api-mapping.test.js', 'runtime-model-catalog.test.js', 'routing-catalogue.test.js',
-      'wire-api-compat.test.js', 'server.decisions.test.js']],
+    ['generate', process.execPath, [compile, '--maintenance-workspace']],
+    ['check', process.execPath, [compile, '--maintenance-workspace', '--check']],
   ] as [string, string, string[]][])('runs only the fixed %s invocation from the repository root',
     (operation, executable, args) => {
       const spawn = jest.fn().mockReturnValue({ status: 0 });
@@ -37,7 +29,7 @@ describe('unattended model maintenance command boundary', () => {
       [], ['capture'], ['select-pr'], ['node'], ['npm'], ['__proto__'], ['constructor'],
       ['refresh-import', '--help'], ['generate', '--script-shell=unapproved'],
       ['refresh-copilot-pricing', '--source=https://unapproved.example'],
-      ['test', '--updateSnapshot'], ['report; echo unapproved'],
+      ['test'], ['test-api-proxy'], ['test', '--updateSnapshot'], ['report; echo unapproved'],
     ]) {
       const spawn = jest.fn();
       expect(() => runMaintenanceCommand(args, spawn)).toThrow('Expected exactly one maintenance command');
@@ -59,7 +51,7 @@ describe('unattended model maintenance command boundary', () => {
         require('./maintenance-command.cjs').runMaintenanceCommand(['refresh-import'], spawn);
       });
       expect(spawn).toHaveBeenCalledWith(process.execPath, [
-        path.join(workspace, 'scripts/model-information/maintain.cjs'), 'refresh-import',
+        maintain, 'refresh-import',
       ], { cwd: workspace, stdio: 'inherit' });
     } finally {
       if (previous === undefined) delete process.env.GITHUB_WORKSPACE;
@@ -68,12 +60,12 @@ describe('unattended model maintenance command boundary', () => {
   });
 
   it('surfaces process startup errors, signals and missing exit status', () => {
-    const error = new Error('npm not found');
-    expect(() => runMaintenanceCommand(['test'], jest.fn().mockReturnValue({ error }))).toThrow(error);
-    expect(() => runMaintenanceCommand(['test'], jest.fn().mockReturnValue({
+    const error = new Error('node not found');
+    expect(() => runMaintenanceCommand(['check'], jest.fn().mockReturnValue({ error }))).toThrow(error);
+    expect(() => runMaintenanceCommand(['check'], jest.fn().mockReturnValue({
       status: null, signal: 'SIGTERM',
     }))).toThrow('terminated by SIGTERM');
-    expect(() => runMaintenanceCommand(['test'], jest.fn().mockReturnValue({
+    expect(() => runMaintenanceCommand(['check'], jest.fn().mockReturnValue({
       status: null,
     }))).toThrow('returned no exit status');
   });

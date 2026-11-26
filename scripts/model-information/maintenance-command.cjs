@@ -5,23 +5,15 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const root = process.env.GITHUB_WORKSPACE || path.resolve(__dirname, '../..');
-const maintain = path.join(root, 'scripts/model-information/maintain.cjs');
+const maintain = path.join(__dirname, 'maintain.cjs');
+const compile = path.join(__dirname, 'compile.cjs');
 const commands = {
   'refresh-import': [process.execPath, maintain, 'refresh-import'],
   'refresh-copilot-pricing': [process.execPath, maintain, 'refresh-copilot-pricing'],
   report: [process.execPath, maintain, 'report'],
   verify: [process.execPath, maintain, 'verify'],
-  generate: ['npm', 'run', 'models:generate'],
-  check: ['npm', 'run', 'models:check'],
-  test: ['npm', 'test', '--', '--runInBand', 'scripts/model-information/',
-    'scripts/ci/model-api-mapping-updater-workflow.test.ts',
-    'src/copilot-model-catalog-sync.test.ts', 'src/model-information-contract.test.ts'],
-  'test-api-proxy': ['npm', '--prefix', 'containers/api-proxy', 'test', '--',
-    '--runInBand', 'models-dev-catalog.test.js', 'ai-credits-pricing-reference.test.js',
-    'catalogue-pricing.test.js', 'guards/ai-credits-tariff.test.js', 'guards/ai-credits-notices.test.js',
-    'guards/ai-credits-promotions.test.js', 'guards/ai-credits-pricing-fallback.test.js',
-    'model-api-mapping.test.js', 'runtime-model-catalog.test.js', 'routing-catalogue.test.js',
-    'wire-api-compat.test.js', 'server.decisions.test.js'],
+  generate: [process.execPath, compile, '--maintenance-workspace'],
+  check: [process.execPath, compile, '--maintenance-workspace', '--check'],
 };
 
 function runMaintenanceCommand(args, spawn = spawnSync) {

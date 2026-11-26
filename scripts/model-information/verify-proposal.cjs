@@ -5,7 +5,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { allowed, buildReport, loadCaptures, json } = require('./maintain.cjs');
+const { allowed, buildReport, loadCaptures, json, documentText } = require('./maintain.cjs');
+const codingTiers = require('./coding-tier-maintenance.cjs');
 
 const reportFile = 'shared/model-information/maintenance-report.json';
 const maxBytes = 16 * 1024 * 1024;
@@ -85,7 +86,12 @@ function verifyProposal(cwd, artifact, evidence, options) {
     if (Boolean(expected) !== Boolean(writes.length) || (expected && json(expected) !== json(report))) {
       throw new Error('Missing or stale maintenance impact report for the published bundle');
     }
-    if (!expected) return { head, changed: false };
+    const codingTierGaps = expected?.codingTierGaps ?? codingTiers.coverage(candidate, evidence, documentText);
+    if (codingTierGaps.length && (output.items.some(item => item.type === 'noop') ||
+        !output.items.some(item => item.type === 'report_incomplete' && typeof item.reason === 'string' && item.reason.trim()))) {
+      throw new Error(`Report incomplete coding tier coverage: ${JSON.stringify(codingTierGaps)}`);
+    }
+    if (!expected) return { head, changed: false, codingTierGaps };
     // Overlay only verified JSON data; scripts, tests, schemas and npm/Jest configuration stay trusted.
     const names = new Set(data.map(entry => entry.file));
     for (const entry of filesAt(cwd, 'HEAD').filter(entry => allowed(entry.file) && !names.has(entry.file))) {
@@ -96,11 +102,18 @@ function verifyProposal(cwd, artifact, evidence, options) {
       fs.mkdirSync(path.dirname(destination), { recursive: true });
       fs.writeFileSync(destination, git(cwd, 'show', `${head}:${file}`));
     }
-    return { head, changed: Boolean(expected) };
+    return { head, changed: true, codingTierGaps };
   } finally {
     if (added) git(cwd, 'worktree', 'remove', '--force', candidate);
     fs.rmSync(candidate, { recursive: true, force: true });
   }
+}
+
+function writeTierSummary(filename, gaps) {
+  if (!gaps.length) return;
+  const lines = gaps.map(gap => `${gap.lookupId || gap.displayName || gap.source}: ${gap.missing.join(', ')}`);
+  const text = lines.join('\n').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  fs.appendFileSync(filename, `\n### Missing coding tier catalogue facts\n\n<pre>${text}</pre>\n`);
 }
 
 if (require.main === module) {
@@ -112,6 +125,7 @@ if (require.main === module) {
       captureSha256: process.env.AWF_MODEL_CAPTURE_SHA256,
       selectedNumber: Number(process.env.AWF_MODEL_SELECTED_PR),
     });
+    if (process.env.GITHUB_STEP_SUMMARY) writeTierSummary(process.env.GITHUB_STEP_SUMMARY, result.codingTierGaps);
     console.log(json(result));
   } catch (error) {
     console.error(error.message);
@@ -119,4 +133,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { verifyProposal };
+module.exports = { verifyProposal, writeTierSummary };
