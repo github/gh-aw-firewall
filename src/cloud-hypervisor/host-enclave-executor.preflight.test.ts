@@ -14,6 +14,7 @@ import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import type { WrapperConfig } from '../types';
 import { schema as preflightSchema } from './host-preflight-schema';
 import { createExecutorScratchDirectory } from './host-enclave-executor.test-utils';
+import { parseEnclaveArtifactManifestBytes } from './enclave-artifact-manifest';
 
 describe('Cloud Hypervisor host enclave artifact preflight', () => {
   it('rejects artifact preflight when the attestation tool is not trusted', async () => {
@@ -115,6 +116,9 @@ describe('Cloud Hypervisor host enclave artifact preflight', () => {
       updateEnclaveStartupProgress(wrapper, { hostPreflight });
     const admission = new HostPreflightReporter('bounded-artifacts', publish, undefined,
       { phase: 'preflight', profile: 'common' });
+    const roleProgress: HostPreflightProgress[] = [];
+    const roleReport = new HostPreflightReporter('bounded-artifacts', value => roleProgress.push(value),
+      undefined, { phase: 'preflight', profile: 'common' });
     for (const id of Object.keys(preflightSchema.scopes['bounded-artifacts']) as HostPreflightCheck[]) {
       // Storage admission is a fixture here; artifact verification below uses real files.
       if (!artifactChecks.includes(id)) await admission.check(id, () => undefined);
@@ -144,7 +148,7 @@ describe('Cloud Hypervisor host enclave artifact preflight', () => {
           scriptRootfsPath,
           agentRootfsPath,
           attestationToolPath,
-        }, undefined, undefined, admission));
+        }, undefined, undefined, roleReport));
         expect(verified).toMatchObject({
           rootfs: {
             script: { path: scriptRootfsPath, artifact: scriptArtifact },
@@ -160,6 +164,16 @@ describe('Cloud Hypervisor host enclave artifact preflight', () => {
           'manifest-parse', 'manifest-attestation', 'rootfs-configuration',
           ...rootfsChecks, ...(shared ? [] : rootfsChecks),
           'sbom-trust', 'sbom-digest', 'sbom-trust', 'sbom-digest',
+        ]);
+        const roleCheckIds = [...rootfsChecks, 'sbom-trust', 'sbom-digest'];
+        const roleCheckProfiles = roleProgress.flatMap(progress => progress.checks
+          .filter(check => roleCheckIds.includes(check.id) && check.result === 'attempted')
+          .map(check => [progress.profile, check.id]));
+        expect(roleCheckProfiles).toEqual([
+          ...(['script', ...(shared ? [] : ['agent'])] as const)
+            .flatMap(profile => rootfsChecks.map(id => [profile, id])),
+          ['script', 'sbom-trust'], ['script', 'sbom-digest'],
+          ['agent', 'sbom-trust'], ['agent', 'sbom-digest'],
         ]);
       } finally {
         attempts.mockRestore();
@@ -283,19 +297,53 @@ describe('Cloud Hypervisor host enclave artifact preflight', () => {
       await fs.mkdir(verificationRoot, { mode: 0o700 });
       await fs.writeFile(attestationTracePath, '');
       const contentTrace = path.join(scratch, 'attested-content');
+      const capturedManifestPath = path.join(scratch, 'attested-manifest');
+      const capturedBundlePath = path.join(scratch, 'attested-bundle');
       await fs.writeFile(attestationToolPath,
-        `#!/bin/sh\nprintf '%s\\n' "$@" >> '${attestationTracePath}'\nprintf '\\n' >> '${attestationTracePath}'\ncat "$3" >> '${contentTrace}'\n`);
-      await expect(preflightCloudHypervisorEnclaveArtifacts({
-        releaseTag, manifestPath, manifestBundlePath, scriptRootfsPath, agentRootfsPath, attestationToolPath,
-      }, verificationRoot, async (source, destination) => {
-        await fs.copyFile(source, destination);
-        // Replace the operator source after capture but before hashing/attestation.
-        await fs.chmod(source, 0o600);
-        await fs.writeFile(source, 'replaced-after-capture');
-        await fs.chmod(source, 0o400);
-      })).resolves.toMatchObject({
+        `#!/bin/sh\nprintf '%s\\n' "$@" >> '${attestationTracePath}'\nprintf '\\n' >> '${attestationTracePath}'\nif [ ! -e '${capturedManifestPath}' ]; then cp "$3" '${capturedManifestPath}'; cp "$7" '${capturedBundlePath}'; fi\ncat "$3" >> '${contentTrace}'\n`);
+      const capturedManifestBytes = await fs.readFile(manifestPath);
+      const capturedBundleBytes = await fs.readFile(manifestBundlePath);
+      const createTemporaryDirectory = fs.mkdtemp.bind(fs);
+      let sourcesReplaced = false;
+      const replaceSources = jest.spyOn(fs, 'mkdtemp').mockImplementation(async (prefix, options) => {
+        await fs.chmod(manifestPath, 0o600);
+        await fs.writeFile(manifestPath, 'replaced-after-capture');
+        await fs.chmod(manifestPath, 0o400);
+        await fs.chmod(manifestBundlePath, 0o600);
+        await fs.writeFile(manifestBundlePath, 'replaced-after-capture');
+        await fs.chmod(manifestBundlePath, 0o400);
+        sourcesReplaced = true;
+        return createTemporaryDirectory(prefix, options);
+      });
+      let verifiedAfterSourceReplacement: Awaited<ReturnType<typeof preflightCloudHypervisorEnclaveArtifacts>>;
+      try {
+        verifiedAfterSourceReplacement = await preflightCloudHypervisorEnclaveArtifacts({
+          releaseTag, manifestPath, manifestBundlePath, scriptRootfsPath, agentRootfsPath, attestationToolPath,
+        }, verificationRoot, async (source, destination) => {
+          await fs.copyFile(source, destination);
+          await fs.chmod(source, 0o600);
+          await fs.writeFile(source, 'replaced-after-capture');
+          await fs.chmod(source, 0o400);
+        });
+      } finally {
+        replaceSources.mockRestore();
+        await fs.chmod(manifestPath, 0o600);
+        await fs.writeFile(manifestPath, capturedManifestBytes);
+        await fs.chmod(manifestPath, 0o400);
+        await fs.chmod(manifestBundlePath, 0o600);
+        await fs.writeFile(manifestBundlePath, capturedBundleBytes);
+        await fs.chmod(manifestBundlePath, 0o400);
+      }
+      expect(verifiedAfterSourceReplacement).toMatchObject({
         rootfs: { script: { artifact: scriptArtifact }, agent: { artifact: agentArtifact } },
       });
+      expect(sourcesReplaced).toBe(true);
+      expect(await fs.readFile(capturedManifestPath)).toEqual(capturedManifestBytes);
+      expect(await fs.readFile(capturedBundlePath)).toEqual(capturedBundleBytes);
+      expect(verifiedAfterSourceReplacement.manifest)
+        .toEqual(parseEnclaveArtifactManifestBytes(capturedManifestBytes, releaseTag));
+      expect(await fs.readFile(manifestPath, 'utf8')).toBe(capturedManifestBytes.toString());
+      expect(await fs.readFile(manifestBundlePath, 'utf8')).toBe(capturedBundleBytes.toString());
       const capturedAttestations = (await fs.readFile(attestationTracePath, 'utf8')).trim().split('\n\n')
         .map((invocation) => invocation.split('\n'));
       for (const args of capturedAttestations) {
@@ -400,6 +448,9 @@ describe('Cloud Hypervisor host enclave artifact preflight', () => {
       await fs.chmod(agentSbomPath, 0o600);
       await fs.writeFile(agentSbomPath, 'tampered-sbom');
       await fs.chmod(agentSbomPath, 0o400);
+      const agentFailureProgress: HostPreflightProgress[] = [];
+      const agentFailureReport = new HostPreflightReporter('bounded-artifacts',
+        value => agentFailureProgress.push(value), undefined, { phase: 'preflight', profile: 'common' });
       await expect(admission.check('enclave-artifacts', () => preflightCloudHypervisorEnclaveArtifacts({
         releaseTag,
         manifestPath,
@@ -407,7 +458,9 @@ describe('Cloud Hypervisor host enclave artifact preflight', () => {
         scriptRootfsPath,
         agentRootfsPath,
         attestationToolPath,
-      }, undefined, undefined, admission))).rejects.toThrow('SBOM does not match its trusted manifest digest');
+      }, undefined, undefined, agentFailureReport))).rejects.toThrow('SBOM does not match its trusted manifest digest');
+      expect(agentFailureProgress.some(progress => progress.profile === 'agent'
+        && progress.checks.some(check => check.id === 'sbom-digest' && check.result === 'failed'))).toBe(true);
       expect(getEnclaveStartupProgress(wrapper)!.startupChecks).toMatchObject({
         ready: false,
         checks: {
