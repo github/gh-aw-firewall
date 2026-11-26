@@ -2,7 +2,8 @@ import { runMainWorkflow } from './cli-workflow';
 import { WrapperConfig } from './types';
 import { HostAccessConfig } from './host-iptables';
 import { normalizeEnclavesConfig } from './parsers/enclave-parser';
-import { getEnclaveStartupProgress } from './enclave/startup-progress';
+import { getEnclaveStartupProgress, initializeEnclaveStartupProgress } from './enclave/startup-progress';
+import { typedDynamicEnclavePolicyFixture } from './enclave/dynamic-policy.test-utils';
 jest.mock('./harness-observation', () => ({ observeHarness: jest.fn().mockResolvedValue(undefined) }));
 
 jest.mock('./topology', () => ({
@@ -591,6 +592,113 @@ describe('runMainWorkflow', () => {
     expect(runAgentCommand).not.toHaveBeenCalled();
     expect(getEnclaveStartupProgress(enclaveConfig)?.startupChecks?.checks['startup/infrastructure'])
       .toEqual(['passed', 'none']);
+  });
+
+  it('preserves phased startup and progress ordering with dynamic enclaves and model routing', async () => {
+    const order: string[] = [];
+    const stages: string[] = [];
+    const config: WrapperConfig = {
+      ...enclaveConfig,
+      enableApiProxy: true,
+      copilotGithubToken: 'test-token',
+      experimentalModelRouting: true,
+      modelRouting: {
+        objective: { goal: 'cost', mode: 'balanced' },
+        task: { conversationFile: '/host/conversation.json' },
+      },
+      enclaves: normalizeEnclavesConfig([{
+        agent: { model: 'trusted-model' },
+        dynamic: typedDynamicEnclavePolicyFixture(),
+      }]),
+    };
+    initializeEnclaveStartupProgress(config, ({ stage }) => {
+      if (stages[stages.length - 1] !== stage) stages.push(stage);
+    });
+    const dependencies = createOrderedWorkflowDependencies(order, 0, {
+      prepareEnclaves: jest.fn(async () => { order.push('prepareEnclaves'); }),
+      prepareRouting: jest.fn(async () => { order.push('prepareRouting'); return undefined; }),
+      connectTopologyContainers: jest.fn(async () => { order.push('topology-attach'); }),
+      startContainers: jest.fn(async (
+        _workDir, _domains, _logs, _skipPull, onNetworkReady, onInfrastructureReady,
+      ) => {
+        order.push('startContainers');
+        await onNetworkReady?.();
+        await onInfrastructureReady?.();
+        expect(getEnclaveStartupProgress(config)?.startupChecks?.ready).toBe(true);
+        order.push('agent-started');
+      }),
+      connectEnclaveGateway: jest.fn(async () => { order.push('gateway-attach'); }),
+      connectEnclaveGithubGateway: jest.fn(async () => { order.push('github-attach'); }),
+      assertEnclaveGithubGatewayReady: jest.fn(async () => { order.push('github-ready'); }),
+      assertEnclaveGatewayReady: jest.fn(async () => { order.push('gateway-ready'); }),
+      startEnclaveDynamicDelegation: jest.fn(async () => { order.push('delegation'); }),
+      waitForRoutingSelection: jest.fn(async () => { order.push('routing-selection'); }),
+      releaseHarness: jest.fn(async () => { order.push('releaseHarness'); }),
+      verifyRoutingCompletion: jest.fn(async () => { order.push('routing-completion'); }),
+      cleanupRouting: jest.fn(async () => { order.push('routing-cleanup'); }),
+    });
+
+    await expect(runMainWorkflow(config, dependencies, createOrderedWorkflowOptions(order)))
+      .resolves.toBe(0);
+    expect(order).toEqual([
+      'prepareEnclaves', 'prepareRouting', 'writeConfigs', 'startContainers',
+      'topology-attach', 'gateway-attach', 'github-attach', 'github-ready',
+      'gateway-ready', 'delegation', 'routing-selection', 'agent-started',
+      'releaseHarness', 'runAgentCommand', 'performCleanup', 'routing-completion', 'routing-cleanup',
+    ]);
+    expect(stages).toEqual([
+      'host-bootstrap', 'configuration', 'enclave-preflight', 'host-network',
+      'compose-config', 'containers', 'gateway-attach', 'github-readiness', 'delegation', 'primary-agent',
+    ]);
+  });
+
+  it.each([
+    ['assertEnclaveGithubGatewayReady', 'github-ready'],
+    ['assertEnclaveGatewayReady', 'gateway-ready'],
+    ['startEnclaveDynamicDelegation', 'delegation'],
+  ] as const)('retains passed infrastructure and collects diagnostics when %s fails', async (dependency, check) => {
+    const failure = new Error('readiness failed');
+    const order: string[] = [];
+    const config: WrapperConfig = {
+      ...enclaveConfig,
+      enableApiProxy: true,
+      copilotGithubToken: 'test-token',
+      diagnosticLogs: true,
+      enclaves: normalizeEnclavesConfig([{
+        agent: { model: 'trusted-model' },
+        dynamic: typedDynamicEnclavePolicyFixture(),
+      }]),
+    };
+    const dependencies = createWorkflowDependencies({
+      prepareEnclaves: jest.fn(),
+      startContainers: jest.fn(async (
+        _workDir, _domains, _logs, _skipPull, _onNetworkReady, onInfrastructureReady,
+      ) => onInfrastructureReady?.()),
+      connectEnclaveGateway: jest.fn(),
+      connectEnclaveGithubGateway: jest.fn(),
+      assertEnclaveGithubGatewayReady: jest.fn(),
+      assertEnclaveGatewayReady: jest.fn(),
+      startEnclaveDynamicDelegation: jest.fn(),
+      collectDiagnosticLogs: jest.fn(async () => { order.push('diagnostics'); }),
+      [dependency]: jest.fn().mockRejectedValueOnce(failure),
+    });
+    const options = createWorkflowOptions({
+      onContainersStarted: jest.fn(() => { order.push('containers-created'); }),
+    });
+
+    await expect(runMainWorkflow(config, dependencies, options)).rejects.toBe(failure);
+    expect(order).toEqual(['containers-created', 'diagnostics']);
+    expect(options.onContainersStarted).toHaveBeenCalledTimes(1);
+    expect(options.performCleanup).not.toHaveBeenCalled();
+    expect(dependencies.runAgentCommand).not.toHaveBeenCalled();
+    expect(getEnclaveStartupProgress(config)?.startupChecks).toMatchObject({
+      ready: false,
+      checks: {
+        'startup/infrastructure': ['passed', 'none'],
+        [`startup/${check}`]: ['failed', 'unknown'],
+        'startup/readiness': ['not-attempted', 'none'],
+      },
+    });
   });
 
   it('passes agentTimeout to runAgentCommand', async () => {
