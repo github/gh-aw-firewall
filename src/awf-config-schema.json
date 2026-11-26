@@ -101,6 +101,16 @@
       "description": "Host filesystem write-boundary configuration for the agent sandbox.",
       "additionalProperties": false,
       "properties": {
+        "privateHostSocketDirs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^/"
+          },
+          "description": "Existing trusted host socket directories that must not overlap any final agent mount, including read-only binds and aliases. Maps to repeated --private-host-socket-dir. Supported only by local Linux Docker/runc without Docker-in-Docker or host-path translation; other topologies fail closed. Protects the AWF agent boundary, not other same-UID host processes."
+        },
         "allowWrite": {
           "type": "array",
           "items": {

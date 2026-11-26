@@ -50,6 +50,81 @@ mounts do not prevent socket/FIFO communication. See the
 [host runtime IPC boundary](security.md#host-runtime-ipc-boundary) for the
 in-container CoreCLR check and the limits of this guarantee.
 
+## Trusted host socket directories
+
+A trusted orchestrator can declare existing private host socket directories with
+repeatable `--private-host-socket-dir /absolute/path` flags or with
+`filesystem.privateHostSocketDirs` in the JSON/YAML configuration:
+
+```json
+{
+  "filesystem": {
+    "privateHostSocketDirs": ["/run/trusted-connector/job-123"]
+  }
+}
+```
+
+AWF rejects declarations overlapping any final agent-visible host mount, including
+workspace, home, tool-cache, handoff, log/state and custom mounts. Read-only binds
+and nested masks do not rescue an overlapping source. Symlink resolution and
+Linux mount-table filesystem coordinates detect path and bind aliases, including
+recursive submounts. Directory/ancestor identities are retained across startup;
+replacement or retargeting fails closed. The directories must already exist.
+Traversal components, dangling symlinks, symlinks inside private directories and
+hard-linked sockets are rejected.
+
+With this option, AWF holds **all entrypoint, shell hook, harness and command
+execution** behind a root-owned, container-private startup gate. After Compose
+bring-up, AWF inspects the actual container and its kernel mount namespace,
+rejects overlapping or unsupported mounts, proves the runner and selected Docker
+daemon share the inspected filesystem, and lets the trusted entrypoint set up.
+A second gate holds the command after mount setup and privilege drop; AWF
+rechecks that final namespace and the directory identities before release.
+Agent access to the Docker control socket, Docker backing storage used
+as a private directory, opaque volume drivers, shared mount propagation, and
+host PID/IPC/network namespaces and ambiguous stacked host mounts are rejected.
+Host procfs binds are also rejected: PID-root magic links would bypass a
+directory-only mount comparison. Container-scoped procfs created during setup
+remains supported.
+Overlay backing paths must be inspectable inside verified Docker storage; only
+the container-root overlay and its same-superblock bind aliases are accepted.
+Loader/shell-hook injection environment
+variables are rejected when supplied and cleared for bootstrap image defaults.
+Verification failure leaves the gate closed; the normal startup cleanup removes
+the container. A retry or recreated container must pass verification again.
+
+**Supported:** local Linux Docker/runc, with root privileges for host `/proc`
+inspection (normally `sudo awf`), and private directories on ext4, XFS or tmpfs.
+Default runtime selection is explicitly pinned to runc for this contract.
+Ordinary disjoint read-only/read-write binds and local named volumes are supported
+when the complete actual topology is inspectable.
+
+**Fail closed:** unprivileged host inspection, remote/context-selected Docker,
+ARC/DinD, nontrivial `--docker-host-path-prefix` translation, `--enable-dind`,
+legacy security, gVisor/runsc, sbx, Cloud Hypervisor, NVX, unknown OCI runtimes,
+custom binary sysroots or mounts replacing trusted bootstrap/interpreter/loader
+paths, and uninspectable filesystems such as NFS/FUSE or private overlay/btrfs roots.
+These runtimes need an equivalent final-export verifier and pre-execution gate
+before they can support this option. An empty declaration list changes no behavior.
+
+The trusted caller must keep service sockets inside the declared directories,
+without external socket aliases, and keep their placement and mount topology
+stable for the run. Sockets created later inside those directories remain
+outside the agent's private mount namespace. AWF does not chmod, relocate, unlink
+or export the sockets: their intended **host-side trusted adapter** retains access.
+This protects the **AWF agent boundary**, not unrelated same-UID host processes,
+malicious host administrators, or an untrusted container image. It does not
+authorize connectors, issue tokens, set workflow permissions, or separate reader
+and writer jobs; those remain the orchestrator's responsibility.
+
+The live regression runs against local Docker with privileged host inspection:
+
+```bash
+sudo node "$PWD/node_modules/jest/bin/jest.js" \
+  --config "$PWD/tests/setup/jest.integration.config.js" \
+  --runInBand private-host-sockets.test.ts
+```
+
 ## What the policy contains
 
 | Section | Kind | Applies to | Consumed by |

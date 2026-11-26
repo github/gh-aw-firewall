@@ -18,6 +18,7 @@ import { ensureAgentRuntimeStartMarker } from './agent-runtime-start';
 import type { ProtectedCommandOutputCapture } from './protected-command-output-capture';
 import { observeHarness } from './harness-observation';
 import type { HarnessProbe } from './model-information-contract/harness-observation';
+import { preparePrivateHostSocketIsolation } from './private-host-sockets';
 
 /**
  * Dependencies injected into the main workflow.
@@ -111,6 +112,7 @@ export async function runMainWorkflow(
   options: WorkflowOptions
 ): Promise<number> {
   const { logger, performCleanup, onHostIptablesSetup, onContainersStarted } = options;
+  const releasePrivateHostSocketGate = preparePrivateHostSocketIsolation(config);
   resetEnclaveStartupChecklist(config);
   if (isCloudHypervisorEnclaveSelected(config)) {
     for (const scope of ['host-isolation', 'storage-admission', 'bounded-runtime', 'bounded-artifacts'] as const) {
@@ -365,6 +367,7 @@ export async function runMainWorkflow(
   }
   onContainersStarted?.();
   assertEnclaveStartupChecklistComplete(config);
+  await releasePrivateHostSocketGate?.();
   await observeHarness(config, dependencies.probeHarness);
   await dependencies.releaseHarness?.();
   updateEnclaveStartupProgress(config, { stage: 'primary-agent' });

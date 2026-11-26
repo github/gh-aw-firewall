@@ -4,6 +4,8 @@ import { HostAccessConfig } from './host-iptables';
 import { normalizeEnclavesConfig } from './parsers/enclave-parser';
 import { getEnclaveStartupProgress } from './enclave/startup-progress';
 jest.mock('./harness-observation', () => ({ observeHarness: jest.fn().mockResolvedValue(undefined) }));
+jest.mock('./private-host-sockets', () => ({ preparePrivateHostSocketIsolation: jest.fn() }));
+import { preparePrivateHostSocketIsolation } from './private-host-sockets';
 
 jest.mock('./topology', () => ({
   TOPOLOGY_NETWORK_NAME: 'awf-net',
@@ -127,6 +129,29 @@ const runWorkflowWithDefaults = async (
 };
 
 describe('runMainWorkflow', () => {
+  it('verifies private socket isolation after startup and before probing or releasing the harness', async () => {
+    const order: string[] = [];
+    const release = jest.fn(async () => { order.push('privateSocketVerification'); });
+    jest.mocked(preparePrivateHostSocketIsolation).mockReturnValueOnce(release);
+    const dependencies = createOrderedWorkflowDependencies(order, 0, {
+      releaseHarness: jest.fn(async () => { order.push('releaseHarness'); }),
+    });
+    await runMainWorkflow(baseConfig, dependencies, createOrderedWorkflowOptions(order));
+    expect(order.indexOf('startContainers')).toBeLessThan(order.indexOf('privateSocketVerification'));
+    expect(order.indexOf('privateSocketVerification')).toBeLessThan(order.indexOf('releaseHarness'));
+    expect(order.indexOf('releaseHarness')).toBeLessThan(order.indexOf('runAgentCommand'));
+  });
+
+  it('never releases or runs the agent when final private socket verification fails', async () => {
+    jest.mocked(preparePrivateHostSocketIsolation).mockReturnValueOnce(async () => {
+      throw new Error('unsafe private socket mount');
+    });
+    const dependencies = createWorkflowDependencies({ releaseHarness: jest.fn() });
+    await expect(runMainWorkflow(baseConfig, dependencies, createWorkflowOptions())).rejects.toThrow('unsafe private socket');
+    expect(dependencies.releaseHarness).not.toHaveBeenCalled();
+    expect(dependencies.runAgentCommand).not.toHaveBeenCalled();
+  });
+
   it.each([
     [undefined, 'gvisor'],
     [undefined, 'cloud-hypervisor'],

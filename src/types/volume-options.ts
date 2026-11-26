@@ -37,6 +37,9 @@ export interface VolumeOptions {
   /** Sandbox-visible input directories that must be non-empty and readable. */
   inputDirs?: string[];
 
+  /** Existing host socket directories that must remain outside the agent boundary. */
+  privateHostSocketDirs?: string[];
+
   /**
    * Guest-visible absolute paths that may remain writable.
    *
