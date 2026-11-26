@@ -8,14 +8,14 @@
     "A hostname is refused by Squid but its name still appears in DNS telemetry"
   ],
   "conditions": [
-    "The generated squid.conf contains an API-proxy or explicit-IP destination exception (allow_api_proxy_ip or allow_ip_*) declared as dst without -n",
-    "The exception is evaluated before the domain deny, so Squid resolves the requested hostname to test it against the IP",
+    "The generated squid.conf contains a destination-IP ACL declared as dst without -n: an API-proxy or explicit-IP exception (allow_api_proxy_ip, allow_ip_*), the TLS SNI guard (tls_sni_guard_allowed_ip), or an API-proxy upstream, broker splice or broker logging ACL for an IP-literal endpoint",
+    "The ACL is evaluated before the domain deny or in a splice/logging decision, so Squid may resolve the requested hostname to test it against the IP",
     "Direct DNS queries from the agent, and lookups of allowlisted names, are outside this finding; they are governed by the trusted --dns-servers policy (NET-002)"
   ],
   "affects": { "runner": "any", "runtime": "any", "provider": "any", "authMode": "any" },
   "versions": { "introduced": "unknown", "fixed": "unknown" },
   "status": "fixed",
-  "rootCause": "A Squid dst ACL without -n resolves a hostname destination before matching it against an IP, so evaluating the exception ahead of the domain deny issued a DNS query for an unlisted name even though HTTP access was then refused. dst -n matches literal IPs only, so a hostname is never resolved and does not inherit the IP exception. Only the API-proxy and explicit-IP http_access exceptions were verified; other dst ACLs were not reviewed for this finding.",
+  "rootCause": "A Squid dst ACL without -n resolves a hostname destination before matching it against an IP, so evaluating the exception ahead of the domain deny issued a DNS query for an unlisted name even though HTTP access was then refused. dst -n matches literal IPs only, so a hostname is never resolved and does not inherit the IP exception. Current main emits dst -n for the API-proxy and explicit-IP exceptions (config-sections.ts), the SSL-bump SNI guard (ssl-bump.ts) and IP-literal API-proxy upstream, broker splice and broker logging ACLs (api-proxy-upstreams.ts); hostname upstreams use dstdom_regex -i -n instead. The emitter changes were verified only by generated-configuration tests, not by observing Squid lookups, and the release range containing them is unknown.",
   "probe": {
     "command": "grep -nE '^acl [A-Za-z0-9_]+ dst ' path/to/squid.conf",
     "expect": "Every matched ACL line carries -n (for example 'dst -n 172.30.0.30'), including TLS SNI guard and broker access, splice and logging ACLs. A line without -n identifies an unscoped destination-IP ACL. This checks emitted configuration only, not runtime lookup behavior; no traffic is sent and no credentials or environment are read. Redact paths before sharing.",
@@ -26,8 +26,13 @@
   "references": [
     { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/11562", "title": "Prevent DNS leaks from Squid IP access exceptions" },
     { "kind": "issue", "ref": "https://github.com/github/gh-aw-firewall/issues/11561" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/12119", "title": "Make remaining destination-IP ACLs numeric-only" },
     { "kind": "code", "ref": "src/squid/config-sections.ts", "title": "generateApiProxySection() and generateAllowedIpSection() emit dst -n" },
     { "kind": "test", "ref": "src/squid/config-sections.test.ts", "title": "Literal-only api-proxy and allowlisted-IP ACL assertions" },
+    { "kind": "code", "ref": "src/squid/ssl-bump.ts", "title": "SNI guard tls_sni_guard_allowed_ip emits dst -n" },
+    { "kind": "code", "ref": "src/squid/api-proxy-upstreams.ts", "title": "destinationAcl() emits dst -n for IP-literal upstream, broker splice and broker logging ACLs" },
+    { "kind": "test", "ref": "src/squid/api-proxy-upstreams.test.ts", "title": "Every emitted dst ACL carries -n for IPv4/IPv6 and SSL-bump modes" },
+    { "kind": "test", "ref": "src/squid/ssl-bump.test.ts", "title": "SNI guard allowed-IP ACL is numeric-only" },
     { "kind": "test", "ref": "src/squid-config-core.test.ts" },
     { "kind": "doc", "ref": "docs/egress-filtering.md", "title": "Squid IP exceptions and DNS lookups" }
   ],

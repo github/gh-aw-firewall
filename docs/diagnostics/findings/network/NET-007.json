@@ -38,7 +38,7 @@
     { "kind": "code", "ref": "src/container-startup.ts", "title": "Reclaim call before compose up" },
     { "kind": "test", "ref": "src/compose-network-conflicts.test.ts", "title": "Orphaned and unlabelled network reclaim tests" }
   ],
-  "related": ["NET-006"],
+  "related": ["NET-006", "NET-011"],
   "owner": "@github/gh-aw-firewall-maintainers",
   "reviewBy": "2027-11-16"
 }

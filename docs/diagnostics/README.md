@@ -268,6 +268,7 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | NET-008 | network | Denied hostname lookups reach the resolver because a Squid IP exception resolves names | fixed | [`findings/network/NET-008.json`](./findings/network/NET-008.json) |
 | NET-009 | network | Network-isolation egress fails with HIER_NONE after the host accepts Tailscale routes | workaround | [`findings/network/NET-009.json`](./findings/network/NET-009.json) |
 | NET-010 | network | Domain allowlist entry rejected before startup | workaround | [`findings/network/NET-010.json`](./findings/network/NET-010.json) |
+| NET-011 | network | awf-net remains after teardown because a topology-attached peer is still connected | fixed | [`findings/network/NET-011.json`](./findings/network/NET-011.json) |
 | AUTH-001 | auth | Enterprise or Business Copilot target rejects the Authorization header prefix | fixed | [`findings/auth/AUTH-001.json`](./findings/auth/AUTH-001.json) |
 | AUTH-002 | auth | API-proxy OIDC mode is configured but the Actions token request variables are missing | workaround | [`findings/auth/AUTH-002.json`](./findings/auth/AUTH-002.json) |
 | AUTH-003 | auth | gh-aw-launched HTTP MCP GitHub server fails the OIDC boundary check | workaround | [`findings/auth/AUTH-003.json`](./findings/auth/AUTH-003.json) |
@@ -349,6 +350,9 @@ npm run diagnostics:freshness -- --as-of 2026-11-09 # reproducible UTC deadline 
 | URL paths and queries are not supported in domain entries | NET-010 | network | workaround |
 | unsupported scheme | NET-010 | network | workaround |
 | user information is not supported | NET-010 | network | workaround |
+| AWF resources remain (network:awf-net). Lease retained | NET-011 | network | fixed |
+| docker compose down cannot remove awf-net because the network is still in use after the agent, detection and safe outputs succeeded | NET-011 | network | fixed |
+| An empty awf-net is left on a self-hosted runner after the MCP gateway container was stopped | NET-011 | network | fixed |
 | 400 Bad Request: Authorization header is badly formatted | AUTH-001 | auth | fixed |
 | Copilot requests fail immediately against api.enterprise.githubcopilot.com or api.business.githubcopilot.com | AUTH-001 | auth | fixed |
 | api-proxy reports that no OIDC token could be minted | AUTH-002 | auth | workaround |

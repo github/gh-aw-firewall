@@ -1,0 +1,40 @@
+{
+  "$schema": "../../schema.json",
+  "id": "NET-011",
+  "boundary": "network",
+  "title": "awf-net remains after teardown because a topology-attached peer is still connected",
+  "symptoms": [
+    "AWF resources remain (network:awf-net). Lease retained",
+    "docker compose down cannot remove awf-net because the network is still in use after the agent, detection and safe outputs succeeded",
+    "An empty awf-net is left on a self-hosted runner after the MCP gateway container was stopped"
+  ],
+  "conditions": [
+    "AWF ran with network isolation and --topology-attach, so an external peer such as the MCP gateway was attached to awf-net outside Compose",
+    "The peer remained connected to awf-net while Compose tore the project down, then was stopped or removed by the caller, leaving an empty network",
+    "A runner-side cleanup check treats any leftover awf-* network as a failure without checking whether it has endpoints",
+    "A leftover network owned by another Compose project is NET-007, and --keep-containers intentionally retains the network and peers"
+  ],
+  "affects": { "runner": "self-hosted", "runtime": "docker", "provider": "any", "authMode": "any" },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "fixed",
+  "rootCause": "Topology peers are attached to awf-net with docker network connect, but older teardown had no matching disconnect, so Compose could not remove the network while a peer was attached. Once the caller removed the peer, an empty awf-net remained and failed the runner's resource check. The failure was reported on one workflow-compiler/AWF/gateway version combination; the affected AWF release range is unverified. Current main force-disconnects each configured peer before compose down without removing the peer container, and afterwards removes awf-net only when inspection reports zero endpoints.",
+  "probe": {
+    "command": "docker network inspect awf-net --format '{{len .Containers}}'",
+    "expect": "Run after the AWF step. 0 on a leftover network indicates an empty orphan that current teardown should reclaim, so a failure points to older AWF or a teardown that was skipped. A positive count means endpoints are still attached, so inspect the container names rather than removing the network. No traffic is sent and no container environment or credentials are read; redact container names before sharing.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use AWF source in which stopContainers() disconnects configured topology peers before compose down and removes an empty awf-net afterwards. Pass the same --topology-attach names to teardown, and do not disconnect or remove peers you do not own. If the network is still occupied, stop the owning peer first and only then remove an empty network; do not force-remove a network with live endpoints. A runner check that ignores empty awf-* networks is a separate caller-side change.",
+  "references": [
+    { "kind": "issue", "ref": "https://github.com/github/gh-aw-firewall/issues/12107", "title": "awf-net left behind after topology-attached peers (closed)" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/12118", "title": "Detach topology peers before network teardown" },
+    { "kind": "code", "ref": "src/container-stop.ts", "title": "stopContainers() disconnects peers before compose down and reclaims an empty network in finally" },
+    { "kind": "code", "ref": "src/topology.ts", "title": "disconnectTopologyContainers() and removeEmptyTopologyNetwork()" },
+    { "kind": "test", "ref": "src/container-stop.test.ts", "title": "Peer disconnect ordering, missing peers, compose-down failure and keep-containers cases" },
+    { "kind": "test", "ref": "src/topology.test.ts", "title": "Disconnect tolerance and empty-network-only removal" },
+    { "kind": "doc", "ref": "docs/network-isolation-design.md", "title": "Network-isolation topology" }
+  ],
+  "related": ["NET-007"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-11-26"
+}
