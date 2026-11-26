@@ -7,8 +7,6 @@ import { AGENT_CONTAINER_NAME } from './constants';
 import { getLocalDockerEnv } from './docker-host';
 import { normalizeDockerHostPathPrefix } from './services/host-path-prefix';
 import { resolvePathThroughExistingAncestor } from './enclave/mount-policy';
-import { resolveDockerSocketPath } from './services/agent-volumes/docker-socket';
-import { shellSingleQuote } from './cloud-hypervisor/backend-utils';
 
 const CONTROL_DIR = '/run/awf-private-host-sockets';
 const PRIVATE_FILESYSTEMS = new Set(['ext4', 'xfs', 'tmpfs']);
@@ -21,11 +19,26 @@ const INSPECTABLE_FILESYSTEMS = new Set([
 // Reject caller loader/hooks before the first process. The entrypoint's AWF-owned
 // one-shot-token preload is trusted startup code and intentionally survives the
 // command gate. Like the entrypoint, it must never spoof release or launch user code.
-const BOOTSTRAP_ENV = ['LD_PRELOAD', 'LD_LIBRARY_PATH', 'LD_AUDIT', 'GCONV_PATH', 'GLIBC_TUNABLES', 'BASH_ENV', 'ENV'];
+const BOOTSTRAP_ENV = [
+  'LD_PRELOAD', 'LD_LIBRARY_PATH', 'LD_AUDIT', 'GCONV_PATH', 'GLIBC_TUNABLES',
+  'BASH_ENV', 'ENV', 'NODE_OPTIONS', 'SHELLOPTS', 'BASHOPTS', 'PS4',
+];
+const BOOTSTRAP_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
+const BOOTSTRAP_TARGETS = ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc', CONTROL_DIR];
+const ENTRYPOINT_PATH = '/usr/local/bin/entrypoint.sh';
+const CHROOT_GATE_VERSION = 'AWF_PRIVATE_HOST_SOCKET_GATE_V1';
 const ENTRYPOINT = [
   '/bin/bash', '--noprofile', '--norc', '-p', '-c',
   `for ((n=0; n<1200; n++)); do
-  if [ -f ${CONTROL_DIR}/allow-setup ]; then exec /usr/local/bin/entrypoint.sh "$@"; fi
+  if [ -f ${CONTROL_DIR}/allow-setup ]; then
+    unset_args=()
+    while IFS= read -r -d '' entry; do
+      key=\${entry%%=*}
+      case "$key" in BASH_FUNC_*%%) unset_args+=(-u "$key");; esac
+    done </proc/self/environ || exit 125
+    export ${CHROOT_GATE_VERSION}=1
+    exec /usr/bin/env "\${unset_args[@]}" ${ENTRYPOINT_PATH} "$@"
+  fi
   /bin/sleep 0.1
 done
 printf '%s\\n' 'Private host socket isolation was not established; agent not started.' >&2
@@ -43,12 +56,8 @@ printf '%s\\n' 'Final private host socket isolation was not established; command
 exit 125`,
   'awf-private-host-socket-command',
 ];
-const COMMAND_PREFIX = 'exec ' + COMMAND_GATE.map(shellSingleQuote).join(' ') + ' ';
-
 function wrapPrivateHostSocketCommand(command: string[]): string[] {
-  // Preserve build_path_script's three-argument fast path and exec through the
-  // gate: no extra parent shell for Java/.NET executable discovery.
-  return ['/bin/bash', '-c', COMMAND_PREFIX + command.map(shellSingleQuote).join(' ')];
+  return [...COMMAND_GATE, ...command];
 }
 
 interface MountIdentity {
@@ -202,7 +211,7 @@ function assertRootOverlayBackingsIsolated(
 }
 
 function assertDockerSocketDisjoint(config: WrapperConfig, hostMounts: MountIdentity[], agentMounts: MountIdentity[]): void {
-  for (const socket of new Set([resolveDockerSocketPath(config), '/run/docker.sock', '/var/run/docker.sock'])) {
+  for (const socket of new Set([privateSocketDockerHost(config)!.slice('unix://'.length), '/run/docker.sock', '/var/run/docker.sock'])) {
     if (!fs.existsSync(socket)) continue;
     if (fs.statSync(socket).nlink !== 1) throw failure('hard-linked Docker control socket');
     const identity = coordinate(socket, hostMounts);
@@ -242,15 +251,28 @@ function readPrivateDirectories(config: WrapperConfig, mounts: MountIdentity[]):
     if (!fs.statSync(resolved).isDirectory()) throw failure('a declared directory does not exist');
     const identity = coordinate(resolved, mounts);
     if (!PRIVATE_FILESYSTEMS.has(identity.filesystem)) throw failure('unsupported private-directory filesystem');
+    if (mounts.some(mount => mount.mountPoint !== resolved && contains(resolved, mount.mountPoint))) {
+      throw failure('private directories must not contain descendant mounts');
+    }
     assertSocketLinks(resolved);
     return { original, resolved, identity, ancestors: ancestorIdentities(resolved) };
   });
 }
 
+export function privateSocketDockerHost(config: WrapperConfig): string | undefined {
+  if (!config.privateHostSocketDirs?.length) return undefined;
+  const dockerEnv = getLocalDockerEnv();
+  const host = config.awfDockerHost ?? dockerEnv.DOCKER_HOST ?? 'unix:///var/run/docker.sock';
+  if (dockerEnv.DOCKER_CONTEXT || !/^unix:\/\/\/[^/\s][^\s]*$/.test(host)) {
+    throw failure('requires an explicit local Linux Docker/runc Unix endpoint without DOCKER_CONTEXT');
+  }
+  // Explicit DOCKER_HOST takes precedence over a persisted currentContext.
+  return host;
+}
+
 export function assertPrivateHostSocketRuntime(config: WrapperConfig): void {
   if (!config.privateHostSocketDirs?.length) return;
-  const dockerEnv = getLocalDockerEnv();
-  const host = config.awfDockerHost ?? dockerEnv.DOCKER_HOST;
+  privateSocketDockerHost(config);
   if (
     process.platform !== 'linux'
     || process.getuid?.() !== 0
@@ -258,11 +280,10 @@ export function assertPrivateHostSocketRuntime(config: WrapperConfig): void {
     || config.enableDind || config.runnerTopology === 'arc-dind' || config.legacySecurity
     || config.chrootBinariesSourcePath
     || (config.dockerHostPathPrefix && normalizeDockerHostPathPrefix(config.dockerHostPathPrefix) !== '/')
-    || (host && !host.startsWith('unix://'))
-    || dockerEnv.DOCKER_CONTEXT
   ) {
     throw failure('requires privileged host inspection with local Linux Docker/runc without DinD, host-path translation, or legacy security');
   }
+  if (config.enableHostAccess) throw failure('host access could expose Docker control endpoints');
   for (const volume of config.volumeMounts ?? []) {
     const [source, target] = volume.split(':');
     if (!source || source.split('/').some(component => component === '.' || component === '..')) {
@@ -272,9 +293,21 @@ export function assertPrivateHostSocketRuntime(config: WrapperConfig): void {
       throw failure('unsupported custom mount target');
     }
     const guestTarget = target === '/host' ? '/' : target.startsWith('/host/') ? target.slice('/host'.length) : target;
-    if (['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc', CONTROL_DIR]
-      .some(protectedTarget => overlaps(protectedTarget, guestTarget))) {
+    if (BOOTSTRAP_TARGETS.some(protectedTarget => overlaps(protectedTarget, guestTarget))) {
       throw failure('custom mounts may not replace trusted bootstrap paths');
+    }
+  }
+}
+
+function assertNestedTargetHasNoSymlink(source: string, parent: string, target: string): void {
+  let current = source;
+  for (const component of path.relative(parent, target).split(path.sep)) {
+    current = path.join(current, component);
+    try {
+      if (fs.lstatSync(current).isSymbolicLink()) throw failure(`symlink in composed mount target "${target}"`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw error;
     }
   }
 }
@@ -296,6 +329,7 @@ export function configurePrivateHostSocketIsolation(config: WrapperConfig, servi
   assertPrivateHostSocketRuntime(config);
   const mounts = parseSocketMountInfo(fs.readFileSync('/proc/self/mountinfo', 'utf8'));
   const roots = readPrivateDirectories(config, mounts);
+  const volumes: Array<{ source: string; target: string }> = [];
   for (const spec of service.volumes) {
     const parts = spec.split(':');
     const [source, target, mode] = parts;
@@ -309,18 +343,32 @@ export function configurePrivateHostSocketIsolation(config: WrapperConfig, servi
     if (source.split('/').some(component => component === '.' || component === '..')) {
       throw failure('path traversal components are unsupported');
     }
-    // Named volumes are checked using their actual kernel mounts before release.
+    volumes.push({ source, target: path.normalize(target) });
+    // Standalone named volumes are checked using their actual kernel mounts before release.
     if (!path.isAbsolute(source)) continue;
     const visible = inspectHostSource(source, mounts);
     assertDisjoint(roots, visible);
     assertDockerSocketDisjoint(config, mounts, visible);
+  }
+  for (const target of [...service.volumes.map(spec => spec.split(':')[1]), ...service.tmpfs.map(spec => spec.split(':')[0])]) {
+    const resolved = path.normalize(target);
+    for (const cover of volumes) {
+      if (cover.target !== resolved && contains(cover.target, resolved)) {
+        if (!path.isAbsolute(cover.source)) throw failure('uninspectable nested target under a named volume');
+        assertNestedTargetHasNoSymlink(cover.source, cover.target, resolved);
+      }
+    }
   }
   for (const key of BOOTSTRAP_ENV) {
     if (service.environment[key]) throw failure(`unsupported bootstrap environment variable ${key}`);
     // Also override inherited image defaults before the first ELF process starts.
     service.environment[key] = '';
   }
-  service.entrypoint = [...ENTRYPOINT];
+  for (const key of Object.keys(service.environment)) {
+    if (/^BASH_FUNC_.*%%$/.test(key)) delete service.environment[key];
+  }
+  service.environment.PATH = BOOTSTRAP_PATH;
+  service.entrypoint = ENTRYPOINT.map(argument => argument.replace(/\$/g, '$$$$'));
   service.command = wrapPrivateHostSocketCommand(service.command ?? ['/bin/bash', '-c', config.agentCommand]);
   service.runtime = 'runc';
   service.healthcheck.test = ['CMD', '/bin/true'];
@@ -340,12 +388,15 @@ export function configurePrivateHostSocketIsolation(config: WrapperConfig, servi
  * namespace and unchanged private roots before opening its pre-entrypoint gate.
  * No host socket is removed, chmodded, masked, or exported to another service.
  */
-export function preparePrivateHostSocketIsolation(config: WrapperConfig): (() => Promise<void>) | undefined {
+export function preparePrivateHostSocketIsolation(config: WrapperConfig): (() => Promise<'setup-exited' | void>) | undefined {
   if (!config.privateHostSocketDirs?.length) return undefined;
   assertPrivateHostSocketRuntime(config);
   const roots = readPrivateDirectories(config, parseSocketMountInfo(fs.readFileSync('/proc/self/mountinfo', 'utf8')));
   return async () => {
-    const dockerOptions = { env: getLocalDockerEnv(), timeout: 10_000, maxBuffer: 1024 * 1024 };
+    const dockerOptions = {
+      env: { ...getLocalDockerEnv(), DOCKER_HOST: privateSocketDockerHost(config) },
+      timeout: 10_000, maxBuffer: 1024 * 1024,
+    };
     const result = await execa('docker', ['inspect', AGENT_CONTAINER_NAME], dockerOptions);
     const inspected = JSON.parse(result.stdout);
     if (!Array.isArray(inspected) || inspected.length !== 1) throw failure('invalid container inspection');
@@ -359,9 +410,12 @@ export function preparePrivateHostSocketIsolation(config: WrapperConfig): (() =>
       || hostConfig.NetworkMode === 'host' || hostConfig.NetworkMode?.startsWith('container:')
       || hostConfig.VolumesFrom?.length
       || JSON.stringify(container.Config?.Entrypoint) !== JSON.stringify(ENTRYPOINT)
-      || container.Config?.Cmd?.length !== 3
-      || container.Config.Cmd[0] !== '/bin/bash' || container.Config.Cmd[1] !== '-c'
-      || typeof container.Config.Cmd[2] !== 'string' || !container.Config.Cmd[2].startsWith(COMMAND_PREFIX)
+      || !Array.isArray(container.Config?.Cmd) || container.Config.Cmd.length <= COMMAND_GATE.length
+      || !COMMAND_GATE.every((argument, index) => container.Config.Cmd[index] === argument)
+      || !Array.isArray(container.Config?.Env)
+      || BOOTSTRAP_ENV.some(key => container.Config.Env.some((entry: string) =>
+        entry.startsWith(`${key}=`) && entry !== `${key}=`))
+      || !container.Config.Env.includes(`PATH=${BOOTSTRAP_PATH}`)
       || !Array.isArray(container.Mounts)
       || container.Mounts.some((mount: { Type: string; Driver?: string }) =>
         !['bind', 'volume', 'tmpfs'].includes(mount.Type)
@@ -382,6 +436,10 @@ export function preparePrivateHostSocketIsolation(config: WrapperConfig): (() =>
     };
     assertRootsUnchanged();
     const procRoot = `/proc/${container.State.Pid}/root`;
+    const chroot = container.Config.Env.includes('AWF_CHROOT_ENABLED=true');
+    if (chroot && !fs.readFileSync(path.join(procRoot, ENTRYPOINT_PATH), 'utf8').includes(CHROOT_GATE_VERSION)) {
+      throw failure('agent image does not support the pre-PATH chroot gate');
+    }
     const agentMounts = parseSocketMountInfo(fs.readFileSync(`/proc/${container.State.Pid}/mountinfo`, 'utf8'));
     const rootMounts = agentMounts.filter(mount => mount.mountPoint === '/');
     if (rootMounts.length !== 1) throw failure('uninspectable container root mount');
@@ -414,7 +472,7 @@ export function preparePrivateHostSocketIsolation(config: WrapperConfig): (() =>
     if (proof.stdout !== nonce) throw failure('runner and daemon do not share an inspectable filesystem');
     fs.unlinkSync(path.join(control, 'challenge'));
     fs.writeFileSync(path.join(control, 'allow-setup'), '', { flag: 'wx', mode: 0o400 });
-    const commandControl = container.Config.Env?.includes('AWF_CHROOT_ENABLED=true')
+    const commandControl = chroot
       ? path.join(procRoot, '/host', CONTROL_DIR)
       : control;
     const deadline = Date.now() + 120_000;
@@ -422,8 +480,9 @@ export function preparePrivateHostSocketIsolation(config: WrapperConfig): (() =>
     while (!fs.existsSync(path.join(commandControl, 'probe', 'ready'))) {
       if (Date.now() >= deadline) throw failure('post-setup command gate was not reached');
       if (Date.now() >= nextStateCheck) {
-        const running = await execa('docker', ['inspect', '--format', '{{.State.Running}}', container.Id], dockerOptions);
-        if (running.stdout !== 'true') throw failure('entrypoint exited before the command gate');
+        const state = await execa('docker', ['inspect', '--format', '{{.State.Status}} {{.State.ExitCode}}', container.Id], dockerOptions);
+        if (/^exited [1-9]\d*$/.test(state.stdout)) return 'setup-exited';
+        if (!state.stdout.startsWith('running ')) throw failure('entrypoint exited before the command gate');
         nextStateCheck = Date.now() + 1000;
       }
       await new Promise(resolve => setTimeout(resolve, 100));

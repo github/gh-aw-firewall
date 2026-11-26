@@ -367,15 +367,16 @@ export async function runMainWorkflow(
   }
   onContainersStarted?.();
   assertEnclaveStartupChecklistComplete(config);
-  await releasePrivateHostSocketGate?.();
-  await observeHarness(config, dependencies.probeHarness);
-  await dependencies.releaseHarness?.();
-  updateEnclaveStartupProgress(config, { stage: 'primary-agent' });
-
-  // Step 3: Wait for agent to complete
-  if (config.enableApiProxy && config.agentTimeout !== undefined) {
-    ensureAgentRuntimeStartMarker(config.workDir, config.proxyLogsDir);
+  const setupExited = (await releasePrivateHostSocketGate?.()) === 'setup-exited';
+  if (!setupExited) {
+    await observeHarness(config, dependencies.probeHarness);
+    await dependencies.releaseHarness?.();
+    updateEnclaveStartupProgress(config, { stage: 'primary-agent' });
+    if (config.enableApiProxy && config.agentTimeout !== undefined) {
+      ensureAgentRuntimeStartMarker(config.workDir, config.proxyLogsDir);
+    }
   }
+  // The usual wait/log path also collects diagnostics from an exited entrypoint.
   const result = options.commandOutputCapture
     ? await dependencies.runAgentCommand(
       config.workDir,

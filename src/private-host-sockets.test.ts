@@ -24,7 +24,10 @@ linuxTests('trusted host socket isolation', () => {
   let privateDir: string;
   let visibleDir: string;
   let config: WrapperConfig;
-  const hostMountInfo = process.platform === 'linux' ? fs.readFileSync('/proc/self/mountinfo', 'utf8') : '';
+  const hostMountInfo = [
+    '1 0 8:1 / / rw - ext4 /dev/root rw',
+    '2 1 0:2 / /proc rw - proc proc rw',
+  ].join('\n');
 
   beforeEach(() => {
     directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-private-sockets-'));
@@ -37,7 +40,12 @@ linuxTests('trusted host socket isolation', () => {
       logLevel: 'error', keepContainers: false, privateHostSocketDirs: [privateDir],
     };
     jest.spyOn(process, 'getuid').mockReturnValue(0);
+    const readFileSync = fs.readFileSync;
+    jest.spyOn(jest.requireActual<typeof fs>('fs'), 'readFileSync').mockImplementation((file, options) =>
+      file === '/proc/self/mountinfo' ? hostMountInfo : readFileSync(file, options));
+    jest.replaceProperty(process, 'env', { ...process.env });
     delete process.env.DOCKER_CONTEXT;
+    delete process.env.DOCKER_HOST;
     setAwfDockerHost(undefined);
     docker.mockReset();
   });
@@ -67,12 +75,11 @@ linuxTests('trusted host socket isolation', () => {
   test('ordinary sibling paths install a gate before entrypoint and pin runc', () => {
     const generated = service();
     configurePrivateHostSocketIsolation(config, generated);
-    expect(generated).toMatchObject({ entrypoint: ENTRYPOINT, runtime: 'runc' });
+    expect(generated).toMatchObject({ entrypoint: ENTRYPOINT.map(arg => arg.replace(/\$/g, '$$$$')), runtime: 'runc' });
     expect(generated.tmpfs).toContain(`${CONTROL_DIR}:rw,noexec,nosuid,nodev,size=64k,mode=0711,uid=0,gid=0`);
     expect(generated).toMatchObject({ command: wrapPrivateHostSocketCommand(['/bin/bash', '-c', 'true']) });
     const wrapped = wrapPrivateHostSocketCommand(['/bin/bash', '-c', 'java -version']);
-    expect(wrapped).toHaveLength(3);
-    expect(wrapped[2]).toMatch(/^exec /);
+    expect(wrapped.slice(-3)).toEqual(['/bin/bash', '-c', 'java -version']);
   });
 
   test.each(['ro', 'rw'])('rejects parent, direct, and child exposure even with %s binds', mode => {
@@ -144,6 +151,19 @@ linuxTests('trusted host socket isolation', () => {
     expect(() => assertPrivateHostSocketRuntime({
       ...config, volumeMounts: [`${visibleDir}:/data:rw`],
     })).not.toThrow();
+  });
+
+  test.each(['rw', 'ro'])('rejects a symlink in a composed target below a %s bind', mode => {
+    fs.symlinkSync('/usr/local/bin', path.join(visibleDir, 'link'));
+    const generated = service(visibleDir, mode);
+    generated.volumes.push(`${visibleDir}:/host/input/link/child:ro`);
+    expect(() => configurePrivateHostSocketIsolation(config, generated)).toThrow('symlink in composed mount target');
+  });
+
+  test('refuses host network access and submounts inside the declared directory', () => {
+    expect(() => assertPrivateHostSocketRuntime({ ...config, enableHostAccess: true })).toThrow('Docker control endpoints');
+    const mounts = parseSocketMountInfo(`${hostMountInfo}\n3 1 8:2 / ${privateDir}/nested rw - ext4 /dev/other rw`);
+    expect(() => readPrivateDirectories(config, mounts)).toThrow('descendant mounts');
   });
 
   test('kernel coordinates detect bind aliases and recursively included submounts', () => {
@@ -221,11 +241,27 @@ linuxTests('trusted host socket isolation', () => {
     }
   });
 
+  test('clears exported functions and rejects Node startup options before Claude helper setup', () => {
+    const generated = {
+      ...service(),
+      environment: { CLAUDE_CODE_API_KEY_HELPER: '/usr/local/bin/get-claude-key.sh', 'BASH_FUNC_node%%': '() { :; }' },
+    };
+    expect(() => configurePrivateHostSocketIsolation(config, {
+      ...generated, environment: { ...generated.environment, NODE_OPTIONS: '--require /host/input/hook.js' },
+    })).toThrow('NODE_OPTIONS');
+    configurePrivateHostSocketIsolation(config, generated);
+    expect(generated.environment).not.toHaveProperty('BASH_FUNC_node%%');
+    expect(generated.environment).toHaveProperty('NODE_OPTIONS', '');
+  });
+
   test('verification fails closed on missing container evidence before any release', async () => {
     const release = preparePrivateHostSocketIsolation(config)!;
     docker.mockResolvedValue({ stdout: '[]' } as never);
     await expect(release()).rejects.toThrow('inspection');
     expect(docker).toHaveBeenCalledTimes(1);
+    expect(docker).toHaveBeenCalledWith('docker', ['inspect', 'awf-agent'], expect.objectContaining({
+      env: expect.objectContaining({ DOCKER_HOST: 'unix:///var/run/docker.sock' }),
+    }));
   });
 
   test.each([
@@ -239,7 +275,10 @@ linuxTests('trusted host socket isolation', () => {
     docker.mockResolvedValue({ stdout: JSON.stringify([{
       Id: 'a'.repeat(64), State: { Running: true, Pid: 123 },
       HostConfig: { Runtime: 'runc', IpcMode: 'private' },
-      Config: { Entrypoint: ENTRYPOINT, Cmd: wrapPrivateHostSocketCommand(['/bin/true']) }, Mounts: [], ...override,
+      Config: {
+        Entrypoint: ENTRYPOINT, Cmd: wrapPrivateHostSocketCommand(['/bin/true']),
+        Env: ['PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'],
+      }, Mounts: [], ...override,
     }]) } as never);
     return expect(release()).rejects.toThrow('actual container topology');
   });

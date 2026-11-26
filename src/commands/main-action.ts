@@ -4,6 +4,7 @@ import * as path from 'path';
 import { logger } from '../logger';
 import { assertPersistentDebugArtifactsIsolated } from '../enclave/mount-policy';
 import { startContainers, setAwfDockerHost } from '../docker-manager';
+import { privateSocketDockerHost } from '../private-host-sockets';
 import { runMainWorkflow } from '../cli-workflow';
 import { applyConfigFilePrecedence } from './preflight';
 import { validateOptions } from './validate-options';
@@ -104,7 +105,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
       });
       // Apply --docker-host override for AWF's own container operations.
       // This must be called before startContainers/stopContainers/runAgentCommand.
-      setAwfDockerHost(config.awfDockerHost);
+      setAwfDockerHost(privateSocketDockerHost(config) ?? config.awfDockerHost);
 
       // Auto-detect split filesystem in DinD environments when no explicit prefix is set.
       // This probe runs a lightweight container to check if the daemon can see runner paths.

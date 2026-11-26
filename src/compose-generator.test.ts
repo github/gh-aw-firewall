@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
+import { privateSocketTestHelpers } from './private-host-sockets';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -53,6 +54,38 @@ describe('generateDockerCompose', () => {
 
   afterEach(() => {
     fs.rmSync(mockConfig.workDir, { recursive: true, force: true });
+  });
+
+  (process.platform === 'linux' ? it : it.skip)('gates the final agent service only with private socket declarations', () => {
+    const privateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-compose-private-'));
+    const readFileSync = fs.readFileSync;
+    const mountinfo = jest.spyOn(jest.requireActual<typeof fs>('fs'), 'readFileSync').mockImplementation((file, options) =>
+      file === '/proc/self/mountinfo' ? '1 0 8:1 / / rw - ext4 /dev/root rw' : readFileSync(file, options));
+    const uid = jest.spyOn(process, 'getuid').mockReturnValue(0);
+    const env = jest.replaceProperty(process, 'env', { ...process.env, DOCKER_CONTEXT: undefined, DOCKER_HOST: undefined });
+    try {
+      const plain = generateDockerCompose({ ...mockConfig, privateHostSocketDirs: [] }, mockNetworkConfig).services.agent;
+      const isolated = { ...mockConfig, privateHostSocketDirs: [privateDir] };
+      const agent = generateDockerCompose(isolated, mockNetworkConfig).services.agent;
+      const { CONTROL_DIR, ENTRYPOINT, wrapPrivateHostSocketCommand } = privateSocketTestHelpers;
+      expect(plain.entrypoint).toBeUndefined();
+      expect(plain.tmpfs?.join(' ')).not.toContain(CONTROL_DIR);
+      expect(agent.entrypoint).toEqual(ENTRYPOINT.map(arg => arg.replace(/\$/g, '$$$$')));
+      expect(agent.command).toEqual(wrapPrivateHostSocketCommand(plain.command as string[]));
+      expect(agent.runtime).toBe('runc');
+      expect(agent.tmpfs).toEqual(expect.arrayContaining([
+        expect.stringMatching(new RegExp(`^${CONTROL_DIR}:`)),
+        expect.stringMatching(new RegExp(`^/host${CONTROL_DIR}/probe:`)),
+      ]));
+      expect(() => generateDockerCompose({
+        ...isolated, volumeMounts: [`${privateDir}:/socket-test:ro`],
+      }, mockNetworkConfig)).toThrow('overlaps');
+    } finally {
+      mountinfo.mockRestore();
+      uid.mockRestore();
+      env.restore();
+      fs.rmSync(privateDir, { recursive: true, force: true });
+    }
   });
 
   it('uses the private home for HOME, tool sources, credential masks, and run-scoped sessions', () => {

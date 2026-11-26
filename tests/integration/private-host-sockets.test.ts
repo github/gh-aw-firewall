@@ -10,7 +10,11 @@ import {
 } from '../../src/private-host-sockets';
 import type { WrapperConfig } from '../../src/types';
 
-const privilegedLinuxTests = process.platform === 'linux' && process.getuid?.() === 0 ? describe : describe.skip;
+const privilegedLinux = process.platform === 'linux' && process.getuid?.() === 0;
+if (process.env.AWF_REQUIRE_PRIVATE_SOCKET_LIVE === '1' && !privilegedLinux) {
+  throw new Error('The private host socket integration suite requires Linux and root');
+}
+const privilegedLinuxTests = privilegedLinux ? describe : describe.skip;
 
 privilegedLinuxTests('live trusted host socket boundary (local privileged Docker/runc)', () => {
   let directory: string;
@@ -83,12 +87,21 @@ privilegedLinuxTests('live trusted host socket boundary (local privileged Docker
       environment: {
         AWF_CHROOT_ENABLED: String(chroot), AWF_SKIP_IPTABLES_INIT: '1',
         AWF_USER_UID: String(uid), AWF_USER_GID: String(gid),
+        AWF_HOST_PATH: '/visible:/usr/sbin:/usr/bin:/sbin:/bin',
         HOME: '/home/runner',
       },
       healthcheck: { test: ['CMD-SHELL', 'true'] },
       entrypoint: [] as string[],
     };
     if (chroot) {
+      fs.writeFileSync(path.join(visibleDir, 'mkdir'), `#!/bin/bash
+if [ -f /run/awf-private-host-sockets/allow ]; then
+  echo released >> /visible/path-setup
+else
+  echo premature >> /visible/path-setup
+fi
+exec /bin/mkdir "$@"
+`, { mode: 0o755 });
       const home = path.join(directory, 'chroot-home');
       fs.mkdirSync(home);
       fs.chownSync(home, uid, gid);
@@ -136,11 +149,46 @@ PY`);
     await release();
     const exited = await execa('docker', ['wait', 'awf-agent'], { timeout: 30000 });
     const logs = await execa('docker', ['logs', 'awf-agent']);
-    expect(exited.stdout).toBe('0');
+    expect({ exit: exited.stdout, diagnostics: exited.stdout === '0' ? '' : logs.stdout + logs.stderr })
+      .toEqual({ exit: '0', diagnostics: '' });
     expect(logs.stdout).toContain('agent socket connections denied');
     expect(fs.readFileSync(path.join(visibleDir, 'command-ran'), 'utf8')).toBe('isolated');
+    if (chroot) expect(fs.readFileSync(path.join(visibleDir, 'path-setup'), 'utf8')).toBe('released\n');
     expect(await adapterConnect(existing)).toBe('authorized-adapter');
     expect(await adapterConnect(late)).toBe('authorized-adapter');
+  }, 60000);
+
+  test('Claude helper setup uses Node with bootstrap options cleared', async () => {
+    const privateDir = path.join(directory, 'claude-private');
+    const home = path.join(directory, 'claude-home');
+    fs.mkdirSync(privateDir);
+    fs.mkdirSync(home);
+    fs.writeFileSync(path.join(home, '.claude.json'), '{"hasCompletedOnboarding":true}');
+    const config: WrapperConfig = {
+      allowedDomains: [], workDir: path.join(directory, 'claude-work'), agentCommand: 'true',
+      keepContainers: false, logLevel: 'error', privateHostSocketDirs: [privateDir],
+    };
+    const service = {
+      volumes: [`${home}:/awf-test-home:rw`], tmpfs: [],
+      environment: {
+        HOME: '/awf-test-home', AWF_CHROOT_ENABLED: 'false', AWF_SKIP_IPTABLES_INIT: '1',
+        CLAUDE_CODE_API_KEY_HELPER: '/usr/local/bin/get-claude-key.sh',
+        NODE_OPTIONS: '--require /awf-test-home/no-such-module.js',
+      },
+      healthcheck: { test: ['CMD-SHELL', 'true'] },
+    };
+    expect(() => configurePrivateHostSocketIsolation(config, service)).toThrow('NODE_OPTIONS');
+    service.environment.NODE_OPTIONS = '';
+    configurePrivateHostSocketIsolation(config, service);
+    // Emulate an exported function inherited from the image after generation.
+    Object.assign(service.environment, { 'BASH_FUNC_node%%': '() { return 1; }' });
+    const release = preparePrivateHostSocketIsolation(config)!;
+    await startAgent(service, 'true');
+    await expect(release()).resolves.toBeUndefined();
+    expect((await execa('docker', ['wait', 'awf-agent'], { timeout: 30000 })).stdout).toBe('0');
+    expect(JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf8'))).toEqual({
+      hasCompletedOnboarding: true, apiKeyHelper: '/usr/local/bin/get-claude-key.sh',
+    });
   }, 60000);
 
   test('a late-added read-only alias is rejected before the command runs', async () => {

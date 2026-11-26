@@ -1339,7 +1339,7 @@ setup_chroot_etc() {
   HOST_USER_UID="${AWF_CHROOT_IDENTITY_UID:-${AWF_USER_UID:-1000}}"
   HOST_USER_GID="${AWF_CHROOT_IDENTITY_GID:-${AWF_USER_GID:-${HOST_USER_UID}}}"
   HOST_USER=$(chroot /host getent passwd "${HOST_USER_UID}" 2>/dev/null | cut -d: -f1 || echo "")
-  CAPSH_IDENTITY_ARGS=""
+  CAPSH_IDENTITY_ARGS=()
   CHROOT_HOME_OVERRIDE="${AWF_CHROOT_IDENTITY_HOME:-}"
   CHROOT_USER_OVERRIDE="${AWF_CHROOT_IDENTITY_USER:-}"
   if [ -z "${HOST_USER}" ]; then
@@ -1441,17 +1441,17 @@ setup_chroot_etc() {
 
     HOST_USER=$(chroot /host getent passwd "${HOST_USER_UID}" 2>/dev/null | cut -d: -f1 || echo "")
     if [ -n "${HOST_USER}" ]; then
-      CAPSH_IDENTITY_ARGS="--user=${HOST_USER}"
+      CAPSH_IDENTITY_ARGS=("--user=${HOST_USER}")
       echo "[entrypoint] Running as synthesized host user: ${HOST_USER} (UID: ${HOST_USER_UID})"
     else
-      CAPSH_IDENTITY_ARGS="--gid=${HOST_USER_GID} --uid=${HOST_USER_UID} --groups=${HOST_USER_GID}"
+      CAPSH_IDENTITY_ARGS=("--gid=${HOST_USER_GID}" "--uid=${HOST_USER_UID}" "--groups=${HOST_USER_GID}")
       if [ -z "${CHROOT_HOME_OVERRIDE}" ]; then
         CHROOT_HOME_OVERRIDE="${SYNTH_HOME}"
       fi
       echo "[entrypoint][WARN] Proceeding with numeric UID/GID fallback (${HOST_USER_UID}:${HOST_USER_GID})"
     fi
   else
-    CAPSH_IDENTITY_ARGS="--user=${HOST_USER}"
+    CAPSH_IDENTITY_ARGS=("--user=${HOST_USER}")
     echo "[entrypoint] Running as host user: ${HOST_USER} (UID: ${HOST_USER_UID})"
   fi
 
@@ -1725,8 +1725,21 @@ run_chroot_command() {
   # narrow the /tmp bind to read-only, which would make this write fail. /run
   # inside the chroot is the container's own writable rootfs, so it is always
   # writable regardless of the host write policy.
-  mkdir -p /host/run 2>/dev/null || true
-  SCRIPT_FILE="/run/awf-cmd-$$.sh"
+  local script_launch quoted_workdir quoted_identity
+  printf -v quoted_workdir '%q' "${CHROOT_WORKDIR}"
+  printf -v quoted_identity '%q ' "${CAPSH_IDENTITY_ARGS[@]}"
+  if [ "${AWF_PRIVATE_HOST_SOCKET_GATE_V1:-}" = "1" ] && [ -d /host/run/awf-private-host-sockets ]; then
+    # The trusted startup wrapper prepends the seven gate arguments to Docker CMD.
+    # Run them after capsh switches identities, before running the PATH script.
+    SCRIPT_FILE="/run/awf-private-host-sockets/command.sh"
+    printf -v script_launch '%q ' "${@:1:7}" /bin/bash --noprofile --norc -p "${SCRIPT_FILE}"
+    shift 7
+  else
+    mkdir -p /host/run 2>/dev/null || true
+    SCRIPT_FILE="/run/awf-cmd-$$.sh"
+    script_launch="${SCRIPT_FILE}"
+  fi
+  printf -v script_launch '%q' "exec ${script_launch}"
   build_path_script "$@"
 
   # Execute inside chroot:
@@ -1823,12 +1836,12 @@ run_chroot_command() {
   fi
 
   check_host_runtime_ipc || exit 1
-  run_command_with_stdout run_agent_with_token_protection chroot /host /bin/bash -c "
-    cd '${CHROOT_WORKDIR}' 2>/dev/null || cd / 2>/dev/null || true
+  run_command_with_stdout run_agent_with_token_protection chroot /host /bin/bash -p -c "
+    cd ${quoted_workdir} 2>/dev/null || cd / 2>/dev/null || true
     trap '${CLEANUP_CMD}' EXIT
     ${LD_PRELOAD_CMD}
     ${LD_LIBRARY_PATH_CMD}
-    exec capsh --drop=${CAPS_TO_DROP} ${CAPSH_IDENTITY_ARGS} -- -c 'exec ${SCRIPT_FILE}'
+    exec capsh --drop=${CAPS_TO_DROP} ${quoted_identity} -- -c ${script_launch}
   "
 }
 

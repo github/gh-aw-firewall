@@ -88,8 +88,10 @@ directory-only mount comparison. Container-scoped procfs created during setup
 remains supported.
 Overlay backing paths must be inspectable inside verified Docker storage; only
 the container-root overlay and its same-superblock bind aliases are accepted.
-Loader/shell-hook injection environment
-variables are rejected when supplied and cleared for bootstrap image defaults.
+Loader, shell and Node startup hooks are rejected when supplied and cleared
+for bootstrap image defaults. Exported Bash functions are stripped before
+the privileged entrypoint. In chroot mode the final gate runs before the
+host PATH or toolchain setup, and requires an agent image supporting that gate.
 Verification failure leaves the gate closed; the normal startup cleanup removes
 the container. A retry or recreated container must pass verification again.
 
@@ -101,9 +103,13 @@ when the complete actual topology is inspectable.
 
 **Fail closed:** unprivileged host inspection, remote/context-selected Docker,
 ARC/DinD, nontrivial `--docker-host-path-prefix` translation, `--enable-dind`,
+`--enable-host-access` (which could expose alternate Docker control endpoints),
 legacy security, gVisor/runsc, sbx, Cloud Hypervisor, NVX, unknown OCI runtimes,
 custom binary sysroots or mounts replacing trusted bootstrap/interpreter/loader
-paths, and uninspectable filesystems such as NFS/FUSE or private overlay/btrfs roots.
+paths, symlinks in nested mount targets, declared directories containing
+submounts, and uninspectable filesystems such as NFS/FUSE or private overlay/btrfs roots.
+AWF pins the Docker CLI to the selected Unix endpoint, overriding any saved
+default context; an explicit `DOCKER_CONTEXT` is unsupported.
 These runtimes need an equivalent final-export verifier and pre-execution gate
 before they can support this option. An empty declaration list changes no behavior.
 
@@ -120,7 +126,7 @@ and writer jobs; those remain the orchestrator's responsibility.
 The live regression runs against local Docker with privileged host inspection:
 
 ```bash
-sudo node "$PWD/node_modules/jest/bin/jest.js" \
+sudo env AWF_REQUIRE_PRIVATE_SOCKET_LIVE=1 "$(command -v node)" "$PWD/node_modules/jest/bin/jest.js" \
   --config "$PWD/tests/setup/jest.integration.config.js" \
   --runInBand private-host-sockets.test.ts
 ```

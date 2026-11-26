@@ -146,10 +146,22 @@ describe('runMainWorkflow', () => {
     jest.mocked(preparePrivateHostSocketIsolation).mockReturnValueOnce(async () => {
       throw new Error('unsafe private socket mount');
     });
+
     const dependencies = createWorkflowDependencies({ releaseHarness: jest.fn() });
     await expect(runMainWorkflow(baseConfig, dependencies, createWorkflowOptions())).rejects.toThrow('unsafe private socket');
     expect(dependencies.releaseHarness).not.toHaveBeenCalled();
     expect(dependencies.runAgentCommand).not.toHaveBeenCalled();
+  });
+
+  it('collects the early setup exit via the normal command log path without releasing the harness', async () => {
+    jest.mocked(preparePrivateHostSocketIsolation).mockReturnValueOnce(async () => 'setup-exited');
+    const dependencies = createWorkflowDependencies({
+      releaseHarness: jest.fn(),
+      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 127, blockedDomains: [] }),
+    });
+    await expect(runMainWorkflow(baseConfig, dependencies, createWorkflowOptions())).resolves.toBe(127);
+    expect(dependencies.releaseHarness).not.toHaveBeenCalled();
+    expect(dependencies.runAgentCommand).toHaveBeenCalledTimes(1);
   });
 
   it.each([
