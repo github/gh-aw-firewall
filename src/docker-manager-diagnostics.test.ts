@@ -161,6 +161,31 @@ describe('docker-manager diagnostics', () => {
   describe('preserveIptablesAudit', () => {
     const { getDir } = useTempDir('awf-audit-');
 
+    function expectEnclaveAuditPreserved(): void {
+      const auditDir = setupEnclaveAuditFixture(getDir());
+
+      preserveIptablesAudit(getDir(), auditDir);
+
+      expect(mockExecaSync).toHaveBeenCalledWith(
+        'docker',
+        [
+          'cp',
+          'awf-enclave-mcp-server:/var/log/awf-enclave/enclave.jsonl',
+          expect.stringMatching(new RegExp(`/proc/${process.pid}/fd/\\d+/enclave.jsonl$`)),
+        ],
+        expect.objectContaining({ reject: false }),
+      );
+      expect(mockExecaSync).toHaveBeenCalledWith(
+        'docker',
+        [
+          'cp',
+          'awf-enclave-mcp-server:/var/log/awf-enclave/runtime-telemetry.jsonl',
+          expect.stringMatching(new RegExp(`/proc/${process.pid}/fd/\\d+/enclave-runtime.jsonl$`)),
+        ],
+        expect.objectContaining({ reject: false }),
+      );
+    }
+
     linuxIt('should copy iptables audit file when both source and target directory exist', () => {
       const initSignalDir = path.join(getDir(), 'init-signal');
       fs.mkdirSync(initSignalDir, { recursive: true });
@@ -209,28 +234,8 @@ describe('docker-manager diagnostics', () => {
     });
 
     it('should copy enclave audit, telemetry, and sessions before cleanup', () => {
-      const auditDir = setupEnclaveAuditFixture(getDir());
+      expectEnclaveAuditPreserved();
 
-      preserveIptablesAudit(getDir(), auditDir);
-
-      expect(mockExecaSync).toHaveBeenCalledWith(
-        'docker',
-        [
-          'cp',
-          'awf-enclave-mcp-server:/var/log/awf-enclave/enclave.jsonl',
-          expect.stringMatching(new RegExp(`/proc/${process.pid}/fd/\\d+/enclave.jsonl$`)),
-        ],
-        expect.objectContaining({ reject: false }),
-      );
-      expect(mockExecaSync).toHaveBeenCalledWith(
-        'docker',
-        [
-          'cp',
-          'awf-enclave-mcp-server:/var/log/awf-enclave/runtime-telemetry.jsonl',
-          expect.stringMatching(new RegExp(`/proc/${process.pid}/fd/\\d+/enclave-runtime.jsonl$`)),
-        ],
-        expect.objectContaining({ reject: false }),
-      );
       expect(mockExecaSync).toHaveBeenCalledWith(
         'docker',
         [
@@ -273,28 +278,9 @@ describe('docker-manager diagnostics', () => {
 
     it('should copy enclave protected audit and runtime telemetry before cleanup', () => {
       const enclaveRoot = resolveEnclavePaths(getDir()).root;
-      const auditDir = setupEnclaveAuditFixture(getDir());
 
-      preserveIptablesAudit(getDir(), auditDir);
+      expectEnclaveAuditPreserved();
 
-      expect(mockExecaSync).toHaveBeenCalledWith(
-        'docker',
-        [
-          'cp',
-          'awf-enclave-mcp-server:/var/log/awf-enclave/enclave.jsonl',
-          expect.stringMatching(new RegExp(`/proc/${process.pid}/fd/\\d+/enclave.jsonl$`)),
-        ],
-        expect.objectContaining({ reject: false }),
-      );
-      expect(mockExecaSync).toHaveBeenCalledWith(
-        'docker',
-        [
-          'cp',
-          'awf-enclave-mcp-server:/var/log/awf-enclave/runtime-telemetry.jsonl',
-          expect.stringMatching(new RegExp(`/proc/${process.pid}/fd/\\d+/enclave-runtime.jsonl$`)),
-        ],
-        expect.objectContaining({ reject: false }),
-      );
       fs.rmSync(enclaveRoot, { recursive: true, force: true });
     });
 
