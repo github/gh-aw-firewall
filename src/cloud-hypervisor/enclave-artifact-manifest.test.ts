@@ -1,8 +1,13 @@
+import { TextDecoder } from 'util';
 import { CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } from './artifact-manifest';
 import {
+  assertEnclaveRootfsConfiguration,
+  enclaveArtifactRootfsPaths,
   enclaveRootfsArtifactForRole,
   parseCloudHypervisorEnclaveArtifactManifest,
+  parseEnclaveArtifactManifestBytes,
 } from './enclave-artifact-manifest';
+import { hostPreflightReason } from './host-preflight-progress';
 
 const digest = 'a'.repeat(64);
 const releaseTag = CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG;
@@ -95,6 +100,41 @@ function sharedV2(overrides: Record<string, unknown> = {}): string {
 }
 
 describe('Cloud Hypervisor enclave artifact manifest', () => {
+  it('classifies decoder failures before parsing', () => {
+    const error = new TypeError('Invalid UTF-8');
+    const decode = jest.spyOn(TextDecoder.prototype, 'decode').mockImplementationOnce(() => { throw error; });
+    try {
+      expect(() => parseEnclaveArtifactManifestBytes(Buffer.from([0xff]), releaseTag)).toThrow(error);
+      expect(hostPreflightReason(error)).toBe('malformed-json');
+    } finally {
+      decode.mockRestore();
+    }
+  });
+
+  it.each([
+    { contents: manifest(), canonical: false },
+    { contents: legacyManifest(), canonical: false },
+    { contents: sharedV2(), canonical: true },
+  ])('checks configured rootfs paths against the parsed manifest (canonical=$canonical)', ({ contents, canonical }) => {
+    const parsed = parseEnclaveArtifactManifestBytes(Buffer.from(contents), releaseTag);
+    const paths = enclaveArtifactRootfsPaths('/trusted', parsed);
+    const options = {
+      releaseTag, manifestPath: '/trusted/manifest.json', manifestBundlePath: '/trusted/bundle.jsonl',
+      attestationToolPath: '/trusted/gh',
+      scriptRootfsPath: paths.script, agentRootfsPath: paths.agent,
+      ...(canonical ? { rootfsPath: paths.script } : {}),
+    };
+    expect(() => assertEnclaveRootfsConfiguration(options, parsed, paths)).not.toThrow();
+    expect(() => assertEnclaveRootfsConfiguration({
+      ...options, agentRootfsPath: '/trusted/wrong.ext4',
+    }, parsed, paths)).toThrow('does not match the trusted manifest path');
+    if (canonical) {
+      expect(() => assertEnclaveRootfsConfiguration({
+        ...options, rootfsPath: undefined,
+      }, parsed, paths)).toThrow('Canonical enclave rootfs path is required');
+    }
+  });
+
   it.each(['v0.28.62', 'v0.28.63', 'v0.28.64', 'v0.28.65', 'v0.28.67', 'latest'])(
     'rejects a release outside the reviewed v0.28.66 compatibility pin: %s', tag => {
       expect(() => parseCloudHypervisorEnclaveArtifactManifest(manifest(), tag))

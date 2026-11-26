@@ -135,19 +135,35 @@ describe('Cloud Hypervisor host enclave artifact preflight', () => {
       expect(() => assertEnclaveStartupChecklistComplete(wrapper)).not.toThrow();
     };
     try {
-      await expect(admission.check('enclave-artifacts', () => preflightCloudHypervisorEnclaveArtifacts({
-        releaseTag,
-        manifestPath,
-        manifestBundlePath,
-        scriptRootfsPath,
-        agentRootfsPath,
-        attestationToolPath,
-      }, undefined, undefined, admission))).resolves.toMatchObject({
-        rootfs: {
-          script: { path: scriptRootfsPath, artifact: scriptArtifact },
-          agent: { path: agentRootfsPath, artifact: agentArtifact },
-        },
-      });
+      const attempts = jest.spyOn(HostPreflightReporter.prototype, 'attempt');
+      try {
+        const verified = await admission.check('enclave-artifacts', () => preflightCloudHypervisorEnclaveArtifacts({
+          releaseTag,
+          manifestPath,
+          manifestBundlePath,
+          scriptRootfsPath,
+          agentRootfsPath,
+          attestationToolPath,
+        }, undefined, undefined, admission));
+        expect(verified).toMatchObject({
+          rootfs: {
+            script: { path: scriptRootfsPath, artifact: scriptArtifact },
+            agent: { path: agentRootfsPath, artifact: agentArtifact },
+          },
+        });
+        expect(Object.isFrozen(verified)).toBe(true);
+        expect(Object.isFrozen(verified.rootfs)).toBe(true);
+        const rootfsChecks = ['rootfs-trust', 'rootfs-provenance-trust', 'rootfs-digest', 'rootfs-attestation'];
+        expect(attempts.mock.calls.map(([id]) => id)).toEqual([
+          'enclave-artifacts', 'operator-identity', 'tool-gh', 'manifest-bundle-path',
+          'manifest-trust', 'bundle-trust', 'manifest-read', 'bundle-read', 'verification-directory',
+          'manifest-parse', 'manifest-attestation', 'rootfs-configuration',
+          ...rootfsChecks, ...(shared ? [] : rootfsChecks),
+          'sbom-trust', 'sbom-digest', 'sbom-trust', 'sbom-digest',
+        ]);
+      } finally {
+        attempts.mockRestore();
+      }
       await assertArtifactsComplete(1);
       const verifications = (await fs.readFile(attestationTracePath, 'utf8')).trim().split('\n\n')
         .map((invocation) => invocation.split('\n'));
@@ -361,6 +377,9 @@ describe('Cloud Hypervisor host enclave artifact preflight', () => {
       })).rejects.toThrow('SBOM exceeds its size limit');
 
       await fs.writeFile(attestationToolPath, '#!/bin/sh\nexit 1\n');
+      const attestationProgress: HostPreflightProgress[] = [];
+      const attestationReport = new HostPreflightReporter('bounded-artifacts', value => attestationProgress.push(value),
+        undefined, { phase: 'preflight', profile: 'common' });
       await expect(preflightCloudHypervisorEnclaveArtifacts({
         releaseTag,
         manifestPath,
@@ -368,7 +387,14 @@ describe('Cloud Hypervisor host enclave artifact preflight', () => {
         scriptRootfsPath,
         agentRootfsPath,
         attestationToolPath,
-      })).rejects.toThrow('attestation verification failed');
+      }, verificationRoot, undefined, attestationReport)).rejects.toThrow('attestation verification failed');
+      const failedAttestation = attestationProgress[attestationProgress.length - 1];
+      expect(failedAttestation.checks.find(check => check.id === 'manifest-attestation'))
+        .toEqual({ id: 'manifest-attestation', result: 'failed', reason: 'attestation-failed' });
+      for (const id of ['rootfs-configuration', 'rootfs-trust', 'sbom-trust']) {
+        expect(failedAttestation.checks.find(check => check.id === id)?.result).toBe('not-attempted');
+      }
+      expect(await fs.readdir(verificationRoot)).toEqual([]);
       await fs.writeFile(attestationToolPath, '#!/bin/sh\nexit 0\n');
 
       await fs.chmod(agentSbomPath, 0o600);
