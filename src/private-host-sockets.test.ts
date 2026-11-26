@@ -12,6 +12,7 @@ import type { WrapperConfig } from './types';
 
 jest.mock('execa', () => jest.fn());
 const docker = execa as jest.MockedFunction<typeof execa>;
+const realReadFileSync = fs.readFileSync;
 const {
   readPrivateDirectories, assertDisjoint, coordinate, ENTRYPOINT, CONTROL_DIR,
   wrapPrivateHostSocketCommand, assertAgentMountsIsolated, assertRootOverlayBackingsIsolated, inspectHostSource,
@@ -182,6 +183,8 @@ linuxTests('trusted host socket isolation', () => {
     expect(mount.root).toBe('/private socket');
     expect(mount.mountPoint).toBe('/alias path');
     expect(parseSocketMountInfo('2 1 0:5 net:[1234] /run/docker/netns/id rw - nsfs nsfs rw')[0].filesystem).toBe('nsfs');
+    expect(() => parseSocketMountInfo('1 0 8:1 relative /mount rw - ext4 /dev/root rw')).toThrow('invalid mount path');
+    expect(() => coordinate(`${visibleDir}/../private`, parseSocketMountInfo(hostMountInfo))).toThrow('traversal');
   });
 
   test('refuses private directories on opaque filesystems', () => {
@@ -254,6 +257,14 @@ linuxTests('trusted host socket isolation', () => {
     expect(generated.environment).toHaveProperty('NODE_OPTIONS', '');
   });
 
+  test('rejects root and malformed agent identities at the startup gate', () => {
+    for (const uid of ['0', 'invalid']) {
+      expect(() => configurePrivateHostSocketIsolation(config, {
+        ...service(), environment: { AWF_USER_UID: uid },
+      })).toThrow('unsupported agent identity');
+    }
+  });
+
   test('verification fails closed on missing container evidence before any release', async () => {
     const release = preparePrivateHostSocketIsolation(config)!;
     docker.mockResolvedValue({ stdout: '[]' } as never);
@@ -263,6 +274,127 @@ linuxTests('trusted host socket isolation', () => {
       env: expect.objectContaining({ DOCKER_HOST: 'unix:///var/run/docker.sock' }),
     }));
   });
+
+  test.each([
+    'release', 'unsupported-mount', 'missing-mount-source', 'private-mount',
+    'bad-storage', 'missing-gate', 'bad-challenge', 'untrusted-image',
+    'missing-root', 'stacked-root', 'setup-exited', 'setup-timeout', 'entrypoint-stopped',
+    'propagation-change', 'changed-root', 'missing-final-gate', 'container-stopped',
+  ])(
+    'verifies the startup and command gates: %s', async scenario => {
+      const storage = path.join(visibleDir, 'docker');
+      const lower = path.join(storage, 'lower');
+      const upper = path.join(storage, 'upper');
+      const work = path.join(storage, 'work');
+      const control = path.join(directory, 'control');
+      for (const dir of [lower, upper, work, path.join(control, 'probe')]) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(control, 'probe', 'ready'), '');
+
+      const procRoot = '/proc/123/root';
+      const procControl = `${procRoot}${CONTROL_DIR}`;
+      const rootMount = `10 1 0:456 / / rw - overlay overlay rw,lowerdir=${lower},upperdir=${upper},workdir=${work}`;
+      const gateMount = `11 10 0:457 / ${CONTROL_DIR} rw - tmpfs tmpfs rw`;
+      const mounts = `${rootMount}\n${gateMount}`;
+      let mountReads = 0;
+      const readFile = realReadFileSync;
+      const stat = fs.statSync;
+      const writeFile = fs.writeFileSync;
+      const unlink = fs.unlinkSync;
+      const exists = fs.existsSync;
+      const actualFs = jest.requireActual<typeof fs>('fs');
+      function mapped(file: fs.PathLike): fs.PathLike;
+      function mapped(file: fs.PathOrFileDescriptor): fs.PathOrFileDescriptor;
+      function mapped(file: fs.PathOrFileDescriptor): fs.PathOrFileDescriptor {
+        return typeof file === 'string' && file.startsWith(procControl)
+          ? control + file.slice(procControl.length) : file;
+      }
+      jest.spyOn(actualFs, 'readFileSync').mockImplementation((file, options) => {
+        if (file === '/proc/self/mountinfo') return hostMountInfo;
+        if (file === `${procRoot}/usr/local/bin/entrypoint.sh` && scenario === 'untrusted-image') {
+          return 'old image without the chroot gate';
+        }
+        if (file === '/proc/123/mountinfo') {
+          mountReads++;
+          if (scenario === 'missing-root') return gateMount;
+          if (scenario === 'stacked-root') return `${rootMount}\n${rootMount}\n${gateMount}`;
+          if (scenario === 'missing-gate' && mountReads === 1) return rootMount;
+          if (mountReads > 1) {
+            if (scenario === 'propagation-change') return `${rootMount}\n${gateMount.replace(' rw - ', ' rw shared:1 - ')}`;
+            if (scenario === 'changed-root') return `${rootMount.replace('0:456', '0:458')}\n${gateMount}`;
+            if (scenario === 'missing-final-gate') return `${rootMount}\n${gateMount.replace('tmpfs tmpfs', 'ext4 /dev/test')}`;
+          }
+          return mounts;
+        }
+        return readFile(mapped(file as fs.PathLike), options);
+      });
+      jest.spyOn(actualFs, 'statSync').mockImplementation((file, options) => {
+        const result = stat(mapped(file), options);
+        if (file === procControl) Object.defineProperty(result, 'uid', { value: 0 });
+        return result;
+      });
+      jest.spyOn(actualFs, 'writeFileSync').mockImplementation((file, data, options) =>
+        writeFile(mapped(file), data, options));
+      jest.spyOn(actualFs, 'unlinkSync').mockImplementation(file => unlink(mapped(file)));
+      jest.spyOn(actualFs, 'existsSync').mockImplementation(file =>
+        ['setup-exited', 'setup-timeout', 'entrypoint-stopped'].includes(scenario)
+          && file === `${procControl}/probe/ready` ? false : exists(mapped(file)));
+      if (['setup-exited', 'setup-timeout', 'entrypoint-stopped'].includes(scenario)) {
+        let now = 0;
+        jest.spyOn(Date, 'now').mockImplementation(() => { now += scenario === 'setup-timeout' ? 120001 : 1001; return now; });
+      }
+      const release = preparePrivateHostSocketIsolation(config)!;
+      docker.mockResolvedValueOnce({ stdout: JSON.stringify([{
+        Id: 'a'.repeat(64), State: { Running: true, Pid: 123 },
+        HostConfig: { Runtime: 'runc', IpcMode: 'private' },
+        Config: {
+          Entrypoint: ENTRYPOINT, Cmd: wrapPrivateHostSocketCommand(['/bin/true']),
+          Env: [
+            'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+            ...(scenario === 'untrusted-image' ? ['AWF_CHROOT_ENABLED=true'] : []),
+          ],
+        },
+        Mounts: scenario === 'unsupported-mount' ? [{ Type: 'volume', Driver: 'remote' }] :
+          scenario === 'missing-mount-source' ? [{ Type: 'bind' }] :
+          scenario === 'private-mount' ? [{ Type: 'bind', Source: privateDir }] :
+          [{ Type: 'tmpfs' }, { Type: 'bind', Source: visibleDir }],
+      }]) } as never)
+        .mockResolvedValueOnce({ stdout: scenario === 'bad-storage' ? 'relative' : storage } as never)
+        .mockImplementationOnce(() => Promise.resolve({
+          stdout: scenario === 'bad-challenge' ? 'wrong' : readFile(path.join(control, 'challenge'), 'utf8'),
+        }) as never)
+        .mockResolvedValueOnce({ stdout: scenario === 'setup-exited' ? 'exited 42' :
+          scenario === 'entrypoint-stopped' ? 'exited 0' :
+          scenario === 'container-stopped' ? '123 false' : '123 true' } as never);
+
+      if (scenario === 'release') {
+        await expect(release()).resolves.toBeUndefined();
+        expect(fs.existsSync(path.join(control, 'allow'))).toBe(true);
+      } else if (scenario === 'setup-exited') {
+        await expect(release()).resolves.toBe('setup-exited');
+        expect(fs.existsSync(path.join(control, 'allow'))).toBe(false);
+      } else {
+        const expected: Record<string, string> = {
+          'bad-storage': 'uninspectable Docker storage',
+          'unsupported-mount': 'unsupported actual container topology',
+          'missing-mount-source': 'uninspectable actual mount source',
+          'private-mount': 'overlaps a private directory',
+          'missing-gate': 'missing private startup gate',
+          'bad-challenge': 'do not share an inspectable filesystem',
+          'untrusted-image': 'agent image does not support',
+          'missing-root': 'uninspectable container root mount',
+          'stacked-root': 'uninspectable container root mount',
+          'setup-timeout': 'post-setup command gate was not reached',
+          'entrypoint-stopped': 'entrypoint exited before the command gate',
+          'propagation-change': 'propagating post-setup',
+          'changed-root': 'container root mount changed',
+          'missing-final-gate': 'missing final command gate',
+          'container-stopped': 'container changed during inspection',
+        };
+        await expect(release()).rejects.toThrow(expected[scenario]);
+        expect(fs.existsSync(path.join(control, 'allow'))).toBe(false);
+      }
+    },
+  );
 
   test.each([
     { HostConfig: { Runtime: 'runsc' } },
