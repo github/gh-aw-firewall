@@ -106,6 +106,17 @@ export async function startGuestWorkload(
   };
   const managerDependencies = resources.storage?.managerDependencies ?? options.managerDependencies;
   const debugDirectory = options.publicDebugArtifactDirectory;
+  const enclaveDebugArtifactDirectory = debugDirectory
+    ? (() => {
+        const baseDirectory = path.resolve(debugDirectory);
+        const candidateDirectory = path.resolve(baseDirectory, plan.runId, plan.invocationId);
+        const relative = path.relative(baseDirectory, candidateDirectory);
+        if (relative.startsWith('..') || path.isAbsolute(relative)) {
+          throw new Error('Invalid debug artifact directory path components');
+        }
+        return candidateDirectory;
+      })()
+    : undefined;
   resources.manager = await check('manager-create', () => resources.dependencies.createManager(
     managerConfig,
     resources.storage?.workDir ?? options.workDir,
@@ -115,7 +126,7 @@ export async function startGuestWorkload(
     debugDirectory
       ? {
           ...resolveCloudHypervisorManagerDependencies(managerDependencies),
-          enclaveDebugArtifactDirectory: path.join(debugDirectory, plan.runId, plan.invocationId),
+          enclaveDebugArtifactDirectory,
           enclaveDebugArtifactProtectedRoot: options.publicDebugArtifactProtectedRoot,
           enclaveDebugSecrets: policy ? [
             policy.githubBearer ?? '', policy.githubAgentId ?? '', policy.modelBudgetSecret ?? '',
