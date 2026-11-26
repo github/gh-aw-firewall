@@ -45,6 +45,7 @@ on:
       - 'src/commands/main-action*'
       - 'src/commands/main-action/**'
       - 'src/cli-workflow*'
+      - 'src/workflow-stages/**'
       - 'src/services/enclave-mcp-*'
       - 'containers/enclave/**'
       - 'containers/build-tools/**'

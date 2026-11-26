@@ -47,6 +47,7 @@ on:
       - 'containers/router/**'
       - 'src/routing/**'
       - 'src/cli-workflow.ts'
+      - 'src/workflow-stages/**'
       - 'src/compose-generator.ts'
       - 'src/commands/resolve-credentials.ts'
       - 'src/config-file.ts'
