@@ -430,10 +430,17 @@ describe('portable Cloud Hypervisor acceptance fixtures (not KVM evidence)', () 
       }
       // Require the complete known event-selector shape, not just absence of
       // this label's spelling: an unconditional labeled agent must fail too.
-      expect(normalized(agent.if)).toBe(
+      const activationGate =
         "needs.activation.outputs.daily_ai_credits_exceeded != 'true' && " +
-        "needs.activation.outputs.daily_ai_credits_guardrail_status != 'quota_blocked'",
-      );
+        "needs.activation.outputs.daily_ai_credits_guardrail_status != 'quota_blocked'";
+      if (filename === 'smoke-codex.lock.yml') {
+        expect(needs(agent)).toContain('verify_playwright');
+        expect(normalized(agent.if)).toBe(
+          `(${activationGate}) && (needs.verify_playwright.result == 'success')`,
+        );
+      } else {
+        expect(normalized(agent.if)).toBe(activationGate);
+      }
       const activation = doc.jobs.activation;
       const labels = [...normalized(activation.if).matchAll(/github\.event\.label\.name == '([^']+)'/g)]
         .map(match => match[1]);

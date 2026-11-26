@@ -21,6 +21,66 @@ engine:
   version: "0.163.0"
 strict: false
 jobs:
+  verify_playwright:
+    needs: activation
+    if: needs.activation.outputs.daily_ai_credits_exceeded != 'true' && needs.activation.outputs.daily_ai_credits_guardrail_status != 'quota_blocked'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted browser check
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.workflow_sha }}
+          persist-credentials: false
+      - name: Setup Node.js for browser check
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Build trusted AWF
+        run: npm ci && npm run build
+      - name: Locate trusted browser check
+        id: browser_check_source
+        run: |
+          if [ -f .github/workflows/shared/check-codex-playwright.cjs ]; then
+            echo "path=.github/workflows/shared/check-codex-playwright.cjs" >> "$GITHUB_OUTPUT"
+            echo "bootstrap=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=.codex-browser-bootstrap/.github/workflows/shared/check-codex-playwright.cjs" >> "$GITHUB_OUTPUT"
+            echo "bootstrap=true" >> "$GITHUB_OUTPUT"
+          fi
+      # Bootstrap only until the helper is present on the trusted base.
+      - name: Checkout pinned browser check
+        if: steps.browser_check_source.outputs.bootstrap == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: github/gh-aw-firewall
+          ref: 6d417bd1558331f1c4bff44660630f9a2198b3ca
+          path: .codex-browser-bootstrap
+          sparse-checkout: .github/workflows/shared/check-codex-playwright.cjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Provision Playwright Chromium
+        env:
+          NPM_CONFIG_MIN_RELEASE_AGE: '3'
+          BROWSER_CHECK_PATH: ${{ steps.browser_check_source.outputs.path }}
+        run: |
+          tools="$RUNNER_TEMP/codex-browser"
+          npm install --ignore-scripts --prefix "$tools" @playwright/cli@0.1.21
+          PLAYWRIGHT_BROWSERS_PATH="$tools/browsers" node "$tools/node_modules/playwright/cli.js" install chromium
+          cp "$BROWSER_CHECK_PATH" "$tools/"
+      - name: Check GitHub title through AWF
+        run: |
+          tools="$RUNNER_TEMP/codex-browser"
+          node dist/cli.js --build-local --allow-domains github.com,githubassets.com \
+            --mount "$tools:$tools:ro" -- /usr/bin/env \
+            "PATH=$tools/node_modules/.bin:$PATH" "PLAYWRIGHT_BROWSERS_PATH=$tools/browsers" \
+            node "$tools/check-codex-playwright.cjs"
+  agent:
+    needs: verify_playwright
+    if: needs.verify_playwright.result == 'success'
   verify_token_usage:
     needs: agent
     if: needs.agent.result == 'success'
@@ -126,7 +186,8 @@ post-steps:
 
 1. **GitHub MCP Testing**: Review the last 2 merged pull requests in `__GH_AW_GITHUB_REPOSITORY__`
 2. **GitHub PR Detail Testing**: Use the GitHub tools to retrieve the number, title, and author of 2 pull requests from `__GH_AW_GITHUB_REPOSITORY__`
-3. **Playwright Testing**: Use the `playwright-cli` command (invoked via the bash tool - Codex exposes Playwright as a CLI tool, not an MCP tool) to navigate to https://github.com and verify the page title contains "GitHub", e.g. `playwright-cli open https://github.com` followed by a command to read the page title (do NOT try to install playwright - use the pre-installed `playwright-cli`)
+3. **Playwright Testing**: This job only starts after a separate, trusted AWF job verifies that the provisioned Chromium can read the GitHub page title and close its isolated session. Include that completed check in the report; do not rerun it or create evidence files.
+   - The check disables only Chromium's nested sandbox because AWF's chroot and `no-new-privileges` prevent it from working. This smoke-only exception does not change AWF defaults or grant the browser access to the Codex job's workspace or credentials.
 4. **File Writing Testing**: Create a test file `/tmp/gh-aw/agent/smoke-test-codex-${{ github.run_id }}.txt` with content "Smoke test passed for Codex at $(date)" (create the directory if it doesn't exist)
 5. **Bash Tool Testing**: Execute bash commands to verify file creation was successful (use `cat` to read the file back)
 6. **Discussion Interaction Testing**: 
@@ -151,3 +212,5 @@ If all tests pass on a pull request trigger:
 - Use the `add_labels` safe-output tool to add the label `smoke-codex` to the pull request
 
 **If triggered by workflow_dispatch or schedule** (no PR context), call `noop` with a concise PASS/FAIL summary instead. Do NOT attempt to add pull request comments or labels when there is no pull request.
+
+If any required check fails, report overall FAIL and call `report_incomplete`; never label the run as passing or treat a failed browser check as an optional skip.
