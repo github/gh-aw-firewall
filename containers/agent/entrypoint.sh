@@ -1189,6 +1189,9 @@ copy_system_ca_bundle() {
   done
   if [ -n "${AWF_CA_CHROOT:-}" ]; then
     inputs+=("/host${AWF_CA_CHROOT}")
+  elif [ "${AWF_SSL_BUMP_ENABLED:-}" = "true" ]; then
+    echo "[entrypoint][ERROR] AWF CA certificate was not staged in the agent chroot; refusing to start ssl-bump without AWF trust" >&2
+    exit 1
   elif [ -n "${NODE_EXTRA_CA_CERTS:-}" ]; then
     if [ -f "/host${NODE_EXTRA_CA_CERTS}" ]; then
       inputs+=("/host${NODE_EXTRA_CA_CERTS}")

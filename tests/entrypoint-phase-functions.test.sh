@@ -270,7 +270,7 @@ for vendors in java adoptium "java adoptium"; do
 done
 
 run_extra_ca_fixture() {
-  local mode="$1" tmp_dir result=0 status=0 extra awf_ca=""
+  local mode="$1" tmp_dir result=0 status=0 extra awf_ca="" ssl_bump="false"
   tmp_dir="$(mktemp -d)"
   local host_root="${tmp_dir}/host-root"
   local trust_policy
@@ -286,15 +286,20 @@ run_extra_ca_fixture() {
       extra="/extra.pem"
       openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=extra-fixture \
         -keyout "${tmp_dir}/extra.key" -out "${host_root}${extra}" >/dev/null 2>&1
-      [ "${mode}" != awf-visible ] || awf_ca="${extra}"
+      if [ "${mode}" = awf-visible ]; then
+        awf_ca="${extra}"
+        ssl_bump="true"
+      fi
       ;;
     awf-missing) awf_ca="/missing-awf-ca.pem" ;;
+    awf-unstaged) ssl_bump="true" ;;
     no-store) rm -rf "${host_root}/etc/ssl/certs" ;;
   esac
   write_entrypoint_fixture "${tmp_dir}/entrypoint.sh"
   # A fresh shell preserves the production fail-fast behavior even inside an if.
   AWF_TEST_HOST_ROOT="${host_root}" AWF_TEST_TRUST_POLICY="${trust_policy}" \
     NODE_EXTRA_CA_CERTS="${extra}" SSL_CERT_FILE="${extra}" AWF_CA_CHROOT="${awf_ca}" \
+    AWF_SSL_BUMP_ENABLED="${ssl_bump}" \
     bash -ec '
       . "$1"
       mount() { :; }
@@ -305,6 +310,8 @@ run_extra_ca_fixture() {
   case "${mode}" in
     awf-missing)
       [ "${status}" -eq 1 ] && grep -Fq "missing CA input: ${host_root}${awf_ca}" "${tmp_dir}/stderr" || result=1 ;;
+    awf-unstaged)
+      [ "${status}" -eq 1 ] && grep -Fq 'refusing to start ssl-bump without AWF trust' "${tmp_dir}/stderr" || result=1 ;;
     no-store)
       [ "${status}" -eq 1 ] && grep -Fq 'No CA store available' "${tmp_dir}/stderr" || result=1 ;;
     *)
@@ -326,7 +333,7 @@ run_extra_ca_fixture() {
   return "${result}"
 }
 
-for mode in missing raw-only visible awf-visible awf-missing no-store; do
+for mode in missing raw-only visible awf-visible awf-missing awf-unstaged no-store; do
   if run_extra_ca_fixture "${mode}"; then
     pass "copy_system_ca_bundle() resolves optional and mandatory extra CA inputs (${mode})"
   else
