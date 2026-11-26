@@ -1,3 +1,4 @@
+import { TextDecoder } from 'util';
 import { CLOUD_HYPERVISOR_RELEASE_VERSION } from '../types/runtime-options';
 import {
   CLOUD_HYPERVISOR_ARTIFACT_REPOSITORY,
@@ -8,6 +9,9 @@ import {
 } from './artifact-manifest';
 import { requireObject } from '../json-validation';
 import { CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS, CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
+import type { CloudHypervisorEnclaveArtifactPreflightOptions } from './enclave-executor-types';
+import { enclaveArtifactPath } from './enclave-artifact-trust-checks';
+import { markHostPreflightError } from './host-preflight-progress';
 
 export type CloudHypervisorEnclaveRole = 'script' | 'agent';
 export const CLOUD_HYPERVISOR_ENCLAVE_KERNEL_VERSION = '6.1.141';
@@ -391,4 +395,62 @@ export function enclaveRootfsArtifactForRole(
   role: CloudHypervisorEnclaveRole,
 ): CloudHypervisorEnclaveRootfsArtifact {
   return manifest.rootfs[role];
+}
+
+export function parseEnclaveArtifactManifestBytes(
+  manifestBytes: Buffer,
+  releaseTag: string,
+): CloudHypervisorEnclaveArtifactManifest {
+  try {
+    return parseCloudHypervisorEnclaveArtifactManifest(
+      new TextDecoder('utf-8', { fatal: true }).decode(manifestBytes),
+      releaseTag,
+    );
+  } catch (error) {
+    if (error instanceof SyntaxError || error instanceof TypeError) {
+      throw markHostPreflightError(error, 'malformed-json');
+    }
+    throw error;
+  }
+}
+
+export function enclaveArtifactRootfsPaths(
+  manifestDir: string,
+  manifest: CloudHypervisorEnclaveArtifactManifest,
+): Record<CloudHypervisorEnclaveRole, string> {
+  return {
+    script: enclaveArtifactPath(manifestDir, manifest.rootfs.script.file),
+    agent: enclaveArtifactPath(manifestDir, manifest.rootfs.agent.file),
+  };
+}
+
+export function assertEnclaveRootfsConfiguration(
+  options: CloudHypervisorEnclaveArtifactPreflightOptions,
+  manifest: CloudHypervisorEnclaveArtifactManifest,
+  rootfsPaths: Record<CloudHypervisorEnclaveRole, string>,
+): void {
+  const sharedRootfs = manifest.rootfs.script.file === manifest.rootfs.agent.file;
+  if (manifest.schemaVersion === 2 && !options.rootfsPath) {
+    throw markHostPreflightError(new Error('Canonical enclave rootfs path is required for schema version 2'),
+      'requirement-not-met');
+  }
+  if (sharedRootfs) {
+    if (
+      (options.rootfsPath ?? options.scriptRootfsPath) !== rootfsPaths.script
+      || (options.scriptRootfsPath && options.scriptRootfsPath !== rootfsPaths.script)
+      || (options.agentRootfsPath && options.agentRootfsPath !== rootfsPaths.agent)
+    ) {
+      throw markHostPreflightError(
+        new Error('Configured enclave rootfs does not match the trusted manifest path (shared)'),
+        'requirement-not-met');
+    }
+  } else if (
+    options.rootfsPath
+    || options.scriptRootfsPath !== rootfsPaths.script
+    || options.agentRootfsPath !== rootfsPaths.agent
+  ) {
+    throw markHostPreflightError(
+      new Error('Configured enclave rootfs does not match the trusted manifest path (split)'),
+      'requirement-not-met');
+  }
 }
