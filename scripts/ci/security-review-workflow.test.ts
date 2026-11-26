@@ -7,7 +7,10 @@ import * as yaml from 'js-yaml';
 const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const source = fs.readFileSync(path.join(workflowsDir, 'security-review.md'), 'utf8');
 type Step = { name?: string; run?: string; env?: Record<string, string> };
-const frontmatter = yaml.load(source.split('---')[1]) as { steps: Step[] };
+const frontmatter = yaml.load(source.split('---')[1]) as {
+  engine: { args?: string[] };
+  steps: Step[];
+};
 const lock = yaml.load(fs.readFileSync(
   path.join(workflowsDir, 'security-review.lock.yml'), 'utf8',
 )) as { jobs: { agent: { steps: Step[] } } };
@@ -22,6 +25,25 @@ describe('daily security review workflow', () => {
     expect(source).toContain('not the built-in changes-only `security-review` agent');
     expect(source).toContain('continue the analysis yourself rather than reporting its scope mismatch as incomplete');
     expect(source).toContain('You remain responsible for completing the analysis and creating the discussion');
+  });
+
+  it('disables delegation in the source and compiled invocation while preserving review tools', () => {
+    expect(frontmatter.engine.args).toEqual(['--excluded-tools=task']);
+    const invocation = lock.jobs.agent.steps.find(step => step.run?.includes('copilot_harness'))!.run!;
+    expect(invocation).toContain('--excluded-tools=task');
+    expect(invocation).toContain('--allow-tool shell');
+    expect(invocation).toContain('--allow-tool github');
+    expect(invocation).toContain('--allow-tool safeoutputs');
+    expect(invocation).toContain('--deny-tool workflow');
+    expect(source).toContain('Sub-agent delegation is disabled for this workflow');
+    expect(source).toContain('do not request a reviewer or treat its absence as a missing tool');
+    expect(source).not.toContain('If delegating bounded research');
+  });
+
+  it('continues local review when optional code-scanning evidence is filtered', () => {
+    expect(source).toContain('Access-filtered code-scanning alerts are also an optional-evidence limitation');
+    expect(source).toContain('do not retry filtered reads, bypass the policy');
+    expect(source).toContain('or use them alone to justify `report_incomplete`; continue the local source review');
   });
 
   it('treats escape-test context as optional without concealing genuine blockers', () => {

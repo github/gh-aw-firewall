@@ -114,6 +114,19 @@ export function validateRecord(
   recordPath: string,
   registryRoot: string,
 ): void {
+  validateRecordIdentity(record, recordPath, registryRoot);
+  validateInvocationStorage(record);
+  validateRecordPaths(record);
+  validateProcessRecords(record);
+  validateVmmIdentityRecord(record);
+  validateMountRecords(record);
+}
+
+function validateRecordIdentity(
+  record: CleanupRecord,
+  recordPath: string,
+  registryRoot: string,
+): void {
   if (
     record?.version !== CLEANUP_RECORD_VERSION ||
     !record.runId ||
@@ -121,6 +134,9 @@ export function validateRecord(
     path.join(registryRoot, `${record.runId}.json`) !== recordPath
   ) throw new Error('invalid cleanup record identity');
   if (record.workload !== undefined) validateWorkloadIdentity(record.workload);
+}
+
+function validateInvocationStorage(record: CleanupRecord): void {
   if (record.invocationStorage) {
     const root = `/run/awf-cloud-hypervisor/enclave-storage/${record.runId}`;
     if (!/^[0-9a-f]{32}$/.test(record.runId) ||
@@ -145,6 +161,9 @@ export function validateRecord(
   } else if (record.paths?.runDirectory.startsWith('/run/awf-cloud-hypervisor/enclave-storage/')) {
     throw new Error('Invocation storage identity is missing');
   }
+}
+
+function validateRecordPaths(record: CleanupRecord): void {
   if (
     (!record.paths?.runDirectory.endsWith(`/${record.runId}`) && !record.invocationStorage) ||
     !record.paths?.cgroupPath.endsWith(`/${record.runId}`) ||
@@ -165,6 +184,9 @@ export function validateRecord(
       ))
     ))
   ) throw new Error('cleanup record paths are not run-scoped');
+}
+
+function validateProcessRecords(record: CleanupRecord): void {
   validateProcessIdentity(record.owner, 'cleanup record owner');
   if (
     typeof record.processes !== 'object' ||
@@ -183,7 +205,9 @@ export function validateRecord(
     ) throw new Error(`cleanup process record is malformed: ${key}`);
     if (processRecord.identity) validateProcessIdentity(processRecord.identity, `process "${key}"`);
   }
+}
 
+function validateVmmIdentityRecord(record: CleanupRecord): void {
   if (record.vmmIdentity) {
     const identity = record.vmmIdentity;
     if (
@@ -282,6 +306,9 @@ export function validateRecord(
       })())
     ) throw new Error('cleanup VMM identity is malformed');
   }
+}
+
+function validateMountRecords(record: CleanupRecord): void {
   for (const mount of record.mounts) {
     if (
       !Number.isSafeInteger(mount.mountId) ||

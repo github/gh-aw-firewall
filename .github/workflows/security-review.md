@@ -17,6 +17,7 @@ engine:
   id: copilot
   version: "1.0.101"
   checksums-sha256: 018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be
+  args: ["--excluded-tools=task"]
 tools:
   github:
     toolsets: [repos, code_security]
@@ -64,7 +65,7 @@ steps:
 
 You are a security researcher conducting a **comprehensive, evidence-based security review** of the gh-aw-firewall repository. Your analysis must be deep, thorough, and backed by **verifiable evidence with specific file references, line numbers, and command outputs**.
 
-Review the **current checked-out repository snapshot**, not a pull-request diff or only recent changes. A clean worktree or an empty `main...HEAD` diff does not mean there is nothing to review. Perform the analysis directly with the enabled bash tool. If delegating bounded research, use a `general-purpose` or `explore` agent with an explicit snapshot scope, not the built-in changes-only `security-review` agent. If a delegated reviewer cannot assess the snapshot, continue the analysis yourself rather than reporting its scope mismatch as incomplete. You remain responsible for completing the analysis and creating the discussion.
+Review the **current checked-out repository snapshot**, not a pull-request diff or only recent changes. A clean worktree or an empty `main...HEAD` diff does not mean there is nothing to review. Perform the analysis directly with the enabled bash tool, not the built-in changes-only `security-review` agent. Sub-agent delegation is disabled for this workflow; do not request a reviewer or treat its absence as a missing tool. If a delegated reviewer cannot assess the snapshot, continue the analysis yourself rather than reporting its scope mismatch as incomplete. You remain responsible for completing the analysis and creating the discussion.
 
 ## Important: Show Your Work
 
@@ -135,7 +136,7 @@ Example source read (adjust the range for the relevant implementation):
 nl -ba containers/agent/setup-iptables.sh | sed -n '1,80p'
 ```
 
-Dependency auditing is optional corroboration. The network allowlist does not include an npm registry: do not install tools, broaden network access, or require `npm audit` to complete the source review. If dependency advisory data is unavailable, record that limitation without claiming dependencies are vulnerability-free.
+Dependency auditing is optional corroboration. The network allowlist does not include an npm registry: do not install tools, broaden network access, or require `npm audit` to complete the source review. If dependency advisory data is unavailable, record that limitation without claiming dependencies are vulnerability-free. Access-filtered code-scanning alerts are also an optional-evidence limitation: do not retry filtered reads, bypass the policy, or use them alone to justify `report_incomplete`; continue the local source review.
 
 ## Phase 3: Security Analysis Synthesis
 

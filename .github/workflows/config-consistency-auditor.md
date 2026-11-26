@@ -15,7 +15,7 @@ permissions:
 engine: copilot
 strict: true
 model: router
-timeout-minutes: 20
+timeout-minutes: 30
 if: needs.fetch_prs.outputs.pr_count != '0'
 jobs:
   fetch_prs:

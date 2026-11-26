@@ -5,15 +5,26 @@ import {
   assertStableProcessStartTime,
   verifyStableThreadSet,
 } from '../confinement-thread-verification';
+import {
+  assertBoundedString,
+  assertIdentityField,
+  assertNamespaceLink,
+  cgroupMembership,
+  parseNumericFields,
+  parseNumericLines,
+  parseProcessStartTime,
+  parseSingleNumericStatus,
+  parseStatus,
+  parseTaskIds,
+  parseUnifiedCgroup,
+  requiredStatus,
+} from './confinement-proc-parsers';
 import type {
   CloudHypervisorCgroupLimits,
   CloudHypervisorLaunchConfinementPolicy,
 } from './launcher';
 
-const CGROUP_ROOT = '/sys/fs/cgroup';
 const NETWORK_NAMESPACE_ROOT = '/run/netns';
-const MAX_VERIFIED_THREADS = 256;
-const MAX_EVIDENCE_STRING_LENGTH = 4096;
 const SECCOMP_RELEVANT_THREAD_NAMES = ['http-server', 'vmm'] as const;
 
 export interface CloudHypervisorConfinementEvidence {
@@ -86,15 +97,66 @@ export async function verifyCloudHypervisorConfinement(
 
   const initialStat = await dependencies.readFile(path.join(procDirectory, 'stat'), 'utf8');
   const initialStartTime = parseProcessStartTime(initialStat);
+  const executable = await verifyExecutableIdentity(procDirectory, expectedExecutable, dependencies);
+  const threadSet = await verifyThreadSet(procDirectory, options, dependencies);
+  const cgroup = await verifyCgroupConfinement(procDirectory, options, dependencies);
+  const networkNamespace = await verifyNamespaceConfinement(procDirectory, options, dependencies);
+  const verifiedThreadCount = await threadSet.verifyStableSet();
+  await verifyStableProcessIdentity(procDirectory, options.pid, initialStartTime, executable, dependencies);
+
+  return {
+    schemaVersion: 1,
+    verifiedAt: new Date().toISOString(),
+    process: {
+      pid: options.pid,
+      startTimeTicks: initialStartTime,
+      executable,
+    },
+    identity: {
+      uid: options.identity.uid,
+      gid: options.identity.gid,
+      supplementaryGroups: [...options.launchPolicy.supplementaryGroups],
+    },
+    capabilities: { ...options.launchPolicy.capabilities },
+    noNewPrivs: 1,
+    seccomp: {
+      mode: 2,
+      relevantThreadIds: threadSet.relevantThreadIds,
+      observedThreadCount: verifiedThreadCount,
+    },
+    networkNamespace,
+    cgroup,
+  };
+}
+
+async function verifyExecutableIdentity(
+  procDirectory: string,
+  expectedExecutable: string,
+  dependencies: CloudHypervisorConfinementVerifierDependencies,
+  phase: 'initial' | 'final' = 'initial',
+): Promise<string> {
   const executable = await dependencies.readlink(path.join(procDirectory, 'exe'));
-  assertBoundedString(executable, 'process executable');
+  if (phase === 'initial') assertBoundedString(executable, 'process executable');
   if (executable !== expectedExecutable) {
+    if (phase === 'final') {
+      throw new Error(
+        `Cloud Hypervisor confinement verification detected a process identity race: executable ` +
+        `changed from ${JSON.stringify(expectedExecutable)} to ${JSON.stringify(executable)}`,
+      );
+    }
     throw new Error(
       `Cloud Hypervisor confinement verification found executable ${JSON.stringify(executable)}, ` +
       `expected ${JSON.stringify(expectedExecutable)}`,
     );
   }
+  return executable;
+}
 
+async function verifyThreadSet(
+  procDirectory: string,
+  options: CloudHypervisorConfinementVerificationOptions,
+  dependencies: CloudHypervisorConfinementVerifierDependencies,
+): Promise<{ relevantThreadIds: number[]; verifyStableSet(): Promise<number> }> {
   const taskDirectory = path.join(procDirectory, 'task');
   const relevantThreadIds: number[] = [];
   const relevantThreadNames = new Set<string>();
@@ -144,6 +206,33 @@ export async function verifyCloudHypervisorConfinement(
     );
   }
 
+  return {
+    relevantThreadIds,
+    verifyStableSet: async () => {
+      // Cloud Hypervisor legitimately creates and retires worker threads while it runs.
+      // /proc/<pid>/task only lists members of this thread group, so exited threads are
+      // dropped and new or recycled TIDs are verified before being accepted.
+      const finalTaskIds = parseTaskIds(await dependencies.readdir(taskDirectory));
+      if (!finalTaskIds.includes(options.pid)) {
+        throw new Error(
+          `Cloud Hypervisor confinement verification final task set is missing main thread ${options.pid}`,
+        );
+      }
+      return verifyStableThreadSet({
+        finalTaskIds,
+        taskStartTimes,
+        readTaskStartTime,
+        verifyTask,
+      });
+    },
+  };
+}
+
+async function verifyCgroupConfinement(
+  procDirectory: string,
+  options: CloudHypervisorConfinementVerificationOptions,
+  dependencies: CloudHypervisorConfinementVerifierDependencies,
+): Promise<CloudHypervisorConfinementEvidence['cgroup']> {
   const processCgroup = parseUnifiedCgroup(
     await dependencies.readFile(path.join(procDirectory, 'cgroup'), 'utf8'),
   );
@@ -177,7 +266,18 @@ export async function verifyCloudHypervisorConfinement(
       );
     }
   }
+  return {
+    path: options.cgroupPath,
+    membership: processCgroup,
+    limits: observedLimits,
+  };
+}
 
+async function verifyNamespaceConfinement(
+  procDirectory: string,
+  options: CloudHypervisorConfinementVerificationOptions,
+  dependencies: CloudHypervisorConfinementVerifierDependencies,
+): Promise<CloudHypervisorConfinementEvidence['networkNamespace']> {
   if (!/^[A-Za-z0-9_.-]+$/.test(options.networkNamespace)) {
     throw new Error(`Unsafe Cloud Hypervisor network namespace name: ${options.networkNamespace}`);
   }
@@ -193,67 +293,27 @@ export async function verifyCloudHypervisorConfinement(
       `expected net:[${expectedNamespaceInode}] (${options.networkNamespace})`,
     );
   }
+  return {
+    name: options.networkNamespace,
+    inode: processNamespace,
+  };
+}
 
-  // Cloud Hypervisor legitimately creates and retires worker threads while it runs.
-  // /proc/<pid>/task only lists members of this thread group, so exited threads are
-  // dropped and new or recycled TIDs are verified before being accepted.
-  const finalTaskIds = parseTaskIds(await dependencies.readdir(taskDirectory));
-  if (!finalTaskIds.includes(options.pid)) {
-    throw new Error(
-      `Cloud Hypervisor confinement verification final task set is missing main thread ${options.pid}`,
-    );
-  }
-  const verifiedThreadCount = await verifyStableThreadSet({
-    finalTaskIds,
-    taskStartTimes,
-    readTaskStartTime,
-    verifyTask,
-  });
+async function verifyStableProcessIdentity(
+  procDirectory: string,
+  pid: number,
+  initialStartTime: string,
+  executable: string,
+  dependencies: CloudHypervisorConfinementVerifierDependencies,
+): Promise<void> {
   const finalStartTime = parseProcessStartTime(
     await dependencies.readFile(path.join(procDirectory, 'stat'), 'utf8'),
   );
   assertStableProcessStartTime(initialStartTime, finalStartTime, (raced) => new Error(
     `Cloud Hypervisor confinement verification detected a process identity race: PID ` +
-    `${options.pid} start time changed from ${initialStartTime} to ${raced}`,
+    `${pid} start time changed from ${initialStartTime} to ${raced}`,
   ));
-  const finalExecutable = await dependencies.readlink(path.join(procDirectory, 'exe'));
-  if (finalExecutable !== executable) {
-    throw new Error(
-      `Cloud Hypervisor confinement verification detected a process identity race: executable ` +
-      `changed from ${JSON.stringify(executable)} to ${JSON.stringify(finalExecutable)}`,
-    );
-  }
-
-  return {
-    schemaVersion: 1,
-    verifiedAt: new Date().toISOString(),
-    process: {
-      pid: options.pid,
-      startTimeTicks: initialStartTime,
-      executable,
-    },
-    identity: {
-      uid: options.identity.uid,
-      gid: options.identity.gid,
-      supplementaryGroups: [...options.launchPolicy.supplementaryGroups],
-    },
-    capabilities: { ...options.launchPolicy.capabilities },
-    noNewPrivs: 1,
-    seccomp: {
-      mode: 2,
-      relevantThreadIds,
-      observedThreadCount: verifiedThreadCount,
-    },
-    networkNamespace: {
-      name: options.networkNamespace,
-      inode: processNamespace,
-    },
-    cgroup: {
-      path: options.cgroupPath,
-      membership: processCgroup,
-      limits: observedLimits,
-    },
-  };
+  await verifyExecutableIdentity(procDirectory, executable, dependencies, 'final');
 }
 
 function verifyThreadStatus(
@@ -283,17 +343,6 @@ function verifyThreadStatus(
     );
   }
 
-  function parseSingleNumericStatus(
-    status: Readonly<Record<string, string>>,
-    field: string,
-    taskId: number,
-  ): number {
-    const values = parseNumericFields(requiredStatus(status, field, taskId), field);
-    if (values.length !== 1) {
-      throw new Error(`Cloud Hypervisor thread ${taskId} has malformed ${field}`);
-    }
-    return values[0];
-  }
   const capabilityFields = {
     CapInh: 'inheritable',
     CapPrm: 'permitted',
@@ -324,110 +373,4 @@ function verifyThreadStatus(
     return name;
   }
   return undefined;
-}
-
-function parseStatus(contents: string): Readonly<Record<string, string>> {
-  const result: Record<string, string> = {};
-  for (const line of contents.split('\n')) {
-    if (!line) continue;
-    const separator = line.indexOf(':');
-    if (separator <= 0) throw new Error(`Malformed Cloud Hypervisor /proc status line: ${line}`);
-    const key = line.slice(0, separator);
-    if (result[key] !== undefined) throw new Error(`Duplicate Cloud Hypervisor /proc status field: ${key}`);
-    result[key] = line.slice(separator + 1).trim();
-  }
-  return result;
-}
-
-function requiredStatus(
-  status: Readonly<Record<string, string>>,
-  field: string,
-  taskId: number,
-): string {
-  const value = status[field];
-  if (value === undefined || value === '') {
-    throw new Error(`Cloud Hypervisor thread ${taskId} is missing /proc status field ${field}`);
-  }
-  return value;
-}
-
-function assertIdentityField(value: string | undefined, expected: number, label: string, taskId: number): void {
-  const observed = parseNumericFields(
-    value ?? '',
-    `${label} for thread ${taskId}`,
-  );
-  if (observed.length !== 4 || observed.some((entry) => entry !== expected)) {
-    throw new Error(
-      `Cloud Hypervisor thread ${taskId} has ${label} values ${observed.join(',') || 'none'}, ` +
-      `expected four instances of ${expected}`,
-    );
-  }
-}
-
-function parseNumericFields(value: string, label: string): number[] {
-  const fields = value.trim().split(/\s+/).filter(Boolean);
-  if (fields.some((field) => !/^\d+$/.test(field))) {
-    throw new Error(`Cloud Hypervisor confinement verification found malformed ${label}: ${value}`);
-  }
-  return fields.map(Number);
-}
-
-function parseNumericLines(value: string, label: string): number[] {
-  return parseNumericFields(value.replace(/\n/g, ' '), label);
-}
-
-function parseTaskIds(entries: readonly string[]): number[] {
-  const taskIds = entries
-    .filter((entry) => /^\d+$/.test(entry))
-    .map(Number)
-    .sort((left, right) => left - right);
-  if (taskIds.length === 0) {
-    throw new Error('Cloud Hypervisor confinement verification found no process threads');
-  }
-  if (taskIds.length > MAX_VERIFIED_THREADS) {
-    throw new Error(
-      `Cloud Hypervisor confinement verification found ${taskIds.length} threads, ` +
-      `exceeding the ${MAX_VERIFIED_THREADS} thread evidence bound`,
-    );
-  }
-  return taskIds;
-}
-
-function parseProcessStartTime(stat: string): string {
-  const commandEnd = stat.lastIndexOf(')');
-  if (commandEnd < 2) throw new Error('Malformed Cloud Hypervisor /proc stat contents');
-  const fieldsAfterCommand = stat.slice(commandEnd + 2).trim().split(/\s+/);
-  const startTime = fieldsAfterCommand[19];
-  if (!startTime || !/^\d+$/.test(startTime) || startTime.length > 32) {
-    throw new Error('Malformed Cloud Hypervisor process start time');
-  }
-  return startTime;
-}
-
-function parseUnifiedCgroup(contents: string): string {
-  const lines = contents.trim().split('\n');
-  if (lines.length !== 1 || !lines[0].startsWith('0::/')) {
-    throw new Error(`Cloud Hypervisor process is not exclusively in a unified cgroup: ${contents.trim()}`);
-  }
-  return lines[0].slice(3);
-}
-
-function cgroupMembership(cgroupPath: string): string {
-  const relative = path.relative(CGROUP_ROOT, cgroupPath);
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new Error(`Unsafe Cloud Hypervisor cgroup path: ${cgroupPath}`);
-  }
-  return `/${relative}`;
-}
-
-function assertNamespaceLink(value: string, label: string): void {
-  if (!/^net:\[\d+\]$/.test(value)) {
-    throw new Error(`Malformed ${label}: ${JSON.stringify(value)}`);
-  }
-}
-
-function assertBoundedString(value: string, label: string): void {
-  if (Buffer.byteLength(value) > MAX_EVIDENCE_STRING_LENGTH) {
-    throw new Error(`Cloud Hypervisor ${label} exceeds the structured evidence bound`);
-  }
 }
