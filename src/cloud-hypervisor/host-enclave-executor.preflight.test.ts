@@ -114,11 +114,11 @@ describe('Cloud Hypervisor host enclave artifact preflight', () => {
     const wrapper = { enclaves: normalizeEnclavesConfig([{ script: {}, repos: [] }]) } as WrapperConfig;
     const publish = (hostPreflight: HostPreflightProgress) =>
       updateEnclaveStartupProgress(wrapper, { hostPreflight });
-    const admission = new HostPreflightReporter('bounded-artifacts', publish, undefined,
-      { phase: 'preflight', profile: 'common' });
     const roleProgress: HostPreflightProgress[] = [];
-    const roleReport = new HostPreflightReporter('bounded-artifacts', value => roleProgress.push(value),
-      undefined, { phase: 'preflight', profile: 'common' });
+    const admission = new HostPreflightReporter('bounded-artifacts', value => {
+      roleProgress.push(value);
+      publish(value);
+    }, undefined, { phase: 'preflight', profile: 'common' });
     for (const id of Object.keys(preflightSchema.scopes['bounded-artifacts']) as HostPreflightCheck[]) {
       // Storage admission is a fixture here; artifact verification below uses real files.
       if (!artifactChecks.includes(id)) await admission.check(id, () => undefined);
@@ -148,7 +148,7 @@ describe('Cloud Hypervisor host enclave artifact preflight', () => {
           scriptRootfsPath,
           agentRootfsPath,
           attestationToolPath,
-        }, undefined, undefined, roleReport));
+        }, undefined, undefined, admission));
         expect(verified).toMatchObject({
           rootfs: {
             script: { path: scriptRootfsPath, artifact: scriptArtifact },
@@ -448,9 +448,7 @@ describe('Cloud Hypervisor host enclave artifact preflight', () => {
       await fs.chmod(agentSbomPath, 0o600);
       await fs.writeFile(agentSbomPath, 'tampered-sbom');
       await fs.chmod(agentSbomPath, 0o400);
-      const agentFailureProgress: HostPreflightProgress[] = [];
-      const agentFailureReport = new HostPreflightReporter('bounded-artifacts',
-        value => agentFailureProgress.push(value), undefined, { phase: 'preflight', profile: 'common' });
+      const agentFailureStart = roleProgress.length;
       await expect(admission.check('enclave-artifacts', () => preflightCloudHypervisorEnclaveArtifacts({
         releaseTag,
         manifestPath,
@@ -458,8 +456,8 @@ describe('Cloud Hypervisor host enclave artifact preflight', () => {
         scriptRootfsPath,
         agentRootfsPath,
         attestationToolPath,
-      }, undefined, undefined, agentFailureReport))).rejects.toThrow('SBOM does not match its trusted manifest digest');
-      expect(agentFailureProgress.some(progress => progress.profile === 'agent'
+      }, undefined, undefined, admission))).rejects.toThrow('SBOM does not match its trusted manifest digest');
+      expect(roleProgress.slice(agentFailureStart).some(progress => progress.profile === 'agent'
         && progress.checks.some(check => check.id === 'sbom-digest' && check.result === 'failed'))).toBe(true);
       expect(getEnclaveStartupProgress(wrapper)!.startupChecks).toMatchObject({
         ready: false,
