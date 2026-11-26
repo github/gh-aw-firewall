@@ -73,6 +73,26 @@ describe('generateSquidConfig', () => {
       expect(wildcardDenyIndex).toBeLessThan(httpsAllowIndex);
     });
 
+    it.each([
+      { allowed: 'https://example.com', protocolAllow: 'http_access allow CONNECT allowed_https_only' },
+      { allowed: 'http://example.com', protocolAllow: 'http_access allow !CONNECT allowed_http_only' },
+    ])('should place plain blocked deny before protocol-specific allow for $allowed', ({ allowed, protocolAllow }) => {
+      // Plain blocklist entries under a protocol-restricted allowed parent must be
+      // denied before the protocol allow rule, or the blocked subdomain is reachable.
+      const config: SquidConfig = {
+        domains: [allowed],
+        blockedDomains: ['internal.example.com'],
+        port: defaultPort,
+      };
+      const lines = generateSquidConfig(config).split('\n');
+
+      const plainDenyIndex = lines.indexOf('http_access deny blocked_domains');
+      const protocolAllowIndex = lines.indexOf(protocolAllow);
+      expect(plainDenyIndex).toBeGreaterThan(-1);
+      expect(protocolAllowIndex).toBeGreaterThan(-1);
+      expect(plainDenyIndex).toBeLessThan(protocolAllowIndex);
+    });
+
     it('should include blocklist comment section', () => {
       const config: SquidConfig = {
         domains: ['github.com'],
