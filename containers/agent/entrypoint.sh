@@ -1193,7 +1193,7 @@ copy_system_ca_bundle() {
     if [ -f "/host${NODE_EXTRA_CA_CERTS}" ]; then
       inputs+=("/host${NODE_EXTRA_CA_CERTS}")
     else
-      inputs+=("${NODE_EXTRA_CA_CERTS}")
+      echo "[entrypoint][WARN] NODE_EXTRA_CA_CERTS=${NODE_EXTRA_CA_CERTS} is not visible in the agent chroot; skipping extra CA input. Stage and mount the bundle if private CA trust is required." >&2
     fi
   fi
   if [ "${#inputs[@]}" -eq 0 ]; then

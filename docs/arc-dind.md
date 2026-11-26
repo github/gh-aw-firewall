@@ -142,6 +142,25 @@ Language SDKs (Go, Node, Java, .NET) are NOT baked into the sysroot image. They 
 - run: echo "RUNNER_TOOL_CACHE=/tmp/gh-aw/tool-cache" >> "$GITHUB_ENV"
 ```
 
+## Runner-provided extra CA certificates
+
+An inherited `NODE_EXTRA_CA_CERTS` path is resolved under `/host` before the
+agent chroots. A bundle present only in the runner container (for example,
+`/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem`) may be invisible there.
+AWF warns and skips an unresolved optional extra CA rather than aborting
+startup; it never falls back to the raw container path. The agent's TLS
+environment variables, including `NODE_EXTRA_CA_CERTS` and `SSL_CERT_FILE`,
+then point to the filtered private store. A missing mandatory AWF CA or an
+unusable remaining CA store still aborts startup.
+
+If corporate endpoints require that CA, copy the bundle into a daemon-visible
+shared directory, such as `${RUNNER_TEMP}/gh-aw/ca/extra-ca-certs.pem`, and set
+`NODE_EXTRA_CA_CERTS` to that staged path before invoking AWF. Ensure the
+directory is mounted read-only into the agent chroot (for example, an explicit
+`--mount` of `${RUNNER_TEMP}/gh-aw`); staging alone does not expose the file.
+Apply this setup to both the agent and threat-detection jobs when applicable.
+Visible extra CAs still pass through AWF's trust filter.
+
 ## Staging additional CLI tools (not just the invoking engine binary)
 
 AWF never discovers or stages arbitrary tools that a sandboxed command invokes

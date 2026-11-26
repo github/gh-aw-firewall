@@ -269,6 +269,71 @@ for vendors in java adoptium "java adoptium"; do
   fi
 done
 
+run_extra_ca_fixture() {
+  local mode="$1" tmp_dir result=0 status=0 extra awf_ca=""
+  tmp_dir="$(mktemp -d)"
+  local host_root="${tmp_dir}/host-root"
+  local trust_policy
+  trust_policy="$(cd "$(dirname "${ENTRYPOINT}")/../trust" && pwd)"
+  mkdir -p "${host_root}/etc/ssl/certs"
+  openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=system-fixture \
+    -keyout "${tmp_dir}/system.key" -out "${tmp_dir}/system.pem" >/dev/null 2>&1
+  cp "${tmp_dir}/system.pem" "${host_root}/etc/ssl/certs/ca-certificates.crt"
+  extra="${tmp_dir}/runner-only.pem"
+  case "${mode}" in
+    raw-only) printf '%s\n' '-----BEGIN CERTIFICATE-----' > "${extra}" ;;
+    visible|awf-visible)
+      extra="/extra.pem"
+      openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=extra-fixture \
+        -keyout "${tmp_dir}/extra.key" -out "${host_root}${extra}" >/dev/null 2>&1
+      [ "${mode}" != awf-visible ] || awf_ca="${extra}"
+      ;;
+    awf-missing) awf_ca="/missing-awf-ca.pem" ;;
+    no-store) rm -rf "${host_root}/etc/ssl/certs" ;;
+  esac
+  write_entrypoint_fixture "${tmp_dir}/entrypoint.sh"
+  # A fresh shell preserves the production fail-fast behavior even inside an if.
+  AWF_TEST_HOST_ROOT="${host_root}" AWF_TEST_TRUST_POLICY="${trust_policy}" \
+    NODE_EXTRA_CA_CERTS="${extra}" SSL_CERT_FILE="${extra}" AWF_CA_CHROOT="${awf_ca}" \
+    bash -ec '
+      . "$1"
+      mount() { :; }
+      copy_system_ca_bundle
+      [ "$NODE_EXTRA_CA_CERTS" = "/run/awf-lib/trust/ca-certificates.crt" ]
+      [ "$SSL_CERT_FILE" = "$NODE_EXTRA_CA_CERTS" ]
+    ' sh "${tmp_dir}/entrypoint.sh" > "${tmp_dir}/stdout" 2> "${tmp_dir}/stderr" || status=$?
+  case "${mode}" in
+    awf-missing)
+      [ "${status}" -eq 1 ] && grep -Fq "missing CA input: ${host_root}${awf_ca}" "${tmp_dir}/stderr" || result=1 ;;
+    no-store)
+      [ "${status}" -eq 1 ] && grep -Fq 'No CA store available' "${tmp_dir}/stderr" || result=1 ;;
+    *)
+      [ "${status}" -eq 0 ] || result=1
+      openssl verify -CAfile "${host_root}/run/awf-lib/trust/ca-certificates.crt" \
+        "${tmp_dir}/system.pem" >/dev/null 2>&1 || result=1
+      if [ "${mode}" = visible ] || [ "${mode}" = awf-visible ]; then
+        openssl verify -CAfile "${host_root}/run/awf-lib/trust/ca-certificates.crt" \
+          "${host_root}${extra}" >/dev/null 2>&1 || result=1
+        ! grep -Fq '[entrypoint][WARN]' "${tmp_dir}/stderr" || result=1
+      else
+        grep -Fq "[entrypoint][WARN] NODE_EXTRA_CA_CERTS=${extra}" "${tmp_dir}/stderr" || result=1
+      fi
+      ;;
+  esac
+  [ "${result}" -eq 0 ] || cat "${tmp_dir}/stderr" >&2
+  chmod -R u+w "${tmp_dir}"
+  rm -rf "${tmp_dir}"
+  return "${result}"
+}
+
+for mode in missing raw-only visible awf-visible awf-missing no-store; do
+  if run_extra_ca_fixture "${mode}"; then
+    pass "copy_system_ca_bundle() resolves optional and mandatory extra CA inputs (${mode})"
+  else
+    fail "copy_system_ca_bundle() mishandles extra CA inputs (${mode})"
+  fi
+done
+
 if grep -Eq '\[ -n "\$\{SYSTEM_CA_CHROOT\}" \]' "${ENTRYPOINT}"; then
   pass "run_chroot_command() cleans up copied system CA bundles"
 else
