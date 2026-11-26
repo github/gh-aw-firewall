@@ -40,6 +40,7 @@ on:
       - 'src/harness-observation*'
       - 'src/model-information-contract/**'
       - 'src/cli-workflow*'
+      - 'src/workflow-stages/**'
       - 'containers/api-proxy/harness-observation*'
       - 'tests/fixtures/harness-observation/**'
       - 'src/microvm/**'
