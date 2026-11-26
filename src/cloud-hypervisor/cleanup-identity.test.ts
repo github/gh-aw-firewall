@@ -26,6 +26,47 @@ describe('cleanup identity primitives', () => {
   });
 
   describe('record and process validation', () => {
+    it.each(['script-enclave', 'agent-enclave'])(
+      'validates invocation-owned storage for %s records',
+      async (kind) => {
+        const runId = 'a'.repeat(32);
+        const root = `/run/awf-cloud-hypervisor/enclave-storage/${runId}`;
+        const registry = new DurableCloudHypervisorCleanupRegistry(harness.dependencies());
+        const paths = harness.runPaths(runId);
+        await registry.create(paths, harness.networkPlan(runId), process.execPath, '/usr/bin/ip');
+        const recordPath = path.join(harness.temporaryRoot, 'pending-cleanup', `${runId}.json`);
+        const record = JSON.parse(await fs.readFile(recordPath, 'utf8')) as Record<string, any>;
+        record.workload = { kind, ownerId: 'enclave-entry', invocationId: 'invocation-1' };
+        record.paths.runDirectory = path.join(root, 'runs', 'vm');
+        record.paths.virtiofsdShareDirectory = path.join(root, 'runs', 'fs');
+        record.paths.cgroupPath = `/sys/fs/cgroup/awf-cloud-hypervisor/${runId}`;
+        record.invocationStorage = {
+          bootId: 'boot-1',
+          directory: root,
+          identity: { device: '1', inode: '2' },
+          parentIdentity: { device: '1', inode: '3' },
+          mount: {
+            mountId: 123,
+            device: '0:1',
+            root: '/',
+            mountPoint: root,
+            filesystemType: 'tmpfs',
+            source: 'awf-enclave-invocation',
+          },
+        };
+
+        const validate = () => validateRecord(record as never, recordPath, path.dirname(recordPath));
+        expect(validate).not.toThrow();
+        record.invocationStorage.mount.source = 'untrusted';
+        expect(validate).toThrow('Cleanup storage paths are not invocation-owned');
+        record.invocationStorage.mount.source = 'awf-enclave-invocation';
+        record.paths.cgroupPath = '/sys/fs/cgroup/other';
+        expect(validate).toThrow('Cleanup storage paths are not invocation-owned');
+        delete record.invocationStorage;
+        expect(validate).toThrow('Invocation storage identity is missing');
+      },
+    );
+
     it('accepts short socket paths only for the exact invocation-derived VM and cgroup', () => {
       const runId = 'a'.repeat(32);
       const root = `/run/awf-cloud-hypervisor/enclave-storage/${runId}`;
@@ -81,6 +122,23 @@ describe('cleanup identity primitives', () => {
         ['bad-process', (record) => {
           record.processes.worker = { state: 'pending', executable: 'relative', socketPath: '/sock' };
         }, /process record is malformed/],
+        ['owner-before-resources', (record) => {
+          record.owner.pid = 1;
+          record.processes = [];
+          record.mounts = null;
+        }, /owner identity is malformed/],
+        ['mount-array-before-process', (record) => {
+          record.processes.worker = { state: 'pending', executable: 'relative', socketPath: '/sock' };
+          record.mounts = null;
+        }, /resource identities are malformed/],
+        ['process-before-vmm', (record) => {
+          record.processes.worker = { state: 'live', executable: '/worker', socketPath: '/sock' };
+          record.vmmIdentity = { state: 'pending', name: 'invalid', aclPaths: [] };
+        }, /process record is malformed/],
+        ['vmm-before-mount', (record) => {
+          record.vmmIdentity = { state: 'pending', name: 'invalid', aclPaths: [] };
+          record.mounts = [{ mountId: 0 }];
+        }, /cleanup VMM identity is malformed/],
         ['bad-acl-baseline-path', (record) => {
           record.vmmIdentity = {
             state: 'live',
