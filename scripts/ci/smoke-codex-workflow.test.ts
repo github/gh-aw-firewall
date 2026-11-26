@@ -22,36 +22,51 @@ describe('smoke codex token-usage verification', () => {
 });
 
 describe('smoke codex workflow output requirements', () => {
-  it('gates every trigger on browser evidence before permission-blocked output relaxation', () => {
+  it('uses a separate trusted AWF job and gates the agent on its outcome', () => {
     for (const workflowPath of [smokeCodexSourcePath, smokeCodexLockPath]) {
-      const workflow = fs.readFileSync(workflowPath, 'utf-8');
-      type Step = { name: string; if?: string; run?: string; env?: Record<string, string>; 'continue-on-error'?: boolean };
-      const parsed = yaml.load(workflowPath.endsWith('.md') ? workflow.split('---')[1] : workflow) as {
-        steps?: Step[]; 'post-steps'?: Step[]; jobs?: { agent: { steps: Step[] } };
+      const source = fs.readFileSync(workflowPath, 'utf-8');
+      type Step = { name: string; if?: string; run?: string; with?: Record<string, unknown>; 'continue-on-error'?: boolean };
+      type Job = { needs: string | string[]; if: string; steps: Step[]; permissions?: Record<string, string> };
+      const { jobs } = yaml.load(workflowPath.endsWith('.md') ? source.split('---')[1] : source) as {
+        jobs: Record<string, Job>;
       };
-      const steps = parsed.jobs?.agent?.steps ?? [...(parsed.steps ?? []), ...(parsed['post-steps'] ?? [])];
-      expect(steps.find(step => step.name === 'Reset Playwright title check')?.run)
-        .toMatch(/^rm -f \/tmp\/gh-aw\/agent\/codex-playwright-.+\/result.json$/);
-      expect(steps.find(step => step.name === 'Validate Playwright title check')).toMatchObject({
-        if: 'always()',
-        env: { RESULT_FILE: '/tmp/gh-aw/agent/codex-playwright-${{ github.run_id }}/result.json' },
-      });
-      const validator = steps.find(step => step.name === 'Validate Playwright title check')!.run!;
-      expect(validator).toContain("node <<'NODE'");
-      expect(validator).toContain("JSON.parse(fs.readFileSync(process.env.RESULT_FILE, 'utf8'))");
-      expect(validator).not.toContain('scripts/ci/');
-      expect(validator).not.toContain('require(process.');
-      expect(steps.find(step => step.name === 'Validate Playwright title check')?.['continue-on-error']).not.toBe(true);
-      expect(workflow.indexOf('name: Validate Playwright title check'))
-        .toBeLessThan(workflow.indexOf('name: Validate safe outputs were invoked'));
+      const browser = jobs.verify_playwright;
+      expect(browser.needs).toBe('activation');
+      expect(browser.permissions).toEqual({ contents: 'read' });
+      expect(browser.steps.filter(step => step.with?.ref)).toEqual([
+        expect.objectContaining({
+          name: 'Checkout trusted browser check',
+          with: {
+            ref: '${{ github.event.pull_request.base.sha || github.workflow_sha }}',
+            'persist-credentials': false,
+          },
+        }),
+      ]);
+      const check = browser.steps.find(step => step.name === 'Check GitHub title through AWF')!;
+      expect(check.run).toContain('node dist/cli.js --build-local --allow-domains github.com,githubassets.com');
+      expect(check.run).toContain('--mount "$tools:$tools:ro"');
+      expect(check.run).toContain('node "$tools/check-codex-playwright.cjs"');
+      expect(check.if).toBeUndefined();
+      expect(check['continue-on-error']).not.toBe(true);
+      expect([jobs.agent.needs].flat()).toContain('verify_playwright');
+      expect(jobs.agent.if).toContain("needs.verify_playwright.result == 'success'");
+      expect(source).not.toContain('codex-playwright-${{ github.run_id }}');
+      expect(source).not.toContain('RESULT_FILE: /tmp/gh-aw/agent/');
     }
-    const source = fs.readFileSync(smokeCodexSourcePath, 'utf-8');
-    expect(source).toContain('node .github/workflows/shared/check-codex-playwright.cjs run /tmp/gh-aw/agent/codex-playwright-');
-    const lock = fs.readFileSync(smokeCodexLockPath, 'utf-8');
-    expect(lock).toContain('GH_AW_AGENT_FOLDERS: ".agents .codex .github"');
-    expect(lock.indexOf('name: Restore agent config folders from base branch'))
-      .toBeLessThan(lock.indexOf('name: Execute Codex'));
-    expect(source).toContain('If any required check fails, report overall FAIL and call `report_incomplete`');
+  });
+
+  it('skips success publication when the browser blocks the agent but keeps failure reporting', () => {
+    const lock = yaml.load(fs.readFileSync(smokeCodexLockPath, 'utf-8')) as {
+      jobs: Record<string, { needs: string[]; if: string; steps: { name: string }[] }>;
+    };
+    expect(lock.jobs.safe_outputs.needs).toContain('agent');
+    expect(lock.jobs.safe_outputs.if).toContain("needs.agent.result != 'skipped'");
+    expect(lock.jobs.conclusion.needs).toContain('verify_playwright');
+    expect(lock.jobs.conclusion.if).toContain("needs.verify_playwright.result == 'failure'");
+    expect(lock.jobs.conclusion.steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'Record incomplete' }),
+      expect.objectContaining({ name: 'Report failed jobs' }),
+    ]));
   });
 
   it('pins Playwright CLI to a version available outside the npm release cooldown', () => {

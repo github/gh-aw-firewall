@@ -21,6 +21,44 @@ engine:
   version: "0.163.0"
 strict: false
 jobs:
+  verify_playwright:
+    needs: activation
+    if: needs.activation.outputs.daily_ai_credits_exceeded != 'true' && needs.activation.outputs.daily_ai_credits_guardrail_status != 'quota_blocked'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted browser check
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.workflow_sha }}
+          persist-credentials: false
+      - name: Setup Node.js for browser check
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Build trusted AWF
+        run: npm ci && npm run build
+      - name: Provision Playwright Chromium
+        env:
+          NPM_CONFIG_MIN_RELEASE_AGE: '3'
+        run: |
+          tools="$RUNNER_TEMP/codex-browser"
+          npm install --ignore-scripts --prefix "$tools" @playwright/cli@0.1.21
+          PLAYWRIGHT_BROWSERS_PATH="$tools/browsers" node "$tools/node_modules/playwright/cli.js" install chromium
+          cp .github/workflows/shared/check-codex-playwright.cjs "$tools/"
+      - name: Check GitHub title through AWF
+        run: |
+          tools="$RUNNER_TEMP/codex-browser"
+          node dist/cli.js --build-local --allow-domains github.com,githubassets.com \
+            --mount "$tools:$tools:ro" -- /usr/bin/env \
+            "PATH=$tools/node_modules/.bin:$PATH" "PLAYWRIGHT_BROWSERS_PATH=$tools/browsers" \
+            node "$tools/check-codex-playwright.cjs"
+  agent:
+    needs: verify_playwright
+    if: needs.verify_playwright.result == 'success'
   verify_token_usage:
     needs: agent
     if: needs.agent.result == 'success'
@@ -47,9 +85,6 @@ network:
     - chatgpt.com
     - github
     - playwright
-steps:
-  - name: Reset Playwright title check
-    run: rm -f /tmp/gh-aw/agent/codex-playwright-${{ github.run_id }}/result.json
 tools:
   cache-memory: true
   github:
@@ -80,23 +115,6 @@ safe-outputs:
       run-failure: "🌑 The shadows whisper... [{workflow_name}]({run_url}) {status}. The oracle requires further meditation..."
 timeout-minutes: 20
 post-steps:
-  - name: Validate Playwright title check
-    if: always()
-    env:
-      RESULT_FILE: /tmp/gh-aw/agent/codex-playwright-${{ github.run_id }}/result.json
-    run: |
-      node <<'NODE'
-      const fs = require('node:fs');
-      try {
-        const result = JSON.parse(fs.readFileSync(process.env.RESULT_FILE, 'utf8'));
-        if (result.status !== 'PASS' || typeof result.title !== 'string' || !result.title.includes('GitHub')) {
-          throw new Error('Invalid result');
-        }
-      } catch {
-        console.error('::error::Playwright title check has no valid PASS result; run the check inside AWF and inspect its launch diagnostics');
-        process.exit(1);
-      }
-      NODE
   - name: Validate safe outputs were invoked
     env:
       OUTPUTS_FILE: ${{ steps.set-runtime-paths.outputs.GH_AW_SAFE_OUTPUTS }}
@@ -146,8 +164,8 @@ post-steps:
 
 1. **GitHub MCP Testing**: Review the last 2 merged pull requests in `__GH_AW_GITHUB_REPOSITORY__`
 2. **GitHub PR Detail Testing**: Use the GitHub tools to retrieve the number, title, and author of 2 pull requests from `__GH_AW_GITHUB_REPOSITORY__`
-3. **Playwright Testing**: Run `node .github/workflows/shared/check-codex-playwright.cjs run /tmp/gh-aw/agent/codex-playwright-${{ github.run_id }}` inside AWF via the bash tool. This uses the pre-installed CLI and provisioned Chromium to navigate to https://github.com and assert the title contains "GitHub", then closes its isolated session. Do not install browsers or write the result file yourself. The post-step rejects missing or failed checks on every trigger, even when comments are permission-blocked.
-   - The check explicitly disables only Chromium's nested sandbox because AWF's chroot and `no-new-privileges` prevent it from working. AWF's outer sandbox, read-only mounts, capability restrictions, and proxy remain unchanged. This is a smoke-only exception, not an AWF default; browser compromise would still expose the agent's workspace permissions.
+3. **Playwright Testing**: This job only starts after a separate, trusted AWF job verifies that the provisioned Chromium can read the GitHub page title and close its isolated session. Include that completed check in the report; do not rerun it or create evidence files.
+   - The check disables only Chromium's nested sandbox because AWF's chroot and `no-new-privileges` prevent it from working. This smoke-only exception does not change AWF defaults or grant the browser access to the Codex job's workspace or credentials.
 4. **File Writing Testing**: Create a test file `/tmp/gh-aw/agent/smoke-test-codex-${{ github.run_id }}.txt` with content "Smoke test passed for Codex at $(date)" (create the directory if it doesn't exist)
 5. **Bash Tool Testing**: Execute bash commands to verify file creation was successful (use `cat` to read the file back)
 6. **Discussion Interaction Testing**: 
