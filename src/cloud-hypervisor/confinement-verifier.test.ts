@@ -153,11 +153,50 @@ describe('verifyCloudHypervisorConfinement', () => {
         name: 'awfvm-test',
         inode: 'net:[4026533000]',
       },
-      cgroup: expect.objectContaining({
+      cgroup: {
         path: CGROUP,
         membership: '/awf-cloud-hypervisor/run-1',
-      }),
+        limits: options().cgroupLimits,
+      },
     }));
+  });
+
+  it('keeps confinement checks between the initial and final process identity reads', async () => {
+    const deps = dependencies();
+    await verifyCloudHypervisorConfinement(options(), deps);
+
+    const operations = (['realpath', 'readFile', 'readlink', 'readdir', 'stat'] as const)
+      .flatMap((method) => {
+        const mock = deps[method] as jest.Mock;
+        return mock.mock.calls.map(([filePath], index) => ({
+          order: mock.mock.invocationCallOrder[index],
+          operation: `${method} ${filePath}`,
+        }));
+      })
+      .sort((left, right) => left.order - right.order)
+      .map(({ operation }) => operation);
+
+    expect(operations).toEqual([
+      'realpath /opt/cloud-hypervisor',
+      `readFile /proc/${PID}/stat`,
+      `readlink /proc/${PID}/exe`,
+      `readdir /proc/${PID}/task`,
+      ...[PID, PID + 1, PID + 2].flatMap((taskId) => [
+        `readFile /proc/${PID}/task/${taskId}/stat`,
+        `readFile /proc/${PID}/task/${taskId}/status`,
+      ]),
+      `readFile /proc/${PID}/cgroup`,
+      `readFile ${CGROUP}/cgroup.procs`,
+      `readFile ${CGROUP}/memory.max`,
+      `readFile ${CGROUP}/cpu.max`,
+      `readFile ${CGROUP}/pids.max`,
+      `readlink /proc/${PID}/ns/net`,
+      'stat /run/netns/awfvm-test',
+      `readdir /proc/${PID}/task`,
+      ...[PID, PID + 1, PID + 2].map((taskId) => `readFile /proc/${PID}/task/${taskId}/stat`),
+      `readFile /proc/${PID}/stat`,
+      `readlink /proc/${PID}/exe`,
+    ]);
   });
 
   it('accepts an empty Groups field when no supplementary groups are expected', async () => {
@@ -237,6 +276,30 @@ describe('verifyCloudHypervisorConfinement', () => {
       expect(statusReads).toHaveLength(2);
     });
 
+    it('rejects a recycled thread ID whose confinement policy no longer matches', async () => {
+      const deps = dependencies({
+        taskStartTime: (taskId, read) => (taskId === PID + 2 && read > 1 ? '12345' : String(99000 + taskId)),
+      });
+      const readFile = deps.readFile;
+      let statusReads = 0;
+      deps.readFile = jest.fn(async (filePath, encoding) => {
+        const contents = await readFile(filePath, encoding);
+        if (filePath === `/proc/${PID}/task/${PID + 2}/status` && ++statusReads > 1) {
+          return contents.replace('NoNewPrivs:\t1', 'NoNewPrivs:\t0');
+        }
+        return contents;
+      });
+
+      await expect(verifyCloudHypervisorConfinement(options(), deps))
+        .rejects.toThrow(/thread 4244 does not have NoNewPrivs/);
+    });
+
+    it('requires the main thread in the final task listing', async () => {
+      await expect(verifyCloudHypervisorConfinement(options(), dependencies({
+        taskListings: [base, base.slice(1)],
+      }))).rejects.toThrow(/final task set is missing main thread 4242/);
+    });
+
     it('still fails when the main thread disappears', async () => {
       await expect(verifyCloudHypervisorConfinement(options(), dependencies({
         vanishedTasks: [PID],
@@ -270,5 +333,39 @@ describe('verifyCloudHypervisorConfinement', () => {
       options(),
       dependencies({ cgroupProcs: `${PID}\n5000\n` }),
     )).rejects.toThrow(/cgroup\.procs to contain only PID/);
+  });
+
+  it('rejects membership in a different cgroup before checking the namespace', async () => {
+    const deps = dependencies({
+      extraFiles: { [`/proc/${PID}/cgroup`]: '0::/awf-cloud-hypervisor/other\n' },
+    });
+
+    await expect(verifyCloudHypervisorConfinement(options(), deps))
+      .rejects.toThrow(/found cgroup "\/awf-cloud-hypervisor\/other"/);
+    expect(deps.stat).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['memory.max', 'memoryMax', 'max'],
+    ['cpu.max', 'cpuMax', 'max 100000'],
+    ['pids.max', 'pidsMax', 'max'],
+  ])('rejects a mismatched %s limit before checking the namespace', async (file, key, value) => {
+    const deps = dependencies({ extraFiles: { [`${CGROUP}/${file}`]: `${value}\n` } });
+
+    await expect(verifyCloudHypervisorConfinement(options(), deps))
+      .rejects.toThrow(`found ${key}=${JSON.stringify(value)}`);
+    expect(deps.stat).not.toHaveBeenCalled();
+  });
+
+  it('rejects a different network namespace before final re-verification', async () => {
+    const deps = dependencies();
+    (deps.stat as jest.Mock).mockResolvedValue({ ino: 4026533001n });
+
+    await expect(verifyCloudHypervisorConfinement(options(), deps))
+      .rejects.toThrow(/found network namespace net:\[4026533000\], expected net:\[4026533001\]/);
+    expect(deps.readdir).toHaveBeenCalledTimes(1);
+    const processStatReads = (deps.readFile as jest.Mock).mock.calls
+      .filter(([filePath]) => filePath === `/proc/${PID}/stat`);
+    expect(processStatReads).toHaveLength(1);
   });
 });
