@@ -41,14 +41,36 @@ jobs:
           package-manager-cache: false
       - name: Build trusted AWF
         run: npm ci && npm run build
+      - name: Locate trusted browser check
+        id: browser_check_source
+        run: |
+          if [ -f .github/workflows/shared/check-codex-playwright.cjs ]; then
+            echo "path=.github/workflows/shared/check-codex-playwright.cjs" >> "$GITHUB_OUTPUT"
+            echo "bootstrap=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=.codex-browser-bootstrap/.github/workflows/shared/check-codex-playwright.cjs" >> "$GITHUB_OUTPUT"
+            echo "bootstrap=true" >> "$GITHUB_OUTPUT"
+          fi
+      # Bootstrap only until the helper is present on the trusted base.
+      - name: Checkout pinned browser check
+        if: steps.browser_check_source.outputs.bootstrap == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: github/gh-aw-firewall
+          ref: 6d417bd1558331f1c4bff44660630f9a2198b3ca
+          path: .codex-browser-bootstrap
+          sparse-checkout: .github/workflows/shared/check-codex-playwright.cjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - name: Provision Playwright Chromium
         env:
           NPM_CONFIG_MIN_RELEASE_AGE: '3'
+          BROWSER_CHECK_PATH: ${{ steps.browser_check_source.outputs.path }}
         run: |
           tools="$RUNNER_TEMP/codex-browser"
           npm install --ignore-scripts --prefix "$tools" @playwright/cli@0.1.21
           PLAYWRIGHT_BROWSERS_PATH="$tools/browsers" node "$tools/node_modules/playwright/cli.js" install chromium
-          cp .github/workflows/shared/check-codex-playwright.cjs "$tools/"
+          cp "$BROWSER_CHECK_PATH" "$tools/"
       - name: Check GitHub title through AWF
         run: |
           tools="$RUNNER_TEMP/codex-browser"
