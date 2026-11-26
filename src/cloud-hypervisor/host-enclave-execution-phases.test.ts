@@ -20,6 +20,14 @@ describe.each(staticStagingScenarios.filter(scenario => scenario.publicDebug))(
       const retain = jest.spyOn(HostEnclaveInvocationEvidence.prototype, 'retain');
       const remove = jest.spyOn(HostEnclaveInvocationResources.prototype, 'removeResources');
       const { backendOptions, plan, state, dependencies, preservePublicArtifacts } = fixture();
+      let releasePreservation!: () => void;
+      let reachPreservation!: () => void;
+      const preservationBlocked = new Promise<void>(resolve => { releasePreservation = resolve; });
+      const preservationReached = new Promise<void>(resolve => { reachPreservation = resolve; });
+      preservePublicArtifacts.mockImplementationOnce(async () => {
+        reachPreservation();
+        await preservationBlocked;
+      });
       const complete = jest.fn(async () => {
         expect(state.stopped && state.snapshotRemoved && state.unmounted).toBe(true);
         expect(preservePublicArtifacts).toHaveBeenCalled();
@@ -30,7 +38,18 @@ describe.each(staticStagingScenarios.filter(scenario => scenario.publicDebug))(
         createResourceJournal: async (...args) => ({ ...await originalJournal(...args), complete }),
       });
       try {
-        await expect(orderedBackend.execute(plan, new AbortController().signal))
+        const execution = orderedBackend.execute(plan, new AbortController().signal);
+        try {
+          await preservationReached;
+          await new Promise<void>(resolve => setImmediate(resolve));
+          expect(state.snapshotRemoved).toBe(false);
+          expect(state.unmounted).toBe(false);
+          expect(complete).not.toHaveBeenCalled();
+        } finally {
+          releasePreservation();
+          await execution;
+        }
+        await expect(execution)
           .resolves.toEqual({ outcome: 'success', result: 'true' });
         expect(checks.mock.calls.map(([report, id]) => `${report.scope}/${id}`)).toEqual([
           ...['policy', 'filesystem', 'export-plan', 'snapshot', 'snapshot-digest', 'workload-profile',
