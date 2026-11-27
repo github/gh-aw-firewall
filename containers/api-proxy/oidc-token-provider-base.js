@@ -4,7 +4,6 @@ const { logRequest } = require('./logging');
 const { scheduleRefresh, sleep } = require('./oidc-refresh-utils');
 
 const REFRESH_FACTOR = 0.75;
-const MIN_REFRESH_MARGIN_SECS = 300;
 const REFRESH_RETRY_DELAY_MS = 30_000;
 const MAX_INIT_RETRIES = 3;
 
@@ -117,14 +116,7 @@ class BaseOidcTokenProvider {
   }
 
   _getRefreshDelayMs(expiresIn) {
-    const refreshInSecs = Math.max(
-      0,
-      Math.min(
-        expiresIn * REFRESH_FACTOR,
-        expiresIn - MIN_REFRESH_MARGIN_SECS
-      )
-    );
-    return Math.floor(refreshInSecs * 1000);
+    return Math.max(1, Math.floor(expiresIn * REFRESH_FACTOR * 1000));
   }
 
   /** @param {number} ms */
@@ -176,7 +168,6 @@ class BaseOidcTokenProvider {
 module.exports = {
   BaseOidcTokenProvider,
   REFRESH_FACTOR,
-  MIN_REFRESH_MARGIN_SECS,
   REFRESH_RETRY_DELAY_MS,
   MAX_INIT_RETRIES,
 };

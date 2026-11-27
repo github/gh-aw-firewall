@@ -4,6 +4,67 @@ const { buildRoutingModelMetadata, createManagementHandlers } = require('./manag
 const { normalizeModel } = require('./routing-catalogue');
 const { buildRoutingCandidates } = require('./routing-candidates');
 const { createCopilotAdapter } = require('./providers/copilot');
+const { createOpenAIAdapter } = require('./providers/openai');
+
+describe('authentication metadata in /reflect', () => {
+  it.each([
+    ['github-oidc/openai', {
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'openai',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/oidc',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-request-token',
+      AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID: 'idp_test',
+      AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID: 'sa_test',
+    }],
+    ['github-oidc/azure', {
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'azure',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/oidc',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-request-token',
+      AWF_AUTH_AZURE_TENANT_ID: 'test-tenant',
+      AWF_AUTH_AZURE_CLIENT_ID: 'test-client',
+      OPENAI_API_TARGET: 'test-resource.openai.azure.com',
+    }],
+    ['static-key', { OPENAI_API_KEY: 'test-api-key' }],
+  ])('preserves %s without exposing credentials', (authType, env) => {
+    const adapter = createOpenAIAdapter(env);
+    const provider = adapter.getOidcProvider();
+    if (provider) {
+      provider._cachedToken = 'test-access-token';
+      provider._expiresAt = Math.floor(Date.now() / 1000) + 300;
+    }
+    try {
+      const handlers = createManagementHandlers({
+        getAdapters: () => [adapter, createCopilotAdapter({})],
+        getCachedModels: () => ({}),
+        isModelFetchComplete: () => true,
+        getModelAliases: () => null,
+        getModelFallback: () => null,
+        getEffectiveModelFallback: () => ({}),
+        getAiCreditsUsage: () => ({}),
+        getMaxRunsUsage: () => ({}),
+        getMaxCacheMissesUsage: () => ({}),
+        getPermissionDeniedUsage: () => ({}),
+      });
+      const res = { writeHead: jest.fn(), end: jest.fn() };
+
+      expect(handlers.handleManagementEndpoint({ method: 'GET', url: '/reflect' }, res)).toBe(true);
+
+      expect(res.writeHead).toHaveBeenCalledWith(200, { 'Content-Type': 'application/json' });
+      const body = res.end.mock.calls[0][0];
+      const reflection = JSON.parse(body);
+      expect(reflection.endpoints[0]).toMatchObject({
+        provider: 'openai', configured: true, auth_type: authType,
+      });
+      expect(reflection.endpoints[1]).not.toHaveProperty('auth_type');
+      expect(body).not.toContain('test-request-token');
+      expect(body).not.toContain('test-access-token');
+      expect(body).not.toContain('test-api-key');
+    } finally {
+      provider?.shutdown();
+    }
+  });
+});
 
 describe('Copilot native Auto launch capability', () => {
   it.each([

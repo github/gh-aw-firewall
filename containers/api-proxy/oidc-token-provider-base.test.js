@@ -24,11 +24,22 @@ class TestOidcTokenProvider extends BaseOidcTokenProvider {
 }
 
 describe('BaseOidcTokenProvider#getToken', () => {
-  it('preserves the legacy refresh margin and integer clock by default', () => {
+  it.each([
+    [0.001, 1],
+    [1, 750],
+    [60, 45_000],
+    [240, 180_000],
+    [300, 225_000],
+    [600, 450_000],
+    [3600, 2_700_000],
+  ])('refreshes a %s-second token at 75%% of its lifetime with a positive delay', (expiresIn, delayMs) => {
     const provider = new TestOidcTokenProvider();
-    expect(provider._getRefreshDelayMs(60)).toBe(0);
-    expect(provider._getRefreshDelayMs(600)).toBe(300_000);
-    expect(provider._getRefreshDelayMs(3600)).toBe(2_700_000);
+    expect(provider._getRefreshDelayMs(expiresIn)).toBe(delayMs);
+    provider.shutdown();
+  });
+
+  it('preserves the integer clock by default', () => {
+    const provider = new TestOidcTokenProvider();
     expect(provider._nowSeconds()).toBe(Math.floor(Date.now() / 1000));
     provider.shutdown();
   });
