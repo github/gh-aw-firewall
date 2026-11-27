@@ -175,7 +175,7 @@ describe('OidcTokenProvider', () => {
     });
   });
 
-  it('should schedule refresh at 75% or 5 minutes-before-expiry, whichever is earlier', async () => {
+  it('should schedule refresh at 75% of the token lifetime', async () => {
     const provider = new OidcTokenProvider({
       requestUrl: 'http://localhost/token',
       requestToken: 'test',
@@ -192,11 +192,11 @@ describe('OidcTokenProvider', () => {
 
     await provider._refreshToken();
 
-    expect(provider._scheduleRefresh).toHaveBeenCalledWith(300000);
+    expect(provider._scheduleRefresh).toHaveBeenCalledWith(450000);
     provider.shutdown();
   });
 
-  it('should schedule immediate refresh when token lifetime is below minimum margin', async () => {
+  it('should schedule proportional refresh for short-lived tokens', async () => {
     const provider = new OidcTokenProvider({
       requestUrl: 'http://localhost/token',
       requestToken: 'test',
@@ -213,7 +213,7 @@ describe('OidcTokenProvider', () => {
 
     await provider._refreshToken();
 
-    expect(provider._scheduleRefresh).toHaveBeenCalledWith(0);
+    expect(provider._scheduleRefresh).toHaveBeenCalledWith(180000);
     provider.shutdown();
   });
 

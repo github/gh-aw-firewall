@@ -152,7 +152,7 @@ class OidcTokenProvider extends BaseOidcTokenProvider {
       tenant_id: this._tenantId,
       client_id: this._clientId,
       scope: this._azureScope,
-      expires_in_secs: this._expiresAt - Math.floor(Date.now() / 1000),
+      expires_in_secs: this._expiresAt - this._nowSeconds(),
     };
   }
 

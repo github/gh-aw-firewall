@@ -251,6 +251,7 @@ function createManagementHandlers(deps) {
             routingEndpointScope?.provider === adapter.name ? routingEndpointScope.endpoints : null,
           ),
           models_url: info.models_url,
+          ...(info.auth_type !== undefined && { auth_type: info.auth_type }),
           ...(info.credential_kind !== undefined && { credential_kind: info.credential_kind }),
           ...(info.selected_scheme !== undefined && { selected_scheme: info.selected_scheme }),
           ...(info.inference_credential_source !== undefined && { inference_credential_source: info.inference_credential_source }),

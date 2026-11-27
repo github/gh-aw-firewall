@@ -71,9 +71,42 @@ describe('OpenAIOidcTokenProvider', () => {
     expect(mintGitHubOidcToken).toHaveBeenCalledWith(expect.objectContaining({
       audience: 'https://custom.openai.example/v1',
     }));
-    expect(provider._expiresAt - Math.floor(Date.now() / 1000)).toBeLessThanOrEqual(3600);
+    expect(provider._expiresAt - Date.now() / 1000).toBeLessThanOrEqual(3600);
 
     provider.shutdown();
+  });
+
+  it('refreshes a 300-second WIF token after 225 seconds rather than immediately', async () => {
+    jest.useFakeTimers();
+    const provider = new OpenAIOidcTokenProvider(CONFIG);
+    const scheduleRefresh = jest.spyOn(provider, '_scheduleRefresh');
+    httpPost.mockResolvedValue({
+      statusCode: 200,
+      body: JSON.stringify({ access_token: 'openai-access-token', expires_in: 300 }),
+    });
+    try {
+      await provider.initialize();
+
+      expect(scheduleRefresh).toHaveBeenCalledWith(225_000);
+      expect(provider.isReady()).toBe(true);
+      expect(provider.getToken()).toBe('openai-access-token');
+      expect(provider._expiresAt - Date.now() / 1000).toBe(300);
+      await jest.advanceTimersByTimeAsync(224_999);
+      expect(mintGitHubOidcToken).toHaveBeenCalledTimes(1);
+      expect(httpPost).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(1);
+      expect(mintGitHubOidcToken).toHaveBeenCalledTimes(2);
+      expect(httpPost).toHaveBeenCalledTimes(2);
+      expect(provider.isReady()).toBe(true);
+      expect(provider._expiresAt - Date.now() / 1000).toBe(300);
+
+      await jest.advanceTimersByTimeAsync(224_999);
+      expect(httpPost).toHaveBeenCalledTimes(2);
+    } finally {
+      provider.shutdown();
+      jest.useRealTimers();
+    }
   });
 
   it('rejects unsuccessful exchanges without including response bodies in errors', async () => {

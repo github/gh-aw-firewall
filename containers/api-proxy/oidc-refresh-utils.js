@@ -15,11 +15,22 @@
 const { logRequest } = require('./logging');
 
 /**
+ * @param {Object} state
+ * @returns {number}
+ */
+function nowSeconds(state) {
+  return typeof state._nowSeconds === 'function'
+    ? state._nowSeconds() : Math.floor(Date.now() / 1000);
+}
+
+/**
  * Schedule a proactive refresh of credentials/tokens.
  *
  * Clears any existing timer, schedules `refreshFn` after `delayMs`,
  * logs success/failure with provider-specific event names, and retries
- * on failure if credentials are still valid.
+ * on failure. When the state provides `_getRetryDelayMs()`, retries use that
+ * delay and continue after expiry; otherwise retries only while credentials
+ * are still valid.
  *
  * @param {Object} state - Provider state object (must have _refreshTimer,
  *   _refreshInFlight, _expiresAt, _retryDelayMs properties)
@@ -33,14 +44,17 @@ function scheduleRefresh(state, delayMs, refreshFn, providerPrefix) {
     state._refreshInFlight = refreshFn()
       .then(() => {
         logRequest('info', `${providerPrefix}_refresh_success`, {
-          expires_in_secs: state._expiresAt - Math.floor(Date.now() / 1000),
+          expires_in_secs: state._expiresAt - nowSeconds(state),
         });
       })
       .catch((err) => {
         logRequest('error', `${providerPrefix}_refresh_failed`, { error: err.message });
-        const now = typeof state._nowSeconds === 'function'
-          ? state._nowSeconds() : Math.floor(Date.now() / 1000);
-        if (state._expiresAt > now) {
+        if (state._isShutdown) return;
+        if (typeof state._getRetryDelayMs === 'function') {
+          scheduleRefresh(state, state._getRetryDelayMs(), refreshFn, providerPrefix);
+          return;
+        }
+        if (state._expiresAt > nowSeconds(state)) {
           scheduleRefresh(state, state._retryDelayMs, refreshFn, providerPrefix);
         }
       })

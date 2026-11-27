@@ -4,8 +4,8 @@ const { logRequest } = require('./logging');
 const { scheduleRefresh, sleep } = require('./oidc-refresh-utils');
 
 const REFRESH_FACTOR = 0.75;
-const MIN_REFRESH_MARGIN_SECS = 300;
 const REFRESH_RETRY_DELAY_MS = 30_000;
+const MIN_RETRY_DELAY_MS = 1000;
 const MAX_INIT_RETRIES = 3;
 
 class BaseOidcTokenProvider {
@@ -113,18 +113,24 @@ class BaseOidcTokenProvider {
   }
 
   _nowSeconds() {
-    return Math.floor(Date.now() / 1000);
+    return Date.now() / 1000;
   }
 
   _getRefreshDelayMs(expiresIn) {
-    const refreshInSecs = Math.max(
-      0,
-      Math.min(
-        expiresIn * REFRESH_FACTOR,
-        expiresIn - MIN_REFRESH_MARGIN_SECS
-      )
-    );
-    return Math.floor(refreshInSecs * 1000);
+    return Math.max(1, Math.floor(expiresIn * REFRESH_FACTOR * 1000));
+  }
+
+  /**
+   * Delay before retrying a failed refresh. While the current value is still
+   * valid, retry no later than halfway through its remaining lifetime; after
+   * expiry, keep retrying with the configured positive backoff.
+   * @returns {number}
+   */
+  _getRetryDelayMs() {
+    const retryDelayMs = Math.max(1, this._retryDelayMs);
+    const remainingMs = (this._expiresAt - this._nowSeconds()) * 1000;
+    if (remainingMs <= 0) return retryDelayMs;
+    return Math.min(retryDelayMs, Math.max(MIN_RETRY_DELAY_MS, Math.floor(remainingMs / 2)));
   }
 
   /** @param {number} ms */
@@ -176,7 +182,7 @@ class BaseOidcTokenProvider {
 module.exports = {
   BaseOidcTokenProvider,
   REFRESH_FACTOR,
-  MIN_REFRESH_MARGIN_SECS,
   REFRESH_RETRY_DELAY_MS,
+  MIN_RETRY_DELAY_MS,
   MAX_INIT_RETRIES,
 };

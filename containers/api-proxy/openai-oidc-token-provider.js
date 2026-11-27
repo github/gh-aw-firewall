@@ -88,7 +88,7 @@ class OpenAIOidcTokenProvider extends BaseOidcTokenProvider {
       audience: this._oidcAudience,
       identity_provider_id: redactIdentifier(this._identityProviderId),
       service_account_id: redactIdentifier(this._serviceAccountId),
-      expires_in_secs: this._expiresAt - Math.floor(Date.now() / 1000),
+      expires_in_secs: this._expiresAt - this._nowSeconds(),
     };
   }
 
