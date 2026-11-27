@@ -194,17 +194,17 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
       id: 'copilot', version: '1.0.96', 'checksums-sha256': checksum,
     });
     expect(agentSteps.find(step => step.name === 'Install GitHub Copilot CLI')?.run).toBe(
-      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.96 --checksums-sha256 ${checksum} --cooldown-days 3`
+      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.96 --checksums-sha256 ${checksum} --cooldown-days 0`
     );
     expect(compiled.jobs.agent.env?.GH_AW_ENGINE_VERSION).toBe('1.0.96');
     expect(lock).toContain('"engine_versions":{"copilot":"1.0.96"}');
     expect(agentSteps.find(step => step.name === 'Install AWF binary')?.run).toBe(
       'bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.28.62'
     );
-    expect(lock).toContain('"compiler_version":"v1.3.1"');
-    expect(lock).toContain('github/gh-aw-actions/setup@dfe97a19c8249d41e2adfc95f92db2b8facea58f');
+    expect(lock).toContain('"compiler_version":"v1.4.0"');
+    expect(lock).toContain('github/gh-aw-actions/setup@b907753c079ddd7d6829a0d8c24e02e818b4b45f');
     expect(lock).toContain('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1');
-    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.5.10@sha256:629ddcd68a48ab02e7db8af527d2756c6db563b00c1d31d8aa8fcbac96f01c59');
+    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.5.14@sha256:716b41d53a20660e945c351c08140380430d65d98d3263596e45114c29fa7a43');
     expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.62@');
     expect(lock).not.toContain('resolution_failures');
     expect(agentSteps.find(step => step.name === 'Download and verify cloud-hypervisor enclave artifacts')?.run)

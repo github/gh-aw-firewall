@@ -111,7 +111,7 @@ describe('smoke copilot workflow output requirements', () => {
       expect(installer?.run?.trim()).toBe(
         'bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.101 ' +
         '--checksums-sha256 018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be ' +
-        '--cooldown-days 3',
+        '--cooldown-days 0',
       );
     });
 

@@ -8,7 +8,7 @@ import { applyGeneralWorkflowPatches } from './apply-general-workflow-patches';
 const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const installCommand =
   'bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.101 ' +
-  '--checksums-sha256 018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be --cooldown-days 3';
+  '--checksums-sha256 018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be --cooldown-days 0';
 const retryWorkflows = ['copilot-token-optimizer', 'dependency-security-monitor'];
 const compilerInstallStep =
   '      - name: Install GitHub Copilot CLI\n' +
@@ -47,6 +47,7 @@ describe('copilot token optimizer inputs', () => {
   function runDownload(logs: string, logsExit = 0, graphExit = 0) {
     return spawnSync('/bin/bash', ['-e', '-c', download.run.split('/tmp/gh-aw/token-audit').join(`${tempDir}/audit`)], {
       env: {
+        HOME: tempDir,
         PATH: `${tempDir}/bin:/usr/bin:/bin`,
         TEST_DIR: tempDir,
         LOGS_JSON: logs,

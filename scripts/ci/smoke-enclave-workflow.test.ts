@@ -14,11 +14,11 @@ const issuesSourcePath = path.join(workflowsDir, 'smoke-enclave-issues-read.md')
 const issuesLockPath = path.join(workflowsDir, 'smoke-enclave-issues-read.lock.yml');
 const dynamicSourcePath = path.join(workflowsDir, 'smoke-enclave-dynamic-issues-read.md');
 const dynamicLockPath = path.join(workflowsDir, 'smoke-enclave-dynamic-issues-read.lock.yml');
-const compilerVersion = 'v1.3.1';
+const compilerVersion = 'v1.4.0';
 const sourceDocumentedCompilerVersion = 'v1.2.3';
-const setupAction = 'github/gh-aw-actions/setup@dfe97a19c8249d41e2adfc95f92db2b8facea58f';
+const setupAction = 'github/gh-aw-actions/setup@b907753c079ddd7d6829a0d8c24e02e818b4b45f';
 const gatewayImage =
-  'ghcr.io/github/gh-aw-mcpg:v0.5.10@sha256:629ddcd68a48ab02e7db8af527d2756c6db563b00c1d31d8aa8fcbac96f01c59';
+  'ghcr.io/github/gh-aw-mcpg:v0.5.14@sha256:716b41d53a20660e945c351c08140380430d65d98d3263596e45114c29fa7a43';
 
 function countOccurrences(content: string, value: string): number {
   return content.split(value).length - 1;
@@ -209,7 +209,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     });
     expect(agent.env?.GH_AW_ENGINE_VERSION).toBe('1.0.96');
     expect(install?.run).toBe(
-      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.96 --checksums-sha256 ${checksum} --cooldown-days 3`
+      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.96 --checksums-sha256 ${checksum} --cooldown-days 0`
     );
     expect(lock).toContain('"engine_versions":{"copilot":"1.0.96"}');
     expect(lock).toContain(`"compiler_version":"${compilerVersion}"`);
@@ -975,7 +975,7 @@ describe('smoke enclave build workflow', () => {
     expect(frontmatter.engine.version.localeCompare(minimum!, 'en', { numeric: true }))
       .toBeGreaterThanOrEqual(0);
     expect(install?.run).toBe(
-      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" ${frontmatter.engine.version} --checksums-sha256 ${frontmatter.engine['checksums-sha256']} --cooldown-days 3`
+      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" ${frontmatter.engine.version} --checksums-sha256 ${frontmatter.engine['checksums-sha256']} --cooldown-days 0`
     );
     expect(lock).toContain(`"engine_versions":{"copilot":"${frontmatter.engine.version}"}`);
   });
@@ -1077,7 +1077,7 @@ describe('smoke enclave issues workflow', () => {
     expect(frontmatter.engine.version).toBe('1.0.80');
     expect(frontmatter.engine['checksums-sha256']).toBe(checksum);
     expect(lock).toContain(
-    `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.80 --checksums-sha256 ${checksum} --cooldown-days 3`
+    `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.80 --checksums-sha256 ${checksum} --cooldown-days 0`
     );
   });
 
@@ -1410,7 +1410,7 @@ describe('smoke enclave dynamic issues workflow', () => {
     expect(frontmatter.engine.version).toBe('1.0.80');
     expect(frontmatter.engine['checksums-sha256']).toBe(checksum);
     expect(install?.run).toBe(
-      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.80 --checksums-sha256 ${checksum} --cooldown-days 3`
+      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.80 --checksums-sha256 ${checksum} --cooldown-days 0`
     );
   });
 

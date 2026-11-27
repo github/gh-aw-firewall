@@ -656,7 +656,7 @@ describe('buildCopilotCliDaemonCopyStep', () => {
     function runCopy(sourceDir: string) {
       const [step] = yaml.load(buildCopilotCliDaemonCopyStep('', 'copilot')) as Array<{ run: string }>;
       return spawnSync('/bin/bash', ['-euo', 'pipefail', '-c', step.run], {
-        env: { RUNNER_TEMP: tempDir, PATH: `${sourceDir}:/usr/bin:/bin` },
+        env: { HOME: tempDir, RUNNER_TEMP: tempDir, PATH: `${sourceDir}:/usr/bin:/bin` },
         encoding: 'utf8',
         timeout: 5000,
       });
