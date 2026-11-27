@@ -48,6 +48,44 @@ test('smoke chroot pre-agent cleanup preserves workflow prompts and test results
   }
 });
 
+test.each([false, true])('smoke chroot compares tagged command output, not build logs (node failure: %s)', nodeFails => {
+  const source = fs.readFileSync(path.join(root, '.github/workflows/smoke-chroot.md'), 'utf8');
+  const smoke = yaml.load(source.split('---')[1]) as { steps: Step[] };
+  const script = smoke.steps.find(step => step.name === 'Run chroot version tests')!.run!;
+  const lock = yaml.load(fs.readFileSync(path.join(root, '.github/workflows/smoke-chroot.lock.yml'), 'utf8')) as {
+    jobs: { agent: { steps: Step[] } };
+  };
+  expect(lock.jobs.agent.steps.find(step => step.name === 'Run chroot version tests')!.run).toBe(script);
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-chroot-versions-'));
+  try {
+    fs.writeFileSync(path.join(temp, 'host-versions.env'),
+      "HOST_PYTHON_VERSION='Python 3.12.16'\nHOST_NODE_VERSION='v24.22.3'\nHOST_GO_VERSION='go version go1.22.12 linux/amd64'\n");
+    const result = spawnSync('/bin/bash', ['-eo', 'pipefail', '-c', `
+      go() { echo /opt/go; }
+      awf() {
+        echo '#17 build NODE_VERSION=v22.23.2 Python 3.10.0 go1.20.1' >&2
+        case "$*" in
+          *AWF_PYTHON_VERSION*) echo 'AWF_PYTHON_VERSION=Python 3.12.16' ;;
+          *AWF_NODE_VERSION*)
+            if [ "$NODE_FAILS" = true ]; then return 42; fi
+            echo 'AWF_NODE_VERSION=v24.22.3' ;;
+          *AWF_GO_VERSION*) echo 'AWF_GO_VERSION=go1.22.12 linux/amd64' ;;
+          *) return 1 ;;
+        esac
+      }
+      ${script.replace(/\/tmp\/gh-aw\/chroot-test/g, temp)}
+    `], { encoding: 'utf8', env: { ...process.env, NODE_FAILS: String(nodeFails) } });
+    expect(result.status).toBe(0);
+    const results = fs.readFileSync(path.join(temp, 'results.env'), 'utf8');
+    expect(results).toContain(`NODE_MATCH=${nodeFails ? 'NO' : 'YES'}`);
+    expect(results).toContain(`ALL_TESTS_PASSED=${!nodeFails}`);
+    expect(results).toContain('PYTHON_MATCH=YES');
+    expect(results).toContain('GO_MATCH=YES');
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
 describe('chroot cached image wiring', () => {
   it('keeps every job, suite, timeout and cleanup while using the shared cache builder', () => {
     const expected = [

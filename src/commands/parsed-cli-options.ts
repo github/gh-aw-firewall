@@ -37,6 +37,7 @@ export interface ParsedCliOptions extends Record<string, unknown>, Omit<Partial<
   maxCacheMisses?: string | number;
   home?: string;
   inputDir?: string[];
+  privateHostSocketDir?: string[];
   containerWorkdir?: string;
   captureCommandOutput?: string;
   captureCommandOutputMaxBytes?: string | number;

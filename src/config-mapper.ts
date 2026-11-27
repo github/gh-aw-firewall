@@ -29,6 +29,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     verifySbxEgress: config.network?.verifySbxEgress,
     topologyAttach: config.network?.topologyAttach,
     filesystemAllowWrite: config.filesystem?.allowWrite,
+    privateHostSocketDir: config.filesystem?.privateHostSocketDirs,
 
     // apiProxy.enabled is ignored — API proxy is always on (see #6207).
     // We deliberately don't map it to enableApiProxy to avoid triggering

@@ -25,6 +25,7 @@ import {
 } from '../../nvx/runtime-validation';
 import { assertProtectedCommandOutputCaptureSupported } from '../../protected-command-output-capture';
 import { assertFilesystemWritePolicyCompatibility } from '../../filesystem-policy';
+import { assertPrivateHostSocketRuntime } from '../../private-host-sockets';
 import { withEarlyStartupDiagnostics } from '../../logs/early-startup-diagnostics';
 import {
   formatCloudHypervisorDockerFallbackWarning,
@@ -98,6 +99,7 @@ export function assembleAndValidateConfig(
 
   try {
     assertProtectedCommandOutputCaptureSupported(config);
+    assertPrivateHostSocketRuntime(config);
   } catch (error) {
     logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);

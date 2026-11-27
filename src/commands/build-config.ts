@@ -209,6 +209,7 @@ function buildEnvironmentAndVolumeConfig(
     envFile: options.envFile,
     volumeMounts: inputs.volumeMounts,
     inputDirs: options.inputDir,
+    ...(options.privateHostSocketDir?.length ? { privateHostSocketDirs: options.privateHostSocketDir } : {}),
     filesystemAllowWrite: options.filesystemAllowWrite,
     containerWorkDir: options.containerWorkdir,
     proxyLogsDir: options.proxyLogsDir,

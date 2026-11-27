@@ -34,6 +34,7 @@ export interface AwfFileConfig {
   };
   filesystem?: {
     allowWrite?: string[];
+    privateHostSocketDirs?: string[];
   };
   apiProxy?: {
     copilotTokenBroker?: boolean;

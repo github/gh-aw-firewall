@@ -7,6 +7,7 @@ import { resolveRuntimeImage, validateCustomImageManifest } from './image-resolv
 import { SslConfig } from './host-env';
 import { resolveAgentHome } from './agent-home';
 import { resolveLogPaths } from './log-paths';
+import { configurePrivateHostSocketIsolation } from './private-host-sockets';
 import { redactComposeServiceEnvironment } from './compose-sanitizer';
 import { buildSquidService } from './services/squid-service';
 import { buildAgentEnvironment, buildAgentVolumes, buildAgentService } from './services/agent-service';
@@ -267,6 +268,7 @@ export function generateDockerCompose(
       internal: true,
     };
   }
+  if (includeAgent) configurePrivateHostSocketIsolation(config, agentService);
   return filterComposeCapDrop(compose);
 }
 

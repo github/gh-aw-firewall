@@ -360,6 +360,13 @@ jobs:
         env:
           JEST_TIMEOUT: 180000
 
+      - name: Run privileged private host socket isolation tests
+        if: success() || failure()
+        run: |
+          sudo env AWF_REQUIRE_PRIVATE_SOCKET_LIVE=1 "$(command -v node)" "$PWD/node_modules/jest/bin/jest.js" \
+            --config "$PWD/tests/setup/jest.integration.config.js" --runInBand \
+            --runTestsByPath "$PWD/tests/integration/private-host-sockets.test.ts"
+
       - name: Upload Jest timings
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
