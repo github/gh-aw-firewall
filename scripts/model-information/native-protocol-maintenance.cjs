@@ -108,11 +108,11 @@ function matchesReceipt(change, receipt) {
 }
 
 function isNativeProtocolReceipt(receipt) {
-  return receipt && (
-    receipt.model !== undefined ||
+  if (!receipt) return false;
+  if (receipt.protocol !== undefined && !agentProtocols.has(receipt.protocol)) return false;
+  return receipt.model !== undefined ||
     receipt.protocol !== undefined ||
-    receipt.after !== undefined
-  );
+    receipt.after !== undefined;
 }
 
 function verifyChanges(before, after, receipts, captures, sourceFile = file) {
@@ -188,35 +188,48 @@ function samePendingFact(change, item) {
     item.after === change.after;
 }
 
-function pendingChanges(before, after, current, previous, sourceFile = file) {
-  return changes(before, after, sourceFile).map(change => {
-    const matchingFacts = [...current, ...previous].filter(item => samePendingFact(change, item));
-    const seen = new Set();
-    const evidence = [];
-    for (const fact of matchingFacts) {
-      if (!Array.isArray(fact?.evidence)) continue;
-      for (const item of fact.evidence) {
-        const key = JSON.stringify(item);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        evidence.push(item);
-      }
+function samePendingProtocol(change, item) {
+  return item &&
+    item.model === change.model &&
+    item.protocol === change.protocol;
+}
+
+function collectEvidence(facts) {
+  const seen = new Set();
+  const evidence = [];
+  for (const fact of facts) {
+    if (!Array.isArray(fact?.evidence)) continue;
+    for (const item of fact.evidence) {
+      const key = JSON.stringify(item);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      evidence.push(item);
     }
-    if (!evidence.length ||
-        evidence.some(item => !item ||
-          !providerSourceIds[change.provider].has(item.source) ||
-          !approvedUrlsBySource.get(item.source)?.includes(item.url) ||
-          typeof item.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(item.sha256) ||
-          typeof item.quote !== 'string' || item.quote.trim().length < 20)) {
+  }
+  return evidence;
+}
+
+function pendingChanges(before, after, current, previous, sourceFile = file) {
+  const combined = [...current, ...previous];
+  return changes(before, after, sourceFile).map(change => {
+    const supportEvidence = collectEvidence(combined.filter(item => samePendingFact(change, item)));
+    const protocolEvidence = collectEvidence(combined.filter(item => samePendingProtocol(change, item)));
+    const evidence = change.changedFeatureProvenances.length ? protocolEvidence : supportEvidence;
+    const isValidReceipt = item => Boolean(item) &&
+      providerSourceIds[change.provider].has(item.source) &&
+      Boolean(approvedUrlsBySource.get(item.source)?.includes(item.url)) &&
+      typeof item.sha256 === 'string' && /^[0-9a-f]{64}$/.test(item.sha256) &&
+      typeof item.quote === 'string' && item.quote.trim().length >= 20;
+    if (!supportEvidence.length || !evidence.length || evidence.some(item => !isValidReceipt(item))) {
       throw new Error(`${change.model}: missing evidence for pending ${change.protocol}`);
     }
     if (change.after !== null) {
-      if (change.supportChanged && !evidence.some(item =>
+      if (change.supportChanged && !supportEvidence.some(item =>
         change.provenance?.source === item.url && change.provenance?.revision === item.sha256)) {
         throw new Error(`${change.model}: missing evidence for pending ${change.protocol}`);
       }
       for (const { provenance: featureProvenance } of change.changedFeatureProvenances) {
-        if (!evidence.some(item =>
+        if (!protocolEvidence.some(item =>
           featureProvenance?.source === item.url && featureProvenance?.revision === item.sha256)) {
           throw new Error(`${change.model}: missing evidence for pending ${change.protocol}`);
         }

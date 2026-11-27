@@ -450,6 +450,49 @@ describe('offline scheduled source maintenance', () => {
     );
     expect(sonnetPending.evidence).toHaveLength(2);
 
+    // Preserve carried feature receipts when a later refresh changes the protocol's support state.
+    write(cwd, 'shared/model-information/maintenance-report.json', json(combinedReport));
+    git(cwd, 'add', '.');
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'add sonnet feature');
+    write(evidence, 'base-revision', git(cwd, 'rev-parse', 'HEAD'));
+    const anthropicConditionalQuote = 'Claude API ID claude-sonnet-5-5 requires an account entitlement for conditional Messages access.';
+    await captureSources(evidence, async (address: string) => {
+      if (address === openaiUrl) return new Response(`<html><body>${openaiQuote}</body></html>`);
+      if (address === anthropicUrl) return new Response(`<html><body>${anthropicConditionalQuote}</body></html>`);
+      if (address.includes('/supported-models')) return new Response(`${realModels.toString('utf8')}\n<p>${copilotQuote}</p>`);
+      return fakeFetch()(address);
+    });
+    const conditionalCapture = loadCaptures(evidence).find((item: { id: string }) => item.id === 'anthropic-models');
+    const stateBefore = fs.readFileSync(path.join(cwd, nativeProtocols.file));
+    const stateAfter: any = structuredClone(sameProtoAfter);
+    stateAfter.models[1].protocols[0].support = {
+      state: 'conditional',
+      condition: 'requires account entitlement',
+      provenance: prov(anthropicUrl, conditionalCapture.sha256),
+    };
+    const stateAfterBytes = json(stateAfter);
+    write(cwd, nativeProtocols.file, stateAfterBytes);
+    write(evidence, 'proposal.json', json({
+      changes: [{
+        file: nativeProtocols.file,
+        scope: 'Anthropic claude-sonnet-5-5 conditional support',
+        summary: 'Update claude-sonnet-5-5 support to conditional while retaining feature',
+        beforeSha256: hash(stateBefore),
+        afterSha256: hash(stateAfterBytes),
+        evidence: [{
+          source: 'anthropic-models', url: anthropicUrl, model: 'anthropic/claude-sonnet-5-5',
+          protocol: 'messages', after: 'conditional', quote: anthropicConditionalQuote,
+        }],
+      }],
+    }));
+    const stateChangeReport = buildReport(cwd, evidence);
+    const conditionalPending = stateChangeReport.pendingNativeProtocolFacts.find(
+      (item: { model: string }) => item.model === 'anthropic/claude-sonnet-5-5',
+    );
+    expect(conditionalPending.after).toBe('conditional');
+    expect(conditionalPending.evidence.some((item: { sha256: string }) => item.sha256 === refreshedAnthropicCapture.sha256)).toBe(true);
+    expect(conditionalPending.evidence.some((item: { sha256: string }) => item.sha256 === conditionalCapture.sha256)).toBe(true);
+
     write(cwd, 'shared/model-information/maintenance-report.json', json({ changes: [] }));
     git(cwd, 'add', 'shared/model-information/maintenance-report.json');
     git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'drop native receipts');
@@ -494,14 +537,20 @@ describe('offline scheduled source maintenance', () => {
     write(evidence, 'proposal.json', json({
       changes: [{
         file: decisionsFile,
-        scope: 'OpenAI gpt-6-luna agent protocol',
-        summary: 'Add responses protocol on gpt-6-luna',
+        scope: 'OpenAI gpt-6-luna agent protocol and decisions',
+        summary: 'Add responses protocol on gpt-6-luna alongside decisions receipt',
         beforeSha256: hash(decisionsBefore),
         afterSha256: hash(decisionsNextBytes),
-        evidence: [{
-          source: 'openai-models', url: openaiUrl, model: 'openai/gpt-6-luna',
-          protocol: 'responses', after: 'supported', quote: openaiQuote,
-        }],
+        evidence: [
+          {
+            source: 'openai-models', url: openaiUrl, model: 'openai/gpt-6-luna',
+            protocol: 'responses', after: 'supported', quote: openaiQuote,
+          },
+          {
+            source: 'openai-decisions-sdk', model: 'openai/gpt-6-luna',
+            protocol: 'decisions', after: 'supported', quote,
+          },
+        ],
       }],
     }));
     expect(buildReport(cwd, evidence).changes[0].file).toBe(decisionsFile);

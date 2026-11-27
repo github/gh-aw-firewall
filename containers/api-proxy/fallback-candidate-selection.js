@@ -18,6 +18,7 @@ function selectFallbackCandidate(candidates, {
 }) {
   return selectNextFallbackCandidate(candidates, attempted, origin.provider, {
     isPermitted,
+    getProviderAdapter,
     getRouteRejection: candidate => getRouteRejection(candidate, { provider, origin, getProviderAdapter }),
     exclude,
     onSkip,
