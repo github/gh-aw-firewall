@@ -169,19 +169,70 @@ describe('shared diagnosis-maintenance contract', () => {
 
   it('probes runtime PR-content access once and stops on integrity denials without bypasses', () => {
     const source = read('.github/workflows/runtime-enclave-doctor-updater.md');
-    const probe = JSON.parse(source.match(/```json\n(.+)\n```/)![1]);
-    expect(probe).toEqual({
-      method: 'get_files', owner: 'github', repo: 'gh-aw-firewall', pullNumber: 11239, perPage: 5,
-    });
     for (const fragment of [
-      'Before reviewing candidates, make this single GitHub MCP access probe',
+      'Use the first candidate in `reviewQueue.firstTime`, or `reviewQueue.deferred`',
+      'when the first-time queue is empty',
+      'single GitHub MCP access probe',
+      '`pull_request_read` with `method: get_files`, `owner: github`',
+      '`repo: gh-aw-firewall`, `pullNumber: <candidate number>` and `perPage: 5`',
+      'Do not probe a historical PR outside the review queue',
+      'If both queues are empty',
+      'skip the PR-access probe and continue the required freshness/source checks',
+      'including partially filtered pages',
+      'An exit code of 0 or HTTP 200 does not prove access',
       'not review completion',
       'stop PR-content reads for the run',
       'do not retry other PRs,\nmethods or page sizes to resolve the denial',
-      'only for an attempted candidate, leaving unattempted candidates unreviewed',
-      'Call `report-incomplete` with the exact failed tool arguments',
-      'the compiled gateway version and policy',
-      'Do not claim that\nunattempted reads were individually denied',
+      'local Git history or raw\nURLs to replace denied evidence',
+      'Leave unattempted\ncandidates unreviewed and pending',
+      'never classify them from metadata',
+    ]) {
+      expect(source).toContain(fragment);
+    }
+    expect(source).not.toContain('"pullNumber":11239');
+  });
+
+  it('persists runtime probe denials as structured candidate receipts and rotates attempted deferred reviews', () => {
+    const source = read('.github/workflows/runtime-enclave-doctor-updater.md');
+    for (const fragment of [
+      'Immediately save a `needs-evidence` receipt',
+      'only for the attempted candidate',
+      'preserving previous receipts and its exact\n`updated_at`',
+      'Use its GitHub PR URL as a structured `evidence` citation',
+      'in the report, not receipt\nprose',
+      'For an attempted deferred candidate, also set `deferredAttemptedAt`',
+      'fresh UTC ISO-8601 timestamp',
+    ]) {
+      expect(source).toContain(fragment);
+    }
+  });
+
+  it('stages one deduplicated runtime evidence issue before reporting blocked work as incomplete', () => {
+    const source = read('.github/workflows/runtime-enclave-doctor-updater.md');
+    const config = yaml.load(source.split('---')[1]) as {
+      'safe-outputs': { 'create-issue': { 'title-prefix': string; max: number } };
+    };
+    expect(config['safe-outputs']['create-issue']).toMatchObject({
+      'title-prefix': '[runtime-doctor] ', max: 1,
+    });
+    for (const fragment of [
+      'Before calling `report-incomplete`, search for an open `[runtime-doctor]`',
+      'evidence-access issue matching this tool/filter/policy blocker',
+      'A closed issue\nsuch as #11665 is historical context, not an active tracker',
+      'issue exists, cite its URL; otherwise call `create-issue` once',
+      'exact\nfailed tool arguments and filter message',
+      'compiled gateway version and policy',
+      'affected finding IDs, coverage/cursors/backlog',
+      'same smallest safe probe',
+      'No open match means create the issue, not skip it',
+      'If deduplication or issue staging fails, report that additional gap',
+      'without\nclaiming publication or creating a speculative duplicate',
+      'Then immediately\ncall `report-incomplete`',
+      'existing issue URL or\nstaged proposal identity',
+      'Do not continue supplemental research or validation\nloops after the denial',
+      'substitute `noop`',
+      'A staged issue is not confirmed published',
+      'does not make\nthe blocked review complete',
     ]) {
       expect(source).toContain(fragment);
     }

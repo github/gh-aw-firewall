@@ -1,7 +1,9 @@
 'use strict';
 
-const { buildRoutingCandidates } = require('./routing-candidates');
-const { validateCapabilities, validateConversation } = require('./routing-contract');
+const { buildRoutingCandidates, resolvePrimaryRank } = require('./routing-candidates');
+const {
+  assertPlanningRequestSize, toRouteCandidates, validateCapabilities, validateConversation, validateRouteResponse,
+} = require('./routing-contract');
 const { createRoutingError, RoutingError } = require('./routing-errors');
 const { callPlannerWithRetry, runBoundedOperation } = require('./routing-planner');
 
@@ -67,6 +69,42 @@ function createRoutingStages({ signal, deadline, clock, random }) {
   return {
     runPhase,
     callPlanner,
+    async getRoute(planner, config, pool, conversation, classification) {
+      const routeRequest = {
+        objective: config.objective,
+        conversation,
+        models: toRouteCandidates(pool),
+        ...(classification === null ? {} : { classification }),
+      };
+      assertPlanningRequestSize(routeRequest);
+      deepFreezeJson(routeRequest);
+
+      let rawRoute;
+      const routeTrace = Object.freeze({
+        attributes: Object.freeze({
+          'gh_aw_router.goal': config.objective.goal,
+          'gh_aw_router.mode': config.objective.mode,
+          'gh_aw_router.classification.present': classification !== null,
+        }),
+        // Only a response that passes validation contributes a selection.
+        describeResult: response => {
+          const choice = validateRouteResponse(response, pool.choices).ranked_choices[0];
+          return {
+            'gh_aw_router.selected.model': choice.model,
+            ...(typeof choice.effort === 'string' ? { 'gh_aw_router.selected.effort': choice.effort } : {}),
+          };
+        },
+      });
+      try {
+        rawRoute = await callPlanner(({ signal: phaseSignal, timeoutMs }) =>
+          planner.route(routeRequest, { signal: phaseSignal, timeoutMs, trace: routeTrace }));
+      } catch (error) {
+        mapPlannerFailure(error, 'route');
+      }
+      const route = validateRouteResponse(rawRoute, pool.choices);
+      const resolvedTopKRank = config.topK !== undefined ? resolvePrimaryRank(route.ranked_choices, pool) : null;
+      return { route, resolvedTopKRank };
+    },
     async getCapabilities(planner, config, routerIdentity) {
       let health;
       try {

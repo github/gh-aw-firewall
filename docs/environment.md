@@ -32,6 +32,8 @@ The following are always set/overridden: `PATH` (container values).
 
 **Temporary directory:** Compose agents default `TMPDIR` to their writable,
 private `/tmp`, rather than inheriting the host value through `--env-all`.
+AWF warns when it discards a non-default host `TMPDIR`, unless an explicit
+sandbox value or `--exclude-env TMPDIR` already expresses that choice.
 The host `TMPDIR` still controls AWF's host-side temporary files. To use a
 different sandbox temp directory, set `TMPDIR` explicitly with `--env-file`
 or `--env`; that path must exist and be writable inside the sandbox.

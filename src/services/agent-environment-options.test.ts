@@ -87,6 +87,31 @@ describe('agent environment: options', () => {
   });
 
   describe('sandbox temporary directory', () => {
+    it('keeps ARC DinD Copilot session paths under the mounted handoff instead of private host TMPDIR', () => {
+      const hostTmpDir = '/tmp/gh-aw-runtime-private';
+      withEnv({ TMPDIR: hostTmpDir }, () => {
+        const result = generateDockerCompose({
+          ...mockConfig,
+          envAll: true,
+          runnerTopology: 'arc-dind',
+          dockerHostPathPrefix: '/runner',
+        }, mockNetworkConfig);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+
+        expect(env.TMPDIR).toBe('/tmp');
+        expect(path.join(env.TMPDIR, 'gh-aw', 'sandbox', 'agent', 'logs', 'copilot-session-state'))
+          .toBe('/tmp/gh-aw/sandbox/agent/logs/copilot-session-state');
+        expect(agent.volumes).toEqual(expect.arrayContaining([
+          '/runner/tmp/gh-aw:/tmp/gh-aw:rw',
+          '/runner/tmp/gh-aw:/host/tmp/gh-aw:rw',
+        ]));
+        expect((agent.volumes as string[]).some(mount => mount.includes(hostTmpDir))).toBe(false);
+        expect(agent.tmpfs).toContain('/host/tmp:rw,exec,nosuid,nodev,size=2097152k');
+        expect(process.env.TMPDIR).toBe(hostTmpDir);
+      });
+    });
+
     it.each([false, true])('defaults TMPDIR to private /tmp with envAll=%s', (envAll) => {
       withEnv({ TMPDIR: undefined }, () => {
         const result = generateDockerCompose({ ...mockConfig, envAll }, mockNetworkConfig);

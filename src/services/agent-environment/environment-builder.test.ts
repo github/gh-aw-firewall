@@ -44,6 +44,8 @@ jest.mock('./tool-specific-environment', () => ({
 
 import { logger } from '../../logger';
 import { buildCoreEnvironment } from './core-environment';
+import { buildExclusionSet } from './excluded-vars';
+import { withEnv } from '../service-test-setup.test-utils';
 
 const mockBuildCoreEnvironment = buildCoreEnvironment as jest.Mock;
 
@@ -65,10 +67,56 @@ function makeParams(overrides: Partial<AgentEnvironmentParams['config']> = {}): 
 }
 
 describe('buildAgentEnvironment', () => {
+  let originalTmpDir: string | undefined;
+
+  beforeAll(() => {
+    originalTmpDir = process.env.TMPDIR;
+    delete process.env.TMPDIR;
+  });
+
+  afterAll(() => {
+    if (originalTmpDir === undefined) {
+      delete process.env.TMPDIR;
+    } else {
+      process.env.TMPDIR = originalTmpDir;
+    }
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     // Default: core environment returns empty object
     mockBuildCoreEnvironment.mockReturnValue({});
+    jest.mocked(buildExclusionSet).mockReturnValue(new Set<string>());
+  });
+
+  describe('host TMPDIR warning', () => {
+    it.each([
+      { hostTmpDir: '/tmp/gh-aw-runtime-private', envAll: true, excluded: false, explicit: undefined, warns: true },
+      { hostTmpDir: undefined, envAll: true, excluded: false, explicit: undefined, warns: false },
+      { hostTmpDir: '', envAll: true, excluded: false, explicit: undefined, warns: false },
+      { hostTmpDir: '/tmp', envAll: true, excluded: false, explicit: undefined, warns: false },
+      { hostTmpDir: '/tmp/gh-aw-runtime-private', envAll: false, excluded: false, explicit: undefined, warns: false },
+      { hostTmpDir: '/tmp/gh-aw-runtime-private', envAll: true, excluded: true, explicit: undefined, warns: false },
+      { hostTmpDir: '/tmp/gh-aw-runtime-private', envAll: true, excluded: false, explicit: '/tmp/gh-aw/temp', warns: false },
+    ])('warns=$warns for host=$hostTmpDir, envAll=$envAll, excluded=$excluded, explicit=$explicit',
+      ({ hostTmpDir, envAll, excluded, explicit, warns }) => {
+        if (excluded) jest.mocked(buildExclusionSet).mockReturnValue(new Set(['TMPDIR']));
+        if (explicit !== undefined) mockBuildCoreEnvironment.mockReturnValue({ TMPDIR: explicit });
+
+        withEnv({ TMPDIR: hostTmpDir }, () => {
+          const result = buildAgentEnvironment(makeParams({ envAll }));
+          expect(result.TMPDIR).toBe(explicit ?? '/tmp');
+          expect(process.env.TMPDIR).toBe(hostTmpDir);
+        });
+
+        if (warns) {
+          expect(logger.warn).toHaveBeenCalledTimes(1);
+          expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Host TMPDIR is not forwarded by --env-all'));
+          expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining(hostTmpDir!));
+        } else {
+          expect(logger.warn).not.toHaveBeenCalled();
+        }
+      });
   });
 
   describe('warnLargeEnvironmentIfNeeded', () => {

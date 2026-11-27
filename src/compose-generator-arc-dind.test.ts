@@ -1,10 +1,12 @@
 import { generateDockerCompose } from './compose-generator';
 import { getRealUserHome } from './host-identity';
 import * as hostIdentity from './host-identity';
+import * as dockerHostStaging from './services/agent-volumes/docker-host-staging';
 import { spawnSync } from 'child_process';
 import { logger } from './logger';
 import { WrapperConfig } from './types';
 import { baseConfig, mockNetworkConfig } from './test-helpers/docker-test-fixtures.test-utils';
+import { withEnv } from './services/service-test-setup.test-utils';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -130,6 +132,54 @@ describe('generateDockerCompose: host-gateway IP passthrough (AWF_HOST_GATEWAY_I
 });
 
 describe('generateDockerCompose: sysroot-stage service (runner.topology = arc-dind)', () => {
+  it.each([
+    [undefined, '/tmp/gh-aw'],
+    ['/tmp', '/tmp/gh-aw'],
+    ['/host', '/host/tmp/gh-aw'],
+  ])('keeps Copilot SDK paths under the handoff with private host TMPDIR (prefix=%s)',
+    (dockerHostPathPrefix, handoffSource) => {
+      jest.spyOn(dockerHostStaging, 'stageHostFile').mockReturnValue(undefined);
+      const privateRuntime = path.join(mockConfig.workDir, 'gh-aw-runtime-private');
+      fs.mkdirSync(privateRuntime, { mode: 0o700 });
+
+      withEnv({ TMPDIR: privateRuntime, TMP: privateRuntime, TEMP: privateRuntime }, () => {
+        const agent = generateDockerCompose({
+          ...mockConfig,
+          workDir: path.join(privateRuntime, 'awf'),
+          runnerTopology: 'arc-dind',
+          dockerHostPathPrefix,
+          envAll: true,
+        }, mockNetworkConfig).services.agent;
+        const environment = agent.environment as Record<string, string>;
+        const child = spawnSync(process.execPath, ['-e', `
+          const path = require('path');
+          const agentsBaseDir = path.join(require('os').tmpdir(), 'gh-aw');
+          const defaultSessionStateBase = path.join(
+            agentsBaseDir, 'sandbox', 'agent', 'logs', 'copilot-session-state');
+          console.log(JSON.stringify({ agentsBaseDir, defaultSessionStateBase }));
+        `], {
+          env: { TMPDIR: environment.TMPDIR, TMP: environment.TMP, TEMP: environment.TEMP },
+          encoding: 'utf8',
+          timeout: 10000,
+        });
+
+        expect(child.error).toBeUndefined();
+        expect(child.status).toBe(0);
+        expect(JSON.parse(child.stdout)).toEqual({
+          agentsBaseDir: '/tmp/gh-aw',
+          defaultSessionStateBase: '/tmp/gh-aw/sandbox/agent/logs/copilot-session-state',
+        });
+        expect(agent.volumes).toEqual(expect.arrayContaining([
+          `${handoffSource}:/tmp/gh-aw:rw`,
+          `${handoffSource}:/host/tmp/gh-aw:rw`,
+        ]));
+        expect(agent.volumes?.some(volume => volume.split(':')[0].includes(privateRuntime))).toBe(false);
+        expect(process.env.TMPDIR).toBe(privateRuntime);
+        expect(fs.readdirSync(privateRuntime)).not.toContain('gh-aw');
+      });
+    },
+  );
+
   it('adds sysroot-stage service when runnerTopology is arc-dind', () => {
     const config = { ...mockConfig, runnerTopology: 'arc-dind' as const };
     const result = generateDockerCompose(config, mockNetworkConfig);
