@@ -6,7 +6,10 @@ on:
     paths:
       - '.github/workflows/test-model-routing.yml'
       - 'containers/api-proxy/Dockerfile'
+      - 'containers/api-proxy/automatic-model-eligibility.js'
+      - 'containers/api-proxy/model-information.coding-tiers.generated.json'
       - 'containers/api-proxy/routing-*'
+      - 'scripts/ci/assert-model-routing-selection.cjs'
       - 'containers/api-proxy/fixtures/routing-contract/**'
       - 'containers/api-proxy/management.js'
       - 'containers/api-proxy/guards/model-policy-guard.js'
@@ -195,7 +198,17 @@ jobs:
           SCRIPT
           )"
           sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
-            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" -- bash -euc "$ROUTED_COMMAND"
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" \
+            --proxy-logs-dir "${ROUTING_DIR}/logs" \
+            -- bash -euc "$ROUTED_COMMAND"
+          node scripts/ci/assert-model-routing-selection.cjs \
+            --file "${ROUTING_DIR}/logs/api-proxy-logs/model-routing.jsonl" \
+            --source router \
+            --provider copilot \
+            --model github-copilot/claude-haiku-5.5 \
+            --wire-model claude-haiku-5.5 \
+            --forbid-text "Reply with exactly ROUTED_OK." \
+            --label ROUTED_COPILOT_AUDIT
 
       - name: Run an effort-routed Copilot inference through AWF
         env:
@@ -316,7 +329,114 @@ jobs:
           SCRIPT
           )"
           sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
-            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" -- bash -euc "$ROUTED_COMMAND"
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" \
+            --proxy-logs-dir "${ROUTING_DIR}/logs" \
+            -- bash -euc "$ROUTED_COMMAND"
+          node scripts/ci/assert-model-routing-selection.cjs \
+            --file "${ROUTING_DIR}/logs/api-proxy-logs/model-routing.jsonl" \
+            --source router \
+            --provider copilot \
+            --model github-copilot/gpt-5.6-luna \
+            --wire-model gpt-5.6-luna \
+            --endpoint /responses \
+            --forbid-text "Reply with exactly ROUTED_OK." \
+            --label ROUTED_COPILOT_EFFORT_AUDIT
+
+      - name: Run a fallback Copilot inference through AWF
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ROUTING_DIR="${RUNNER_TEMP}/model-routing-fallback"
+          mkdir -m 700 -p "$ROUTING_DIR"
+          cat > "${ROUTING_DIR}/conversation.json" <<'JSON'
+          [{"role":"user","parts":[{"text":"Reply with exactly FALLBACK_OK."}]}]
+          JSON
+          cat > "${ROUTING_DIR}/awf-config.yml" <<YAML
+          experimental:
+            modelRouting: true
+          network:
+            allowDomains:
+              - api.githubcopilot.com
+          apiProxy:
+            enabled: true
+            allowedModels:
+              - github-copilot/claude-haiku-4.5
+            routing:
+              objective:
+                goal: cost
+                mode: balanced
+              task:
+                conversationFile: ${ROUTING_DIR}/conversation.json
+          container:
+            images:
+              agent: ${AGENT_IMAGE}
+              apiProxy: ${API_PROXY_IMAGE}
+              squid: ${SQUID_IMAGE}
+              router: ${ROUTER_IMAGE}
+          YAML
+
+          # Shortlisting only a model absent from the bundled router tables forces
+          # a healthy-router no_route fallback through the bundled coding-tiers table.
+          ROUTED_COMMAND="$(cat <<'SCRIPT'
+          set -euo pipefail
+          test -n "${COPILOT_API_URL:-}" || { echo "COPILOT_API_URL is missing" >&2; exit 1; }
+          reflect="$(curl --fail --silent --show-error --max-time 30 "${COPILOT_API_URL}/reflect")"
+          plan="$(node -e '
+            const assert = require("node:assert/strict");
+            const routing = JSON.parse(process.argv[1]).routing;
+            assert.equal(routing?.status, "selected", "/reflect did not report a fallback selection: " + JSON.stringify(routing));
+            const s = routing.selection;
+            assert.equal(s.provider, "copilot");
+            assert.equal(s.model, "github-copilot/claude-haiku-4.5");
+            assert.equal(s.wire_model, "claude-haiku-4.5");
+            assert.equal(s.effort, null);
+            assert.equal(s.endpoint, "/chat/completions");
+            console.error("FALLBACK_SELECTION=" + JSON.stringify(s));
+            console.log(JSON.stringify({
+              endpoint: s.endpoint,
+              body: {
+                model: s.wire_model,
+                messages: [{ role: "user", content: "Reply with exactly FALLBACK_OK." }],
+                max_tokens: 128,
+                stream: false,
+              },
+            }));
+          ' "$reflect")"
+          endpoint="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).endpoint)' "$plan")"
+          body="$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(process.argv[1]).body))' "$plan")"
+          response="$(curl --fail --silent --show-error --max-time 120 \
+            -H "Content-Type: application/json" \
+            --data "$body" \
+            "${COPILOT_API_URL}${endpoint}")"
+          node -e '
+            const assert = require("node:assert/strict");
+            const result = JSON.parse(process.argv[1]);
+            const text = result.choices?.[0]?.message?.content;
+            assert.equal(typeof text, "string", "Copilot response contained no message text: " + JSON.stringify(result).slice(0, 500));
+            assert.match(text, /FALLBACK_OK/, "Copilot did not return the expected fallback smoke response: " + JSON.stringify(result).slice(0, 500));
+            console.log("FALLBACK_COPILOT_INFERENCE=passed model=claude-haiku-4.5 endpoint=" + process.argv[2]);
+          ' "$response" "$endpoint"
+          SCRIPT
+          )"
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" \
+            --proxy-logs-dir "${ROUTING_DIR}/logs" \
+            -- bash -euc "$ROUTED_COMMAND"
+          node scripts/ci/assert-model-routing-selection.cjs \
+            --file "${ROUTING_DIR}/logs/api-proxy-logs/model-routing.jsonl" \
+            --source fallback \
+            --provider copilot \
+            --model github-copilot/claude-haiku-4.5 \
+            --wire-model claude-haiku-4.5 \
+            --endpoint /chat/completions \
+            --effort null \
+            --fallback-reason no_route \
+            --fallback-tier lightweight \
+            --expect-classifier-attempts 0 \
+            --expect-completed-request \
+            --forbid-text "Reply with exactly FALLBACK_OK." \
+            --label FALLBACK_COPILOT_AUDIT
 
       - name: Translate cross-endpoint Copilot sub-agent requests through AWF
         env:
@@ -572,6 +692,9 @@ jobs:
             assert.equal(selection.endpoint, reflected.endpoint);
             assert.equal(selection.selected_effort, reflected.effort);
             assert.equal(selection.selected_provider, reflected.provider);
+            assert.equal(selection.selection_source, "router");
+            assert.equal(selection.fallback_reason, null);
+            assert.equal(selection.fallback_tier, null);
             assert.equal(selection.conversation_sha256, digest);
             assert.deepEqual(selection.objective, { goal: "cost", mode: "balanced" });
             assert.equal(selection.provider, "copilot");
@@ -752,7 +875,15 @@ jobs:
           SCRIPT
           )"
           sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
-            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" -- bash -euc "$ROUTED_COMMAND"
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" \
+            --proxy-logs-dir "${ROUTING_DIR}/logs" \
+            -- bash -euc "$ROUTED_COMMAND"
+          node scripts/ci/assert-model-routing-selection.cjs \
+            --file "${ROUTING_DIR}/logs/api-proxy-logs/model-routing.jsonl" \
+            --source router \
+            --provider copilot \
+            --forbid-text "Reply with exactly ROUTED_OK." \
+            --label ROUTED_COPILOT_CLI_AUDIT
 
       - name: Show Docker state on failure
         if: failure()
@@ -941,8 +1072,17 @@ jobs:
           )"
           sudo --preserve-env=OPENAI_API_KEY,ANTHROPIC_API_KEY,ROUTING_PROVIDER,ROUTING_MODEL,ROUTING_WIRE_MODEL,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
             node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" \
+            --proxy-logs-dir "${ROUTING_DIR}/logs" \
             --env ROUTING_PROVIDER="${ROUTING_PROVIDER}" --env ROUTING_MODEL="${ROUTING_MODEL}" --env ROUTING_WIRE_MODEL="${ROUTING_WIRE_MODEL}" \
             -- bash -euc "$ROUTED_COMMAND"
+          node scripts/ci/assert-model-routing-selection.cjs \
+            --file "${ROUTING_DIR}/logs/api-proxy-logs/model-routing.jsonl" \
+            --source router \
+            --provider "${ROUTING_PROVIDER}" \
+            --model "${ROUTING_MODEL}" \
+            --wire-model "${ROUTING_WIRE_MODEL}" \
+            --forbid-text "Reply with exactly ROUTED_OK." \
+            --label "ROUTED_NATIVE_${ROUTING_PROVIDER}_AUDIT"
 
       - name: Show Docker state on failure
         if: failure()
