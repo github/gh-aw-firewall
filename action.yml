@@ -74,12 +74,27 @@ runs:
           local bundle_args=()
           if [ "$PUBLIC_GITHUB" = false ]; then
             local bundle="$INSTALL_DIR/attestation-bundle.jsonl"
+            local records="$INSTALL_DIR/attestation-records.jsonl"
+            local record url
             # Public github.com attestations must not receive an enterprise token.
             if ! curl -q -fsSL "https://api.github.com/repos/${REPO}/attestations/sha256:$(sha256sum "$1" | awk '{print $1}')" \
-                | jq -ce '.attestations | if length > 0 then .[].bundle else error("No attestations found") end' > "$bundle"; then
+                | jq -ce '.attestations | if type == "array" and length > 0 then .[] | if (.bundle | type) == "object" or ((.bundle_url | type) == "string" and (.bundle_url | startswith("https://"))) then . else error("Invalid attestation") end else error("No attestations found") end' > "$records"; then
               echo "::error::Release provenance lookup failed for $(basename "$1"); refusing installation"
               exit 1
             fi
+            : > "$bundle"
+            while IFS= read -r record; do
+              if [ "$(jq -r '.bundle | type' <<< "$record")" = object ]; then
+                jq -c '.bundle' <<< "$record" >> "$bundle"
+              else
+                url=$(jq -r '.bundle_url' <<< "$record")
+                if ! curl -q -fsSL --proto '=https' --proto-redir '=https' -- "$url" \
+                    | jq -sce 'if length == 1 and (.[0] | type) == "object" then .[0] else error("Invalid bundle") end' >> "$bundle"; then
+                  echo "::error::Release provenance lookup failed for $(basename "$1"); refusing installation"
+                  exit 1
+                fi
+              fi
+            done < "$records"
             bundle_args=(--bundle "$bundle")
             unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
             export GH_HOST=github.com
@@ -107,6 +122,10 @@ runs:
 
         # Build auth headers for GitHub API (Bearer is the recommended format for GITHUB_TOKEN)
         AUTH_HEADER=()
+        CURL_CONFIG=()
+        if [ "$PUBLIC_GITHUB" = false ]; then
+          CURL_CONFIG=(-q)
+        fi
         if [ "$PUBLIC_GITHUB" = true ] && [ -n "${GITHUB_TOKEN:-}" ]; then
           AUTH_HEADER=(-H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
         fi
@@ -125,11 +144,11 @@ runs:
           # Fall back to curl with GitHub API
           if [ -z "${VERSION:-}" ] || [ "$VERSION" = "null" ]; then
             if command -v jq &> /dev/null; then
-              if ! VERSION=$(curl -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | jq -r '.tag_name'); then
+              if ! VERSION=$(curl "${CURL_CONFIG[@]}" -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | jq -r '.tag_name'); then
                 VERSION=""
               fi
             else
-              if ! VERSION=$(curl -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'); then
+              if ! VERSION=$(curl "${CURL_CONFIG[@]}" -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'); then
                 VERSION=""
               fi
             fi

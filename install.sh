@@ -330,12 +330,27 @@ verify_provenance() (
     local bundle_args=()
     if [ "${GITHUB_SERVER_URL:-https://github.com}" != "https://github.com" ]; then
         local bundle="$TEMP_DIR/attestation-bundle.jsonl"
+        local records="$TEMP_DIR/attestation-records.jsonl"
+        local record url
         # Public github.com attestations must not receive an enterprise token.
         if ! curl -q -fsSL "https://api.github.com/repos/${REPO}/attestations/sha256:$(sha256_portable "$asset")" \
-            | jq -ce '.attestations | if length > 0 then .[].bundle else error("No attestations found") end' > "$bundle"; then
+            | jq -ce '.attestations | if type == "array" and length > 0 then .[] | if (.bundle | type) == "object" or ((.bundle_url | type) == "string" and (.bundle_url | startswith("https://"))) then . else error("Invalid attestation") end else error("No attestations found") end' > "$records"; then
             error "Release provenance lookup failed for $(basename "$asset"); refusing installation"
             exit 1
         fi
+        : > "$bundle"
+        while IFS= read -r record; do
+            if [ "$(jq -r '.bundle | type' <<< "$record")" = object ]; then
+                jq -c '.bundle' <<< "$record" >> "$bundle"
+            else
+                url=$(jq -r '.bundle_url' <<< "$record")
+                if ! curl -q -fsSL --proto '=https' --proto-redir '=https' -- "$url" \
+                    | jq -sce 'if length == 1 and (.[0] | type) == "object" then .[0] else error("Invalid bundle") end' >> "$bundle"; then
+                    error "Release provenance lookup failed for $(basename "$asset"); refusing installation"
+                    exit 1
+                fi
+            fi
+        done < "$records"
         bundle_args=(--bundle "$bundle")
         unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
         export GH_HOST=github.com

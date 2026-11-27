@@ -13,7 +13,7 @@ For self-hosted runners, including ARC/DinD, also allow the
 even with a cached CLI. Enterprise inference endpoint configuration does not
 redirect this installer request; see the linked GHES caveat and cooldown guidance.
 
-### Public release verification during installation
+## Public release verification during installation
 
 AWF releases and their attestations are hosted on public `github.com`, not on
 your enterprise host. When `GITHUB_SERVER_URL` differs from `https://github.com`,
