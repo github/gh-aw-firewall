@@ -48,7 +48,7 @@ test('smoke chroot pre-agent cleanup preserves workflow prompts and test results
   }
 });
 
-test.each([false, true])('smoke chroot compares tagged command output, not build logs (node failure: %s)', nodeFails => {
+test.each(['none', 'node', 'go'])('smoke chroot compares tagged command output, not build logs (failing: %s)', failing => {
   const source = fs.readFileSync(path.join(root, '.github/workflows/smoke-chroot.md'), 'utf8');
   const smoke = yaml.load(source.split('---')[1]) as { steps: Step[] };
   const script = smoke.steps.find(step => step.name === 'Run chroot version tests')!.run!;
@@ -60,6 +60,7 @@ test.each([false, true])('smoke chroot compares tagged command output, not build
   try {
     fs.writeFileSync(path.join(temp, 'host-versions.env'),
       "HOST_PYTHON_VERSION='Python 3.12.16'\nHOST_NODE_VERSION='v24.22.3'\nHOST_GO_VERSION='go version go1.22.12 linux/amd64'\n");
+    // Mirrors real "printf SENTINEL=; <tool> --version" output, including "go version goX.Y.Z os/arch".
     const result = spawnSync('/bin/bash', ['-eo', 'pipefail', '-c', `
       go() { echo /opt/go; }
       awf() {
@@ -67,20 +68,30 @@ test.each([false, true])('smoke chroot compares tagged command output, not build
         case "$*" in
           *AWF_PYTHON_VERSION*) echo 'AWF_PYTHON_VERSION=Python 3.12.16' ;;
           *AWF_NODE_VERSION*)
-            if [ "$NODE_FAILS" = true ]; then return 42; fi
+            if [ "$FAILING" = node ]; then echo 'node: raw node failure' >&2; return 42; fi
             echo 'AWF_NODE_VERSION=v24.22.3' ;;
-          *AWF_GO_VERSION*) echo 'AWF_GO_VERSION=go1.22.12 linux/amd64' ;;
+          *AWF_GO_VERSION*)
+            if [ "$FAILING" = go ]; then echo 'AWF_GO_VERSION=go: raw go failure'; return 0; fi
+            echo 'AWF_GO_VERSION=go version go1.22.12 linux/amd64' ;;
           *) return 1 ;;
         esac
       }
       ${script.replace(/\/tmp\/gh-aw\/chroot-test/g, temp)}
-    `], { encoding: 'utf8', env: { ...process.env, NODE_FAILS: String(nodeFails) } });
+    `], { encoding: 'utf8', env: { ...process.env, FAILING: failing } });
+    expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
     const results = fs.readFileSync(path.join(temp, 'results.env'), 'utf8');
-    expect(results).toContain(`NODE_MATCH=${nodeFails ? 'NO' : 'YES'}`);
-    expect(results).toContain(`ALL_TESTS_PASSED=${!nodeFails}`);
     expect(results).toContain('PYTHON_MATCH=YES');
-    expect(results).toContain('GO_MATCH=YES');
+    expect(results).toContain(`NODE_MATCH=${failing === 'node' ? 'NO' : 'YES'}`);
+    expect(results).toContain(`GO_MATCH=${failing === 'go' ? 'NO' : 'YES'}`);
+    expect(results).toContain(`CHROOT_GO_NUM=${failing === 'go' ? 'FAILED' : 'go1.22.12'}`);
+    expect(results).toContain(`ALL_TESTS_PASSED=${failing === 'none'}`);
+    if (failing === 'none') {
+      expect(result.stdout).not.toContain('::group::Raw');
+    } else {
+      expect(result.stdout).toContain(`::group::Raw ${failing} chroot output`);
+      expect(result.stdout).toContain(`raw ${failing} failure`);
+    }
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }
