@@ -99,17 +99,30 @@ steps:
       # Capture GOROOT for chroot tests
       export GOROOT=$(go env GOROOT)
 
+      # Keep raw awf output so FAILED results can be diagnosed from the step log.
+      RAW_DIR=/tmp/gh-aw/chroot-test
+      show_raw_on_failure() {
+        if [ "$2" = "FAILED" ]; then
+          echo "::group::Raw $1 chroot output (last 200 lines)"
+          tail -n 200 "$RAW_DIR/$1-raw.log" || true
+          echo "::endgroup::"
+        fi
+      }
+
       # Test Python version in chroot
       echo "Testing Python..."
-      CHROOT_PYTHON=$(awf --build-local --allow-domains localhost -- sh -c 'printf "AWF_PYTHON_VERSION="; python3 --version' 2>&1 | grep -oP '^AWF_PYTHON_VERSION=\KPython \d+\.\d+\.\d+$') || CHROOT_PYTHON="FAILED"
+      CHROOT_PYTHON=$(awf --build-local --allow-domains localhost -- sh -c 'printf "AWF_PYTHON_VERSION="; python3 --version' > "$RAW_DIR/python-raw.log" 2>&1 && grep -oP '^AWF_PYTHON_VERSION=\KPython \d+\.\d+\.\d+$' "$RAW_DIR/python-raw.log") || CHROOT_PYTHON="FAILED"
+      show_raw_on_failure python "$CHROOT_PYTHON"
 
       # Test Node version in chroot
       echo "Testing Node..."
-      CHROOT_NODE=$(awf --build-local --allow-domains localhost -- sh -c 'printf "AWF_NODE_VERSION="; node --version' 2>&1 | grep -oP '^AWF_NODE_VERSION=\Kv\d+\.\d+\.\d+$') || CHROOT_NODE="FAILED"
+      CHROOT_NODE=$(awf --build-local --allow-domains localhost -- sh -c 'printf "AWF_NODE_VERSION="; node --version' > "$RAW_DIR/node-raw.log" 2>&1 && grep -oP '^AWF_NODE_VERSION=\Kv\d+\.\d+\.\d+$' "$RAW_DIR/node-raw.log") || CHROOT_NODE="FAILED"
+      show_raw_on_failure node "$CHROOT_NODE"
 
-      # Test Go version in chroot
+      # Test Go version in chroot ("go version" prints "go version goX.Y.Z os/arch")
       echo "Testing Go..."
-      CHROOT_GO=$(awf --build-local --allow-domains localhost -- sh -c 'printf "AWF_GO_VERSION="; go version' 2>&1 | grep -oP '^AWF_GO_VERSION=\Kgo\d+\.\d+(\.\d+)?(?= |$)') || CHROOT_GO="FAILED"
+      CHROOT_GO=$(awf --build-local --allow-domains localhost -- sh -c 'printf "AWF_GO_VERSION="; go version' > "$RAW_DIR/go-raw.log" 2>&1 && grep -oP '^AWF_GO_VERSION=go version \Kgo\d+\.\d+(\.\d+)?(?= |$)' "$RAW_DIR/go-raw.log") || CHROOT_GO="FAILED"
+      show_raw_on_failure go "$CHROOT_GO"
 
       # Save chroot versions
       {
