@@ -1,7 +1,7 @@
 'use strict';
 
 const { createRoutingError } = require('./routing-errors');
-const { lookupModelEndpoints, lookupModelRoutingMetadata } = require('./model-api-mapping');
+const { lookupExactModelEndpoints, lookupModelRoutingMetadata } = require('./model-api-mapping');
 const { resolveModelReasoning, pinModelReasoning, NATIVE_PROVIDER_HOSTS } = require('./model-reasoning');
 const { isAutomaticModelEligible } = require('./automatic-model-eligibility');
 
@@ -55,11 +55,23 @@ function freezeModel(model) {
   return Object.freeze(model);
 }
 
+function isNativeMaintainedEndpointScope(provider, scope) {
+  if (scope?.deployment !== undefined) return false;
+  if (provider === 'copilot') {
+    return scope?.channel === undefined || scope.channel === 'copilot-api';
+  }
+  return scope?.channel === undefined || scope.channel === 'native-api';
+}
+
 function normalizeModel(id, metadata, provider, scope, records, reasoningOptions) {
   const mapped = scope?.deployment === undefined &&
     (scope?.channel === undefined || scope.channel === 'native-api')
     ? lookupModelRoutingMetadata(id, provider) : null;
-  const endpointMapping = lookupModelEndpoints(id, provider);
+  // Automatic routing catalogues require affirmative exact provider-qualified
+  // protocol facts in native scope when live provider endpoint metadata is absent.
+  const endpointMapping = isNativeMaintainedEndpointScope(provider, scope)
+    ? lookupExactModelEndpoints(id, provider)
+    : null;
   const limits = metadata?.capabilities?.limits;
   const { scope: reasoningScope = scope, maintained } = reasoningOptions || {};
   const reasoning = resolveModelReasoning(id, provider, {
@@ -155,6 +167,7 @@ module.exports = {
   createRoutingCatalogue,
   hasLiveEndpointMetadata,
   isNativeAdapter,
+  isNativeMaintainedEndpointScope,
   normalizeModel,
   recognizeAgentEndpointProtocol,
 };

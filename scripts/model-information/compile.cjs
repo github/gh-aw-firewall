@@ -169,7 +169,13 @@ function compile() {
   // Join only governed pricing; never overlay one maintained record on another.
   const assembled = new Map(imported.models.map(model => [model.identity.key, model]));
   for (const model of models) {
-    const existing = assembled.get(model.identity.key);
+    const existing = assembled.get(model.identity.key) ||
+      [...assembled.values()].find(item => item.provenance.authority === 'imported' &&
+        item.identity.provider === model.identity.provider &&
+        item.identity.lookupId === model.identity.lookupId);
+    if (existing && existing.identity.key !== model.identity.key) {
+      assembled.delete(existing.identity.key);
+    }
     assembled.set(model.identity.key, {
       ...model,
       ...(existing?.importedPricing ? { importedPricing: existing.importedPricing } : {}),
@@ -282,13 +288,17 @@ function compile() {
     .map(model => [model.identity.key, structuredClone(model)]));
   const targetModel = (provider, rawId) => {
     const id = identity(provider, rawId);
-    if (provider === 'copilot' && !targetModels.has(id.key)) {
+    if (!targetModels.has(id.key)) {
       const existing = [...targetModels.values()].find(model =>
         model.identity.provider === provider && model.identity.lookupId === id.lookupId);
       if (existing) {
-        targetModels.delete(existing.identity.key);
-        existing.identity = id;
-        targetModels.set(id.key, existing);
+        if (provider === 'copilot') {
+          targetModels.delete(existing.identity.key);
+          existing.identity = id;
+          targetModels.set(id.key, existing);
+        } else {
+          return existing;
+        }
       }
     }
     if (!targetModels.has(id.key)) targetModels.set(id.key, {

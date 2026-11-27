@@ -69,6 +69,21 @@
       ]
     },
     {
+      "lookupId": "claude-haiku-4-5-20251001",
+      "codingTier": "lightweight",
+      "releaseDate": "2025-10-15",
+      "evidence": [
+        {
+          "url": "https://platform.claude.com/docs/en/models/haiku-4-5/overview",
+          "quote": "Legacy. Released October 15, 2025. Model ID: claude-haiku-4-5-20251001"
+        },
+        {
+          "url": "https://docs.github.com/en/copilot/reference/ai-models/model-comparison",
+          "quote": "Balances fast responses with quality output. Ideal for small tasks and lightweight code explanations."
+        }
+      ]
+    },
+    {
       "lookupId": "claude-haiku-5-5",
       "codingTier": "lightweight",
       "releaseDate": "2026-10-07",

@@ -64,15 +64,6 @@ function coverage(cwd, directory, text) {
     if (entries.has(id)) ids.add(id);
     else if (!copilot.has(id)) gaps.push({ displayName: name, missing: ['confirmed routable ID'] });
   }
-  const { providers } = read('shared/model-information/sources/mapping.json').mapping;
-  for (const provider of ['openai', 'anthropic']) {
-    for (const model of providers[provider].models) {
-      if (!model.endpoints.some(endpoint => agentProtocols.has(endpoint))) continue;
-      for (const id of [...model.patterns, ...(model.routingPatterns || [])]) {
-        if (exactId.test(id) && !retired.has(`${provider}/${lookup(id)}`)) ids.add(lookup(id));
-      }
-    }
-  }
   for (const lookupId of [...new Set([...seed, ...ids])].sort()) {
     const missing = fields.filter(field => !entries.get(lookupId)?.[field]);
     if (missing.length) gaps.push({ lookupId, missing });

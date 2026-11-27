@@ -15,6 +15,10 @@
     "tier": "lightweight",
     "releaseDate": "2025-10-15"
   },
+  "claude-haiku-4-5-20251001": {
+    "tier": "lightweight",
+    "releaseDate": "2025-10-15"
+  },
   "claude-haiku-5-5": {
     "tier": "lightweight",
     "releaseDate": "2026-10-07"

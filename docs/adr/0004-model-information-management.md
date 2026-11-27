@@ -408,6 +408,24 @@ migrated, but each rejection must eventually correspond to a declared feature
 requirement. AWF continues to reject lossy translation rather than dropping
 request fields.
 
+Automatic selection on native providers (OpenAI and Anthropic), covering both
+router-ranked selection and fallback, requires affirmative exact
+`(provider, model ID, protocol)` evidence projected into `modelProtocols` from
+canonical maintained records (`shared/model-information/sources/native-protocols.json`
+and `shared/model-information/sources/decisions.json`). Neither family wildcard
+patterns nor `routingPatterns` reasoning/context entries may grant endpoint
+eligibility during automatic selection, and a model with an exact record for one
+endpoint does not inherit additional endpoints from a matching family wildcard.
+Copilot's live `/models` endpoints never vouch for OpenAI or Anthropic native
+APIs; each native provider's protocol facts come solely from that provider's own
+official model documentation and are kept current by the Model source
+maintenance workflow with provider-scoped quoted-evidence checks. Family
+patterns in `mapping.json` continue to resolve models that a workflow names
+explicitly (`model: openai/...` or `model: anthropic/...`). Because these
+records use the existing canonical `protocols` field, `schema.v1.json` and
+published v1 and v2 catalogue snapshots remain compatible with released AWF
+readers.
+
 ### Pricing
 
 Pricing is provider- and channel-scoped. A tariff contains:

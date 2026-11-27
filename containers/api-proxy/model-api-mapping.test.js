@@ -1,7 +1,14 @@
 'use strict';
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
 const {
   matchesGlobPattern,
+  hasExactModelEndpointEvidence,
+  isFamilyPatternOnlyEndpoint,
+  lookupExactModelEndpoints,
   lookupModelEndpoints,
   lookupModelProtocol,
   lookupModelRoutingMetadata,
@@ -234,6 +241,88 @@ describe('model-api-mapping', () => {
           contextWindowTokens: 1_050_000,
         });
       expect(reflect.error).toBeNull();
+    });
+  });
+
+  describe('lookupExactModelEndpoints', () => {
+    it('returns exact affirmative modelProtocols without inheriting family patterns or routingPatterns', () => {
+      const mapping = require('./model-api-mapping.json');
+      for (const [provider, id] of [
+        ['openai', 'gpt-5.4'],
+        ['openai', 'gpt-5.3-codex'],
+        ['anthropic', 'claude-opus-5-5'],
+      ]) {
+        const expected = mapping.providers[provider].modelProtocols[id]
+          .filter(item => item.support.state === 'supported')
+          .map(item => item.protocol);
+        expect(expected.length).toBeGreaterThan(0);
+        expect(lookupExactModelEndpoints(id, provider)).toMatchObject({
+          family: id,
+          endpoints: expected,
+        });
+      }
+      // Explicit requests still resolve through family wildcards, while exact lookup rejects them.
+      expect(lookupModelEndpoints('gpt-4o-transcribe', 'openai')).toMatchObject({
+        family: 'gpt-4o',
+        endpoints: ['chat_completions', 'responses'],
+      });
+      expect(lookupExactModelEndpoints('gpt-4o-transcribe', 'openai')).toBeNull();
+      expect(hasExactModelEndpointEvidence('gpt-4o-transcribe', 'openai')).toBe(false);
+      expect(isFamilyPatternOnlyEndpoint('gpt-4o-transcribe', 'openai')).toBe(true);
+      expect(lookupExactModelEndpoints('gpt-5.4')).toBeNull();
+    });
+
+    it('never leaks wildcard endpoints into exact lookup for mixed exact-plus-wildcard or routingPatterns-only models', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-exact-mapping-'));
+      const mappingPath = path.join(dir, 'mapping.json');
+      fs.writeFileSync(mappingPath, JSON.stringify({
+        lastUpdated: '2026-11-27T00:00:00Z',
+        providers: {
+          openai: {
+            endpoints: {
+              chat_completions: { path: '/v1/chat/completions' },
+              responses: { path: '/v1/responses' },
+            },
+            models: [{
+              family: 'gpt-5.4',
+              patterns: ['gpt-5.4*'],
+              routingPatterns: ['gpt-5.4-routing-only', 'gpt-5.4-chat-only'],
+              endpoints: ['chat_completions', 'responses'],
+              routing: {
+                reasoningEfforts: ['low', 'medium', 'high'],
+                contextWindowTokens: 1_050_000,
+              },
+            }],
+            modelProtocols: {
+              'gpt-5.4-chat-only': [
+                { protocol: 'chat_completions', support: { state: 'supported' } },
+              ],
+            },
+          },
+        },
+      }));
+      const prevEnv = process.env.AWF_MODEL_API_MAPPING_PATH;
+      process.env.AWF_MODEL_API_MAPPING_PATH = mappingPath;
+      try {
+        jest.isolateModules(() => {
+          const isolated = require('./model-api-mapping');
+          // routingPatterns-only model has no exact protocol fact.
+          expect(isolated.lookupExactModelEndpoints('gpt-5.4-routing-only', 'openai')).toBeNull();
+          expect(isolated.hasExactModelEndpointEvidence('gpt-5.4-routing-only', 'openai')).toBe(false);
+          expect(isolated.lookupModelEndpoints('gpt-5.4-routing-only', 'openai').endpoints)
+            .toEqual(['chat_completions', 'responses']);
+          // Mixed exact + wildcard: exact lookup admits ONLY chat_completions, while explicit lookup keeps both.
+          expect(isolated.lookupExactModelEndpoints('gpt-5.4-chat-only', 'openai')).toMatchObject({
+            endpoints: ['chat_completions'],
+          });
+          expect(isolated.lookupModelEndpoints('gpt-5.4-chat-only', 'openai').endpoints)
+            .toEqual(['chat_completions', 'responses']);
+        });
+      } finally {
+        if (prevEnv === undefined) delete process.env.AWF_MODEL_API_MAPPING_PATH;
+        else process.env.AWF_MODEL_API_MAPPING_PATH = prevEnv;
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
     });
   });
 });

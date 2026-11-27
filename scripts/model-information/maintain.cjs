@@ -8,6 +8,7 @@ const { execFileSync } = require('node:child_process');
 const approvedSources = require('./maintenance-sources.json');
 const copilotPricing = require('./copilot-pricing.cjs');
 const codingTiers = require('./coding-tier-maintenance.cjs');
+const nativeProtocols = require('./native-protocol-maintenance.cjs');
 
 const root = path.resolve(__dirname, '../..');
 const reportFile = 'shared/model-information/maintenance-report.json';
@@ -637,6 +638,7 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
   const claims = fs.existsSync(claimsPath) ? read(claimsPath).changes : [];
   let verifiedCopilotPlan;
   let tierEdits = [];
+  const nativeProtocolEditsByFile = new Map();
   const changes = [];
   for (const file of changed.filter(file => canonical(file) && !ignoredRestored.has(file))) {
     // Canonical inputs must already exist: adding a new source format needs a separate review.
@@ -680,9 +682,13 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
             !fs.readFileSync(path.join(directory, `${capture.id}.txt`), 'utf8').includes(evidence.quote)) {
           throw new Error(`${file}: unsupported evidence quote from ${evidence.source}`);
         }
-        if (file === codingTiers.file) {
-          tierEdits = codingTiers.verifyChanges(before, after, claim.evidence, captures);
-        }
+      }
+      if (file === codingTiers.file) {
+        tierEdits = codingTiers.verifyChanges(before, after, claim.evidence, captures);
+      }
+      if (file === nativeProtocols.file || Array.isArray(before?.models) || Array.isArray(after?.models)) {
+        const edits = nativeProtocols.verifyChanges(before, after, claim.evidence, captures, file);
+        if (edits.length) nativeProtocolEditsByFile.set(file, edits);
       }
       if (claim.generator === 'copilot-pricing-v1') {
         verifiedCopilotPlan ||= copilotPlan(cwd, directory, captures, base);
@@ -752,6 +758,25 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
       ? JSON.parse(git(cwd, 'show', `${base}:${reportFile}`)).pendingCodingTierFacts || [] : [];
     pendingCodingTierFacts = codingTiers.pendingChanges(original, read(path.join(cwd, codingTiers.file)), tierEdits, previous);
   }
+  const pendingNativeFiles = new Set([
+    ...nativeProtocolEditsByFile.keys(),
+    ...(pendingSourceChanges || []).map(change => change.file).filter(file =>
+      file === nativeProtocols.file ||
+      (hasGitObject(cwd, `${mergeBase}:${file}`) && Array.isArray(JSON.parse(git(cwd, 'show', `${mergeBase}:${file}`))?.models))),
+  ]);
+  const pendingNativeProtocolFacts = [];
+  if (pendingNativeFiles.size) {
+    const previousNative = mergeBase !== base && hasGitObject(cwd, `${base}:${reportFile}`)
+      ? JSON.parse(git(cwd, 'show', `${base}:${reportFile}`)).pendingNativeProtocolFacts || [] : [];
+    for (const file of [...pendingNativeFiles].sort()) {
+      const original = hasGitObject(cwd, `${mergeBase}:${file}`)
+        ? JSON.parse(git(cwd, 'show', `${mergeBase}:${file}`)) : { models: [] };
+      const current = fs.existsSync(path.join(cwd, file)) ? read(path.join(cwd, file)) : { models: [] };
+      pendingNativeProtocolFacts.push(
+        ...nativeProtocols.pendingChanges(original, current, nativeProtocolEditsByFile.get(file) || [], previousNative, file),
+      );
+    }
+  }
   return {
     schemaVersion: 1, status: 'proposed-awaiting-human-review', baseRevision: git(cwd, 'rev-parse', base).trim(),
     reviewBaseRevision: git(cwd, 'rev-parse', reviewBase).trim(),
@@ -759,6 +784,7 @@ function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {
     ...(pendingSourceChanges ? { pendingSourceChanges } : {}),
     codingTierGaps: codingTiers.coverage(cwd, directory, documentText),
     ...(pendingCodingTierFacts.length ? { pendingCodingTierFacts } : {}),
+    ...(pendingNativeProtocolFacts.length ? { pendingNativeProtocolFacts } : {}),
     runtimeConsumerEffects: runtimeConsumerEffects(cwd, base),
     backendScopedFallbackEffects: backendScopedFallbackConsumerEffects(cwd, base),
     importedMedianEstimateEffects: importImpactEffects(cwd, base, importedMedianEffects),
@@ -782,10 +808,25 @@ function checkPendingTierFacts(cwd, base, reviewBase) {
   if (![base, mergeBase].every(rev => hasGitObject(cwd, `${rev}:${codingTiers.file}`))) {
     throw new Error('The pending branch or its merge base predates the coding tier catalogue');
   }
+  if (![base, mergeBase].every(rev => hasGitObject(cwd, `${rev}:${nativeProtocols.file}`))) {
+    throw new Error('The pending branch or its merge base predates the native protocol catalogue');
+  }
   const sourceAt = rev => JSON.parse(git(cwd, 'show', `${rev}:${codingTiers.file}`));
-  const previous = hasGitObject(cwd, `${base}:${reportFile}`)
-    ? JSON.parse(git(cwd, 'show', `${base}:${reportFile}`)).pendingCodingTierFacts || [] : [];
-  codingTiers.pendingChanges(sourceAt(mergeBase), sourceAt(base), [], previous);
+  const baseReport = hasGitObject(cwd, `${base}:${reportFile}`)
+    ? JSON.parse(git(cwd, 'show', `${base}:${reportFile}`)) : {};
+  codingTiers.pendingChanges(sourceAt(mergeBase), sourceAt(base), [], baseReport.pendingCodingTierFacts || []);
+  const pendingNativeFiles = git(cwd, 'diff', '--name-only', mergeBase, base).trim().split('\n')
+    .filter(file => canonical(file) && (
+      file === nativeProtocols.file ||
+      (hasGitObject(cwd, `${mergeBase}:${file}`) && Array.isArray(JSON.parse(git(cwd, 'show', `${mergeBase}:${file}`))?.models))
+    )).sort();
+  for (const file of pendingNativeFiles) {
+    const beforeDoc = hasGitObject(cwd, `${mergeBase}:${file}`)
+      ? JSON.parse(git(cwd, 'show', `${mergeBase}:${file}`)) : { models: [] };
+    const afterDoc = hasGitObject(cwd, `${base}:${file}`)
+      ? JSON.parse(git(cwd, 'show', `${base}:${file}`)) : { models: [] };
+    nativeProtocols.pendingChanges(beforeDoc, afterDoc, [], baseReport.pendingNativeProtocolFacts || [], file);
+  }
 }
 
 function selectPullRequest(pulls) {

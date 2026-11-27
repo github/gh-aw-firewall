@@ -497,7 +497,369 @@
         }
       ],
       "modelProtocols": {
+        "gpt-5.3-codex": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "unsupported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.3-codex.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.3-codex.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "gpt-5.4": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.4.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.4.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "gpt-5.4-2026-03-05": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.4.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.4.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "gpt-5.4-mini": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.4-mini.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.4-mini.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "gpt-5.4-mini-2026-03-17": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.4-mini.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.4-mini.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "gpt-5.4-nano": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.4-nano.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.4-nano.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "gpt-5.5": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.5.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.5.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "gpt-5.6": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "gpt-5.6-luna": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "gpt-5.6-sol": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "gpt-5.6-terra": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.6-terra.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-5.6-terra.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "gpt-6-astra": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-6-astra.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-6-astra.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
         "gpt-6-luna": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-6-luna.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-6-luna.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
           {
             "protocol": "decisions",
             "support": {
@@ -642,6 +1004,146 @@
                   "at": "2026-11-25T12:34:05.105Z",
                   "confidence": "verified"
                 }
+              }
+            }
+          }
+        ],
+        "gpt-6-sol": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-6-sol.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-6-sol.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "gpt-6.1-sol": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-6.1-sol.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-6.1-sol.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "gpt-6.1-terra": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-6.1-terra.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-6.1-terra.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "gpt-6.2-astra": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-6.2-astra.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-6.2-astra.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "gpt-6.2-sol": [
+          {
+            "protocol": "chat_completions",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-6.2-sol.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          },
+          {
+            "protocol": "responses",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://developers.openai.com/api/docs/models/gpt-6.2-sol.md",
+                "revision": "openai-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
               }
             }
           }
@@ -968,7 +1470,264 @@
           ],
           "notes": "Previous generation. 200K token context."
         }
-      ]
+      ],
+      "modelProtocols": {
+        "claude-fable-5": [
+          {
+            "protocol": "messages",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+                "revision": "anthropic-models-overview-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "claude-fable-5-1": [
+          {
+            "protocol": "messages",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+                "revision": "anthropic-models-overview-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "claude-fable-5-2": [
+          {
+            "protocol": "messages",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+                "revision": "anthropic-models-overview-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "claude-haiku-4-5": [
+          {
+            "protocol": "messages",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+                "revision": "anthropic-models-overview-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "claude-haiku-4-5-20251001": [
+          {
+            "protocol": "messages",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://platform.claude.com/docs/en/models/haiku-4-5/overview",
+                "revision": "anthropic-model-page-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "claude-haiku-5-5": [
+          {
+            "protocol": "messages",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+                "revision": "anthropic-models-overview-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "claude-mythos-5": [
+          {
+            "protocol": "messages",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+                "revision": "anthropic-models-overview-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "claude-mythos-5-1": [
+          {
+            "protocol": "messages",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+                "revision": "anthropic-models-overview-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "claude-mythos-preview": [
+          {
+            "protocol": "messages",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+                "revision": "anthropic-deprecations-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "claude-opus-4-6": [
+          {
+            "protocol": "messages",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+                "revision": "anthropic-models-overview-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "claude-opus-4-7": [
+          {
+            "protocol": "messages",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+                "revision": "anthropic-models-overview-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "claude-opus-4-8": [
+          {
+            "protocol": "messages",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+                "revision": "anthropic-models-overview-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "claude-opus-5": [
+          {
+            "protocol": "messages",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+                "revision": "anthropic-models-overview-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "claude-opus-5-5": [
+          {
+            "protocol": "messages",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+                "revision": "anthropic-models-overview-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "claude-sonnet-4-6": [
+          {
+            "protocol": "messages",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+                "revision": "anthropic-models-overview-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "claude-sonnet-5": [
+          {
+            "protocol": "messages",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+                "revision": "anthropic-models-overview-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ],
+        "claude-sonnet-5-5": [
+          {
+            "protocol": "messages",
+            "support": {
+              "state": "supported",
+              "provenance": {
+                "authority": "maintained",
+                "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+                "revision": "anthropic-models-overview-2026-11-27",
+                "at": "2026-11-27T18:45:00Z",
+                "confidence": "verified"
+              }
+            }
+          }
+        ]
+      }
     }
   }
 }

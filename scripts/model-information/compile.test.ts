@@ -158,11 +158,40 @@ describe('maintained model compilation', () => {
     }
   });
 
+  it('projects exact native OpenAI and Anthropic protocols while keeping v1 and v2 snapshot schemas compatible', () => {
+    const source = require('../../shared/model-information/sources/native-protocols.json');
+    const baseline = require('../../shared/model-information/catalog.generated.json');
+    const target = require('../../shared/model-information/target.generated.json');
+    const mapping = require('../../docs/model-api-mapping.json');
+    const v1 = require('../../shared/model-information/publication.cjs');
+    const v2 = require('../../shared/model-information/publication.v2.cjs');
+    const v1Snapshot = v1.buildSnapshot(baseline, 'a'.repeat(40), source.provenance.at);
+    const v2Snapshot = v2.buildSnapshot(baseline, 'a'.repeat(40), source.provenance.at);
+    expect(v1.schemaHash).toBe('8e631bcac2398743dceec874e5eb7bbde0e31f5b482e8c7855e80b73890be21e');
+    expect(v1.validateSnapshot(v1Snapshot).models.every((item: any) => !item.protocols)).toBe(true);
+    const parsedV2 = v2.validateSnapshot(v2Snapshot);
+    for (const model of source.models) {
+      expect(mapping.providers[model.identity.provider].modelProtocols[model.identity.rawId])
+        .toEqual(model.protocols);
+      expect(baseline.models.find((item: any) => item.identity.key === model.identity.key).protocols)
+        .toEqual(model.protocols);
+      expect(target.models.find((item: any) => item.identity.key === model.identity.key).protocols)
+        .toEqual(model.protocols);
+      expect(parsedV2.models.find((item: any) => item.identity.key === model.identity.key).protocols)
+        .toEqual(model.protocols);
+    }
+    expect(mapping.providers.openai.modelProtocols['gpt-4o-transcribe']).toBeUndefined();
+    expect(mapping.providers.openai.modelProtocols['gpt-6-luna'].map((item: any) => item.protocol))
+      .toEqual(['chat_completions', 'responses', 'decisions']);
+    expect(require('../../containers/api-proxy/model-api-mapping.json')).toEqual(mapping);
+  });
+
   it('projects the reviewed finite accounting families without authorizing additional model facts', () => {
     const naming = require('../../shared/model-information/naming.generated.json');
     const catalogue = require('../../shared/model-information/catalog.generated.json');
     const members = naming.models.filter((model: { identity: { family?: string } }) => model.identity.family);
-    expect(naming.models).toHaveLength(63);
+    const nativeProtocols = require('../../shared/model-information/sources/native-protocols.json');
+    expect(naming.models).toHaveLength(63 + nativeProtocols.models.length);
     expect(members).toHaveLength(22);
     expect(new Set(members.map((model: { identity: { family: string } }) => model.identity.family)).size).toBe(9);
     expect(naming.rules).toEqual([]);
@@ -492,9 +521,9 @@ describe('maintained model compilation', () => {
     expect(lookup('openai/gpt-6.1-sol').reasoning.selectableEfforts).not.toContain('none');
     expect(lookup('openai/gpt-5.6-sol').reasoning.selectableEfforts).toContain('none');
     expect(lookup('openai/gpt-5.6-cyber').reasoning.support).toBe('unknown');
-    expect(lookup('anthropic/claude-opus-4.6').reasoning).toBeUndefined();
-    expect(lookup('anthropic/claude-opus-4.8').reasoning).toBeUndefined();
-    expect(lookup('anthropic/claude-fable-5.1').reasoning.selectableEfforts).toContain('xhigh');
+    expect(lookup('anthropic/claude-opus-4-6').reasoning).toBeUndefined();
+    expect(lookup('anthropic/claude-opus-4-8').reasoning).toBeUndefined();
+    expect(lookup('anthropic/claude-fable-5-1').reasoning.selectableEfforts).toContain('xhigh');
     expect(lookup('anthropic/claude-mythos-preview').reasoning.selectableEfforts).not.toContain('xhigh');
     expect(delta.mapping.target.providers.anthropic.models.find(
       (entry: { family: string }) => entry.family === 'claude-mythos-preview',

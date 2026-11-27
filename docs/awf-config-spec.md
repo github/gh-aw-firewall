@@ -2760,6 +2760,20 @@ builds the router from `containers/router` in the same checkout instead, and
 no digest pin is required.
 
 The candidate pool uses models discovered for the selected native provider.
+Because native OpenAI and Anthropic `/models` APIs do not publish per-model
+endpoint lists, automatic selection on native providers (both router-ranked
+choices and fallback) admits an endpoint only when AWF has affirmative exact
+`(provider, model ID, protocol)` evidence in maintained `modelProtocols`
+(or live `supportedEndpoints` from the provider). Neither family wildcard
+patterns (such as `gpt-4o*` matching `gpt-4o-transcribe`) nor reasoning/context
+metadata entries in `routingPatterns` grant endpoint eligibility without an
+exact protocol fact, and a model with an exact record for one endpoint (such as
+Chat Completions) does not inherit another endpoint (such as Responses) from a
+matching family wildcard during automatic selection. Copilot's live endpoints
+never vouch for native OpenAI or Anthropic APIs. Family patterns continue to
+resolve models that a workflow names explicitly (`model: openai/...` or
+`model: anthropic/...`).
+
 The `/reflect` `model_api_mapping` includes maintained routing metadata for
 selected model families where provider `/models` endpoints do not publish
 context limits or reasoning-effort support. The initial maintained set covers
@@ -2769,11 +2783,10 @@ OpenAI `gpt-5.4` and `gpt-5.4-2026-03-05`, plus Anthropic
 `claude-sonnet-5-5`, `claude-sonnet-5`, `claude-opus-4-6`/`4-7`/`4-8`, and
 `claude-sonnet-4-6`. This is deliberately not exhaustive: discovered IDs are
 eligible only when endpoint and effort support are known from runtime metadata
-or an exact maintained mapping. For example, `o3`, `gpt-5-nano`, and
-`gpt-5.4-mini` do not inherit metadata from the GPT-5.4 base model and can yield
-`no_route`. Positive context limits are also maintained in `/reflect`; without
-one, a model is excluded from classifier preflight but may still remain
-available to the router.
+or an exact maintained mapping. For example, `o3` and `gpt-5-nano` do not
+inherit metadata from the GPT-5.4 base model and can yield `no_route`. Positive
+context limits are also maintained in `/reflect`; without one, a model is
+excluded from classifier preflight but may still remain available to the router.
 
 An explicitly empty effort list (or explicit lack of reasoning-effort support)
 allows one effortless choice. OpenAI uses its mapped Responses or Chat

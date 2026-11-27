@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "compilerVersion": 8,
   "schemaHash": "df9780a1fd9a1418ec8d99cb4aaf27d49bda9c8a08d157036c6893798c64f479",
-  "catalogRevision": "167ab6275dd74c5909c9c03e16a534ddda68059bd2a2ce6fc59d05eff46f8840",
-  "generatedAt": "2026-11-26T00:44:12.542Z",
+  "catalogRevision": "8f84db7c4925b1c027d121601ee39a5e5d4ee64626b3e003dbed2fdaed7582e7",
+  "generatedAt": "2026-11-27T18:45:00.000Z",
   "sourceFiles": [
     "shared/model-information/sources/coding-tiers.json",
     "shared/model-information/sources/copilot-claude.json",
@@ -13,6 +13,7 @@
     "shared/model-information/sources/decisions.json",
     "shared/model-information/sources/lifecycle-compatibility.json",
     "shared/model-information/sources/mapping.json",
+    "shared/model-information/sources/native-protocols.json",
     "shared/model-information/sources/pricing-reference.json",
     "shared/model-information/sources/target.json",
     "containers/api-proxy/models.dev.catalog.json",

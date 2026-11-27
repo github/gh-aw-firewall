@@ -107,6 +107,23 @@ function lookupModelEndpoints(model, provider) {
   return null;
 }
 
+function lookupExactModelEndpoints(model, provider) {
+  if (!_mapping || !model || !provider) return null;
+  const prov = _mapping.providers?.[provider];
+  if (!prov || !prov.modelProtocols || !Object.hasOwn(prov.modelProtocols, model)) return null;
+  const protocols = prov.modelProtocols[model];
+  if (!Array.isArray(protocols)) return null;
+  const supported = protocols
+    .filter(item => item?.support?.state === 'supported')
+    .map(item => item.protocol);
+  return {
+    family: model,
+    endpoints: supported,
+    protocols,
+    notes: 'Exact provider-qualified protocol evidence.',
+  };
+}
+
 function lookupModelProtocol(model, provider, protocol) {
   const records = _mapping?.providers?.[provider]?.modelProtocols;
   const fact = records && Object.hasOwn(records, model)
@@ -142,30 +159,9 @@ function lookupModelRoutingMetadata(model, provider) {
 const AGENT_MAPPING_ENDPOINTS = new Set(['chat_completions', 'responses', 'messages']);
 
 function hasExactModelEndpointEvidence(model, provider) {
-  if (!_mapping || !model || !provider) return false;
-  const prov = _mapping.providers?.[provider];
-  if (!prov || !Array.isArray(prov.models)) return false;
-  const protocols = prov.modelProtocols && Object.hasOwn(prov.modelProtocols, model)
-    ? prov.modelProtocols[model]
-    : undefined;
-  if (Array.isArray(protocols) && protocols.some(item =>
-    item?.support?.state === 'supported' && AGENT_MAPPING_ENDPOINTS.has(item.protocol))) {
-    return true;
-  }
-  for (const entry of prov.models) {
-    const hasAgentEndpoint = Array.isArray(entry.endpoints) &&
-      entry.endpoints.some(endpoint => AGENT_MAPPING_ENDPOINTS.has(endpoint));
-    if (!hasAgentEndpoint) continue;
-    if (Array.isArray(entry.patterns) &&
-      entry.patterns.some(pattern => !pattern.endsWith('*') && pattern === model)) {
-      return true;
-    }
-    if (Array.isArray(entry.routingPatterns) &&
-      entry.routingPatterns.some(pattern => !pattern.endsWith('*') && pattern === model)) {
-      return true;
-    }
-  }
-  return false;
+  const exact = lookupExactModelEndpoints(model, provider);
+  return Array.isArray(exact?.endpoints) &&
+    exact.endpoints.some(endpoint => AGENT_MAPPING_ENDPOINTS.has(endpoint));
 }
 
 function isFamilyPatternOnlyEndpoint(model, provider) {
@@ -213,6 +209,7 @@ module.exports = {
   getModelApiMappingReflect,
   hasExactModelEndpointEvidence,
   isFamilyPatternOnlyEndpoint,
+  lookupExactModelEndpoints,
   lookupModelEndpoints,
   lookupModelProtocol,
   lookupModelRoutingMetadata,

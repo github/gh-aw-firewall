@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "catalogRevision": "167ab6275dd74c5909c9c03e16a534ddda68059bd2a2ce6fc59d05eff46f8840",
-  "generatedAt": "2026-11-26T00:44:12.542Z",
+  "catalogRevision": "8f84db7c4925b1c027d121601ee39a5e5d4ee64626b3e003dbed2fdaed7582e7",
+  "generatedAt": "2026-11-27T18:45:00.000Z",
   "models": [
     {
       "schemaVersion": 1,
@@ -788,7 +788,29 @@
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "revision": "anthropic-models-overview-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "messages",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+              "revision": "anthropic-models-overview-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "importedPricing": {
         "sourceNamespace": "anthropic",
         "currency": "USD",
@@ -848,14 +870,6 @@
           "freshness": "unknown"
         }
       },
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
-      },
       "reasoning": {
         "support": "supported",
         "rawEfforts": [
@@ -885,16 +899,38 @@
     {
       "schemaVersion": 1,
       "identity": {
-        "key": "anthropic/claude-fable-5.1",
+        "key": "anthropic/claude-fable-5-1",
         "provider": "anthropic",
-        "rawId": "claude-fable-5.1",
+        "rawId": "claude-fable-5-1",
         "lookupId": "claude-fable-5-1",
         "family": "claude-fable-5"
       },
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "revision": "anthropic-models-overview-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "messages",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+              "revision": "anthropic-models-overview-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "importedPricing": {
         "sourceNamespace": "anthropic",
         "currency": "USD",
@@ -954,14 +990,6 @@
           "freshness": "unknown"
         }
       },
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
-      },
       "reasoning": {
         "support": "supported",
         "rawEfforts": [
@@ -985,6 +1013,100 @@
           "revision": "issues-10029-10030-open-2026-10-20",
           "at": "2026-10-15T17:11:28Z",
           "confidence": "estimated"
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "identity": {
+        "key": "anthropic/claude-fable-5-2",
+        "provider": "anthropic",
+        "rawId": "claude-fable-5-2",
+        "lookupId": "claude-fable-5-2"
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "revision": "anthropic-models-overview-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "messages",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+              "revision": "anthropic-models-overview-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
+      "importedPricing": {
+        "sourceNamespace": "anthropic",
+        "currency": "USD",
+        "unit": "USD_PER_1M_TOKENS",
+        "components": {
+          "input": {
+            "price": "8",
+            "provenance": {
+              "authority": "imported",
+              "source": "https://openrouter.ai/api/v1/models",
+              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+              "at": "2026-11-26T00:44:12.542Z",
+              "confidence": "imported",
+              "freshness": "unknown"
+            }
+          },
+          "output": {
+            "price": "40",
+            "provenance": {
+              "authority": "imported",
+              "source": "https://openrouter.ai/api/v1/models",
+              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+              "at": "2026-11-26T00:44:12.542Z",
+              "confidence": "imported",
+              "freshness": "unknown"
+            }
+          },
+          "cachedInput": {
+            "price": "0.2",
+            "provenance": {
+              "authority": "imported",
+              "source": "https://openrouter.ai/api/v1/models",
+              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+              "at": "2026-11-26T00:44:12.542Z",
+              "confidence": "imported",
+              "freshness": "unknown"
+            }
+          },
+          "cacheWrite": {
+            "price": "10",
+            "provenance": {
+              "authority": "imported",
+              "source": "https://openrouter.ai/api/v1/models",
+              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+              "at": "2026-11-26T00:44:12.542Z",
+              "confidence": "imported",
+              "freshness": "unknown"
+            }
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+          "at": "2026-11-26T00:44:12.542Z",
+          "confidence": "imported",
+          "freshness": "unknown"
         }
       }
     },
@@ -1040,86 +1162,6 @@
           },
           "cacheWrite": {
             "price": "6.25",
-            "provenance": {
-              "authority": "imported",
-              "source": "https://openrouter.ai/api/v1/models",
-              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-              "at": "2026-11-26T00:44:12.542Z",
-              "confidence": "imported",
-              "freshness": "unknown"
-            }
-          }
-        },
-        "provenance": {
-          "authority": "imported",
-          "source": "https://openrouter.ai/api/v1/models",
-          "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-          "at": "2026-11-26T00:44:12.542Z",
-          "confidence": "imported",
-          "freshness": "unknown"
-        }
-      },
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
-      }
-    },
-    {
-      "schemaVersion": 1,
-      "identity": {
-        "key": "anthropic/claude-fable-5.2",
-        "provider": "anthropic",
-        "rawId": "claude-fable-5.2",
-        "lookupId": "claude-fable-5-2"
-      },
-      "lifecycle": {
-        "status": "active"
-      },
-      "modelType": "other",
-      "importedPricing": {
-        "sourceNamespace": "anthropic",
-        "currency": "USD",
-        "unit": "USD_PER_1M_TOKENS",
-        "components": {
-          "input": {
-            "price": "8",
-            "provenance": {
-              "authority": "imported",
-              "source": "https://openrouter.ai/api/v1/models",
-              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-              "at": "2026-11-26T00:44:12.542Z",
-              "confidence": "imported",
-              "freshness": "unknown"
-            }
-          },
-          "output": {
-            "price": "40",
-            "provenance": {
-              "authority": "imported",
-              "source": "https://openrouter.ai/api/v1/models",
-              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-              "at": "2026-11-26T00:44:12.542Z",
-              "confidence": "imported",
-              "freshness": "unknown"
-            }
-          },
-          "cachedInput": {
-            "price": "0.2",
-            "provenance": {
-              "authority": "imported",
-              "source": "https://openrouter.ai/api/v1/models",
-              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-              "at": "2026-11-26T00:44:12.542Z",
-              "confidence": "imported",
-              "freshness": "unknown"
-            }
-          },
-          "cacheWrite": {
-            "price": "10",
             "provenance": {
               "authority": "imported",
               "source": "https://openrouter.ai/api/v1/models",
@@ -1311,15 +1353,37 @@
     {
       "schemaVersion": 1,
       "identity": {
-        "key": "anthropic/claude-haiku-4.5",
+        "key": "anthropic/claude-haiku-4-5",
         "provider": "anthropic",
-        "rawId": "claude-haiku-4.5",
+        "rawId": "claude-haiku-4-5",
         "lookupId": "claude-haiku-4-5"
       },
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "revision": "anthropic-models-overview-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "messages",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+              "revision": "anthropic-models-overview-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "importedPricing": {
         "sourceNamespace": "anthropic",
         "currency": "USD",
@@ -1378,15 +1442,42 @@
           "confidence": "imported",
           "freshness": "unknown"
         }
-      },
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
       }
+    },
+    {
+      "schemaVersion": 1,
+      "identity": {
+        "key": "anthropic/claude-haiku-4-5-20251001",
+        "provider": "anthropic",
+        "rawId": "claude-haiku-4-5-20251001",
+        "lookupId": "claude-haiku-4-5-20251001"
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://platform.claude.com/docs/en/models/haiku-4-5/overview",
+        "revision": "anthropic-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "messages",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://platform.claude.com/docs/en/models/haiku-4-5/overview",
+              "revision": "anthropic-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ]
     },
     {
       "schemaVersion": 1,
@@ -1471,24 +1562,38 @@
     {
       "schemaVersion": 1,
       "identity": {
-        "key": "anthropic/claude-haiku-5.5",
+        "key": "anthropic/claude-haiku-5-5",
         "provider": "anthropic",
-        "rawId": "claude-haiku-5.5",
+        "rawId": "claude-haiku-5-5",
         "lookupId": "claude-haiku-5-5",
         "family": "claude-haiku-5"
       },
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
       "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
+        "authority": "maintained",
+        "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "revision": "anthropic-models-overview-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
       },
+      "protocols": [
+        {
+          "protocol": "messages",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+              "revision": "anthropic-models-overview-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "reasoning": {
         "support": "supported",
         "rawEfforts": [
@@ -1556,16 +1661,31 @@
         "family": "claude-mythos-5"
       },
       "lifecycle": {
-        "status": "active"
+        "status": "restricted"
       },
       "modelType": "completion",
       "provenance": {
         "authority": "maintained",
-        "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-        "revision": "issues-10029-10030-open-2026-10-20",
-        "at": "2026-10-15T17:11:28Z",
-        "confidence": "estimated"
+        "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "revision": "anthropic-models-overview-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
       },
+      "protocols": [
+        {
+          "protocol": "messages",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+              "revision": "anthropic-models-overview-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "reasoning": {
         "support": "supported",
         "rawEfforts": [
@@ -1595,23 +1715,38 @@
     {
       "schemaVersion": 1,
       "identity": {
-        "key": "anthropic/claude-mythos-5.1",
+        "key": "anthropic/claude-mythos-5-1",
         "provider": "anthropic",
-        "rawId": "claude-mythos-5.1",
+        "rawId": "claude-mythos-5-1",
         "lookupId": "claude-mythos-5-1",
         "family": "claude-mythos-5"
       },
       "lifecycle": {
-        "status": "active"
+        "status": "restricted"
       },
       "modelType": "completion",
       "provenance": {
         "authority": "maintained",
-        "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-        "revision": "issues-10029-10030-open-2026-10-20",
-        "at": "2026-10-15T17:11:28Z",
-        "confidence": "estimated"
+        "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "revision": "anthropic-models-overview-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
       },
+      "protocols": [
+        {
+          "protocol": "messages",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+              "revision": "anthropic-models-overview-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "reasoning": {
         "support": "supported",
         "rawEfforts": [
@@ -1648,16 +1783,31 @@
         "family": "claude-mythos-preview"
       },
       "lifecycle": {
-        "status": "active"
+        "status": "restricted"
       },
       "modelType": "completion",
       "provenance": {
         "authority": "maintained",
-        "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-        "revision": "issues-10029-10030-open-2026-10-20",
-        "at": "2026-10-15T17:11:28Z",
-        "confidence": "estimated"
+        "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+        "revision": "anthropic-deprecations-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
       },
+      "protocols": [
+        {
+          "protocol": "messages",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+              "revision": "anthropic-deprecations-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "reasoning": {
         "support": "supported",
         "rawEfforts": [
@@ -1679,6 +1829,288 @@
           "revision": "issues-10029-10030-open-2026-10-20",
           "at": "2026-10-15T17:11:28Z",
           "confidence": "estimated"
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "identity": {
+        "key": "anthropic/claude-opus-4-6",
+        "provider": "anthropic",
+        "rawId": "claude-opus-4-6",
+        "lookupId": "claude-opus-4-6"
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "revision": "anthropic-models-overview-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "messages",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+              "revision": "anthropic-models-overview-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
+      "importedPricing": {
+        "sourceNamespace": "anthropic",
+        "currency": "USD",
+        "unit": "USD_PER_1M_TOKENS",
+        "components": {
+          "input": {
+            "price": "5",
+            "provenance": {
+              "authority": "imported",
+              "source": "https://openrouter.ai/api/v1/models",
+              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+              "at": "2026-11-26T00:44:12.542Z",
+              "confidence": "imported",
+              "freshness": "unknown"
+            }
+          },
+          "output": {
+            "price": "25",
+            "provenance": {
+              "authority": "imported",
+              "source": "https://openrouter.ai/api/v1/models",
+              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+              "at": "2026-11-26T00:44:12.542Z",
+              "confidence": "imported",
+              "freshness": "unknown"
+            }
+          },
+          "cachedInput": {
+            "price": "0.5",
+            "provenance": {
+              "authority": "imported",
+              "source": "https://openrouter.ai/api/v1/models",
+              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+              "at": "2026-11-26T00:44:12.542Z",
+              "confidence": "imported",
+              "freshness": "unknown"
+            }
+          },
+          "cacheWrite": {
+            "price": "6.25",
+            "provenance": {
+              "authority": "imported",
+              "source": "https://openrouter.ai/api/v1/models",
+              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+              "at": "2026-11-26T00:44:12.542Z",
+              "confidence": "imported",
+              "freshness": "unknown"
+            }
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+          "at": "2026-11-26T00:44:12.542Z",
+          "confidence": "imported",
+          "freshness": "unknown"
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "identity": {
+        "key": "anthropic/claude-opus-4-7",
+        "provider": "anthropic",
+        "rawId": "claude-opus-4-7",
+        "lookupId": "claude-opus-4-7"
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "revision": "anthropic-models-overview-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "messages",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+              "revision": "anthropic-models-overview-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
+      "importedPricing": {
+        "sourceNamespace": "anthropic",
+        "currency": "USD",
+        "unit": "USD_PER_1M_TOKENS",
+        "components": {
+          "input": {
+            "price": "5",
+            "provenance": {
+              "authority": "imported",
+              "source": "https://openrouter.ai/api/v1/models",
+              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+              "at": "2026-11-26T00:44:12.542Z",
+              "confidence": "imported",
+              "freshness": "unknown"
+            }
+          },
+          "output": {
+            "price": "25",
+            "provenance": {
+              "authority": "imported",
+              "source": "https://openrouter.ai/api/v1/models",
+              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+              "at": "2026-11-26T00:44:12.542Z",
+              "confidence": "imported",
+              "freshness": "unknown"
+            }
+          },
+          "cachedInput": {
+            "price": "0.5",
+            "provenance": {
+              "authority": "imported",
+              "source": "https://openrouter.ai/api/v1/models",
+              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+              "at": "2026-11-26T00:44:12.542Z",
+              "confidence": "imported",
+              "freshness": "unknown"
+            }
+          },
+          "cacheWrite": {
+            "price": "6.25",
+            "provenance": {
+              "authority": "imported",
+              "source": "https://openrouter.ai/api/v1/models",
+              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+              "at": "2026-11-26T00:44:12.542Z",
+              "confidence": "imported",
+              "freshness": "unknown"
+            }
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+          "at": "2026-11-26T00:44:12.542Z",
+          "confidence": "imported",
+          "freshness": "unknown"
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "identity": {
+        "key": "anthropic/claude-opus-4-8",
+        "provider": "anthropic",
+        "rawId": "claude-opus-4-8",
+        "lookupId": "claude-opus-4-8"
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "revision": "anthropic-models-overview-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "messages",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+              "revision": "anthropic-models-overview-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
+      "importedPricing": {
+        "sourceNamespace": "anthropic",
+        "currency": "USD",
+        "unit": "USD_PER_1M_TOKENS",
+        "components": {
+          "input": {
+            "price": "5",
+            "provenance": {
+              "authority": "imported",
+              "source": "https://openrouter.ai/api/v1/models",
+              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+              "at": "2026-11-26T00:44:12.542Z",
+              "confidence": "imported",
+              "freshness": "unknown"
+            }
+          },
+          "output": {
+            "price": "25",
+            "provenance": {
+              "authority": "imported",
+              "source": "https://openrouter.ai/api/v1/models",
+              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+              "at": "2026-11-26T00:44:12.542Z",
+              "confidence": "imported",
+              "freshness": "unknown"
+            }
+          },
+          "cachedInput": {
+            "price": "0.5",
+            "provenance": {
+              "authority": "imported",
+              "source": "https://openrouter.ai/api/v1/models",
+              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+              "at": "2026-11-26T00:44:12.542Z",
+              "confidence": "imported",
+              "freshness": "unknown"
+            }
+          },
+          "cacheWrite": {
+            "price": "6.25",
+            "provenance": {
+              "authority": "imported",
+              "source": "https://openrouter.ai/api/v1/models",
+              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+              "at": "2026-11-26T00:44:12.542Z",
+              "confidence": "imported",
+              "freshness": "unknown"
+            }
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+          "at": "2026-11-26T00:44:12.542Z",
+          "confidence": "imported",
+          "freshness": "unknown"
         }
       }
     },
@@ -2005,86 +2437,6 @@
     {
       "schemaVersion": 1,
       "identity": {
-        "key": "anthropic/claude-opus-4.6",
-        "provider": "anthropic",
-        "rawId": "claude-opus-4.6",
-        "lookupId": "claude-opus-4-6"
-      },
-      "lifecycle": {
-        "status": "active"
-      },
-      "modelType": "other",
-      "importedPricing": {
-        "sourceNamespace": "anthropic",
-        "currency": "USD",
-        "unit": "USD_PER_1M_TOKENS",
-        "components": {
-          "input": {
-            "price": "5",
-            "provenance": {
-              "authority": "imported",
-              "source": "https://openrouter.ai/api/v1/models",
-              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-              "at": "2026-11-26T00:44:12.542Z",
-              "confidence": "imported",
-              "freshness": "unknown"
-            }
-          },
-          "output": {
-            "price": "25",
-            "provenance": {
-              "authority": "imported",
-              "source": "https://openrouter.ai/api/v1/models",
-              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-              "at": "2026-11-26T00:44:12.542Z",
-              "confidence": "imported",
-              "freshness": "unknown"
-            }
-          },
-          "cachedInput": {
-            "price": "0.5",
-            "provenance": {
-              "authority": "imported",
-              "source": "https://openrouter.ai/api/v1/models",
-              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-              "at": "2026-11-26T00:44:12.542Z",
-              "confidence": "imported",
-              "freshness": "unknown"
-            }
-          },
-          "cacheWrite": {
-            "price": "6.25",
-            "provenance": {
-              "authority": "imported",
-              "source": "https://openrouter.ai/api/v1/models",
-              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-              "at": "2026-11-26T00:44:12.542Z",
-              "confidence": "imported",
-              "freshness": "unknown"
-            }
-          }
-        },
-        "provenance": {
-          "authority": "imported",
-          "source": "https://openrouter.ai/api/v1/models",
-          "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-          "at": "2026-11-26T00:44:12.542Z",
-          "confidence": "imported",
-          "freshness": "unknown"
-        }
-      },
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
-      }
-    },
-    {
-      "schemaVersion": 1,
-      "identity": {
         "key": "anthropic/claude-opus-4.6:batch",
         "provider": "anthropic",
         "rawId": "claude-opus-4.6:batch",
@@ -2165,86 +2517,6 @@
     {
       "schemaVersion": 1,
       "identity": {
-        "key": "anthropic/claude-opus-4.7",
-        "provider": "anthropic",
-        "rawId": "claude-opus-4.7",
-        "lookupId": "claude-opus-4-7"
-      },
-      "lifecycle": {
-        "status": "active"
-      },
-      "modelType": "other",
-      "importedPricing": {
-        "sourceNamespace": "anthropic",
-        "currency": "USD",
-        "unit": "USD_PER_1M_TOKENS",
-        "components": {
-          "input": {
-            "price": "5",
-            "provenance": {
-              "authority": "imported",
-              "source": "https://openrouter.ai/api/v1/models",
-              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-              "at": "2026-11-26T00:44:12.542Z",
-              "confidence": "imported",
-              "freshness": "unknown"
-            }
-          },
-          "output": {
-            "price": "25",
-            "provenance": {
-              "authority": "imported",
-              "source": "https://openrouter.ai/api/v1/models",
-              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-              "at": "2026-11-26T00:44:12.542Z",
-              "confidence": "imported",
-              "freshness": "unknown"
-            }
-          },
-          "cachedInput": {
-            "price": "0.5",
-            "provenance": {
-              "authority": "imported",
-              "source": "https://openrouter.ai/api/v1/models",
-              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-              "at": "2026-11-26T00:44:12.542Z",
-              "confidence": "imported",
-              "freshness": "unknown"
-            }
-          },
-          "cacheWrite": {
-            "price": "6.25",
-            "provenance": {
-              "authority": "imported",
-              "source": "https://openrouter.ai/api/v1/models",
-              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-              "at": "2026-11-26T00:44:12.542Z",
-              "confidence": "imported",
-              "freshness": "unknown"
-            }
-          }
-        },
-        "provenance": {
-          "authority": "imported",
-          "source": "https://openrouter.ai/api/v1/models",
-          "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-          "at": "2026-11-26T00:44:12.542Z",
-          "confidence": "imported",
-          "freshness": "unknown"
-        }
-      },
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
-      }
-    },
-    {
-      "schemaVersion": 1,
-      "identity": {
         "key": "anthropic/claude-opus-4.7:batch",
         "provider": "anthropic",
         "rawId": "claude-opus-4.7:batch",
@@ -2294,86 +2566,6 @@
           },
           "cacheWrite": {
             "price": "3.125",
-            "provenance": {
-              "authority": "imported",
-              "source": "https://openrouter.ai/api/v1/models",
-              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-              "at": "2026-11-26T00:44:12.542Z",
-              "confidence": "imported",
-              "freshness": "unknown"
-            }
-          }
-        },
-        "provenance": {
-          "authority": "imported",
-          "source": "https://openrouter.ai/api/v1/models",
-          "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-          "at": "2026-11-26T00:44:12.542Z",
-          "confidence": "imported",
-          "freshness": "unknown"
-        }
-      },
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
-      }
-    },
-    {
-      "schemaVersion": 1,
-      "identity": {
-        "key": "anthropic/claude-opus-4.8",
-        "provider": "anthropic",
-        "rawId": "claude-opus-4.8",
-        "lookupId": "claude-opus-4-8"
-      },
-      "lifecycle": {
-        "status": "active"
-      },
-      "modelType": "other",
-      "importedPricing": {
-        "sourceNamespace": "anthropic",
-        "currency": "USD",
-        "unit": "USD_PER_1M_TOKENS",
-        "components": {
-          "input": {
-            "price": "5",
-            "provenance": {
-              "authority": "imported",
-              "source": "https://openrouter.ai/api/v1/models",
-              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-              "at": "2026-11-26T00:44:12.542Z",
-              "confidence": "imported",
-              "freshness": "unknown"
-            }
-          },
-          "output": {
-            "price": "25",
-            "provenance": {
-              "authority": "imported",
-              "source": "https://openrouter.ai/api/v1/models",
-              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-              "at": "2026-11-26T00:44:12.542Z",
-              "confidence": "imported",
-              "freshness": "unknown"
-            }
-          },
-          "cachedInput": {
-            "price": "0.5",
-            "provenance": {
-              "authority": "imported",
-              "source": "https://openrouter.ai/api/v1/models",
-              "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-              "at": "2026-11-26T00:44:12.542Z",
-              "confidence": "imported",
-              "freshness": "unknown"
-            }
-          },
-          "cacheWrite": {
-            "price": "6.25",
             "provenance": {
               "authority": "imported",
               "source": "https://openrouter.ai/api/v1/models",
@@ -2494,7 +2686,29 @@
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "revision": "anthropic-models-overview-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "messages",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+              "revision": "anthropic-models-overview-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "importedPricing": {
         "sourceNamespace": "anthropic",
         "currency": "USD",
@@ -2554,14 +2768,6 @@
           "freshness": "unknown"
         }
       },
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
-      },
       "reasoning": {
         "support": "supported",
         "rawEfforts": [
@@ -2591,16 +2797,38 @@
     {
       "schemaVersion": 1,
       "identity": {
-        "key": "anthropic/claude-opus-5.5",
+        "key": "anthropic/claude-opus-5-5",
         "provider": "anthropic",
-        "rawId": "claude-opus-5.5",
+        "rawId": "claude-opus-5-5",
         "lookupId": "claude-opus-5-5",
         "family": "claude-opus-5"
       },
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "revision": "anthropic-models-overview-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "messages",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+              "revision": "anthropic-models-overview-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "importedPricing": {
         "sourceNamespace": "anthropic",
         "currency": "USD",
@@ -2659,14 +2887,6 @@
           "confidence": "imported",
           "freshness": "unknown"
         }
-      },
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
       },
       "reasoning": {
         "support": "supported",
@@ -2857,58 +3077,38 @@
     {
       "schemaVersion": 1,
       "identity": {
-        "key": "anthropic/claude-sonnet-4.5",
+        "key": "anthropic/claude-sonnet-4-6",
         "provider": "anthropic",
-        "rawId": "claude-sonnet-4.5",
-        "lookupId": "claude-sonnet-4-5"
-      },
-      "lifecycle": {
-        "status": "active"
-      },
-      "modelType": "other",
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
-      }
-    },
-    {
-      "schemaVersion": 1,
-      "identity": {
-        "key": "anthropic/claude-sonnet-4.5:batch",
-        "provider": "anthropic",
-        "rawId": "claude-sonnet-4.5:batch",
-        "lookupId": "claude-sonnet-4-5:batch"
-      },
-      "lifecycle": {
-        "status": "active"
-      },
-      "modelType": "other",
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
-      }
-    },
-    {
-      "schemaVersion": 1,
-      "identity": {
-        "key": "anthropic/claude-sonnet-4.6",
-        "provider": "anthropic",
-        "rawId": "claude-sonnet-4.6",
+        "rawId": "claude-sonnet-4-6",
         "lookupId": "claude-sonnet-4-6",
         "family": "claude-sonnet-4"
       },
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "revision": "anthropic-models-overview-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "messages",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+              "revision": "anthropic-models-overview-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "importedPricing": {
         "sourceNamespace": "anthropic",
         "currency": "USD",
@@ -2968,14 +3168,6 @@
           "freshness": "unknown"
         }
       },
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
-      },
       "reasoning": {
         "support": "supported",
         "rawEfforts": [
@@ -2998,6 +3190,48 @@
           "at": "2026-10-15T17:11:28Z",
           "confidence": "estimated"
         }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "identity": {
+        "key": "anthropic/claude-sonnet-4.5",
+        "provider": "anthropic",
+        "rawId": "claude-sonnet-4.5",
+        "lookupId": "claude-sonnet-4-5"
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "modelType": "other",
+      "provenance": {
+        "authority": "imported",
+        "source": "https://openrouter.ai/api/v1/models",
+        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+        "at": "2026-11-26T00:44:12.542Z",
+        "confidence": "imported",
+        "freshness": "unknown"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "identity": {
+        "key": "anthropic/claude-sonnet-4.5:batch",
+        "provider": "anthropic",
+        "rawId": "claude-sonnet-4.5:batch",
+        "lookupId": "claude-sonnet-4-5:batch"
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "modelType": "other",
+      "provenance": {
+        "authority": "imported",
+        "source": "https://openrouter.ai/api/v1/models",
+        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
+        "at": "2026-11-26T00:44:12.542Z",
+        "confidence": "imported",
+        "freshness": "unknown"
       }
     },
     {
@@ -3092,7 +3326,29 @@
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "revision": "anthropic-models-overview-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "messages",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+              "revision": "anthropic-models-overview-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "importedPricing": {
         "sourceNamespace": "anthropic",
         "currency": "USD",
@@ -3152,14 +3408,6 @@
           "freshness": "unknown"
         }
       },
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
-      },
       "reasoning": {
         "support": "supported",
         "rawEfforts": [
@@ -3189,16 +3437,38 @@
     {
       "schemaVersion": 1,
       "identity": {
-        "key": "anthropic/claude-sonnet-5.5",
+        "key": "anthropic/claude-sonnet-5-5",
         "provider": "anthropic",
-        "rawId": "claude-sonnet-5.5",
+        "rawId": "claude-sonnet-5-5",
         "lookupId": "claude-sonnet-5-5",
         "family": "claude-sonnet-5"
       },
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "revision": "anthropic-models-overview-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "messages",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+              "revision": "anthropic-models-overview-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "importedPricing": {
         "sourceNamespace": "anthropic",
         "currency": "USD",
@@ -3257,14 +3527,6 @@
           "confidence": "imported",
           "freshness": "unknown"
         }
-      },
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
       },
       "reasoning": {
         "support": "supported",
@@ -23291,7 +23553,42 @@
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.3-codex.md",
+        "revision": "openai-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "unsupported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.3-codex.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.3-codex.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "importedPricing": {
         "sourceNamespace": "openai",
         "currency": "USD",
@@ -23339,14 +23636,6 @@
           "confidence": "imported",
           "freshness": "unknown"
         }
-      },
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
       }
     },
     {
@@ -23360,15 +23649,90 @@
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
       "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
-      }
+        "authority": "maintained",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.4.md",
+        "revision": "openai-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.4.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.4.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "schemaVersion": 1,
+      "identity": {
+        "key": "openai/gpt-5.4-2026-03-05",
+        "provider": "openai",
+        "rawId": "gpt-5.4-2026-03-05",
+        "lookupId": "gpt-5-4-2026-03-05"
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.4.md",
+        "revision": "openai-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.4.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.4.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ]
     },
     {
       "schemaVersion": 1,
@@ -23450,7 +23814,42 @@
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.4-mini.md",
+        "revision": "openai-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.4-mini.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.4-mini.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "importedPricing": {
         "sourceNamespace": "openai",
         "currency": "USD",
@@ -23498,15 +23897,55 @@
           "confidence": "imported",
           "freshness": "unknown"
         }
-      },
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
       }
+    },
+    {
+      "schemaVersion": 1,
+      "identity": {
+        "key": "openai/gpt-5.4-mini-2026-03-17",
+        "provider": "openai",
+        "rawId": "gpt-5.4-mini-2026-03-17",
+        "lookupId": "gpt-5-4-mini-2026-03-17"
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.4-mini.md",
+        "revision": "openai-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.4-mini.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.4-mini.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ]
     },
     {
       "schemaVersion": 1,
@@ -23588,7 +24027,42 @@
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
+      "provenance": {
+        "authority": "maintained",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.4-nano.md",
+        "revision": "openai-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.4-nano.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.4-nano.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "importedPricing": {
         "sourceNamespace": "openai",
         "currency": "USD",
@@ -23636,14 +24110,6 @@
           "confidence": "imported",
           "freshness": "unknown"
         }
-      },
-      "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
       }
     },
     {
@@ -23790,15 +24256,42 @@
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
       "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
+        "authority": "maintained",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.5.md",
+        "revision": "openai-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
       },
+      "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.5.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.5.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "reasoning": {
         "support": "supported",
         "rawEfforts": [
@@ -23927,11 +24420,39 @@
       "modelType": "completion",
       "provenance": {
         "authority": "maintained",
-        "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-        "revision": "issues-10029-10030-open-2026-10-20",
-        "at": "2026-10-15T17:11:28Z",
-        "confidence": "estimated"
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol.md",
+        "revision": "openai-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
       },
+      "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "reasoning": {
         "support": "supported",
         "rawEfforts": [
@@ -24016,15 +24537,42 @@
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
       "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
+        "authority": "maintained",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna.md",
+        "revision": "openai-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
       },
+      "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "reasoning": {
         "support": "supported",
         "rawEfforts": [
@@ -24138,15 +24686,42 @@
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
       "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
+        "authority": "maintained",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol.md",
+        "revision": "openai-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
       },
+      "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "reasoning": {
         "support": "supported",
         "rawEfforts": [
@@ -24260,15 +24835,42 @@
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
       "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
+        "authority": "maintained",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.6-terra.md",
+        "revision": "openai-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
       },
+      "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.6-terra.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5.6-terra.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "reasoning": {
         "support": "supported",
         "rawEfforts": [
@@ -24451,15 +25053,42 @@
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
       "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
+        "authority": "maintained",
+        "source": "https://developers.openai.com/api/docs/models/gpt-6-astra.md",
+        "revision": "openai-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
       },
+      "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-6-astra.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-6-astra.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "reasoning": {
         "support": "supported",
         "rawEfforts": [
@@ -24580,6 +25209,32 @@
         "confidence": "verified"
       },
       "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-6-luna.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-6-luna.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
         {
           "protocol": "decisions",
           "support": {
@@ -24841,15 +25496,42 @@
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
       "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
+        "authority": "maintained",
+        "source": "https://developers.openai.com/api/docs/models/gpt-6-sol.md",
+        "revision": "openai-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
       },
+      "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-6-sol.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-6-sol.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "reasoning": {
         "support": "supported",
         "rawEfforts": [
@@ -24963,15 +25645,42 @@
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
       "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
+        "authority": "maintained",
+        "source": "https://developers.openai.com/api/docs/models/gpt-6.1-sol.md",
+        "revision": "openai-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
       },
+      "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-6.1-sol.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-6.1-sol.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ],
       "reasoning": {
         "support": "supported",
         "rawEfforts": [
@@ -25082,15 +25791,42 @@
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
       "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
-      }
+        "authority": "maintained",
+        "source": "https://developers.openai.com/api/docs/models/gpt-6.1-terra.md",
+        "revision": "openai-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-6.1-terra.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-6.1-terra.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ]
     },
     {
       "schemaVersion": 1,
@@ -25166,15 +25902,42 @@
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
       "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
-      }
+        "authority": "maintained",
+        "source": "https://developers.openai.com/api/docs/models/gpt-6.2-astra.md",
+        "revision": "openai-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-6.2-astra.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-6.2-astra.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ]
     },
     {
       "schemaVersion": 1,
@@ -25250,15 +26013,42 @@
       "lifecycle": {
         "status": "active"
       },
-      "modelType": "other",
+      "modelType": "completion",
       "provenance": {
-        "authority": "imported",
-        "source": "https://openrouter.ai/api/v1/models",
-        "revision": "c695104bb85351eb84fb881bd8e1da4fd7c5799fefe46708489cc1c6a1c88fbd",
-        "at": "2026-11-26T00:44:12.542Z",
-        "confidence": "imported",
-        "freshness": "unknown"
-      }
+        "authority": "maintained",
+        "source": "https://developers.openai.com/api/docs/models/gpt-6.2-sol.md",
+        "revision": "openai-model-page-2026-11-27",
+        "at": "2026-11-27T18:45:00Z",
+        "confidence": "verified"
+      },
+      "protocols": [
+        {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-6.2-sol.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-6.2-sol.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        }
+      ]
     },
     {
       "schemaVersion": 1,

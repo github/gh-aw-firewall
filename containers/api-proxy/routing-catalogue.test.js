@@ -1,6 +1,6 @@
 'use strict';
 
-const { createRoutingCatalogue, normalizeModel } = require('./routing-catalogue');
+const { createRoutingCatalogue, normalizeModel, recognizeAgentEndpointProtocol } = require('./routing-catalogue');
 const { buildRoutingCandidates, getModelRoutingChoices } = require('./routing-candidates');
 const { buildRoutingModelMetadata } = require('./management');
 const { createCopilotAdapter } = require('./providers/copilot');
@@ -105,9 +105,15 @@ describe('routing catalogue', () => {
   });
 
   it.each([
-    ['openai', 'gpt-5.4', 'api.openai.com', ['none', 'low', 'medium', 'high', 'xhigh'], ['chat-completions', 'responses']],
-    ['anthropic', 'claude-opus-5-5', 'api.anthropic.com', ['low', 'medium', 'high', 'max'], ['messages']],
-  ])('uses maintained endpoint, effort, and context metadata for %s', async (provider, model, host, efforts, protocols) => {
+    ['openai', 'gpt-5.4', 'api.openai.com', ['none', 'low', 'medium', 'high', 'xhigh']],
+    ['anthropic', 'claude-opus-5-5', 'api.anthropic.com', ['low', 'medium', 'high', 'max']],
+  ])('uses maintained endpoint, effort, and context metadata for %s', async (provider, model, host, efforts) => {
+    const mapping = require('./model-api-mapping.json');
+    const protocols = mapping.providers[provider].modelProtocols[model]
+      .filter(item => item.support.state === 'supported')
+      .map(item => recognizeAgentEndpointProtocol(item.protocol))
+      .filter(Boolean);
+    expect(protocols.length).toBeGreaterThan(0);
     const catalogue = createRoutingCatalogue({
       getAdapter: name => ({
         name,

@@ -132,14 +132,16 @@ describe('reviewed native exact-model reasoning and context', () => {
     ['gpt-5.4', { provider: 'openai', channel: 'native-api', deployment: 'custom' }],
     ['gpt-5.4-mini', { provider: 'openai', channel: 'native-api', deployment: 'custom' }],
     ['gpt-5.4-mini', { provider: 'openai', channel: 'copilot-api' }],
-  ])('%s native reasoning and context do not leak into scope %j', (model, scope) => {
+  ])('%s native reasoning, context, and endpoints do not leak into scope %j', (model, scope) => {
     const normalized = normalizeModel(model, undefined, 'openai', scope);
     expect(getModelReasoning(normalized, 'openai').support).toBe('absent');
     expect(normalized).not.toHaveProperty('contextWindow');
+    expect(normalized).not.toHaveProperty('protocols');
     const observed = normalizeModel(model, {
       capabilities: { limits: { max_context_window_tokens: 12345 } },
     }, 'openai', scope);
     expect(observed.contextWindow).toBe(12345);
+    expect(observed).not.toHaveProperty('protocols');
   });
 
   test('request and selection pins survive provider refresh without changing maintained facts', () => {

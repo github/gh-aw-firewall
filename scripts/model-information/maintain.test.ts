@@ -76,6 +76,11 @@ describe('offline scheduled source maintenance', () => {
     write(cwd, 'shared/model-information/sources/mapping.json', json({
       mapping: { providers: { openai: { models: [] }, anthropic: { models: [] } } },
     }));
+    write(cwd, 'shared/model-information/sources/native-protocols.json', json({
+      schemaVersion: 1,
+      provenance: { authority: 'maintained', source: 'offline fixture', revision: 'fixture', at: '2026-11-10T00:00:00Z', confidence: 'verified' },
+      models: [],
+    }));
     write(cwd, tiers.file, json({ schemaVersion: 1, provenance: { authority: 'maintained', source: 'offline fixture',
       at: '2026-11-10T00:00:00Z', confidence: 'verified' }, entries: [
       'gemini-3-8-flash', 'gemini-4-argon', 'gpt-6-1-sol', 'gpt-6-1-terra', 'mai-code-1-1-flash',
@@ -113,20 +118,393 @@ describe('offline scheduled source maintenance', () => {
     }
   };
 
-  it('discovers exact native and supported Copilot IDs outside the seed, not wildcard or Decisions-only choices', () => {
+  it('discovers exact native protocol records and supported Copilot IDs outside the seed, not mapping-only patterns or Decisions-only choices', () => {
     write(cwd, 'shared/model-information/sources/mapping.json', json({ mapping: { providers: {
       openai: { models: [
         { patterns: ['fixture-*'], routingPatterns: ['fixture-1.0'], endpoints: ['responses'] },
         { patterns: ['fixture-decisions'], endpoints: ['decisions'] },
       ] }, anthropic: { models: [] },
     } } }));
+    write(cwd, 'shared/model-information/sources/native-protocols.json', json({ models: [
+      {
+        identity: { key: 'openai/fixture-exact', provider: 'openai', rawId: 'fixture-exact', lookupId: 'fixture-exact' },
+        modelType: 'completion',
+        lifecycle: { status: 'active' },
+        provenance: { authority: 'maintained' },
+        protocols: [{ protocol: 'responses', support: { state: 'supported' } }],
+      },
+    ] }));
     write(cwd, copilotFiles[0], json({ models: [{ identity: { provider: 'copilot', lookupId: 'new-copilot' }, modelType: 'completion',
       lifecycle: { status: 'active' }, availability: [{ scope: { provider: 'copilot', channel: 'copilot-cli' },
         fact: { state: 'supported' } }] }] }));
     expect(tiers.coverage(cwd, evidence, documentText)).toEqual([
-      { lookupId: 'fixture-1-0', missing: ['codingTier', 'releaseDate'] },
+      { lookupId: 'fixture-exact', missing: ['codingTier', 'releaseDate'] },
       { lookupId: 'new-copilot', missing: ['codingTier', 'releaseDate'] },
     ]);
+  });
+
+  it('validates provider-scoped quoted evidence for native-protocols.json and rejects cross-provider or wildcard facts', async () => {
+    const nativeProtocols = require('./native-protocol-maintenance.cjs');
+    const openaiUrl = sources.find((item: { id: string }) => item.id === 'openai-models').urls[0];
+    const anthropicUrl = sources.find((item: { id: string }) => item.id === 'anthropic-models').urls[0];
+    const openaiQuote = 'Model ID gpt-6.2-sol supports the OpenAI Responses API and Chat Completions API endpoints.';
+    const anthropicQuote = 'Claude API ID claude-sonnet-5-5 is served on the Anthropic Messages API with tool use support.';
+    const copilotQuote = 'GitHub Copilot lists gpt-6.2-sol on its supported models reference page for Copilot clients.';
+    await captureSources(evidence, async (address: string) => {
+      if (address === openaiUrl) return new Response(`<html><body>${openaiQuote}</body></html>`);
+      if (address === anthropicUrl) return new Response(`<html><body>${anthropicQuote}</body></html>`);
+      if (address.includes('/supported-models')) return new Response(`${realModels.toString('utf8')}\n<p>${copilotQuote}</p>`);
+      return fakeFetch()(address);
+    });
+    const baseDoc = {
+      schemaVersion: 1,
+      provenance: { authority: 'maintained', source: openaiUrl, revision: 'base', at: '2026-11-10T00:00:00Z', confidence: 'verified' },
+      models: [],
+    };
+    write(cwd, nativeProtocols.file, json(baseDoc));
+    commitBaseline();
+
+    const before = fs.readFileSync(path.join(cwd, nativeProtocols.file));
+    const captures = loadCaptures(evidence);
+    const openaiCapture = captures.find((item: { id: string }) => item.id === 'openai-models');
+    const anthropicCapture = captures.find((item: { id: string }) => item.id === 'anthropic-models');
+    const prov = (sourceUrl: string, revision: string) => ({
+      authority: 'maintained', source: sourceUrl, revision, at: '2026-11-27T00:00:00Z', confidence: 'verified',
+    });
+    const afterDoc = {
+      ...baseDoc,
+      models: [
+        {
+          schemaVersion: 1,
+          identity: { key: 'openai/gpt-6.2-sol', provider: 'openai', rawId: 'gpt-6.2-sol', lookupId: 'gpt-6-2-sol' },
+          lifecycle: { status: 'active' },
+          modelType: 'completion',
+          provenance: prov(openaiUrl, openaiCapture.sha256),
+          protocols: [{ protocol: 'responses', support: { state: 'supported', provenance: prov(openaiUrl, openaiCapture.sha256) } }],
+        },
+        {
+          schemaVersion: 1,
+          identity: { key: 'anthropic/claude-sonnet-5-5', provider: 'anthropic', rawId: 'claude-sonnet-5-5', lookupId: 'claude-sonnet-5-5' },
+          lifecycle: { status: 'active' },
+          modelType: 'completion',
+          provenance: prov(anthropicUrl, anthropicCapture.sha256),
+          protocols: [{ protocol: 'messages', support: { state: 'supported', provenance: prov(anthropicUrl, anthropicCapture.sha256) } }],
+        },
+      ],
+    };
+    const install = (doc: unknown, receiptEvidence: unknown[]) => {
+      const nextBytes = json(doc);
+      write(cwd, nativeProtocols.file, nextBytes);
+      write(evidence, 'proposal.json', json({
+        changes: [{
+          file: nativeProtocols.file,
+          scope: 'OpenAI and Anthropic native exact protocol facts',
+          summary: 'Add verified native protocol support',
+          beforeSha256: hash(before),
+          afterSha256: hash(nextBytes),
+          evidence: receiptEvidence,
+        }],
+      }));
+    };
+
+    // Reject Copilot citation for an OpenAI native protocol fact.
+    install(afterDoc, [
+      { source: 'copilot-models', url: sources.find((item: { id: string }) => item.id === 'copilot-models').urls[0], model: 'openai/gpt-6.2-sol', protocol: 'responses', after: 'supported', quote: copilotQuote },
+      { source: 'anthropic-models', url: anthropicUrl, model: 'anthropic/claude-sonnet-5-5', protocol: 'messages', after: 'supported', quote: anthropicQuote },
+    ]);
+    expect(() => buildReport(cwd, evidence)).toThrow('not an approved openai protocol evidence source');
+
+    // Reject Decisions-only source for an OpenAI agent endpoint change.
+    const decisionsSdkUrl = sources.find((item: { id: string }) => item.id === 'openai-decisions-sdk').urls[0];
+    install(afterDoc, [
+      { source: 'openai-decisions-sdk', url: decisionsSdkUrl, model: 'openai/gpt-6.2-sol', protocol: 'responses', after: 'supported', quote },
+      { source: 'anthropic-models', url: anthropicUrl, model: 'anthropic/claude-sonnet-5-5', protocol: 'messages', after: 'supported', quote: anthropicQuote },
+    ]);
+    expect(() => buildReport(cwd, evidence)).toThrow('not an approved openai protocol evidence source');
+
+    // Reject cross-provider Anthropic citation for an OpenAI model.
+    install(afterDoc, [
+      { source: 'anthropic-models', url: anthropicUrl, model: 'openai/gpt-6.2-sol', protocol: 'responses', after: 'supported', quote: anthropicQuote },
+      { source: 'anthropic-models', url: anthropicUrl, model: 'anthropic/claude-sonnet-5-5', protocol: 'messages', after: 'supported', quote: anthropicQuote },
+    ]);
+    expect(() => buildReport(cwd, evidence)).toThrow('not an approved openai protocol evidence source');
+
+    // Reject receipt missing required captured URL or stored provenance mismatch.
+    install(afterDoc, [
+      { source: 'openai-models', model: 'openai/gpt-6.2-sol', protocol: 'responses', after: 'supported', quote: openaiQuote },
+      { source: 'anthropic-models', url: anthropicUrl, model: 'anthropic/claude-sonnet-5-5', protocol: 'messages', after: 'supported', quote: anthropicQuote },
+    ]);
+    expect(() => buildReport(cwd, evidence)).toThrow('native protocol receipt URL must match captured');
+
+    const staleProvDoc = structuredClone(afterDoc);
+    staleProvDoc.models[0].protocols[0].support.provenance.revision = 'stale-revision';
+    install(staleProvDoc, [
+      { source: 'openai-models', url: openaiUrl, model: 'openai/gpt-6.2-sol', protocol: 'responses', after: 'supported', quote: openaiQuote },
+      { source: 'anthropic-models', url: anthropicUrl, model: 'anthropic/claude-sonnet-5-5', protocol: 'messages', after: 'supported', quote: anthropicQuote },
+    ]);
+    expect(() => buildReport(cwd, evidence)).toThrow('stored provenance for responses must match captured source URL and revision');
+
+    // Reject wildcard model ID in native-protocols.json.
+    const wildcardDoc = {
+      ...baseDoc,
+      models: [{
+        schemaVersion: 1,
+        identity: { key: 'openai/gpt-6*', provider: 'openai', rawId: 'gpt-6*', lookupId: 'gpt-6*' },
+        lifecycle: { status: 'active' },
+        modelType: 'completion',
+        provenance: prov(openaiUrl, openaiCapture.sha256),
+        protocols: [{ protocol: 'responses', support: { state: 'supported', provenance: prov(openaiUrl, openaiCapture.sha256) } }],
+      }],
+    };
+    install(wildcardDoc, [
+      { source: 'openai-models', url: openaiUrl, model: 'openai/gpt-6*', protocol: 'responses', after: 'supported', quote: openaiQuote },
+    ]);
+    expect(() => buildReport(cwd, evidence)).toThrow('expected exact provider-qualified model ID');
+
+    // Accept provider-approved quoted evidence for both OpenAI and Anthropic.
+    install(afterDoc, [
+      { source: 'openai-models', url: openaiUrl, model: 'openai/gpt-6.2-sol', protocol: 'responses', after: 'supported', quote: openaiQuote },
+      { source: 'anthropic-models', url: anthropicUrl, model: 'anthropic/claude-sonnet-5-5', protocol: 'messages', after: 'supported', quote: anthropicQuote },
+    ]);
+    const report = buildReport(cwd, evidence);
+    expect(report.changes).toHaveLength(1);
+    expect(report.changes[0].file).toBe(nativeProtocols.file);
+
+    // Reject same-state provenance tampering bundled alongside another valid protocol edit.
+    write(cwd, nativeProtocols.file, json(afterDoc));
+    commitBaseline();
+    const tamperedBefore = fs.readFileSync(path.join(cwd, nativeProtocols.file));
+    const tamperedAfter = structuredClone(afterDoc);
+    tamperedAfter.models[1].protocols[0].support.provenance = prov(
+      sources.find((item: { id: string }) => item.id === 'copilot-models').urls[0],
+      'tampered-rev',
+    );
+    tamperedAfter.models[0].protocols.push({
+      protocol: 'chat_completions',
+      support: { state: 'supported', provenance: prov(openaiUrl, openaiCapture.sha256) },
+    });
+    const tamperedNextBytes = json(tamperedAfter);
+    write(cwd, nativeProtocols.file, tamperedNextBytes);
+    write(evidence, 'proposal.json', json({
+      changes: [{
+        file: nativeProtocols.file,
+        scope: 'OpenAI chat_completions addition',
+        summary: 'Add chat_completions while tampering with Anthropic provenance',
+        beforeSha256: hash(tamperedBefore),
+        afterSha256: hash(tamperedNextBytes),
+        evidence: [{
+          source: 'openai-models', url: openaiUrl, model: 'openai/gpt-6.2-sol',
+          protocol: 'chat_completions', after: 'supported', quote: openaiQuote,
+        }],
+      }],
+    }));
+    expect(() => buildReport(cwd, evidence)).toThrow('missing provider-qualified evidence for messages');
+
+    // Reject same-state protocol feature edits citing another provider or carrying foreign feature provenance.
+    const featureAfter: any = structuredClone(afterDoc);
+    featureAfter.models[1].protocols[0].features = {
+      tool_calls: { state: 'supported', provenance: prov(anthropicUrl, anthropicCapture.sha256) },
+    };
+    const featureNextBytes = json(featureAfter);
+    write(cwd, nativeProtocols.file, featureNextBytes);
+    write(evidence, 'proposal.json', json({
+      changes: [{
+        file: nativeProtocols.file,
+        scope: 'Anthropic feature update',
+        summary: 'Add tool_calls feature on claude-sonnet-5-5',
+        beforeSha256: hash(tamperedBefore),
+        afterSha256: hash(featureNextBytes),
+        evidence: [{
+          source: 'openai-models', url: openaiUrl, model: 'anthropic/claude-sonnet-5-5',
+          protocol: 'messages', after: 'supported', quote: openaiQuote,
+        }],
+      }],
+    }));
+    expect(() => buildReport(cwd, evidence)).toThrow('not an approved anthropic protocol evidence source');
+
+    // Reject feature carrying Copilot provenance even when parent support.provenance matches Anthropic capture.
+    const foreignFeature: any = structuredClone(afterDoc);
+    foreignFeature.models[1].protocols[0].features = {
+      tool_calls: {
+        state: 'supported',
+        provenance: prov(sources.find((item: { id: string }) => item.id === 'copilot-models').urls[0], 'foreign-rev'),
+      },
+    };
+    const foreignFeatureBytes = json(foreignFeature);
+    write(cwd, nativeProtocols.file, foreignFeatureBytes);
+    write(evidence, 'proposal.json', json({
+      changes: [{
+        file: nativeProtocols.file,
+        scope: 'Anthropic feature update',
+        summary: 'Add tool_calls feature with foreign provenance',
+        beforeSha256: hash(tamperedBefore),
+        afterSha256: hash(foreignFeatureBytes),
+        evidence: [{
+          source: 'anthropic-models', url: anthropicUrl, model: 'anthropic/claude-sonnet-5-5',
+          protocol: 'messages', after: 'supported', quote: anthropicQuote,
+        }],
+      }],
+    }));
+    expect(() => buildReport(cwd, evidence)).toThrow('stored provenance for messages feature tool_calls must match captured source URL and revision');
+
+    // Accept a feature-only edit with matching Anthropic feature provenance even when unchanged support keeps an older revision.
+    const olderSupportDoc: any = structuredClone(afterDoc);
+    olderSupportDoc.models[1].protocols[0].support.provenance.revision = 'prior-reviewed-rev';
+    write(cwd, nativeProtocols.file, json(olderSupportDoc));
+    commitBaseline();
+    const olderBefore = fs.readFileSync(path.join(cwd, nativeProtocols.file));
+    const validFeatureOnly: any = structuredClone(olderSupportDoc);
+    validFeatureOnly.models[1].protocols[0].features = {
+      tool_calls: { state: 'supported', provenance: prov(anthropicUrl, anthropicCapture.sha256) },
+    };
+    const validFeatureOnlyBytes = json(validFeatureOnly);
+    write(cwd, nativeProtocols.file, validFeatureOnlyBytes);
+    write(evidence, 'proposal.json', json({
+      changes: [{
+        file: nativeProtocols.file,
+        scope: 'Anthropic feature update',
+        summary: 'Add verified tool_calls feature on claude-sonnet-5-5',
+        beforeSha256: hash(olderBefore),
+        afterSha256: hash(validFeatureOnlyBytes),
+        evidence: [{
+          source: 'anthropic-models', url: anthropicUrl, model: 'anthropic/claude-sonnet-5-5',
+          protocol: 'messages', after: 'supported', quote: anthropicQuote,
+        }],
+      }],
+    }));
+    expect(buildReport(cwd, evidence).changes[0].file).toBe(nativeProtocols.file);
+
+    // Carry verified pending native protocol receipts forward across a subsequent unrelated refresh on the same PR.
+    write(cwd, nativeProtocols.file, json(baseDoc));
+    commitBaseline();
+    const pendingReviewBase = git(cwd, 'rev-parse', 'HEAD').trim();
+    const pendingBefore = fs.readFileSync(path.join(cwd, nativeProtocols.file));
+    const pendingBytes = json(afterDoc);
+    write(cwd, nativeProtocols.file, pendingBytes);
+    write(evidence, 'proposal.json', json({
+      changes: [{
+        file: nativeProtocols.file,
+        scope: 'OpenAI and Anthropic native exact protocol facts',
+        summary: 'Add verified native protocol support',
+        beforeSha256: hash(pendingBefore),
+        afterSha256: hash(pendingBytes),
+        evidence: [
+          { source: 'openai-models', url: openaiUrl, model: 'openai/gpt-6.2-sol', protocol: 'responses', after: 'supported', quote: openaiQuote },
+          { source: 'anthropic-models', url: anthropicUrl, model: 'anthropic/claude-sonnet-5-5', protocol: 'messages', after: 'supported', quote: anthropicQuote },
+        ],
+      }],
+    }));
+    const firstPendingReport = buildReport(cwd, evidence);
+    expect(firstPendingReport.pendingNativeProtocolFacts).toHaveLength(2);
+    write(cwd, 'shared/model-information/maintenance-report.json', json(firstPendingReport));
+    git(cwd, 'add', '.');
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'pending native protocol edit');
+    write(evidence, 'base-revision', git(cwd, 'rev-parse', 'HEAD'));
+    const targetBefore = Buffer.from(git(cwd, 'show', `HEAD:${targetFile}`));
+    const targetData = JSON.parse(fs.readFileSync(path.join(cwd, targetFile), 'utf8'));
+    targetData.routing[0].context = 256000;
+    const targetAfter = json(targetData);
+    write(cwd, targetFile, targetAfter);
+    write(evidence, 'proposal.json', json({ changes: [{
+      file: targetFile, beforeSha256: hash(targetBefore), afterSha256: hash(targetAfter),
+      scope: 'OpenAI native fixture model only', summary: 'Documented context drift',
+      evidence: [{ source: 'openai-models', quote: openaiQuote }],
+    }] }));
+    const secondPendingReport = buildReport(cwd, evidence);
+    expect(secondPendingReport.pendingNativeProtocolFacts).toEqual(firstPendingReport.pendingNativeProtocolFacts);
+    expect(() => checkPendingTierFacts(cwd, 'HEAD', pendingReviewBase)).not.toThrow();
+
+    // Combine verified receipts across successive edits to the same protocol with distinct captures.
+    const anthropicFeatureQuote = 'Claude API ID claude-sonnet-5-5 supports tool_calls on the Anthropic Messages API with strict schemas.';
+    await captureSources(evidence, async (address: string) => {
+      if (address === openaiUrl) return new Response(`<html><body>${openaiQuote}</body></html>`);
+      if (address === anthropicUrl) return new Response(`<html><body>${anthropicFeatureQuote}</body></html>`);
+      if (address.includes('/supported-models')) return new Response(`${realModels.toString('utf8')}\n<p>${copilotQuote}</p>`);
+      return fakeFetch()(address);
+    });
+    const refreshedAnthropicCapture = loadCaptures(evidence).find((item: { id: string }) => item.id === 'anthropic-models');
+    write(cwd, targetFile, targetBefore);
+    const sameProtoBefore = fs.readFileSync(path.join(cwd, nativeProtocols.file));
+    const sameProtoAfter: any = structuredClone(afterDoc);
+    sameProtoAfter.models[1].protocols[0].features = {
+      tool_calls: { state: 'supported', provenance: prov(anthropicUrl, refreshedAnthropicCapture.sha256) },
+    };
+    const sameProtoBytes = json(sameProtoAfter);
+    write(cwd, nativeProtocols.file, sameProtoBytes);
+    write(evidence, 'proposal.json', json({
+      changes: [{
+        file: nativeProtocols.file,
+        scope: 'Anthropic claude-sonnet-5-5 feature update',
+        summary: 'Add verified tool_calls feature on claude-sonnet-5-5',
+        beforeSha256: hash(sameProtoBefore),
+        afterSha256: hash(sameProtoBytes),
+        evidence: [{
+          source: 'anthropic-models', url: anthropicUrl, model: 'anthropic/claude-sonnet-5-5',
+          protocol: 'messages', after: 'supported', quote: anthropicFeatureQuote,
+        }],
+      }],
+    }));
+    const combinedReport = buildReport(cwd, evidence);
+    const sonnetPending = combinedReport.pendingNativeProtocolFacts.find(
+      (item: { model: string }) => item.model === 'anthropic/claude-sonnet-5-5',
+    );
+    expect(sonnetPending.evidence).toHaveLength(2);
+
+    write(cwd, 'shared/model-information/maintenance-report.json', json({ changes: [] }));
+    git(cwd, 'add', 'shared/model-information/maintenance-report.json');
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'drop native receipts');
+    expect(() => checkPendingTierFacts(cwd, 'HEAD', pendingReviewBase)).toThrow('missing evidence for pending');
+
+    // Also enforce provider-scoped verification on native agent protocol edits in decisions.json.
+    const decisionsFile = 'shared/model-information/sources/decisions.json';
+    const decisionsBase = {
+      schemaVersion: 1,
+      provenance: prov(openaiUrl, openaiCapture.sha256),
+      models: [{
+        schemaVersion: 1,
+        identity: { key: 'openai/gpt-6-luna', provider: 'openai', rawId: 'gpt-6-luna', lookupId: 'gpt-6-luna' },
+        lifecycle: { status: 'active' },
+        modelType: 'other',
+        provenance: prov(openaiUrl, openaiCapture.sha256),
+        protocols: [{ protocol: 'decisions', support: { state: 'supported', provenance: prov(openaiUrl, openaiCapture.sha256) } }],
+      }],
+    };
+    write(cwd, nativeProtocols.file, json(baseDoc));
+    write(cwd, decisionsFile, json(decisionsBase));
+    commitBaseline();
+    const decisionsBefore = fs.readFileSync(path.join(cwd, decisionsFile));
+    const decisionsAfter = structuredClone(decisionsBase);
+    decisionsAfter.models[0].protocols.unshift({
+      protocol: 'responses',
+      support: { state: 'supported', provenance: prov(openaiUrl, openaiCapture.sha256) },
+    });
+    const decisionsNextBytes = json(decisionsAfter);
+    write(cwd, decisionsFile, decisionsNextBytes);
+    write(evidence, 'proposal.json', json({
+      changes: [{
+        file: decisionsFile,
+        scope: 'OpenAI gpt-6-luna agent protocol',
+        summary: 'Add responses protocol on gpt-6-luna',
+        beforeSha256: hash(decisionsBefore),
+        afterSha256: hash(decisionsNextBytes),
+        evidence: [{ source: 'copilot-models', quote: copilotQuote }],
+      }],
+    }));
+    expect(() => buildReport(cwd, evidence)).toThrow('missing provider-qualified evidence for responses');
+    write(evidence, 'proposal.json', json({
+      changes: [{
+        file: decisionsFile,
+        scope: 'OpenAI gpt-6-luna agent protocol',
+        summary: 'Add responses protocol on gpt-6-luna',
+        beforeSha256: hash(decisionsBefore),
+        afterSha256: hash(decisionsNextBytes),
+        evidence: [{
+          source: 'openai-models', url: openaiUrl, model: 'openai/gpt-6-luna',
+          protocol: 'responses', after: 'supported', quote: openaiQuote,
+        }],
+      }],
+    }));
+    expect(buildReport(cwd, evidence).changes[0].file).toBe(decisionsFile);
   });
 
   it('drops retired Copilot gaps, retains native survivors and discovers exact supported protocol records', () => {
@@ -263,6 +641,9 @@ describe('offline scheduled source maintenance', () => {
     git(cwd, 'add', 'shared/model-information/maintenance-report.json');
     git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'legacy report');
     expect(() => checkPendingTierFacts(cwd, 'HEAD', reviewBase)).toThrow('missing evidence for pending codingTier');
+    git(cwd, 'rm', '-q', 'shared/model-information/sources/native-protocols.json');
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'pre-native-protocols branch');
+    expect(() => checkPendingTierFacts(cwd, 'HEAD', reviewBase)).toThrow('predates the native protocol catalogue');
   });
 
   it('rejects malformed or detached carried receipts and lost merge-base citations for unchanged facts', () => {
@@ -1439,7 +1820,7 @@ describe('offline scheduled source maintenance', () => {
   });
 
   it('selects the trusted PR without loading import tooling or requiring installed dependencies', () => {
-    for (const file of ['maintain.cjs', 'copilot-pricing.cjs', 'coding-tier-maintenance.cjs', 'maintenance-sources.json']) {
+    for (const file of ['maintain.cjs', 'copilot-pricing.cjs', 'coding-tier-maintenance.cjs', 'native-protocol-maintenance.cjs', 'maintenance-sources.json']) {
       write(cwd, `scripts/model-information/${file}`,
         fs.readFileSync(path.join(root, 'scripts/model-information', file)));
     }

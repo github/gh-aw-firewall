@@ -173,7 +173,7 @@ jobs:
       - name: Check existing runtime catalogue consumers
         run: |
           npm --prefix containers/api-proxy ci --ignore-scripts
-          npm --prefix containers/api-proxy test -- --runInBand models-dev-catalog.test.js ai-credits-pricing-reference.test.js catalogue-pricing.test.js guards/ai-credits-tariff.test.js guards/ai-credits-notices.test.js guards/ai-credits-promotions.test.js guards/ai-credits-pricing-fallback.test.js model-api-mapping.test.js runtime-model-catalog.test.js routing-catalogue.test.js wire-api-compat.test.js server.decisions.test.js
+          npm --prefix containers/api-proxy test -- --runInBand models-dev-catalog.test.js ai-credits-pricing-reference.test.js catalogue-pricing.test.js guards/ai-credits-tariff.test.js guards/ai-credits-notices.test.js guards/ai-credits-promotions.test.js guards/ai-credits-pricing-fallback.test.js model-api-mapping.test.js runtime-model-catalog.test.js routing-catalogue.test.js routing-candidates.test.js routing-fallback.test.js wire-api-compat.test.js server.decisions.test.js
 steps:
   - name: Check out the selected maintenance PR
     env:
@@ -333,6 +333,25 @@ For unresolved IDs or facts, emit `report_incomplete` naming what remains and
 why, even if there are other valid changes to publish. With only unresolved
 gaps, do not open or update a PR or emit `noop`. For example, retain Kimi K3's
 reviewed tier when its first announcement cannot be dated.
+
+Maintain exact per-model agent protocol facts (`responses` and
+`chat_completions` for OpenAI, `messages` for Anthropic) in
+`shared/model-information/sources/native-protocols.json` (and on
+`openai/gpt-6-luna` in `shared/model-information/sources/decisions.json`).
+Automatic selection on native providers requires affirmative exact
+`(provider, model ID, protocol)` evidence in `modelProtocols` and never admits
+family wildcards or `routingPatterns`. Verify OpenAI protocol support only from
+captured OpenAI sources (`openai-models`, `openai-responses`) and Anthropic
+protocol support only from captured Anthropic sources (`anthropic-models`).
+Per ADR 0004, Copilot captures and OpenRouter listings never vouch for native
+OpenAI or Anthropic endpoints. Record only exact model IDs (never wildcards),
+set each changed protocol fact's `support.provenance.source` and `revision` to
+the captured URL and SHA-256 digest, and in the proposal receipt for
+`native-protocols.json` (or for any OpenAI/Anthropic agent protocol edit in
+`decisions.json`), give each changed protocol fact an `evidence` item with
+`model` (`<provider>/<rawId>`), `protocol`, `after` (new support state or
+`null` if removed), captured `source` ID from that provider's approved sources,
+`url` matching the capture, and verbatim `quote`.
 
 Check `openai-decisions`, `openai-decisions-sdk`, `copilot-decisions` and
 `copilot-decisions-auth` for new supported **exact** model IDs, endpoint/protocol

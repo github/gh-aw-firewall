@@ -18,11 +18,15 @@ const metrics = require('./metrics');
 const { getCatalogueLoader } = require('./catalogue-loader');
 const {
   getModelApiMappingReflect,
-  lookupModelEndpoints,
+  lookupExactModelEndpoints,
   lookupModelRoutingMetadata,
 } = require('./model-api-mapping');
 const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
-const { canonicalizeAgentEndpoint, normalizeModel } = require('./routing-catalogue');
+const {
+  canonicalizeAgentEndpoint,
+  isNativeMaintainedEndpointScope,
+  normalizeModel,
+} = require('./routing-catalogue');
 const { getReasoningScope } = require('./model-reasoning');
 const {
   endpointsToProtocols,
@@ -65,7 +69,9 @@ function buildRoutingModelMetadata(provider, modelIds, runtimeRecords, scope, ro
       (scope?.channel === undefined || scope.channel === 'native-api')
       ? lookupModelRoutingMetadata(id, provider)
       : null;
-    const endpointMapping = lookupModelEndpoints(id, provider);
+    const endpointMapping = isNativeMaintainedEndpointScope(provider, scope)
+      ? lookupExactModelEndpoints(id, provider)
+      : null;
     const normalized = normalizeModel(id, runtime, provider, scope);
     const efforts = Array.isArray(normalized.efforts) ? normalized.efforts : null;
     const rawEndpoints = Array.isArray(runtime?.supportedEndpoints)
