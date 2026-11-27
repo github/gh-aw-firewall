@@ -53,6 +53,14 @@ runs:
         REPO="github/gh-aw-firewall"
         BINARY_NAME="awf-linux-x64"
         INSTALL_DIR="${RUNNER_TEMP}/awf-bin"
+        PUBLIC_GITHUB=true
+        if [ "${GITHUB_SERVER_URL:-https://github.com}" != "https://github.com" ]; then
+          PUBLIC_GITHUB=false
+          if ! command -v jq &> /dev/null; then
+            echo "::error::jq is required for anonymous public attestation lookups on enterprise hosts."
+            exit 1
+          fi
+        fi
 
         # gh itself and this action must already come from a trusted channel.
         if ! command -v gh &> /dev/null || \
@@ -61,9 +69,41 @@ runs:
           exit 1
         fi
 
-        verify_provenance() {
+        verify_provenance() (
           local verification_output
+          local bundle_args=()
+          if [ "$PUBLIC_GITHUB" = false ]; then
+            local bundle="$INSTALL_DIR/attestation-bundle.jsonl"
+            local records="$INSTALL_DIR/attestation-records.jsonl"
+            local record url
+            # Public github.com attestations must not receive an enterprise token.
+            if ! curl -q -fsSL "https://api.github.com/repos/${REPO}/attestations/sha256:$(sha256sum "$1" | awk '{print $1}')" \
+                | jq -ce '.attestations | if type == "array" and length > 0 then .[] | if (.bundle | type) == "object" or ((.bundle_url | type) == "string" and (.bundle_url | startswith("https://"))) then . else error("Invalid attestation") end else error("No attestations found") end' > "$records"; then
+              echo "::error::Release provenance lookup failed for $(basename "$1"); refusing installation"
+              exit 1
+            fi
+            : > "$bundle"
+            while IFS= read -r record; do
+              if [ "$(jq -r '.bundle | type' <<< "$record")" = object ]; then
+                jq -c '.bundle' <<< "$record" >> "$bundle"
+              else
+                url=$(jq -r '.bundle_url' <<< "$record")
+                if ! curl -q -fsSL --proto '=https' --proto-redir '=https' -- "$url" \
+                    | jq -sce 'if length == 1 and (.[0] | type) == "object" then .[0] else error("Invalid bundle") end' >> "$bundle"; then
+                  echo "::error::Release provenance lookup failed for $(basename "$1"); refusing installation"
+                  exit 1
+                fi
+              fi
+            done < "$records"
+            bundle_args=(--bundle "$bundle")
+            unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
+            export GH_HOST=github.com
+            GH_CONFIG_DIR=$(mktemp -d "$INSTALL_DIR/gh-config.XXXXXX")
+            export GH_CONFIG_DIR
+            trap 'rm -rf "$GH_CONFIG_DIR"' EXIT
+          fi
           if verification_output=$(gh attestation verify "$1" \
+              "${bundle_args[@]}" \
               --hostname github.com \
               --repo "$REPO" \
               --signer-workflow "${REPO}/.github/workflows/release.yml" \
@@ -75,14 +115,18 @@ runs:
             if [[ "$verification_output" == *"public good verifier is not available"* ]]; then
               echo "::error::The Sigstore public-good trust root could not be fetched or initialized. Check corporate-proxy HTTPS access to api.github.com, tuf-repo.github.com, and tuf-repo-cdn.sigstore.dev."
             fi
-            echo "::error::Release provenance verification failed for $(basename "$1"). Legacy unattested releases are not supported; use an attested release and a trusted, authenticated gh CLI."
+            echo "::error::Release provenance verification failed for $(basename "$1"). Legacy unattested releases are not supported; use an attested release and a trusted gh CLI."
             exit 1
           fi
-        }
+        )
 
         # Build auth headers for GitHub API (Bearer is the recommended format for GITHUB_TOKEN)
         AUTH_HEADER=()
-        if [ -n "${GITHUB_TOKEN:-}" ]; then
+        CURL_CONFIG=()
+        if [ "$PUBLIC_GITHUB" = false ]; then
+          CURL_CONFIG=(-q)
+        fi
+        if [ "$PUBLIC_GITHUB" = true ] && [ -n "${GITHUB_TOKEN:-}" ]; then
           AUTH_HEADER=(-H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
         fi
 
@@ -94,17 +138,17 @@ runs:
           echo "Fetching latest release version..."
           VERSION=""
           # Try gh CLI first (pre-installed on GitHub Actions runners, handles auth natively)
-          if command -v gh &> /dev/null && [ -n "${GITHUB_TOKEN:-}" ]; then
-            VERSION=$(gh api "repos/${REPO}/releases/latest" --jq '.tag_name' 2>/dev/null || true)
+          if [ "$PUBLIC_GITHUB" = true ] && command -v gh &> /dev/null && [ -n "${GITHUB_TOKEN:-}" ]; then
+            VERSION=$(GH_HOST=github.com gh api "repos/${REPO}/releases/latest" --jq '.tag_name' 2>/dev/null || true)
           fi
           # Fall back to curl with GitHub API
           if [ -z "${VERSION:-}" ] || [ "$VERSION" = "null" ]; then
             if command -v jq &> /dev/null; then
-              if ! VERSION=$(curl -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | jq -r '.tag_name'); then
+              if ! VERSION=$(curl "${CURL_CONFIG[@]}" -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | jq -r '.tag_name'); then
                 VERSION=""
               fi
             else
-              if ! VERSION=$(curl -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'); then
+              if ! VERSION=$(curl "${CURL_CONFIG[@]}" -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'); then
                 VERSION=""
               fi
             fi

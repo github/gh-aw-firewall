@@ -73,12 +73,22 @@ if [ "$3" = "--help" ]; then
   exit "\${GH_HELP_STATUS:-0}"
 fi
 printf '%s\\n' "$*" >> "$CASE_DIR/gh.log"
+printf '%s:%s:%s:%s\\n' "\${GH_TOKEN:+present}" "\${GITHUB_TOKEN:+present}" \
+  "\${GH_ENTERPRISE_TOKEN:+present}" "\${GITHUB_ENTERPRISE_TOKEN:+present}" >> "$CASE_DIR/gh-auth.log"
 [ "$1 $2" = "attestation verify" ] || exit 51
 [[ "$*" == *"--hostname github.com"* ]] || exit 52
 [[ "$*" == *"--repo github/gh-aw-firewall"* ]] || exit 53
 [[ "$*" == *"--signer-workflow github/gh-aw-firewall/.github/workflows/release.yml"* ]] || exit 54
 [[ "$*" == *"--cert-oidc-issuer https://token.actions.githubusercontent.com"* ]] || exit 55
 [[ "$*" == *"--deny-self-hosted-runners"* ]] || exit 56
+if [ "\${VERIFY_ANONYMOUS:-}" = "1" ]; then
+  [[ -z "\${GH_TOKEN:-}\${GITHUB_TOKEN:-}\${GH_ENTERPRISE_TOKEN:-}\${GITHUB_ENTERPRISE_TOKEN:-}" ]] || exit 58
+  [[ "$GH_HOST" == github.com && "$GH_CONFIG_DIR" == "$CASE_DIR/"*/gh-config.* ]] || exit 59
+  [[ -d "$GH_CONFIG_DIR" && -z "$(ls -A "$GH_CONFIG_DIR")" ]] || exit 62
+  [[ "$4" == --bundle && -s "$5" ]] || exit 60
+  expected='{"signature":"fixture"}'
+  [ "$(cat "$5")" = "\${EXPECTED_BUNDLES:-$expected}" ] || exit 61
+fi
 if [ -n "\${FAIL_ATTESTATION:-}" ] && [[ "$3" == *"$FAIL_ATTESTATION"* ]]; then
   echo "\${ATTESTATION_ERROR:-attestation rejected}" >&2
   exit 57
@@ -86,6 +96,9 @@ fi
 `,
     curl: `#!/bin/bash
 url=""
+printf '%s\\n' "$*" >> "$CASE_DIR/curl-invocations.log"
+printf '%s\\n' "\${GITHUB_TOKEN:+present}" >> "$CASE_DIR/curl-auth-env.log"
+if [ "\${VERIFY_ANONYMOUS:-}" = "1" ] && [[ "$*" == *"Authorization:"* ]]; then exit 58; fi
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -o) output="$2"; shift 2 ;;
@@ -95,6 +108,21 @@ while [ "$#" -gt 0 ]; do
 done
 asset="\${url##*/}"
 printf '%s\\n' "$asset" >> "$CASE_DIR/curl.log"
+if [[ "$url" == https://api.github.com/repos/github/gh-aw-firewall/attestations/sha256:* ]]; then
+  [ "\${ATTESTATION_API_STATUS:-0}" = 0 ] || exit "$ATTESTATION_API_STATUS"
+  if [ -n "\${ATTESTATION_RESPONSE:-}" ]; then
+    printf '%s\\n' "$ATTESTATION_RESPONSE"
+  else
+    printf '%s\\n' '{"attestations":[{"bundle":{"signature":"fixture"}}]}'
+  fi
+  exit
+fi
+if [ "$url" = "https://bundles.example.test/fixture" ]; then
+  [ "\${BUNDLE_STATUS:-0}" = 0 ] || exit "$BUNDLE_STATUS"
+  response='{"signature":"fixture"}'
+  printf '%s\\n' "\${BUNDLE_RESPONSE:-$response}"
+  exit
+fi
 if [ "$asset" = latest ]; then
   [ "\${CURL_LATEST_STATUS:-0}" = "0" ] || { echo "latest lookup failed" >&2; exit "$CURL_LATEST_STATUS"; }
   printf '{"tag_name": "%s"}\\n' "\${LATEST_TAG:-v1.2.3}"
@@ -148,7 +176,11 @@ printf "%s" "\${GH_TOKEN+x}" > ${JSON.stringify(path.join(directory, 'helper-hos
           AWF_VERSION: '',
           AWF_FORCE_BINARY: options.bundle ? '' : '1',
           INPUT_VERSION: tag,
+          GH_TOKEN: '',
           GITHUB_TOKEN: '',
+          GH_ENTERPRISE_TOKEN: '',
+          GITHUB_ENTERPRISE_TOKEN: '',
+          GITHUB_SERVER_URL: 'https://github.com',
           RUNNER_TEMP: directory,
           GITHUB_OUTPUT: path.join(directory, 'output'),
           GITHUB_PATH: path.join(directory, 'github-path'),
@@ -220,6 +252,122 @@ describe('release bootstrap authentication', () => {
       expect(f.log('curl.log')).not.toContain('enclave-storage-helper.py');
       expect(f.log('helper-install.log')).toBe('');
     }
+  });
+
+  for (const target of ['installer', 'action'] as const) {
+    it.each([
+      'https://acme.ghe.com',
+      'https://github.company.com',
+    ])(`${target} verifies public attestations anonymously from %s`, serverUrl => {
+      const f = fixture();
+      const config = path.join(f.directory, 'original-config');
+      fs.mkdirSync(config);
+      fs.writeFileSync(path.join(config, 'hosts.yml'), 'untrusted fixture config\n');
+      const result = f.run(target, {
+        GITHUB_SERVER_URL: serverUrl,
+        GH_HOST: new URL(serverUrl).hostname,
+        GH_CONFIG_DIR: config,
+        GH_TOKEN: 'enterprise-fixture',
+        GITHUB_TOKEN: 'enterprise-fixture',
+        GH_ENTERPRISE_TOKEN: 'enterprise-fixture',
+        GITHUB_ENTERPRISE_TOKEN: 'enterprise-fixture',
+        VERIFY_ANONYMOUS: '1',
+        INPUT_VERSION: target === 'installer' ? '' : 'latest',
+      });
+      expect(result.status).toBe(0);
+      const calls = f.log('gh.log').trim().split('\n');
+      expect(calls).toHaveLength(target === 'installer' ? 3 : 4);
+      for (const call of calls) expect(call).toContain('--bundle');
+      expect(f.log('gh-auth.log').trim().split('\n')).toEqual(calls.map(() => ':::'));
+      expect(f.log('curl.log').trim().split('\n').filter(asset => asset.startsWith('sha256:')))
+        .toHaveLength(calls.length);
+      if (target === 'action') {
+        expect(f.log('curl-invocations.log').split('\n').find(line => line.includes('/releases/latest')))
+          .toMatch(/^-q /);
+      }
+      expect(fs.readFileSync(path.join(config, 'hosts.yml'), 'utf8')).toBe('untrusted fixture config\n');
+      const installDirectory = path.join(f.directory, target === 'installer' ? 'downloads' : 'awf-bin');
+      if (fs.existsSync(installDirectory)) {
+        expect(fs.readdirSync(installDirectory).some(name => name.startsWith('gh-config.'))).toBe(false);
+      }
+      // Credential removal is confined to the verifier subprocess.
+      expect(f.log('curl-auth-env.log').trim().split('\n').every(line => line === 'present')).toBe(true);
+      expect(fs.existsSync(path.join(f.directory, target === 'installer' ? 'installed/awf' : 'awf-bin/awf'))).toBe(true);
+    });
+
+    it.each([
+      ['URL-only', '{"attestations":[{"bundle":null,"bundle_url":"https://bundles.example.test/fixture"}]}', '{"signature":"fixture"}'],
+      ['mixed', '{"attestations":[{"bundle":null,"bundle_url":"https://bundles.example.test/fixture"},{"bundle":{"signature":"fixture"}}]}', '{"signature":"fixture"}\n{"signature":"fixture"}'],
+    ])(`${target} verifies %s bundles anonymously`, (_kind, response, expected) => {
+      const f = fixture();
+      const result = f.run(target, {
+        GITHUB_SERVER_URL: 'https://acme.ghe.com',
+        GITHUB_TOKEN: 'enterprise-fixture',
+        VERIFY_ANONYMOUS: '1',
+        ATTESTATION_RESPONSE: response,
+        EXPECTED_BUNDLES: expected,
+      });
+      expect(result.stderr + result.stdout).not.toContain('Release provenance lookup failed');
+      expect(result.status).toBe(0);
+      const requests = f.log('curl-invocations.log').trim().split('\n')
+        .filter(line => line.split(/\s+/).some(token => {
+          try {
+            const u = new URL(token);
+            return u.protocol === 'https:' && u.host === 'bundles.example.test' && u.pathname === '/fixture';
+          } catch {
+            return false;
+          }
+        }));
+      expect(requests).toHaveLength(target === 'installer' ? 3 : 4);
+      for (const request of requests) expect(request).toMatch(/^-q .*--proto =https --proto-redir =https -- /);
+    });
+
+    it.each(['https://github.com', ''])(`${target} retains github.com authentication (server URL=%s)`, serverUrl => {
+      const f = fixture();
+      const result = f.run(target, {
+        GITHUB_SERVER_URL: serverUrl,
+        GH_TOKEN: 'public-fixture',
+        GITHUB_TOKEN: 'public-fixture',
+      });
+      expect(result.status).toBe(0);
+      expect(f.log('gh.log')).not.toContain('--bundle');
+      expect(f.log('gh-auth.log').trim().split('\n').every(line => line === 'present:present::')).toBe(true);
+      expect(f.log('curl.log')).not.toContain('sha256:');
+    });
+
+    it.each<Record<string, string>>([
+      { ATTESTATION_API_STATUS: '22' },
+      { ATTESTATION_RESPONSE: '{"attestations":[]}' },
+      { ATTESTATION_RESPONSE: 'invalid JSON' },
+      { ATTESTATION_RESPONSE: '{"attestations":[{"bundle":null}]}' },
+      { ATTESTATION_RESPONSE: '{"attestations":[{"bundle":null,"bundle_url":"http://example.test/fixture"}]}' },
+      { ATTESTATION_RESPONSE: '{"attestations":[{"bundle":null,"bundle_url":"https://bundles.example.test/fixture"}]}', BUNDLE_STATUS: '22' },
+      { ATTESTATION_RESPONSE: '{"attestations":[{"bundle":null,"bundle_url":"https://bundles.example.test/fixture"}]}', BUNDLE_RESPONSE: 'invalid JSON' },
+      { ATTESTATION_RESPONSE: '{"attestations":[{"bundle":null,"bundle_url":"https://bundles.example.test/fixture"}]}', BUNDLE_RESPONSE: 'null' },
+      { FAIL_ATTESTATION: 'release-identity.txt' },
+    ])(`${target} fails closed on enterprise attestation lookup or verification failure: %j`, failure => {
+      const f = fixture();
+      const result = f.run(target, {
+        GITHUB_SERVER_URL: 'https://acme.ghe.com',
+        GH_TOKEN: 'enterprise-fixture',
+        GITHUB_TOKEN: 'enterprise-fixture',
+        VERIFY_ANONYMOUS: '1',
+        ...failure,
+      });
+      expect(result.status).not.toBe(0);
+      expect(result.stderr + result.stdout).toMatch(/Release provenance (lookup|verification) failed/);
+      expect(fs.existsSync(path.join(f.directory, 'installed/awf'))).toBe(false);
+      expect(fs.existsSync(path.join(f.directory, 'awf-bin/awf'))).toBe(false);
+      expect(f.log('github-path')).toBe('');
+    });
+  }
+
+  it('retains curl configuration and authentication for public action latest lookups', () => {
+    const f = fixture();
+    const result = f.run('action', { INPUT_VERSION: 'latest', GITHUB_TOKEN: 'public-fixture' });
+    expect(result.status).toBe(0);
+    expect(f.log('curl-invocations.log').split('\n').find(line => line.includes('/releases/latest')))
+      .toMatch(/^-fsSL .*Authorization:/);
   });
 
   it.each([false, true])('installs a pinned CLI without gh or identity metadata (bundle=%s)', bundle => {

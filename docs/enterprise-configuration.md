@@ -13,6 +13,27 @@ For self-hosted runners, including ARC/DinD, also allow the
 even with a cached CLI. Enterprise inference endpoint configuration does not
 redirect this installer request; see the linked GHES caveat and cooldown guidance.
 
+## Public release verification during installation
+
+AWF releases and their attestations are hosted on public `github.com`, not on
+your enterprise host. When `GITHUB_SERVER_URL` differs from `https://github.com`,
+the repository's `install.sh` and composite setup action fetch public attestation
+bundles anonymously and verify them with `gh attestation verify --bundle`.
+Enterprise tokens and enterprise CLI configuration are excluded from that
+verification subprocess. Signature, signer-workflow, release-identity, and checksum checks
+remain required; failed lookups or verification stop installation.
+
+This path requires `jq` and a trusted attestation-capable `gh` CLI. Anonymous
+requests are subject to GitHub's unauthenticated API rate limits. When running
+`install.sh` through sudo, preserve `GITHUB_SERVER_URL` so the installer can
+recognize the enterprise host. Public `github.com` jobs retain authenticated
+verification.
+
+The separate `actions/setup/sh/install_copilot_cli.sh`,
+`install_awf_binary.sh`, and strict-mode `engine.cooldown` validation are owned by
+`github/gh-aw`, not this repository. Updating AWF alone does not patch those
+upstream setup scripts; see [github/gh-aw#81082](https://github.com/github/gh-aw/issues/81082).
+
 ## Overview
 
 AWF automatically detects your GitHub environment and configures the appropriate API endpoints. The API proxy sidecar intelligently routes GitHub Copilot API traffic based on your `GITHUB_SERVER_URL` environment variable.
