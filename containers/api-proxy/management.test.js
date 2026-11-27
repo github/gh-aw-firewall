@@ -5,6 +5,25 @@ const { normalizeModel } = require('./routing-catalogue');
 const { buildRoutingCandidates } = require('./routing-candidates');
 const { createCopilotAdapter } = require('./providers/copilot');
 const { createOpenAIAdapter } = require('./providers/openai');
+const { createAnthropicAdapter } = require('./providers/anthropic');
+
+function reflectEndpoints(adapters) {
+  const handlers = createManagementHandlers({
+    getAdapters: () => adapters,
+    getCachedModels: () => ({}),
+    isModelFetchComplete: () => true,
+    getModelAliases: () => null,
+    getModelFallback: () => null,
+    getEffectiveModelFallback: () => ({}),
+    getAiCreditsUsage: () => ({}),
+    getMaxRunsUsage: () => ({}),
+    getMaxCacheMissesUsage: () => ({}),
+    getPermissionDeniedUsage: () => ({}),
+  });
+  const res = { writeHead: jest.fn(), end: jest.fn() };
+  expect(handlers.handleManagementEndpoint({ method: 'GET', url: '/reflect' }, res)).toBe(true);
+  return res.end.mock.calls[0][0];
+}
 
 describe('authentication metadata in /reflect', () => {
   it.each([
@@ -63,6 +82,34 @@ describe('authentication metadata in /reflect', () => {
     } finally {
       provider?.shutdown();
     }
+  });
+});
+
+describe('Anthropic authentication metadata in /reflect', () => {
+  it('reports static-key when OIDC is requested without Actions OIDC env but a static key is present', () => {
+    const adapter = createAnthropicAdapter({
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'anthropic',
+      ANTHROPIC_API_KEY: 'test-api-key',
+    });
+    expect(adapter.getOidcProvider()).toBeNull();
+
+    const body = reflectEndpoints([adapter]);
+    expect(JSON.parse(body).endpoints[0]).toMatchObject({
+      provider: 'anthropic', configured: true, auth_type: 'static-key',
+    });
+    expect(body).not.toContain('test-api-key');
+  });
+
+  it('reports the requested OIDC mode when no credential is configured', () => {
+    const adapter = createAnthropicAdapter({
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'anthropic',
+    });
+
+    expect(JSON.parse(reflectEndpoints([adapter])).endpoints[0]).toMatchObject({
+      provider: 'anthropic', configured: false, auth_type: 'github-oidc/anthropic',
+    });
   });
 });
 

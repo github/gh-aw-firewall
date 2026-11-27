@@ -166,7 +166,7 @@ function createAnthropicAdapter(env, deps = {}) {
         buildStaticHeaders: () => buildStaticAuthHeaders(apiKey),
       };
     },
-    createAdapterMethodsOptions: ({ authProvider, oidcConfigured, oidcProvider, resolveHeaders }) => ({
+    createAdapterMethodsOptions: ({ apiKey, authProvider, oidcConfigured, oidcProvider, resolveHeaders }) => ({
       validationPath: '/v1/messages',
       validationMethod: 'POST',
       validationBody: '{}',
@@ -194,7 +194,7 @@ function createAnthropicAdapter(env, deps = {}) {
         }, getHeaderCredentials(headers));
       },
       reflectionExtra: () => ({
-        auth_type: oidcConfigured ? `github-oidc/${authProvider}` : (oidcRequested ? 'github-oidc/anthropic' : 'static-key'),
+        auth_type: oidcConfigured ? `github-oidc/${authProvider}` : (oidcRequested && !apiKey ? 'github-oidc/anthropic' : 'static-key'),
       }),
     }),
     buildAdapterOptions: ({ oidcConfigured }) => {

@@ -155,7 +155,7 @@ class AnthropicOidcTokenProvider extends BaseOidcTokenProvider {
       federation_rule_id: this._federationRuleId,
       organization_id: this._organizationId,
       service_account_id: this._serviceAccountId,
-      expires_in_secs: this._expiresAt - Math.floor(Date.now() / 1000),
+      expires_in_secs: this._expiresAt - this._nowSeconds(),
     };
   }
 

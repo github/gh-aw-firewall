@@ -163,7 +163,7 @@ class GcpOidcTokenProvider extends BaseOidcTokenProvider {
     return {
       workload_identity_provider: this._workloadIdentityProvider,
       service_account: this._serviceAccount || '(direct access)',
-      expires_in_secs: this._expiresAt - Math.floor(Date.now() / 1000),
+      expires_in_secs: this._expiresAt - this._nowSeconds(),
     };
   }
 

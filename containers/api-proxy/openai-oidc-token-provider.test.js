@@ -71,7 +71,7 @@ describe('OpenAIOidcTokenProvider', () => {
     expect(mintGitHubOidcToken).toHaveBeenCalledWith(expect.objectContaining({
       audience: 'https://custom.openai.example/v1',
     }));
-    expect(provider._expiresAt - Math.floor(Date.now() / 1000)).toBeLessThanOrEqual(3600);
+    expect(provider._expiresAt - Date.now() / 1000).toBeLessThanOrEqual(3600);
 
     provider.shutdown();
   });
@@ -90,7 +90,7 @@ describe('OpenAIOidcTokenProvider', () => {
       expect(scheduleRefresh).toHaveBeenCalledWith(225_000);
       expect(provider.isReady()).toBe(true);
       expect(provider.getToken()).toBe('openai-access-token');
-      expect(provider._expiresAt - Math.floor(Date.now() / 1000)).toBe(300);
+      expect(provider._expiresAt - Date.now() / 1000).toBe(300);
       await jest.advanceTimersByTimeAsync(224_999);
       expect(mintGitHubOidcToken).toHaveBeenCalledTimes(1);
       expect(httpPost).toHaveBeenCalledTimes(1);
@@ -99,7 +99,7 @@ describe('OpenAIOidcTokenProvider', () => {
       expect(mintGitHubOidcToken).toHaveBeenCalledTimes(2);
       expect(httpPost).toHaveBeenCalledTimes(2);
       expect(provider.isReady()).toBe(true);
-      expect(provider._expiresAt - Math.floor(Date.now() / 1000)).toBe(300);
+      expect(provider._expiresAt - Date.now() / 1000).toBe(300);
 
       await jest.advanceTimersByTimeAsync(224_999);
       expect(httpPost).toHaveBeenCalledTimes(2);

@@ -67,7 +67,7 @@ class AwsOidcTokenProvider extends BaseOidcTokenProvider {
    * @returns {AwsCredentials|null}
    */
   getCredentials() {
-    const now = Math.floor(Date.now() / 1000);
+    const now = this._nowSeconds();
     if (this._cachedCredentials && this._expiresAt > now) {
       return this._cachedCredentials;
     }
@@ -213,7 +213,7 @@ class AwsOidcTokenProvider extends BaseOidcTokenProvider {
     return {
       role_arn: this._roleArn,
       region: this._region,
-      expires_in_secs: this._expiresAt - Math.floor(Date.now() / 1000),
+      expires_in_secs: this._expiresAt - this._nowSeconds(),
     };
   }
 

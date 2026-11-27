@@ -1319,7 +1319,7 @@ curl -sf http://172.30.0.30:10000/reflect | jq '.models_fetch_complete, .endpoin
 
 The management port (10000) also exposes a `GET /reflect` endpoint for dynamic provider and model discovery. This allows agent harnesses to query which providers are configured and which models are available at runtime.
 
-Endpoint entries include `auth_type` when supplied by the adapter, such as `github-oidc/openai`, `github-oidc/azure`, or `static-key`.
+Endpoint entries include `auth_type` when supplied by the adapter, such as `github-oidc/openai`, `github-oidc/azure`, or `static-key`. It reports the credential the proxy actually uses: for example, Anthropic reports `static-key` when OIDC is requested without the Actions OIDC variables but `ANTHROPIC_API_KEY` is set.
 
 ```bash
 curl http://172.30.0.30:10000/reflect
@@ -2138,7 +2138,7 @@ Exchanges the GitHub OIDC JWT at `https://auth.openai.com/oauth/token` for a sho
 
 Both OpenAI IDs must be set for the sidecar to treat OpenAI WIF as configured. See [auth-matrix.md](auth-matrix.md#openai-native-workload-identity-federation) for the header and egress details.
 
-The sidecar caches the access token and refreshes it at 75% of its lifetime: a 300-second token refreshes after 225 seconds, rather than immediately.
+The sidecar caches the access token and refreshes it at 75% of its lifetime: a 300-second token refreshes after 225 seconds, rather than immediately. If a refresh fails, the sidecar retries no later than halfway through the token's remaining lifetime and, once the token has expired, keeps retrying with a fixed backoff.
 
 ### Anthropic API
 

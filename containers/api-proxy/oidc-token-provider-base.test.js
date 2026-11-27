@@ -1,10 +1,10 @@
 'use strict';
 
-const { BaseOidcTokenProvider } = require('./oidc-token-provider-base');
+const { BaseOidcTokenProvider, MIN_RETRY_DELAY_MS } = require('./oidc-token-provider-base');
 
 class TestOidcTokenProvider extends BaseOidcTokenProvider {
-  constructor() {
-    super('test_oidc', {});
+  constructor(config = {}) {
+    super('test_oidc', config);
     this._cachedValue = null;
   }
 
@@ -12,6 +12,10 @@ class TestOidcTokenProvider extends BaseOidcTokenProvider {
 
   _getCachedValue() {
     return this._cachedValue;
+  }
+
+  _setCachedValue(value) {
+    this._cachedValue = value;
   }
 
   _getInitSuccessLogContext() {
@@ -38,10 +42,39 @@ describe('BaseOidcTokenProvider#getToken', () => {
     provider.shutdown();
   });
 
-  it('preserves the integer clock by default', () => {
+  it('uses a fractional clock by default', () => {
+    jest.useFakeTimers({ now: 100_900 });
     const provider = new TestOidcTokenProvider();
-    expect(provider._nowSeconds()).toBe(Math.floor(Date.now() / 1000));
-    provider.shutdown();
+    try {
+      expect(provider._nowSeconds()).toBe(100.9);
+    } finally {
+      provider.shutdown();
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps a token issued near a second boundary valid until its refresh runs', async () => {
+    jest.useFakeTimers({ now: 100_900 });
+    const provider = new TestOidcTokenProvider();
+    provider._doRefresh = jest.fn(async () => {
+      provider._storeAndScheduleRefresh('refreshed-token', 1);
+    });
+    try {
+      provider._storeAndScheduleRefresh('cached-token', 1);
+      expect(provider._expiresAt).toBe(101.9);
+
+      await jest.advanceTimersByTimeAsync(749);
+      expect(provider.isReady()).toBe(true);
+      expect(provider.getToken()).toBe('cached-token');
+      expect(provider._doRefresh).not.toHaveBeenCalled();
+
+      await jest.advanceTimersByTimeAsync(1);
+      expect(provider._doRefresh).toHaveBeenCalledTimes(1);
+      expect(provider.getToken()).toBe('refreshed-token');
+    } finally {
+      provider.shutdown();
+      jest.useRealTimers();
+    }
   });
 
   it('returns cached value when it has not expired', () => {
@@ -73,5 +106,90 @@ describe('BaseOidcTokenProvider#getToken', () => {
     expect(provider.getToken()).toBeNull();
     expect(provider._scheduleRefresh).not.toHaveBeenCalled();
     provider.shutdown();
+  });
+});
+
+describe('BaseOidcTokenProvider refresh retries', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('retries a failed refresh before the token expires', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const provider = new TestOidcTokenProvider();
+    provider._doRefresh = jest.fn()
+      .mockRejectedValueOnce(new Error('transient'))
+      .mockImplementation(async () => {
+        provider._storeAndScheduleRefresh('refreshed-token', 60);
+      });
+    try {
+      provider._storeAndScheduleRefresh('cached-token', 60);
+
+      await jest.advanceTimersByTimeAsync(45_000);
+      expect(provider._doRefresh).toHaveBeenCalledTimes(1);
+      expect(provider.isReady()).toBe(true);
+
+      await jest.advanceTimersByTimeAsync(7_499);
+      expect(provider._doRefresh).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(provider._doRefresh).toHaveBeenCalledTimes(2);
+      expect(Date.now()).toBeLessThan(60_000);
+      expect(provider.getToken()).toBe('refreshed-token');
+    } finally {
+      provider.shutdown();
+    }
+  });
+
+  it('keeps retrying with a positive backoff after the token expires', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const provider = new TestOidcTokenProvider({ retryDelayMs: 5_000 });
+    let resolveSlowRefresh;
+    provider._doRefresh = jest.fn()
+      .mockImplementationOnce(() => new Promise((_, reject) => {
+        resolveSlowRefresh = () => reject(new Error('slow failure'));
+      }))
+      .mockRejectedValueOnce(new Error('still failing'))
+      .mockImplementation(async () => {
+        provider._storeAndScheduleRefresh('refreshed-token', 60);
+      });
+    try {
+      provider._storeAndScheduleRefresh('cached-token', 2);
+      await jest.advanceTimersByTimeAsync(1_500);
+      expect(provider._doRefresh).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(provider.isReady()).toBe(false);
+      resolveSlowRefresh();
+      await jest.advanceTimersByTimeAsync(0);
+
+      await jest.advanceTimersByTimeAsync(4_999);
+      expect(provider._doRefresh).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(provider._doRefresh).toHaveBeenCalledTimes(2);
+
+      await jest.advanceTimersByTimeAsync(5_000);
+      expect(provider._doRefresh).toHaveBeenCalledTimes(3);
+      expect(provider.isReady()).toBe(true);
+      expect(provider.getToken()).toBe('refreshed-token');
+    } finally {
+      provider.shutdown();
+    }
+  });
+
+  it.each([
+    [{ expiresAt: 60, now: 45 }, 7_500],
+    [{ expiresAt: 60, now: 0 }, 30_000],
+    [{ expiresAt: 60, now: 59.5 }, MIN_RETRY_DELAY_MS],
+    [{ expiresAt: 60, now: 60 }, 30_000],
+    [{ expiresAt: 60, now: 120 }, 30_000],
+  ])('caps retry delay against remaining lifetime (%j)', ({ expiresAt, now }, delayMs) => {
+    jest.useFakeTimers({ now: now * 1000 });
+    const provider = new TestOidcTokenProvider();
+    provider._expiresAt = expiresAt;
+    try {
+      expect(provider._getRetryDelayMs()).toBe(delayMs);
+    } finally {
+      provider.shutdown();
+    }
   });
 });
