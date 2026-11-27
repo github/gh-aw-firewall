@@ -67,6 +67,21 @@ function makeParams(overrides: Partial<AgentEnvironmentParams['config']> = {}): 
 }
 
 describe('buildAgentEnvironment', () => {
+  let originalTmpDir: string | undefined;
+
+  beforeAll(() => {
+    originalTmpDir = process.env.TMPDIR;
+    delete process.env.TMPDIR;
+  });
+
+  afterAll(() => {
+    if (originalTmpDir === undefined) {
+      delete process.env.TMPDIR;
+    } else {
+      process.env.TMPDIR = originalTmpDir;
+    }
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     // Default: core environment returns empty object
