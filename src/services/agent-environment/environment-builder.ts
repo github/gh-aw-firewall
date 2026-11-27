@@ -27,6 +27,13 @@ export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<st
   buildOtelEnvironment({ config: params.config, environment, excludedEnvVars });
   buildGitHubActionsEnvironment({ config: params.config, environment, excludedEnvVars });
   // Host TMPDIR may be absent or unwritable in the sandbox's private filesystem.
+  if (params.config.envAll && process.env.TMPDIR && process.env.TMPDIR !== '/tmp'
+    && environment.TMPDIR === undefined && !excludedEnvVars.has('TMPDIR')) {
+    logger.warn(
+      'Host TMPDIR is not forwarded by --env-all: the sandbox uses private temporary storage. ' +
+      'Defaulting agent TMPDIR to /tmp; use --env TMPDIR=<sandbox-writable-path> or --env-file for an explicit override.'
+    );
+  }
   environment.TMPDIR ??= '/tmp';
   // Router export and OIDC auth settings belong to trusted sidecars. Drop their
   // reserved namespaces, whether --env-all, --env-file or --env supplied them.
