@@ -109,6 +109,10 @@ post-steps:
 
 # Smoke Test: Copilot Network Isolation
 
+The trigger for this run is `${{ github.event_name }}`. Use this supplied event
+name to choose the safe outputs below; do not infer the trigger from the
+workspace or read event files with shell tools.
+
 Run both egress checks in one `bash` call inside the isolated sandbox:
 
 ```bash

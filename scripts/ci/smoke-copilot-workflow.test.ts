@@ -177,6 +177,48 @@ describe('smoke copilot workflow output requirements', () => {
     expect(lock).toContain("github(list_pull_requests)");
   });
 
+  it('smoke-copilot-network-isolation: supplies the trigger through the compiled prompt pipeline', () => {
+    const source = fs.readFileSync(
+      path.join(workflowsDir, 'smoke-copilot-network-isolation.md'), 'utf-8',
+    );
+    const lock = yaml.load(fs.readFileSync(
+      path.join(workflowsDir, 'smoke-copilot-network-isolation.lock.yml'), 'utf-8',
+    )) as {
+      jobs: { activation: { steps: {
+        env?: Record<string, string>;
+        with?: { script?: string };
+      }[] } };
+    };
+    const promptStep = lock.jobs.activation.steps.find(step => step.env?.GH_AW_PROMPT_CONFIG);
+    expect(promptStep).toBeDefined();
+    const promptConfig = JSON.parse(promptStep!.env!.GH_AW_PROMPT_CONFIG) as {
+      items: { author_file?: string }[];
+      author_expressions: Record<string, string>;
+    };
+    expect(promptConfig.items).toContainEqual({
+      author_file: '.github/workflows/smoke-copilot-network-isolation.md',
+    });
+    expect(promptConfig.author_expressions).toEqual({
+      'github.event_name': 'GH_AW_GITHUB_EVENT_NAME',
+    });
+    const promptSteps = lock.jobs.activation.steps.filter(step => step.env?.GH_AW_PROMPT_ENV);
+    expect(promptSteps).toHaveLength(3);
+    for (const step of promptSteps) {
+      expect(step.env?.GH_AW_GITHUB_EVENT_NAME).toBe('${{ github.event_name }}');
+      expect(JSON.parse(step.env!.GH_AW_PROMPT_ENV)).toContain('GH_AW_GITHUB_EVENT_NAME');
+    }
+    expect(promptSteps[1].with?.script).toContain(
+      'authorExpressions: {"github.event_name":"GH_AW_GITHUB_EVENT_NAME"}',
+    );
+    expect(promptSteps[2].with?.script).toContain(
+      'GH_AW_GITHUB_EVENT_NAME: process.env.GH_AW_GITHUB_EVENT_NAME',
+    );
+    expect(source).toContain('The trigger for this run is `${{ github.event_name }}`.');
+    expect(source.replace(/\s+/g, ' ')).toContain(
+      'do not infer the trigger from the workspace or read event files with shell tools.',
+    );
+  });
+
   it('smoke-copilot-network-isolation: grants granular curl shell permission', () => {
     const frontmatter = loadFrontmatter('smoke-copilot-network-isolation.md');
     const lock = fs.readFileSync(
