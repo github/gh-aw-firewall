@@ -773,7 +773,7 @@ injects the resulting token as a Bearer `Authorization` header.
 | `apiProxy.auth.gcpServiceAccount` | `AWF_AUTH_GCP_SERVICE_ACCOUNT` | No | — |
 | `apiProxy.auth.gcpScope` | `AWF_AUTH_GCP_SCOPE` | No | `https://www.googleapis.com/auth/cloud-platform` |
 
-Default OIDC audience: the `gcpWorkloadIdentityProvider` value
+Default OIDC audience: `https://iam.googleapis.com/` followed by the `gcpWorkloadIdentityProvider` value. `AWF_AUTH_OIDC_AUDIENCE` overrides this default; the STS audience remains `//iam.googleapis.com/` followed by the provider resource name.
 
 When `gcpServiceAccount` is provided, the sidecar performs a two-step
 exchange:
