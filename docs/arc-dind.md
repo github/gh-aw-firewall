@@ -155,11 +155,13 @@ unusable remaining CA store still aborts startup.
 
 If corporate endpoints require that CA, copy the bundle into a daemon-visible
 shared directory, such as `${RUNNER_TEMP}/gh-aw/ca/extra-ca-certs.pem`, and set
-`NODE_EXTRA_CA_CERTS` to that staged path before invoking AWF. Ensure the
-directory is mounted read-only into the agent chroot (for example, an explicit
+`NODE_EXTRA_CA_CERTS` to that staged path before invoking AWF, and explicitly
+forward it to the agent with `--env "NODE_EXTRA_CA_CERTS=$NODE_EXTRA_CA_CERTS"`.
+Ensure the directory is mounted read-only into the agent chroot (for example, an explicit
 `--mount` of `${RUNNER_TEMP}/gh-aw`); staging alone does not expose the file.
 Apply this setup to both the agent and threat-detection jobs when applicable.
 Visible extra CAs still pass through AWF's trust filter.
+When SSL bump is enabled, AWF replaces this variable with its own staged CA.
 
 ## Staging additional CLI tools (not just the invoking engine binary)
 

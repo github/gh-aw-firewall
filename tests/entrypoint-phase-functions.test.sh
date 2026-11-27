@@ -270,7 +270,7 @@ for vendors in java adoptium "java adoptium"; do
 done
 
 run_extra_ca_fixture() {
-  local mode="$1" tmp_dir result=0 status=0 extra awf_ca="" ssl_bump="false"
+  local mode="$1" tmp_dir result=0 status=0 extra extra_file="" workdir="/" awf_ca="" ssl_bump="false"
   tmp_dir="$(mktemp -d)"
   local host_root="${tmp_dir}/host-root"
   local trust_policy
@@ -284,12 +284,28 @@ run_extra_ca_fixture() {
     raw-only) printf '%s\n' '-----BEGIN CERTIFICATE-----' > "${extra}" ;;
     visible|awf-visible)
       extra="/extra.pem"
+      extra_file="${host_root}${extra}"
       openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=extra-fixture \
-        -keyout "${tmp_dir}/extra.key" -out "${host_root}${extra}" >/dev/null 2>&1
+        -keyout "${tmp_dir}/extra.key" -out "${extra_file}" >/dev/null 2>&1
       if [ "${mode}" = awf-visible ]; then
         awf_ca="${extra}"
         ssl_bump="true"
       fi
+      ;;
+    relative|relative-parent|relative-fallback)
+      workdir="/workspace/project with spaces"
+      mkdir -p "${host_root}${workdir}"
+      case "${mode}" in
+        relative) extra="./extra.pem"; extra_file="${host_root}${workdir}/extra.pem" ;;
+        relative-parent) extra="../extra.pem"; extra_file="${host_root}/workspace/extra.pem" ;;
+        relative-fallback) extra="./extra.pem"; extra_file="${host_root}/extra.pem"; workdir="/missing" ;;
+      esac
+      openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=extra-fixture \
+        -keyout "${tmp_dir}/extra.key" -out "${extra_file}" >/dev/null 2>&1
+      ;;
+    relative-escape)
+      extra="../runner-only.pem"
+      printf '%s\n' '-----BEGIN CERTIFICATE-----' > "${tmp_dir}/runner-only.pem"
       ;;
     awf-missing) awf_ca="/missing-awf-ca.pem" ;;
     awf-unstaged) ssl_bump="true" ;;
@@ -298,7 +314,7 @@ run_extra_ca_fixture() {
   write_entrypoint_fixture "${tmp_dir}/entrypoint.sh"
   # A fresh shell preserves the production fail-fast behavior even inside an if.
   AWF_TEST_HOST_ROOT="${host_root}" AWF_TEST_TRUST_POLICY="${trust_policy}" \
-    NODE_EXTRA_CA_CERTS="${extra}" SSL_CERT_FILE="${extra}" AWF_CA_CHROOT="${awf_ca}" \
+    NODE_EXTRA_CA_CERTS="${extra}" SSL_CERT_FILE="${extra}" AWF_CA_CHROOT="${awf_ca}" CHROOT_WORKDIR="${workdir}" \
     AWF_SSL_BUMP_ENABLED="${ssl_bump}" \
     bash -ec '
       . "$1"
@@ -318,9 +334,9 @@ run_extra_ca_fixture() {
       [ "${status}" -eq 0 ] || result=1
       openssl verify -CAfile "${host_root}/run/awf-lib/trust/ca-certificates.crt" \
         "${tmp_dir}/system.pem" >/dev/null 2>&1 || result=1
-      if [ "${mode}" = visible ] || [ "${mode}" = awf-visible ]; then
+      if [ -n "${extra_file}" ]; then
         openssl verify -CAfile "${host_root}/run/awf-lib/trust/ca-certificates.crt" \
-          "${host_root}${extra}" >/dev/null 2>&1 || result=1
+          "${extra_file}" >/dev/null 2>&1 || result=1
         ! grep -Fq '[entrypoint][WARN]' "${tmp_dir}/stderr" || result=1
       else
         grep -Fq "[entrypoint][WARN] NODE_EXTRA_CA_CERTS=${extra}" "${tmp_dir}/stderr" || result=1
@@ -333,7 +349,7 @@ run_extra_ca_fixture() {
   return "${result}"
 }
 
-for mode in missing raw-only visible awf-visible awf-missing awf-unstaged no-store; do
+for mode in missing raw-only visible relative relative-parent relative-fallback relative-escape awf-visible awf-missing awf-unstaged no-store; do
   if run_extra_ca_fixture "${mode}"; then
     pass "copy_system_ca_bundle() resolves optional and mandatory extra CA inputs (${mode})"
   else

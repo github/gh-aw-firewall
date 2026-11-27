@@ -1193,8 +1193,15 @@ copy_system_ca_bundle() {
     echo "[entrypoint][ERROR] AWF CA certificate was not staged in the agent chroot; refusing to start ssl-bump without AWF trust" >&2
     exit 1
   elif [ -n "${NODE_EXTRA_CA_CERTS:-}" ]; then
-    if [ -f "/host${NODE_EXTRA_CA_CERTS}" ]; then
-      inputs+=("/host${NODE_EXTRA_CA_CERTS}")
+    candidate="/host${NODE_EXTRA_CA_CERTS}"
+    if [[ "${NODE_EXTRA_CA_CERTS}" != /* ]]; then
+      local ca_workdir="${CHROOT_WORKDIR:-/}"
+      (cd "/host${ca_workdir}" 2>/dev/null) || ca_workdir="/"
+      candidate="$(realpath -e -- "/host${ca_workdir}/${NODE_EXTRA_CA_CERTS}" 2>/dev/null)" || candidate=""
+      [[ "$candidate" == /host/* ]] || candidate=""
+    fi
+    if [ -f "$candidate" ]; then
+      inputs+=("$candidate")
     else
       echo "[entrypoint][WARN] NODE_EXTRA_CA_CERTS=${NODE_EXTRA_CA_CERTS} is not visible in the agent chroot; skipping extra CA input. Stage and mount the bundle if private CA trust is required." >&2
     fi
@@ -1700,8 +1707,6 @@ run_chroot_command() {
   copy_dind_runner_binary
   ensure_usr_local_bin_shims
   copy_awf_ca_cert
-  copy_system_ca_bundle
-  setup_chroot_etc
 
   # Determine working directory inside the chroot
   # AWF_WORKDIR is set by docker-manager.ts (containerWorkDir or HOME)
@@ -1721,6 +1726,9 @@ run_chroot_command() {
   if [ ! -d "/host${CHROOT_WORKDIR}" ]; then
     echo "[entrypoint][WARN] Working directory ${CHROOT_WORKDIR} does not exist on host, will use /"
   fi
+
+  copy_system_ca_bundle
+  setup_chroot_etc
 
   # Write the command to a temporary script file in the chroot
   # This avoids complex quoting issues with nested shells.
