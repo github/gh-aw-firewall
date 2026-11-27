@@ -112,8 +112,8 @@ function resolveWireModel(choice, mapping) {
  * Returns one choice per model (at medium effort, else nearest offered effort
  * with the higher effort breaking ties, else no effort), ordered by coding
  * tier, newest releaseDate first (undated after dated), and exact wire model ID.
- * Native-provider choices whose endpoint evidence comes solely from a family
- * pattern are skipped during fallback.
+ * Native-provider exact-ID protocol eligibility is already enforced when
+ * building the candidate pool.
  *
  * @param {{ choices: Array<object>, byId?: Record<string, object> }} pool
  * @param {{ codingTiers?: Record<string, { tier?: string, releaseDate?: string }>, objective?: string | { mode?: string } }} [options]
@@ -130,7 +130,6 @@ function orderFallbackChoices(pool, options = {}) {
   for (const choice of choices) {
     if (!choice || typeof choice !== 'object') continue;
     const mapping = byId && choice.id ? byId[choice.id] : null;
-    if (mapping?.familyPatternEndpointsOnly === true) continue;
     const wireModel = resolveWireModel(choice, mapping);
     if (!wireModel) continue;
     const provider = mapping?.provider || null;

@@ -1,9 +1,14 @@
 'use strict';
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
 const {
   buildRoutingCandidates, normalizePolicyList, resolvePrimaryRank, shortlistPrimaryOptions,
 } = require('./routing-candidates');
-const { createRoutingCatalogue } = require('./routing-catalogue');
+const { createRoutingCatalogue, normalizeModel } = require('./routing-catalogue');
+const { lookupExactModelEndpoints, lookupModelEndpoints } = require('./model-api-mapping');
 const { toRouteCandidates, validateRouteResponse } = require('./routing-contract');
 
 function model(id, overrides = {}) {
@@ -51,7 +56,12 @@ describe('routing candidates', () => {
     expect(Object.values(pool.byId).every(mapping => mapping.wireModel === 'gpt-5.3-codex')).toBe(true);
     expect(() => build([model('gpt-5-codex')], { allowedModels: ['*'] }))
       .toThrow(expect.objectContaining({ code: 'model_policy_violation' }));
-    expect(build([model('gpt-5-codex')], undefined, 'openai').choices).toHaveLength(2);
+    // Copilot's retirement of gpt-5-codex does not block OpenAI when OpenAI advertises live endpoints.
+    expect(build([
+      normalizeModel('gpt-5-codex', { supportedEndpoints: ['/responses'], supportedReasoningEfforts: ['low', 'high'] }, 'openai'),
+    ], undefined, 'openai').choices).toHaveLength(2);
+    // Shut-down OpenAI gpt-5-codex has no affirmative maintained exact protocol fact.
+    expect(lookupExactModelEndpoints('gpt-5-codex', 'openai')).toBeNull();
   });
 
   it('does not apply bare-model retirement facts to a distinct native Copilot ID', () => {
@@ -421,5 +431,142 @@ describe('normalizePolicyList', () => {
       expect(() => build([model('gpt-test')], { [name]: value }))
         .toThrow(expect.objectContaining({ code: 'routing_configuration_error' }));
     }
+  });
+});
+
+describe('exact-ID native provider protocol enforcement', () => {
+  it('excludes gpt-4o-transcribe from the native automatic candidate pool while preserving explicit lookup', async () => {
+    expect(lookupModelEndpoints('gpt-4o-transcribe', 'openai')).toMatchObject({
+      family: 'gpt-4o',
+      endpoints: ['chat_completions', 'responses'],
+    });
+    const source = createRoutingCatalogue({
+      getAdapter: provider => provider === 'openai'
+        ? { name: 'openai', isEnabled: () => true, getTargetHost: () => 'api.openai.com' }
+        : null,
+      getDiscoveredModels: () => ['gpt-4o-transcribe', 'gpt-5.4'],
+      getRuntimeModels: () => [{ id: 'gpt-4o-transcribe', supportedReasoningEfforts: [] }],
+    });
+    const snapshot = await source.getSnapshot({ provider: 'openai' });
+    expect(snapshot.models.find(entry => entry.id === 'gpt-4o-transcribe').protocols).toBeUndefined();
+    const pool = buildRoutingCandidates({ catalogue: snapshot });
+    expect(pool.choices.every(choice => choice.model === 'openai/gpt-5.4')).toBe(true);
+    // Even if a synthetic catalogue passes wildcard-derived protocols directly for a native provider,
+    // buildRoutingCandidates enforces affirmative exact protocol evidence.
+    expect(() => buildRoutingCandidates({
+      catalogue: catalogue([
+        model('gpt-4o-transcribe', { efforts: [], protocols: ['chat-completions', 'responses'] }),
+      ], 'openai'),
+    })).toThrow(expect.objectContaining({ code: 'no_route' }));
+  });
+
+  it('rejects routingPatterns-only models and admits only exact endpoints on mixed exact-plus-wildcard models', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-native-exact-pool-'));
+    const mappingPath = path.join(dir, 'mapping.json');
+    fs.writeFileSync(mappingPath, JSON.stringify({
+      lastUpdated: '2026-11-27T00:00:00Z',
+      providers: {
+        openai: {
+          endpoints: {
+            chat_completions: { path: '/v1/chat/completions' },
+            responses: { path: '/v1/responses' },
+          },
+          models: [{
+            family: 'gpt-5.4',
+            patterns: ['gpt-5.4*'],
+            routingPatterns: ['gpt-5.4-routing-only', 'gpt-5.4-chat-only'],
+            endpoints: ['chat_completions', 'responses'],
+            routing: {
+              reasoningEfforts: ['low', 'medium'],
+              contextWindowTokens: 1_050_000,
+            },
+          }],
+          modelProtocols: {
+            'gpt-5.4-chat-only': [
+              { protocol: 'chat_completions', support: { state: 'supported' } },
+            ],
+          },
+        },
+      },
+    }));
+    const prevEnv = process.env.AWF_MODEL_API_MAPPING_PATH;
+    process.env.AWF_MODEL_API_MAPPING_PATH = mappingPath;
+    try {
+      jest.isolateModules(() => {
+        const { normalizeModel } = require('./routing-catalogue');
+        const { buildRoutingCandidates: buildIsolated, getModelRoutingChoices } = require('./routing-candidates');
+        const { lookupModelEndpoints: lookupIsolated } = require('./model-api-mapping');
+
+        // routingPatterns without exact protocol fact admits zero endpoints for automatic selection.
+        const routingOnly = normalizeModel('gpt-5.4-routing-only', undefined, 'openai');
+        expect(routingOnly.protocols).toBeUndefined();
+        expect(getModelRoutingChoices(routingOnly, 'openai')).toEqual([]);
+        expect(() => buildIsolated({
+          catalogue: { provider: 'openai', configured: true, discovery: 'complete', models: [routingOnly] },
+        })).toThrow(expect.objectContaining({ code: 'no_route' }));
+
+        // Mixed exact + wildcard: admits ONLY exact chat-completions, never wildcard-derived responses.
+        const chatOnly = normalizeModel('gpt-5.4-chat-only', undefined, 'openai');
+        expect(chatOnly.protocols).toEqual(['chat-completions']);
+        const pool = buildIsolated({
+          catalogue: { provider: 'openai', configured: true, discovery: 'complete', models: [chatOnly] },
+        });
+        expect(pool.choices.map(choice => choice.model)).toEqual([
+          'openai/gpt-5.4-chat-only',
+          'openai/gpt-5.4-chat-only',
+        ]);
+        expect(Object.values(pool.byId).every(entry => entry.protocol === 'chat-completions')).toBe(true);
+        expect(() => buildIsolated({
+          catalogue: { provider: 'openai', configured: true, discovery: 'complete', models: [chatOnly] },
+          endpoints: ['/responses'],
+        })).toThrow(expect.objectContaining({ code: 'no_route' }));
+
+        // Direct synthetic catalogue with unverified responses protocol is also narrowed to exact chat-completions.
+        const syntheticPool = buildIsolated({
+          catalogue: {
+            provider: 'openai',
+            configured: true,
+            discovery: 'complete',
+            models: [{ id: 'gpt-5.4-chat-only', efforts: ['medium'], protocols: ['chat-completions', 'responses'] }],
+          },
+        });
+        expect(Object.values(syntheticPool.byId).map(entry => entry.protocol)).toEqual(['chat-completions']);
+
+        // Explicit model lookup keeps family wildcard behavior for both models.
+        expect(lookupIsolated('gpt-5.4-routing-only', 'openai').endpoints)
+          .toEqual(['chat_completions', 'responses']);
+        expect(lookupIsolated('gpt-5.4-chat-only', 'openai').endpoints)
+          .toEqual(['chat_completions', 'responses']);
+      });
+    } finally {
+      if (prevEnv === undefined) delete process.env.AWF_MODEL_API_MAPPING_PATH;
+      else process.env.AWF_MODEL_API_MAPPING_PATH = prevEnv;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('follows declared exact protocol facts for Anthropic exact IDs claude-haiku-4-5-20251001 and claude-mythos-preview', async () => {
+    const ids = ['claude-haiku-4-5-20251001', 'claude-mythos-preview'];
+    const source = createRoutingCatalogue({
+      getAdapter: provider => provider === 'anthropic'
+        ? { name: 'anthropic', isEnabled: () => true, getTargetHost: () => 'api.anthropic.com' }
+        : null,
+      getDiscoveredModels: () => ids,
+      getRuntimeModels: () => [{ id: 'claude-haiku-4-5-20251001', supportedReasoningEfforts: [] }],
+    });
+    const snapshot = await source.getSnapshot({ provider: 'anthropic' });
+    const supportedIds = ids.filter(id => lookupExactModelEndpoints(id, 'anthropic')?.endpoints.includes('messages'));
+    if (supportedIds.length === 0) {
+      expect(() => buildRoutingCandidates({ catalogue: snapshot }))
+        .toThrow(expect.objectContaining({ code: 'no_route' }));
+      return;
+    }
+    const pool = buildRoutingCandidates({ catalogue: snapshot });
+    for (const id of ids) {
+      const choices = pool.choices.filter(choice => choice.model === `anthropic/${id}`);
+      if (supportedIds.includes(id)) expect(choices.length).toBeGreaterThan(0);
+      else expect(choices).toHaveLength(0);
+    }
+    expect(Object.values(pool.byId).every(entry => entry.protocol === 'messages')).toBe(true);
   });
 });

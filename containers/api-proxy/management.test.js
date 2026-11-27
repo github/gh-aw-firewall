@@ -209,25 +209,27 @@ describe('routing metadata in /reflect', () => {
         automatic_selection_eligible: true,
         source: 'maintained',
         supported_endpoints: ['chat_completions', 'responses'],
+        maintained_protocols: expect.arrayContaining([
+          expect.objectContaining({ protocol: 'chat_completions', support: expect.objectContaining({ state: 'supported' }) }),
+          expect.objectContaining({ protocol: 'responses', support: expect.objectContaining({ state: 'supported' }) }),
+        ]),
         supported_reasoning_efforts: ['none', 'low', 'medium', 'high', 'xhigh'],
         context_window_tokens: 1_050_000,
         candidate_metadata_complete: true,
-        automatic_selection_eligible: true,
       },
       {
         model_id: 'o3',
         automatic_selection_eligible: true,
         source: 'incomplete',
-        supported_endpoints: ['chat_completions', 'responses'],
+        supported_endpoints: [],
         supported_reasoning_efforts: null,
         context_window_tokens: null,
         candidate_metadata_complete: false,
-        automatic_selection_eligible: true,
       },
     ]);
   });
 
-  it('does not expose maintained reasoning or context metadata for a custom target', () => {
+  it('does not expose maintained reasoning, context, or native endpoint metadata for a custom target', () => {
     const adapter = {
       name: 'openai',
       getTargetHost: () => 'router.example.com',
@@ -254,9 +256,12 @@ describe('routing metadata in /reflect', () => {
     expect(result.endpoints[0].routing_models[0]).toMatchObject({
       model_id: 'gpt-5.4-mini',
       source: 'incomplete',
+      supported_endpoints: [],
       supported_reasoning_efforts: null,
       context_window_tokens: null,
+      candidate_metadata_complete: false,
     });
+    expect(result.endpoints[0].routing_models[0]).not.toHaveProperty('maintained_protocols');
   });
 });
 
@@ -385,10 +390,12 @@ describe('routing metadata in /reflect', () => {
       automatic_selection_eligible: true,
       source: 'provider+maintained',
       supported_endpoints: ['/v1/messages'],
+      maintained_protocols: [
+        expect.objectContaining({ protocol: 'messages', support: expect.objectContaining({ state: 'supported' }) }),
+      ],
       supported_reasoning_efforts: ['low', 'medium', 'high', 'max'],
       context_window_tokens: 900_000,
       candidate_metadata_complete: true,
-      automatic_selection_eligible: true,
     }]);
   });
 

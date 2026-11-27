@@ -113,3 +113,19 @@ test('recovery attempts without an explicit count still allow expansion below th
     ...selection(), chain: [], automaticRecovery: true, reason: 'model_not_supported', req,
   })).toEqual(['copilot/auto-next', 'copilot/auto-last']);
 });
+
+test('preserves configured wire spelling on custom-host fallback targets while canonicalizing native adapters', () => {
+  const customAdapter = { getTargetHost: () => 'gateway.example.com', getTargetScheme: () => 'https' };
+  const nativeAdapter = { getTargetHost: () => 'api.openai.com', getTargetScheme: () => 'https' };
+  expect(selectFallbackCandidate(['GPT-5.4'], selection({
+    getProviderAdapter: () => customAdapter,
+  }))).toMatchObject({ provider: 'openai', model: 'GPT-5.4' });
+  expect(selectFallbackCandidate(['openai/GPT-5.4'], selection({
+    origin: { provider: 'copilot', protocol: 'chat', sourceBody: Buffer.from('{"model":"first"}') },
+    provider: 'copilot',
+    getProviderAdapter: name => name === 'openai' ? { ...customAdapter, isEnabled: () => true } : null,
+  }))).toMatchObject({ provider: 'openai', model: 'GPT-5.4' });
+  expect(selectFallbackCandidate(['GPT-5.4'], selection({
+    getProviderAdapter: () => nativeAdapter,
+  }))).toMatchObject({ provider: 'openai', model: 'gpt-5.4' });
+});

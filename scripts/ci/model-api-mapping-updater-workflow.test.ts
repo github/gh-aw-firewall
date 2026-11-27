@@ -256,9 +256,12 @@ describe('scheduled canonical model source maintenance', () => {
     expect(source).toContain('PAT rejection is not model incompatibility');
     expect(source).toContain('Report failed documentation retrieval');
     expect(source).toContain('Do not hand-edit `modelProtocols`');
+    expect(source).toContain('shared/model-information/sources/native-protocols.json');
+    expect(source).toContain('Copilot captures and OpenRouter listings never vouch for native');
     const check = frontmatter.jobs.validate_model_proposal.steps.at(-1).run;
     for (const test of ['model-api-mapping.test.js', 'runtime-model-catalog.test.js',
-      'routing-catalogue.test.js', 'wire-api-compat.test.js', 'server.decisions.test.js']) {
+      'routing-catalogue.test.js', 'routing-candidates.test.js', 'routing-fallback.test.js',
+      'wire-api-compat.test.js', 'server.decisions.test.js']) {
       expect(check).toContain(test);
       expect(lock.jobs.validate_model_proposal.steps.at(-1).run).toContain(test);
     }

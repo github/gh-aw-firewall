@@ -30,6 +30,7 @@
 
 const { parseBodyAsObject } = require('./body-utils');
 const { resolveModelIdentity } = require('./model-identity');
+const { getReasoningScope } = require('./model-reasoning');
 const { stripRedundantProviderPrefix } = require('./model-utils');
 const { getProviderAliases } = require('./provider-pricing-overlays');
 
@@ -167,19 +168,36 @@ function getRequestModel(body, upstreamPath) {
   return null;
 }
 
+function isCustomTargetAdapter(provider, getProviderAdapter) {
+  if (!provider || typeof getProviderAdapter !== 'function') return false;
+  try {
+    const adapter = getProviderAdapter(provider);
+    if (!adapter || typeof adapter.getTargetHost !== 'function') return false;
+    const scope = getReasoningScope(provider, adapter.getTargetHost(), adapter.getTargetScheme?.());
+    return scope.deployment !== undefined;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Resolve a configured fallback entry to its provider-native canonical wire ID,
- * preserving parameter suffixes and unknown model spelling.
+ * preserving parameter suffixes and unknown model spelling (and preserving
+ * configured wire spelling on custom-host targets).
  *
  * @param {string} model
  * @param {string} provider
+ * @param {{ preserveWireSpelling?: boolean, getProviderAdapter?: (provider: string) => object|null }} [options]
  * @returns {string}
  */
-function normalizeFallbackModel(model, provider) {
+function normalizeFallbackModel(model, provider, options = {}) {
   if (!provider) return model;
   const prefix = getProviderAliases(String(provider).toLowerCase())
     .find(alias => model.toLowerCase().startsWith(`${alias}/`));
   const nativeModel = prefix ? stripRedundantProviderPrefix(model, prefix) : model;
+  if (options.preserveWireSpelling === true || isCustomTargetAdapter(provider, options.getProviderAdapter)) {
+    return nativeModel;
+  }
   return resolveModelIdentity(nativeModel, provider, { policy: { providerPrefix: false } }).model;
 }
 
@@ -189,9 +207,10 @@ function normalizeFallbackModel(model, provider) {
  *
  * @param {string} entry - Configured entry, optionally `<provider>/<model>`
  * @param {string} originProvider - Provider whose listener received the request
+ * @param {{ preserveWireSpelling?: boolean, getProviderAdapter?: (provider: string) => object|null }} [options]
  * @returns {{ entry: string, provider: string, model: string, qualified: boolean }}
  */
-function resolveFallbackEntry(entry, originProvider) {
+function resolveFallbackEntry(entry, originProvider, options = {}) {
   const value = String(entry);
   const slashIdx = value.indexOf('/');
   if (slashIdx > 0) {
@@ -199,16 +218,17 @@ function resolveFallbackEntry(entry, originProvider) {
     const model = value.slice(slashIdx + 1);
     if (prefixProvider && model) {
       if (prefixProvider === originProvider) {
-        return { entry: value, provider: originProvider, model: normalizeFallbackModel(value, originProvider), qualified: true };
+        return { entry: value, provider: originProvider, model: normalizeFallbackModel(value, originProvider, options), qualified: true };
       }
+      const preserve = options.preserveWireSpelling === true || isCustomTargetAdapter(prefixProvider, options.getProviderAdapter);
       return {
         entry: value, provider: prefixProvider,
-        model: resolveModelIdentity(model, prefixProvider, { policy: { providerPrefix: false } }).model,
+        model: preserve ? model : resolveModelIdentity(model, prefixProvider, { policy: { providerPrefix: false } }).model,
         qualified: true,
       };
     }
   }
-  return { entry: value, provider: originProvider, model: normalizeFallbackModel(value, originProvider), qualified: false };
+  return { entry: value, provider: originProvider, model: normalizeFallbackModel(value, originProvider, options), qualified: false };
 }
 
 /**
@@ -249,13 +269,14 @@ function attemptKey(provider, model) {
  * @returns {{ entry: string, provider: string, model: string, qualified: boolean } | null}
  */
 function selectNextFallbackCandidate(chain, attempted, originProvider, options = {}) {
-  const { isPermitted, getRouteRejection, onSkip, exclude } = options;
+  const { isPermitted, getRouteRejection, onSkip, exclude, getProviderAdapter } = options;
+  const resolutionOptions = getProviderAdapter ? { getProviderAdapter } : undefined;
   const attemptedKeys = new Set((attempted || []).map((a) => {
     const { provider, model } = toAttempt(a, originProvider);
-    return attemptKey(provider, normalizeFallbackModel(model, provider));
+    return attemptKey(provider, normalizeFallbackModel(model, provider, resolutionOptions));
   }));
   for (const entry of chain || []) {
-    const candidate = resolveFallbackEntry(entry, originProvider);
+    const candidate = resolveFallbackEntry(entry, originProvider, resolutionOptions);
     if (!candidate.model) continue;
     const key = attemptKey(candidate.provider, candidate.model);
     if (attemptedKeys.has(key) || (exclude && exclude.has(key))) continue;

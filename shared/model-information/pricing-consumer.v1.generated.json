@@ -1,5 +1,5 @@
 {
-  "catalogRevision": "167ab6275dd74c5909c9c03e16a534ddda68059bd2a2ce6fc59d05eff46f8840",
+  "catalogRevision": "8f84db7c4925b1c027d121601ee39a5e5d4ee64626b3e003dbed2fdaed7582e7",
   "compatibility": {
     "authority": "policy",
     "channel": "native-api",
@@ -143,7 +143,7 @@
       "source": "pinned containers/api-proxy/ai-credits-pricing-reference.json test oracle"
     }
   },
-  "generatedAt": "2026-11-26T00:44:12.542Z",
+  "generatedAt": "2026-11-27T18:45:00.000Z",
   "imported": [
     {
       "prices": {
@@ -21753,7 +21753,7 @@
       ]
     }
   ],
-  "revision": "0bcd2604750afe40f57f6c2eeb3f90ccb08306e908e8a35e5c3cc61b43d8bfde",
+  "revision": "b6d80909b4cb40c841ff4f89eca64d8e4096637347195b934eb4a83b60616f73",
   "schemaHash": "0010f667f601b7b4176a9d1df5cff0cc82a5a3314ea581585a13c7d4dca694f4",
   "schemaVersion": 1
 }

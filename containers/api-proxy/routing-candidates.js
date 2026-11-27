@@ -7,8 +7,8 @@ const { createRoutingError } = require('./routing-errors');
 const { isModelEligible } = require('./model-eligibility');
 const { getModelReasoning, pinModelReasoning, assessReasoningEffort } = require('./model-reasoning');
 const { isAutomaticModelEligible } = require('./automatic-model-eligibility');
-const { isFamilyPatternOnlyEndpoint } = require('./model-api-mapping');
-const { hasLiveEndpointMetadata } = require('./routing-catalogue');
+const { lookupExactModelEndpoints } = require('./model-api-mapping');
+const { hasLiveEndpointMetadata, recognizeAgentEndpointProtocol } = require('./routing-catalogue');
 
 const PROVIDERS = Object.freeze({
   copilot: Object.freeze({ canonical: 'github-copilot', alias: 'copilot' }),
@@ -90,14 +90,30 @@ function protocolFor(provider, effort, protocols, allowedProtocols = null) {
 }
 
 function getModelRoutingChoices(providerModel, provider, allowedProtocols = null) {
-  if (providerModel.automaticSelectionEligible === false || !isAutomaticModelEligible(providerModel)) return [];
+  if (
+    providerModel.familyPatternEndpointsOnly === true ||
+    providerModel.automaticSelectionEligible === false ||
+    !isAutomaticModelEligible(providerModel)
+  ) return [];
   if (!Array.isArray(providerModel.protocols)) return [];
+  let candidateProtocols = providerModel.protocols;
+  if ((provider === 'openai' || provider === 'anthropic') && !hasLiveEndpointMetadata(providerModel)) {
+    const exact = lookupExactModelEndpoints(providerModel.id, provider);
+    if (!exact) return [];
+    const exactProtocols = new Set(
+      exact.endpoints
+        .map(recognizeAgentEndpointProtocol)
+        .filter(Boolean),
+    );
+    candidateProtocols = candidateProtocols.filter(protocol => exactProtocols.has(protocol));
+  }
+  if (candidateProtocols.length === 0) return [];
   const decision = getModelReasoning(providerModel, provider);
   const efforts = decision.support === 'unsupported' ? [undefined] : decision.selectableEfforts;
   return efforts.flatMap(effort => {
     if (!assessReasoningEffort(decision, effort, { automatic: true }).admitted) return [];
-    const protocol = protocolFor(provider, effort, providerModel.protocols, allowedProtocols);
-    return protocol && providerModel.protocols.includes(protocol) ? [{ effort, protocol }] : [];
+    const protocol = protocolFor(provider, effort, candidateProtocols, allowedProtocols);
+    return protocol && candidateProtocols.includes(protocol) ? [{ effort, protocol }] : [];
   });
 }
 
@@ -243,10 +259,6 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, endpo
     const contextWindow = Number.isInteger(pair.providerModel.contextWindow) && pair.providerModel.contextWindow > 0
       ? pair.providerModel.contextWindow
       : undefined;
-    const familyPatternEndpointsOnly = pair.providerModel.familyPatternEndpointsOnly === true ||
-      ((pair.provider === 'openai' || pair.provider === 'anthropic') &&
-        !hasLiveEndpointMetadata(pair.providerModel) &&
-        isFamilyPatternOnlyEndpoint(pair.providerModel.id, pair.provider));
     byId[id] = pinModelReasoning(Object.freeze({
       choice,
       provider: pair.provider,
@@ -254,7 +266,6 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels, endpo
       ...(pair.effort === undefined ? {} : { effort: pair.effort }),
       ...(contextWindow === undefined ? {} : { contextWindow }),
       protocol: pair.protocol,
-      ...(familyPatternEndpointsOnly ? { familyPatternEndpointsOnly: true } : {}),
     }), getModelReasoning(pair.providerModel, pair.provider));
     return choice;
   });

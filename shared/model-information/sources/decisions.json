@@ -27,6 +27,32 @@
       },
       "protocols": [
         {
+          "protocol": "chat_completions",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-6-luna.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
+          "protocol": "responses",
+          "support": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "https://developers.openai.com/api/docs/models/gpt-6-luna.md",
+              "revision": "openai-model-page-2026-11-27",
+              "at": "2026-11-27T18:45:00Z",
+              "confidence": "verified"
+            }
+          }
+        },
+        {
           "protocol": "decisions",
           "support": {
             "state": "supported",

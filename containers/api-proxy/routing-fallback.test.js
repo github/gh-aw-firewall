@@ -782,32 +782,55 @@ describe('named fallback fixtures', () => {
     expect(Object.hasOwn(capped.result.selection.choice, 'effort')).toBe(false);
   });
 
-  it('never picks gpt-4o-transcribe under OpenAI gpt-4o* during fallback', async () => {
+  it('never picks gpt-4o-transcribe under OpenAI gpt-4o* during router-ranked selection or fallback', async () => {
     const openaiAdapter = {
       name: 'openai',
       isEnabled: () => true,
       getTargetHost: () => 'api.openai.com',
     };
-    const makeOpenAiController = discovered => {
+    const makeOpenAiController = (discovered, behavior = 'no_route') => {
       const catalogue = createRoutingCatalogue({
         getAdapter: provider => provider === 'openai' ? openaiAdapter : null,
         getDiscoveredModels: provider => provider === 'openai' ? discovered : null,
         // Give gpt-4o-transcribe effortless reasoning metadata so it would enter the pool via gpt-4o*.
         getRuntimeModels: () => [{ id: 'gpt-4o-transcribe', supportedReasoningEfforts: [] }],
       });
+      const planner = behavior === 'valid_rank'
+        ? {
+          ...makePlanner('valid_rank'),
+          route: async request => {
+            expect(request.models.some(choice => choice.model === 'openai/gpt-4o-transcribe')).toBe(false);
+            return { ranked_choices: request.models.slice(0, 1).map(({ id, model, effort }) => ({ id, model, ...(effort === undefined ? {} : { effort }) })) };
+          },
+        }
+        : makePlanner(behavior);
       return createRoutingController({
         config: {
           provider: 'openai',
           objective: { goal: 'cost', mode: 'balanced' },
           task: { conversationFile: '/tmp/conversation.json' },
         },
-        planner: makePlanner('no_route'),
+        planner,
         catalogue,
         loadConversation: async () => CONVERSATION,
-        executor: { execute: async () => ({ statusCode: 200, body: Buffer.from('{}') }), checkBeforePrimary: async () => {} },
+        executor: {
+          execute: async () => ({
+            statusCode: 200,
+            body: Buffer.from(JSON.stringify({ output_text: JSON.stringify(VALID_CLASSIFICATION) }), 'utf8'),
+          }),
+          checkBeforePrimary: async () => {},
+        },
         observer: { record: () => {} },
       });
     };
+
+    const routed = await makeOpenAiController(['gpt-4o-transcribe', 'gpt-5.4'], 'valid_rank').run();
+    expect(routed.ok).toBe(true);
+    expect(routed.selection).toMatchObject({
+      provider: 'openai',
+      wire_model: 'gpt-5.4',
+      selection_source: 'router',
+    });
 
     const paired = await makeOpenAiController(['gpt-4o-transcribe', 'gpt-5.4']).run();
     expect(paired.ok).toBe(true);
