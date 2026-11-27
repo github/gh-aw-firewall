@@ -2,6 +2,7 @@ import { WrapperConfig } from './types';
 import { updateEnclaveStartupProgress } from './enclave/startup-progress';
 import { ensureAgentRuntimeStartMarker } from './agent-runtime-start';
 import { observeHarness } from './harness-observation';
+import { preparePrivateHostSocketIsolation } from './private-host-sockets';
 import { createWorkflowContext, stageEnclaves } from './workflow-stages/enclave-staging';
 import { setupHostNetwork } from './workflow-stages/host-network';
 import { startWorkflowContainers } from './workflow-stages/container-startup';
@@ -19,6 +20,7 @@ export async function runMainWorkflow(
   options: WorkflowOptions
 ): Promise<number> {
   const { logger, performCleanup } = options;
+  const releasePrivateHostSocketGate = preparePrivateHostSocketIsolation(config);
   const context = createWorkflowContext(config, dependencies, options);
   await stageEnclaves(context);
   await setupHostNetwork(context);
@@ -28,14 +30,16 @@ export async function runMainWorkflow(
   updateEnclaveStartupProgress(config, { stage: 'compose-config' });
   await context.checks.check('compose-configuration', () => dependencies.writeConfigs(config));
   await startWorkflowContainers(context);
-  await observeHarness(config, dependencies.probeHarness);
-  await dependencies.releaseHarness?.();
-  updateEnclaveStartupProgress(config, { stage: 'primary-agent' });
-
-  // Step 3: Wait for agent to complete
-  if (config.enableApiProxy && config.agentTimeout !== undefined) {
-    ensureAgentRuntimeStartMarker(config.workDir, config.proxyLogsDir);
+  const setupExited = (await releasePrivateHostSocketGate?.()) === 'setup-exited';
+  if (!setupExited) {
+    await observeHarness(config, dependencies.probeHarness);
+    await dependencies.releaseHarness?.();
+    updateEnclaveStartupProgress(config, { stage: 'primary-agent' });
+    if (config.enableApiProxy && config.agentTimeout !== undefined) {
+      ensureAgentRuntimeStartMarker(config.workDir, config.proxyLogsDir);
+    }
   }
+  // The usual wait/log path also collects diagnostics from an exited entrypoint.
   const result = options.commandOutputCapture
     ? await dependencies.runAgentCommand(
       config.workDir,

@@ -42,6 +42,17 @@ const ENV_KEYS = [
 ] as const;
 
 describe('buildConfig', () => {
+  it('maps the trusted filesystem socket-directory contract into runtime configuration', () => {
+    const inputs = makeInputs();
+    const mapped = mapAwfFileConfigToCliOptions({
+      filesystem: { privateHostSocketDirs: ['/run/private-broker'] },
+    });
+    const config = buildConfig({
+      ...inputs, options: { ...inputs.options, ...mapped },
+    }, {});
+    expect(config.privateHostSocketDirs).toEqual(['/run/private-broker']);
+  });
+
   it('accepts raw CLI and mapped numeric options while using separately validated values', () => {
     const options: ParsedCliOptions = {
       ...makeInputs().options,

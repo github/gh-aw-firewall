@@ -703,6 +703,7 @@ The sidecar's token provider (`github-oidc.js`) calls `ACTIONS_ID_TOKEN_REQUEST_
 | GCP | `https://iam.googleapis.com/` followed by the Workload Identity Provider resource name | `github-oidc.js` |
 | Anthropic | `https://api.anthropic.com` | `github-oidc.js` |
 | OpenAI | `https://api.openai.com/v1` | `github-oidc.js` |
+| Databricks | None; `AWF_AUTH_OIDC_AUDIENCE` is required (typically the Databricks account ID) | `github-oidc.js` |
 
 This step is identical across all providers — only the audience differs.
 

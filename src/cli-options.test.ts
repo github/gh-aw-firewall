@@ -18,6 +18,7 @@ describe('cli-options program', () => {
     program.setOptionValueWithSource('excludeEnv', [], 'default');
     program.setOptionValueWithSource('mount', [], 'default');
     program.setOptionValueWithSource('inputDir', undefined, 'default');
+    program.setOptionValueWithSource('privateHostSocketDir', [], 'default');
     program.setOptionValueWithSource('maxAiCredits', undefined, 'default');
     program.setOptionValueWithSource('cloudHypervisorMountPolicy', undefined, 'default');
     program.setOptionValueWithSource('cloudHypervisorScratchMib', undefined, 'default');
@@ -105,6 +106,14 @@ describe('cli-options program', () => {
       { from: 'node' },
     );
     expect(program.opts().inputDir).toEqual(['/guest/inputs', '/guest/with space']);
+  });
+
+  it('accumulates trusted private socket directories', () => {
+    program.parse([
+      'node', 'awf', '--private-host-socket-dir', '/run/broker one',
+      '--private-host-socket-dir', '/run/broker-two', '--', 'true',
+    ], { from: 'node' });
+    expect(program.opts().privateHostSocketDir).toEqual(['/run/broker one', '/run/broker-two']);
   });
 
   it('collector callbacks work when called with no previous value (default parameter)', () => {

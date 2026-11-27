@@ -276,6 +276,12 @@ program
     []
   )
   .option(
+    '--private-host-socket-dir <path>',
+    'Trusted host socket directory that must be isolated from the agent (repeatable; local Linux Docker/runc only)',
+    collectStringArray,
+    []
+  )
+  .option(
     '--input-dir <path>',
     'Require a non-empty, readable sandbox-visible input directory before running the command (repeatable; does not grant engine scope)',
     collectStringArray
