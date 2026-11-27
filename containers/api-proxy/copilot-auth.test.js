@@ -23,6 +23,60 @@ const {
 const bearerSkToken = ['Bearer', 'sk-or-v1-abc'].join(' ');
 const bearerByokToken = ['Bearer', 'sk-byok-key'].join(' ');
 const bearerGithubToken = ['Bearer', 'gho_abc123'].join(' ');
+const { resolveCopilotCredentials } = require('./providers/copilot-auth');
+
+describe('resolveCopilotCredentials', () => {
+  it.each([
+    [{}, undefined, 'none', 'none', 'token'],
+    [{ COPILOT_GITHUB_TOKEN: ' token github-test ' }, 'github-test', 'github_token', 'github_token', 'token'],
+    [{ COPILOT_GITHUB_TOKEN: 'github_pat_test' }, 'github_pat_test', 'github_token', 'fine_grained_pat', 'Bearer'],
+    [{ COPILOT_PROVIDER_API_KEY: ` ${['Bearer', 'byok-test'].join(' ')} `, COPILOT_GITHUB_TOKEN: 'github-test' }, 'byok-test', 'provider_api_key', 'byok', 'Bearer'],
+    [{ COPILOT_PROVIDER_API_KEY: COPILOT_PLACEHOLDER_TOKEN, COPILOT_GITHUB_TOKEN: 'github-test' }, 'github-test', 'github_token', 'github_token', 'token'],
+    [{ COPILOT_PROVIDER_API_KEY: 'dummy-byok-key-for-offline-mode', COPILOT_GITHUB_TOKEN: 'github-test' }, 'github-test', 'github_token', 'github_token', 'token'],
+    [{ COPILOT_PROVIDER_API_KEY: 'placeholder-token-for-credential-isolation', COPILOT_GITHUB_TOKEN: 'github-test' }, 'github-test', 'github_token', 'github_token', 'token'],
+  ])('preserves credential precedence and enterprise auth metadata for %j', (env, token, source, kind, prefix) => {
+    const result = resolveCopilotCredentials(env, 'api.enterprise.githubcopilot.com');
+    expect(result.staticAuthToken).toBe(token);
+    expect(result.inferenceCredentialSource).toBe(source);
+    expect(result.authPrefix).toBe(prefix);
+    expect(result.reflectionExtra).toEqual({
+      credential_kind: kind,
+      selected_scheme: prefix,
+      inference_credential_source: source,
+      inference_selected_scheme: prefix,
+      integration_id_source: 'default',
+    });
+  });
+
+  it.each([
+    [{}, 'agentic-workflows', 'default'],
+    [{ COPILOT_INTEGRATION_ID: ' preferred ', GITHUB_COPILOT_INTEGRATION_ID: 'fallback' }, 'preferred', 'copilot_integration_id'],
+    [{ COPILOT_INTEGRATION_ID: ' ', GITHUB_COPILOT_INTEGRATION_ID: ' fallback ' }, 'fallback', 'github_copilot_integration_id'],
+  ])('preserves integration ID selection for %j', (env, integrationId, integrationIdSource) => {
+    expect(resolveCopilotCredentials(env, 'api.githubcopilot.com')).toEqual(expect.objectContaining({
+      integrationId, integrationIdSource,
+    }));
+  });
+
+  it.each([
+    [{}, false, false, false],
+    [{ COPILOT_API_TARGET: 'https://byok.example.com' }, false, true, false],
+    [{ COPILOT_API_TARGET: 'https://' }, false, false, false],
+    [{ COPILOT_GITHUB_TOKEN: 'github-test' }, false, false, true],
+    [{ AWF_AUTH_TYPE: ' GITHUB-OIDC ', AWF_AUTH_PROVIDER: ' Databricks ', COPILOT_API_TARGET: 'https://workspace.example.com', COPILOT_GITHUB_TOKEN: 'github-test' }, true, true, false],
+    [{ AWF_AUTH_TYPE: 'github-oidc', AWF_AUTH_PROVIDER: 'databricks', COPILOT_API_TARGET: ' ' }, false, false, false],
+  ])('preserves OIDC selection and explicit-target gating for %j', (env, databricksSelected, allowCloudOidc, skipWhen) => {
+    const result = resolveCopilotCredentials(env, 'api.githubcopilot.com');
+    expect(result.databricksSelected).toBe(databricksSelected);
+    expect(result.oidcAuthOptions).toEqual({
+      staticAuthToken: result.staticAuthToken,
+      skipWhen,
+      allowCloudOidc,
+      targetHost: 'api.githubcopilot.com',
+      adapterName: 'copilot',
+    });
+  });
+});
 
 describe('stripBearerPrefix', () => {
   it('strips "Bearer " prefix from a token value', () => {
