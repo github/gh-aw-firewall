@@ -64,6 +64,32 @@ describe('routing stages', () => {
       .rejects.toMatchObject({ code: 'routing_contract_error' });
   });
 
+  it.each([null, { mode: 'balanced', labels: { task_type: 'implement', scope: 'local', task_complexity: 'easy' } }])(
+    'builds an immutable route request and validates selections before tracing them', async classification => {
+      const runtime = stages();
+      const pool = await runtime.getCandidates({ getSnapshot: async () => ({
+        provider: 'copilot', configured: true, discovery: 'complete',
+        models: [{ id: 'gpt-test', efforts: ['low'], protocols: ['responses'], contextWindow: 128_000 }],
+      }) }, {}, {}, {});
+      const response = { ranked_choices: pool.choices };
+      const planner = { route: jest.fn(async () => response) };
+      const result = await runtime.getRoute(planner, { objective: OBJECTIVE, topK: 2 }, pool, CONVERSATION, classification);
+      expect(result.route).toEqual(response);
+      expect(result.resolvedTopKRank).toEqual(pool.choices);
+      const [request, { trace }] = planner.route.mock.calls[0];
+      expect(Object.isFrozen(request.models[0])).toBe(true);
+      expect(Object.isFrozen(request.conversation[0].parts[0])).toBe(true);
+      if (classification === null) expect(request).not.toHaveProperty('classification');
+      else expect(request.classification).toBe(classification);
+      expect(trace.attributes['gh_aw_router.classification.present']).toBe(classification !== null);
+      expect(trace.describeResult(response)).toEqual({
+        'gh_aw_router.selected.model': 'github-copilot/gpt-test', 'gh_aw_router.selected.effort': 'low',
+      });
+      expect(() => trace.describeResult({ ranked_choices: [] }))
+        .toThrow(expect.objectContaining({ code: 'routing_contract_error' }));
+    },
+  );
+
   it('bounds snapshot loading by the shared deadline and aborts the underlying operation', async () => {
     jest.useFakeTimers();
     let signal;
