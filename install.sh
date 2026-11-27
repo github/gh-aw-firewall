@@ -27,7 +27,7 @@ set -e -o pipefail
 #
 # Requirements:
 #   - curl
-#   - A trusted gh CLI and authentication when using attestations
+#   - A trusted gh CLI when using attestations (jq also required on enterprise hosts)
 #   - sha256sum
 #   - file
 #   - sudo/root access (unless --rootless)
@@ -138,6 +138,9 @@ check_requirements() {
 
     local commands=(curl file)
     if requires_attestations; then commands+=(gh); fi
+    if requires_attestations && [ "${GITHUB_SERVER_URL:-https://github.com}" != "https://github.com" ]; then
+        commands+=(jq)
+    fi
     for cmd in "${commands[@]}"; do
         if ! command -v "$cmd" &> /dev/null; then
             missing+=("$cmd")
@@ -321,10 +324,27 @@ download_file() {
 }
 
 # A checksum fetched over the same TLS connection as a payload is not authentication.
-verify_provenance() {
+verify_provenance() (
     local asset="$1"
     local verification_output
+    local bundle_args=()
+    if [ "${GITHUB_SERVER_URL:-https://github.com}" != "https://github.com" ]; then
+        local bundle="$TEMP_DIR/attestation-bundle.jsonl"
+        # Public github.com attestations must not receive an enterprise token.
+        if ! curl -q -fsSL "https://api.github.com/repos/${REPO}/attestations/sha256:$(sha256_portable "$asset")" \
+            | jq -ce '.attestations | if length > 0 then .[].bundle else error("No attestations found") end' > "$bundle"; then
+            error "Release provenance lookup failed for $(basename "$asset"); refusing installation"
+            exit 1
+        fi
+        bundle_args=(--bundle "$bundle")
+        unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
+        export GH_HOST=github.com
+        GH_CONFIG_DIR=$(mktemp -d "$TEMP_DIR/gh-config.XXXXXX")
+        export GH_CONFIG_DIR
+        trap 'rm -rf "$GH_CONFIG_DIR"' EXIT
+    fi
     if verification_output=$(gh attestation verify "$asset" \
+        "${bundle_args[@]}" \
         --hostname github.com \
         --repo "$REPO" \
         --signer-workflow "${REPO}/.github/workflows/release.yml" \
@@ -337,10 +357,10 @@ verify_provenance() {
             error "The Sigstore public-good trust root could not be fetched or initialized. Check corporate-proxy HTTPS access to api.github.com, tuf-repo.github.com, and tuf-repo-cdn.sigstore.dev."
         fi
         error "Release provenance verification failed for $(basename "$asset")"
-        error "An attested release and a trusted, authenticated gh CLI are required; legacy unattested releases are not supported"
+        error "An attested release and a trusted gh CLI are required; legacy unattested releases are not supported"
         exit 1
     fi
-}
+)
 
 # The release workflow is dispatched on a branch and checks out a new tag.
 # Its certificate therefore identifies the dispatch branch, not the checkout tag.
