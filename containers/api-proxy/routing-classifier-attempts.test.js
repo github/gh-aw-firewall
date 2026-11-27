@@ -25,8 +25,8 @@ describe('routing classifier budgets', () => {
   it('skips capacity exclusions without spending attempts and enforces a supplied retry budget', async () => {
     const pool = buildRoutingCandidates({ catalogue: {
       provider: 'copilot', configured: true, discovery: 'complete',
-      models: ['tiny', 'a-test', 'b-test', 'c-test'].map(id => ({
-        id, efforts: ['low'], protocols: ['responses'], contextWindow: id === 'tiny' ? 8 : 128_000,
+      models: ['0-tiny', 'a-test', 'b-test', 'c-test'].map(id => ({
+        id, efforts: ['low'], protocols: ['responses'], contextWindow: id === '0-tiny' ? 8 : 128_000,
       })),
     } });
     const executor = { execute: jest.fn(async () => ({ statusCode: 503 })) };
