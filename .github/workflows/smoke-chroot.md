@@ -101,15 +101,15 @@ steps:
 
       # Test Python version in chroot
       echo "Testing Python..."
-      CHROOT_PYTHON=$(awf --build-local --allow-domains localhost -- python3 --version 2>&1 | grep -oP 'Python \d+\.\d+\.\d+' | head -1) || CHROOT_PYTHON="FAILED"
+      CHROOT_PYTHON=$(awf --build-local --allow-domains localhost -- sh -c 'printf "AWF_PYTHON_VERSION="; python3 --version' 2>&1 | grep -oP '^AWF_PYTHON_VERSION=\KPython \d+\.\d+\.\d+$') || CHROOT_PYTHON="FAILED"
 
       # Test Node version in chroot
       echo "Testing Node..."
-      CHROOT_NODE=$(awf --build-local --allow-domains localhost -- node --version 2>&1 | grep -oP 'v\d+\.\d+\.\d+' | head -1) || CHROOT_NODE="FAILED"
+      CHROOT_NODE=$(awf --build-local --allow-domains localhost -- sh -c 'printf "AWF_NODE_VERSION="; node --version' 2>&1 | grep -oP '^AWF_NODE_VERSION=\Kv\d+\.\d+\.\d+$') || CHROOT_NODE="FAILED"
 
       # Test Go version in chroot
       echo "Testing Go..."
-      CHROOT_GO=$(awf --build-local --allow-domains localhost -- go version 2>&1 | grep -oP 'go\d+\.\d+(\.\d+)?' | head -1) || CHROOT_GO="FAILED"
+      CHROOT_GO=$(awf --build-local --allow-domains localhost -- sh -c 'printf "AWF_GO_VERSION="; go version' 2>&1 | grep -oP '^AWF_GO_VERSION=\Kgo\d+\.\d+(\.\d+)?(?= |$)') || CHROOT_GO="FAILED"
 
       # Save chroot versions
       {
