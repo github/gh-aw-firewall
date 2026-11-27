@@ -101,3 +101,4 @@ jobs:
           bash tests/setup-iptables-port-spec.test.sh
           bash tests/cli-proxy-probe-classify.test.sh
           bash tests/usr-local-bin-shim.test.sh
+          bash tests/entrypoint-phase-functions.test.sh
