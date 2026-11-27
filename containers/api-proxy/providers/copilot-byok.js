@@ -141,6 +141,34 @@ function injectByokExtraBodyFields(body, fields) {
   return Buffer.from(JSON.stringify(parsed));
 }
 
+function resolveCopilotByokConfig(env, apiKey) {
+  // Extra headers are only used for BYOK API key requests, not GitHub OAuth.
+  const byokExtraHeaders = parseByokExtraHeaders(env.AWF_BYOK_EXTRA_HEADERS);
+  const byokExtraBodyFields = parseByokExtraBodyFields(env.AWF_BYOK_EXTRA_BODY_FIELDS);
+  const providerSessionId = (env.AWF_PROVIDER_SESSION_ID || '').trim() || undefined;
+  // `session_id` (and `x-session-id`) are GitHub Copilot API conventions and
+  // can be rejected by strict OpenAI-compatible servers (e.g. Azure OpenAI's
+  // /openai/v1/responses returns HTTP 400 on unknown body params).  Auto-
+  // injection is therefore strictly opt-in: AWF_PROVIDER_SESSION_ID is only
+  // forwarded by the host wrapper when the caller sets
+  // `apiProxy.targets.copilot.sessionId` (or `AWF_PROVIDER_SESSION_ID`)
+  // explicitly — never derived from `GITHUB_RUN_ID`.
+  if (providerSessionId) {
+    const hasSessionIdHeader = Object.keys(byokExtraHeaders).some(k => k.toLowerCase() === 'x-session-id');
+    if (!hasSessionIdHeader) {
+      byokExtraHeaders['x-session-id'] = providerSessionId;
+    }
+    if (!Object.hasOwn(byokExtraBodyFields, 'session_id')) {
+      byokExtraBodyFields.session_id = providerSessionId;
+    }
+  }
+
+  const byokBodyFieldTransform = (apiKey && Object.keys(byokExtraBodyFields).length > 0)
+    ? (body) => injectByokExtraBodyFields(body, byokExtraBodyFields)
+    : null;
+  return { byokExtraHeaders, byokBodyFieldTransform };
+}
+
 // AWF injects this sentinel value into the *agent* environment for credential isolation.
 // The ghu_ prefix is intentional: it matches the GitHub token shape that Copilot CLI
 // auth pre-checks expect, but the 36 repeated 'a' characters make it unambiguous as
@@ -152,6 +180,7 @@ module.exports = {
   parseByokExtraHeaders,
   parseByokExtraBodyFields,
   injectByokExtraBodyFields,
+  resolveCopilotByokConfig,
   COPILOT_PLACEHOLDER_TOKEN,
   // Exported for unit-test access only; not part of the public API.
   _testing: {

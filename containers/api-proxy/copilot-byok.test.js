@@ -6,11 +6,56 @@ const {
   },
 } = require('./providers/copilot-byok');
 const { createCopilotAdapter } = require('./providers/copilot');
+const { resolveCopilotByokConfig } = require('./providers/copilot-byok');
 
 const byokKey = 'sk-or-v1-abc123';
 const githubToken = 'gho_oauth_token';
 const bearerByokKey = ['Bearer', byokKey].join(' ');
 const bearerGithubToken = ['Bearer', githubToken].join(' ');
+
+describe('resolveCopilotByokConfig', () => {
+  it('injects explicit session defaults without overriding caller header/body fields', () => {
+    const config = resolveCopilotByokConfig({
+      AWF_PROVIDER_SESSION_ID: ' default-session ',
+      AWF_BYOK_EXTRA_HEADERS: '{"X-Session-Id":"header-session"}',
+      AWF_BYOK_EXTRA_BODY_FIELDS: '{"session_id":"body-session","user_id":"configured-user"}',
+    }, byokKey);
+    expect(config.byokExtraHeaders).toEqual({ 'X-Session-Id': 'header-session' });
+    const body = Buffer.from('{"user_id":"client-user"}');
+    expect(JSON.parse(config.byokBodyFieldTransform(body))).toEqual({
+      session_id: 'body-session', user_id: 'client-user',
+    });
+  });
+
+  it('trims and injects an explicit session in both header and body', () => {
+    const config = resolveCopilotByokConfig({ AWF_PROVIDER_SESSION_ID: ' session-123 ' }, byokKey);
+    expect(config.byokExtraHeaders).toEqual({ 'x-session-id': 'session-123' });
+    expect(JSON.parse(config.byokBodyFieldTransform(Buffer.from('{}')))).toEqual({ session_id: 'session-123' });
+  });
+
+  it.each([{}, { GITHUB_RUN_ID: 'run-123' }, { AWF_PROVIDER_SESSION_ID: ' ' }])(
+    'does not enable a body transform without explicit fields for %j', (env) => {
+      expect(resolveCopilotByokConfig(env, byokKey)).toEqual({
+        byokExtraHeaders: {}, byokBodyFieldTransform: null,
+      });
+    }
+  );
+
+  it('does not enable BYOK body injection without a real API key', () => {
+    const config = resolveCopilotByokConfig({
+      AWF_PROVIDER_SESSION_ID: 'session-123',
+      AWF_BYOK_EXTRA_BODY_FIELDS: '{"user_id":"configured-user"}',
+    }, undefined);
+    expect(config.byokBodyFieldTransform).toBeNull();
+  });
+
+  it.each(['not-json', 'null', '[]', '"text"', '{"session_id":"client-session"}'])(
+    'preserves the null/no-change body transform contract for %s', (body) => {
+      const config = resolveCopilotByokConfig({ AWF_PROVIDER_SESSION_ID: 'session-123' }, byokKey);
+      expect(config.byokBodyFieldTransform(Buffer.from(body))).toBeNull();
+    }
+  );
+});
 
 describe('parseByokExtraHeaders', () => {
   it('returns empty object for undefined input', () => {

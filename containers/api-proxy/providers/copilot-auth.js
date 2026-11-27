@@ -2,6 +2,7 @@
 
 const { normalizeApiTarget, getTargetHostname, getTargetScheme } = require('../proxy-utils');
 const { COPILOT_PLACEHOLDER_TOKEN } = require('./copilot-byok');
+const { COPILOT_ENV } = require('../provider-env-constants');
 const { URL } = require('url');
 
 const COPILOT_DUMMY_BYOK_OFFLINE_TOKEN = 'dummy-byok-key-for-offline-mode';
@@ -73,6 +74,57 @@ function resolveApiKey(env) {
  */
 function resolveCopilotAuthToken(env = process.env) {
   return resolveApiKey(env) || stripBearerPrefix(env.COPILOT_GITHUB_TOKEN);
+}
+
+function resolveCopilotCredentials(env, rawTarget) {
+  const githubToken = stripBearerPrefix(env[COPILOT_ENV.GITHUB_TOKEN]);
+  // resolveApiKey filters out the AWF placeholder so it is never used as a real BYOK credential.
+  const apiKey = resolveApiKey(env);
+  const staticAuthToken = resolveCopilotAuthToken(env);
+  const integrationId = (env.COPILOT_INTEGRATION_ID || '').trim()
+    || (env.GITHUB_COPILOT_INTEGRATION_ID || '').trim()
+    || 'agentic-workflows';
+  const integrationIdSource = (env.COPILOT_INTEGRATION_ID || '').trim()
+    ? 'copilot_integration_id'
+    : (env.GITHUB_COPILOT_INTEGRATION_ID || '').trim()
+      ? 'github_copilot_integration_id'
+      : 'default';
+  const databricksSelected = (env.AWF_AUTH_TYPE || '').trim().toLowerCase() === 'github-oidc'
+    && (env.AWF_AUTH_PROVIDER || '').trim().toLowerCase() === 'databricks'
+    && !!(env.COPILOT_API_TARGET || '').trim();
+  // Fine-grained PATs require bearer authentication on every Copilot target. OAuth and classic
+  // PATs retain the target-dependent token prefix required by Enterprise hosts.
+  const githubTokenAuthPrefix = getGitHubTokenAuthPrefix(githubToken, rawTarget, env);
+  const authPrefix = apiKey ? 'Bearer' : githubTokenAuthPrefix;
+  const inferenceCredentialSource = apiKey ? 'provider_api_key' : githubToken ? 'github_token' : 'none';
+
+  return {
+    githubToken,
+    apiKey,
+    staticAuthToken,
+    integrationId,
+    integrationIdSource,
+    databricksSelected,
+    githubTokenAuthPrefix,
+    authPrefix,
+    inferenceCredentialSource,
+    oidcAuthOptions: {
+      staticAuthToken,
+      skipWhen: !!staticAuthToken && !databricksSelected,
+      // Cloud OIDC tokens are only bound to an explicit COPILOT_API_TARGET
+      // (set from the BYOK provider URL), never a derived GitHub Copilot host.
+      allowCloudOidc: !!normalizeApiTarget(env.COPILOT_API_TARGET),
+      targetHost: rawTarget,
+      adapterName: 'copilot',
+    },
+    reflectionExtra: {
+      credential_kind: apiKey ? 'byok' : githubToken && githubToken.startsWith('github_pat_') ? 'fine_grained_pat' : githubToken ? 'github_token' : 'none',
+      selected_scheme: authPrefix,
+      inference_credential_source: inferenceCredentialSource,
+      inference_selected_scheme: authPrefix,
+      integration_id_source: integrationIdSource,
+    },
+  };
 }
 
 /**
@@ -310,6 +362,7 @@ module.exports = {
   stripBearerPrefix,
   resolveApiKey,
   resolveCopilotAuthToken,
+  resolveCopilotCredentials,
   deriveCopilotApiTarget,
   deriveGitHubApiTarget,
   deriveGitHubApiBasePath,
