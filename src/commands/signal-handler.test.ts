@@ -84,6 +84,47 @@ describe('registerSignalHandlers', () => {
     },
   );
 
+  it.each([
+    ['SIGINT', 130],
+    ['SIGTERM', 143],
+  ] as const)(
+    'does not exit on %s until cleanup has fully completed',
+    async (signal, exitCode) => {
+      const events: string[] = [];
+      let releaseCleanup!: () => void;
+      const performCleanup = jest.fn(() => new Promise<void>(resolve => {
+        releaseCleanup = () => {
+          events.push('cleanup-finished');
+          resolve();
+        };
+      }));
+      harness.processExitSpy.mockImplementation(() => {
+        events.push('exit');
+        return undefined as never;
+      });
+
+      registerSignalHandlers({
+        getContainersStarted: () => false,
+        keepContainers: false,
+        fastKillAgentContainer: jest.fn().mockResolvedValue(undefined),
+        performCleanup,
+        cleanupRouting: jest.fn(),
+      });
+
+      harness.handlers[signal]();
+      await flushPromises();
+
+      expect(performCleanup).toHaveBeenCalledWith(signal);
+      expect(harness.processExitSpy).not.toHaveBeenCalled();
+
+      releaseCleanup();
+      await flushPromises();
+
+      expect(events).toEqual(['cleanup-finished', 'exit']);
+      expect(harness.processExitSpy).toHaveBeenCalledWith(exitCode);
+    },
+  );
+
   it('exits with the signal status when routing cleanup fails', async () => {
     registerSignalHandlers({
       getContainersStarted: () => false,
