@@ -310,7 +310,14 @@ describe('release bootstrap authentication', () => {
       expect(result.stderr + result.stdout).not.toContain('Release provenance lookup failed');
       expect(result.status).toBe(0);
       const requests = f.log('curl-invocations.log').trim().split('\n')
-        .filter(line => line.includes('https://bundles.example.test/fixture'));
+        .filter(line => line.split(/\s+/).some(token => {
+          try {
+            const u = new URL(token);
+            return u.protocol === 'https:' && u.host === 'bundles.example.test' && u.pathname === '/fixture';
+          } catch {
+            return false;
+          }
+        }));
       expect(requests).toHaveLength(target === 'installer' ? 3 : 4);
       for (const request of requests) expect(request).toMatch(/^-q .*--proto =https --proto-redir =https -- /);
     });
