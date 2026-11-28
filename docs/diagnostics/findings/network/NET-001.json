@@ -45,7 +45,17 @@
     {
       "kind": "code",
       "ref": "src/squid-config.ts",
-      "title": "generateSquidConfig() domain ACLs"
+      "title": "generateSquidConfig() entry point (re-exports src/squid/config-generator.ts)"
+    },
+    {
+      "kind": "code",
+      "ref": "src/squid/acl-generator.ts",
+      "title": "generateAclSections() emits allowed_domains dstdomain and dstdom_regex ACLs"
+    },
+    {
+      "kind": "pull-request",
+      "ref": "https://github.com/github/gh-aw-firewall/pull/12002",
+      "title": "Split Squid configuration generation into focused modules"
     },
     {
       "kind": "test",
