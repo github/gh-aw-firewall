@@ -186,7 +186,7 @@ case "$1 $2" in
   *) exit 99 ;;
 esac
 `, { mode: 0o755 });
-        const result = spawnSync('bash', ['-e', '-c',
+        const result = spawnSync('/bin/bash', ['--noprofile', '--norc', '-e', '-c',
           step.run!.split('/tmp/gh-aw').join(dir)], {
           cwd: dir,
           env: {

@@ -45,7 +45,7 @@ describe('copilot token optimizer inputs', () => {
   });
 
   function runDownload(logs: string, logsExit = 0, graphExit = 0) {
-    return spawnSync('/bin/bash', ['-e', '-c', download.run.split('/tmp/gh-aw/token-audit').join(`${tempDir}/audit`)], {
+    return spawnSync('/bin/bash', ['--noprofile', '--norc', '-e', '-c', download.run.split('/tmp/gh-aw/token-audit').join(`${tempDir}/audit`)], {
       env: {
         PATH: `${tempDir}/bin:/usr/bin:/bin`,
         TEST_DIR: tempDir,
@@ -240,7 +240,7 @@ describe.each(retryWorkflows)('%s installer execution', workflow => {
     ['127 0', 127, 1, []],
     ['124 0', 124, 1, []],
   ])('handles installer statuses %s without bypassing failures', (statuses, exitCode, attempts, delays) => {
-    const result = spawnSync('/bin/bash', ['-e', '-c', step.run], {
+    const result = spawnSync('/bin/bash', ['--noprofile', '--norc', '-e', '-c', step.run], {
       env: {
         PATH: `${tempDir}/bin:/usr/bin:/bin`,
         RUNNER_TEMP: tempDir,

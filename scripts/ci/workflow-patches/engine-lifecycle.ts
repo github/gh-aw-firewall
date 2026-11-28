@@ -5,6 +5,19 @@ import {
 } from './engine-lifecycle-patterns';
 import { buildCopilotCliDaemonCopyStep } from '../workflow-step-builders';
 
+export function preserveCopilotReleaseCooldown(content: string): TransformResult {
+  const updated = content.replace(
+    /(install_copilot_cli\.sh"[^\n]*--cooldown-days )0\b/g,
+    '$13',
+  );
+  return {
+    content: updated,
+    messages: updated === content
+      ? []
+      : ['  Preserved the reviewed Copilot CLI release cooldown'],
+  };
+}
+
 export function retryCopilotInstall(content: string, { workflowFile }: PatchContext): TransformResult {
   const messages: string[] = [];
   if (

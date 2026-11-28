@@ -7,7 +7,8 @@ import {
 } from './workflow-patches/network-and-install';
 import { collectSessionState } from './workflow-patches/session-state';
 import {
-  retryCopilotInstall, gateEngineLifecycle, configureCopilotToolsAndModel,
+  preserveCopilotReleaseCooldown, retryCopilotInstall, gateEngineLifecycle,
+  configureCopilotToolsAndModel,
 } from './workflow-patches/engine-lifecycle';
 import {
   excludeAuditorCredentials, restrictRecoveryRoots, excludeAzureCredentials,
@@ -39,6 +40,7 @@ const pipeline: readonly WorkflowTransform[] = [
   boundRipgrepInstall,
   restrictDiagnosisCacheContext,
   restrictRecoveryRoots,
+  preserveCopilotReleaseCooldown,
   retryCopilotInstall,
   retryCloudHypervisorBundle,
   configureEnclaveReadiness,
