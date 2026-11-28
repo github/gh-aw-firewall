@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "provenance": {
     "authority": "maintained",
-    "source": "reviewed vendor and GitHub model announcements, cited per entry; latest additions: https://openai.com/index/introducing-gpt-5-4-mini-and-nano/",
-    "revision": "1c98eca122af0fde02c4c2e32d5f482cb8e594fcf43048c538fa47718459b3c5",
-    "at": "2026-11-26T00:44:10.291Z",
+    "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+    "revision": "b4d409998da30dcee94ed7499d10d34a7da3de80454ff657af8383fe12c5d0a4",
+    "at": "2026-11-28T12:31:30.804Z",
     "confidence": "verified"
   },
   "entries": [
@@ -136,6 +136,26 @@
       ]
     },
     {
+      "lookupId": "claude-opus-4-6",
+      "codingTier": "premium",
+      "evidence": [
+        {
+          "url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+          "quote": "Claude Opus 4.5 and Claude Opus 4.6 both report opus . Use line to group models, for example, in a model picker."
+        }
+      ]
+    },
+    {
+      "lookupId": "claude-opus-4-7",
+      "codingTier": "premium",
+      "evidence": [
+        {
+          "url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+          "quote": "Claude Opus 4.7 1M tokens 128K tokens"
+        }
+      ]
+    },
+    {
       "lookupId": "claude-opus-4-8",
       "codingTier": "premium",
       "releaseDate": "2026-05-28",
@@ -169,6 +189,16 @@
         {
           "url": "https://github.blog/changelog/2026-09-22-claude-opus-5-5-is-now-available-in-github-copilot/",
           "quote": "Claude Opus 5.5, Anthropic’s newest Opus model, is now available in GitHub Copilot. You can use it for agentic coding, long-running agentic tasks, and knowledge work."
+        }
+      ]
+    },
+    {
+      "lookupId": "claude-sonnet-4-5",
+      "codingTier": "standard",
+      "evidence": [
+        {
+          "url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+          "quote": "Claude Sonnet 4.5 200K tokens 64K tokens"
         }
       ]
     },
