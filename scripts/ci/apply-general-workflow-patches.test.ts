@@ -34,6 +34,27 @@ function lockFileWithEngine(engineId: string): string {
   );
 }
 
+describe('Copilot CLI release cooldown', () => {
+  it('preserves the reviewed three-day cooldown emitted by prior compilers', () => {
+    const input =
+      '      - name: Install GitHub Copilot CLI\n' +
+      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.101 ' +
+      '--checksums-sha256 abc123 --cooldown-days 0\n';
+
+    const output = applyGeneralWorkflowPatches(
+      input,
+      '.github/workflows/smoke-copilot.lock.yml',
+    ).content;
+
+    expect(output).toContain('--cooldown-days 3');
+    expect(output).not.toContain('--cooldown-days 0');
+    expect(applyGeneralWorkflowPatches(
+      output,
+      '.github/workflows/smoke-copilot.lock.yml',
+    ).content).toBe(output);
+  });
+});
+
 describe('approved npm feed workflow patches', () => {
   const input = [
     'env:',
