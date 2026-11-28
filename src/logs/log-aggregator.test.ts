@@ -209,13 +209,13 @@ describe('log-aggregator', () => {
     it('should still count time range from all entries including filtered ones', () => {
       const entries: ParsedLogEntry[] = [
         createLogEntry({ 
-          timestamp: 1000.0,
+          timestamp: 1200.0,
           domain: 'github.com', 
           url: 'github.com:443',
           isAllowed: true 
         }),
         createLogEntry({ 
-          timestamp: 1500.0,
+          timestamp: 1000.0,
           domain: '-', 
           url: 'error:transaction-end-before-headers',
           decision: 'NONE_NONE:HIER_NONE',
@@ -223,11 +223,12 @@ describe('log-aggregator', () => {
           isAllowed: false 
         }),
         createLogEntry({ 
-          timestamp: 2000.0,
+          timestamp: 1800.0,
           domain: 'npmjs.org', 
           url: 'npmjs.org:443',
           isAllowed: true 
         }),
+        transactionEndEntry({ timestamp: 2000.0 }),
       ];
 
       const stats = aggregateLogs(entries);
@@ -237,6 +238,7 @@ describe('log-aggregator', () => {
         start: 1000.0,
         end: 2000.0,
       });
+      expectOnlyValidTunnelStats(stats);
     });
   });
 
@@ -451,9 +453,10 @@ describe('log-aggregator', () => {
 
     it('should still track time range from filtered internal-domain entries', () => {
       const entries: ParsedLogEntry[] = [
-        createLogEntry({ timestamp: 1000.0, domain: 'github.com', isAllowed: true }),
-        createLogEntry({ timestamp: 1500.0, domain: 'awmgmcpg', isAllowed: false, decision: 'TCP_DENIED:HIER_NONE', statusCode: 403 }),
-        createLogEntry({ timestamp: 2000.0, domain: 'npmjs.org', isAllowed: true }),
+        createLogEntry({ timestamp: 1200.0, domain: 'github.com', isAllowed: true }),
+        createLogEntry({ timestamp: 1000.0, domain: 'awmgmcpg', isAllowed: false, decision: 'TCP_DENIED:HIER_NONE', statusCode: 403 }),
+        createLogEntry({ timestamp: 1800.0, domain: 'npmjs.org', isAllowed: true }),
+        createLogEntry({ timestamp: 2000.0, domain: 'awmgmcpg', isAllowed: false, decision: 'TCP_DENIED:HIER_NONE', statusCode: 403 }),
       ];
 
       const stats = aggregateLogs(entries);
@@ -462,6 +465,9 @@ describe('log-aggregator', () => {
       expect(stats.timeRange).toEqual({ start: 1000.0, end: 2000.0 });
       // But filtered entries don't count toward requests
       expect(stats.totalRequests).toBe(2);
+      expect(stats.allowedRequests).toBe(2);
+      expect(stats.deniedRequests).toBe(0);
+      expect(stats.byDomain.has('awmgmcpg')).toBe(false);
     });
 
     it('should produce zero deniedRequests when all blocked traffic is AWF-internal', () => {
