@@ -35,6 +35,12 @@
     "tier": "premium",
     "releaseDate": "2026-04-07"
   },
+  "claude-opus-4-6": {
+    "tier": "premium"
+  },
+  "claude-opus-4-7": {
+    "tier": "premium"
+  },
   "claude-opus-4-8": {
     "tier": "premium",
     "releaseDate": "2026-05-28"
@@ -46,6 +52,9 @@
   "claude-opus-5-5": {
     "tier": "premium",
     "releaseDate": "2026-09-22"
+  },
+  "claude-sonnet-4-5": {
+    "tier": "standard"
   },
   "claude-sonnet-4-6": {
     "tier": "standard",
